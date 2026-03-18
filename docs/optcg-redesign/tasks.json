@@ -1,0 +1,194 @@
+{
+  "version": "1.0",
+  "project": "OPTCG Card Search — Visual Redesign",
+  "date": "2026-03-18",
+  "tasks": [
+    {
+      "id": "T-R01",
+      "title": "Implement theme CSS tokens (light + dark) in index.css",
+      "description": "Restructure index.css: keep palette constants in @theme, add html.light and html.dark selectors with all semantic token values per the blueprint token table (section 4). Register semantic tokens as Tailwind utilities. Update the base html/body/#root styles to use var(--color-page) and var(--color-text-primary). Verify Tailwind v4 resolves the @theme vars correctly by inspecting generated CSS.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 SP",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "html.light selector defines all 13 semantic color tokens with light values from blueprint table 4.2",
+        "html.dark selector defines all 13 semantic color tokens with dark values from blueprint table 4.2",
+        "Shadow tokens (card, card-hover, modal) have light and dark variants under their respective selectors",
+        "Tailwind classes bg-page, bg-card, text-primary, text-secondary, text-muted, border-border, bg-input, border-input-border, bg-hover, bg-card-name, border-card-border, bg-surface, bg-surface-elevated all resolve correctly",
+        "OPTCG palette constants (red, blue, green, yellow, purple, black, gold, navy, navy-light) remain unchanged and theme-invariant",
+        "html, body, #root use var(--color-page) for background and var(--color-text-primary) for color",
+        "No Tailwind build errors or CSS variable resolution failures"
+      ]
+    },
+    {
+      "id": "T-R02",
+      "title": "Implement useTheme hook (system preference + localStorage + toggle)",
+      "description": "Create src/hooks/useTheme.ts. The hook reads localStorage key 'optcg-theme', resolves system preference via matchMedia, applies html.light or html.dark class to document.documentElement, listens for matchMedia changes when in 'system' mode, and exposes { theme, resolvedTheme, setTheme }. See blueprint section 2.3 for full algorithm.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 SP",
+      "dependencies": ["T-R01"],
+      "acceptance_criteria": [
+        "On first load with no localStorage entry, theme resolves from system preference (prefers-color-scheme)",
+        "setTheme('light') writes 'light' to localStorage and applies html.light class",
+        "setTheme('dark') writes 'dark' to localStorage and applies html.dark class",
+        "setTheme('system') writes 'system' to localStorage and resolves from matchMedia",
+        "When in 'system' mode, changing OS preference updates resolvedTheme reactively",
+        "document.documentElement always has exactly one of 'light' or 'dark' classes, never both, never neither",
+        "Hook can be called from multiple components without conflicting state"
+      ]
+    },
+    {
+      "id": "T-R03",
+      "title": "Build ThemeToggle component",
+      "description": "Create src/components/ThemeToggle.tsx. Renders a button with Material Symbol icons (light_mode / dark_mode) that cycles through system -> light -> dark -> system. Uses useTheme hook. Tooltip shows current mode. See blueprint section 2.2.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "1 SP",
+      "dependencies": ["T-R02"],
+      "acceptance_criteria": [
+        "Renders a button with 'light_mode' icon when resolvedTheme is light, 'dark_mode' when dark",
+        "Clicking cycles: system -> light -> dark -> system",
+        "Has aria-label indicating current theme mode",
+        "Has title/tooltip showing 'System', 'Light', or 'Dark'",
+        "Uses semantic token classes (not hardcoded dark/light colors)",
+        "Focus-visible ring uses optcg-gold"
+      ]
+    },
+    {
+      "id": "T-R04",
+      "title": "Build LandingPage component",
+      "description": "Create src/components/LandingPage.tsx. Full-viewport centered layout with app logo ('ONE PIECE TCG Card Search' in Roboto Slab), a search form (text input + submit button), and a subtitle. On form submit, navigate to /search?q=... using react-router-dom useNavigate. Include ThemeToggle in top-right. See blueprint section 2.1.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 SP",
+      "dependencies": ["T-R01", "T-R03"],
+      "acceptance_criteria": [
+        "Renders at / route path",
+        "Displays logo text in Roboto Slab (font-slab class)",
+        "Has a search input and submit button centered vertically and horizontally",
+        "On Enter or button click, navigates to /search?q=<encoded-value>",
+        "Does NOT call loadCards() or interact with useCardStore",
+        "Does NOT mount useCardUrlSync",
+        "ThemeToggle is positioned in the top-right corner",
+        "Uses semantic token classes (bg-page, text-primary, etc.)",
+        "Looks correct in both light and dark modes",
+        "Empty input submission navigates to /search (no q param) — this shows all cards"
+      ]
+    },
+    {
+      "id": "T-R05",
+      "title": "Update router — / -> LandingPage, /search -> SearchPage",
+      "description": "Modify src/App.tsx to import LandingPage and SearchPage (renamed). Route / to LandingPage, /search to SearchPage, /cards redirects to /search, * redirects to /. Remove the old CardSearchPage import. See blueprint section 1.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 SP",
+      "dependencies": ["T-R04", "T-R07"],
+      "acceptance_criteria": [
+        "/ renders LandingPage",
+        "/search renders SearchPage",
+        "/cards redirects to /search",
+        "/* redirects to /",
+        "No references to CardSearchPage remain in App.tsx",
+        "Direct URL /search?q=Luffy loads SearchPage with correct query"
+      ]
+    },
+    {
+      "id": "T-R06",
+      "title": "Update SearchBar — on submit navigates to /search?q=...",
+      "description": "Modify src/components/SearchBar.tsx to replace hardcoded dark classes with semantic token classes per the blueprint section 3.2 mapping. No behavioral changes needed — SearchBar already updates the store via debounce, and useCardUrlSync handles URL sync. The landing page has its own separate search input.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "1 SP",
+      "dependencies": ["T-R01"],
+      "acceptance_criteria": [
+        "All hardcoded dark classes replaced per blueprint section 3.2",
+        "SearchBar renders correctly in both light and dark mode",
+        "Debounced search still works (type -> results update after 200ms)",
+        "Clear button still works",
+        "/ keyboard shortcut still works",
+        "Escape key still clears and blurs",
+        "No visual regression in dark mode compared to current design"
+      ]
+    },
+    {
+      "id": "T-R07",
+      "title": "Rename CardSearchPage -> SearchPage, adapt for URL-driven initial query",
+      "description": "Rename src/components/CardSearchPage.tsx to src/components/SearchPage.tsx. Update the export name to SearchPage. Replace all hardcoded dark classes with semantic token classes per blueprint section 3.1. Add ThemeToggle to the sticky header bar (right-aligned). No changes to useCardUrlSync or loadCards — they already handle URL-driven queries.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 SP",
+      "dependencies": ["T-R01", "T-R03"],
+      "acceptance_criteria": [
+        "File renamed from CardSearchPage.tsx to SearchPage.tsx",
+        "Export renamed from CardSearchPage to SearchPage",
+        "All hardcoded dark classes replaced with semantic tokens",
+        "ThemeToggle appears in the sticky header bar, right-aligned",
+        "useCardUrlSync still mounted and functional",
+        "loadCards() still called on mount",
+        "CardGridSkeleton uses bg-input instead of bg-optcg-navy-light",
+        "Renders correctly in both light and dark mode",
+        "All internal imports updated (no broken references)"
+      ]
+    },
+    {
+      "id": "T-R08",
+      "title": "Audit + update all components for theme-aware classes",
+      "description": "Systematically update every remaining component file to replace hardcoded dark classes with semantic token classes. Components: CardThumbnail, CardDetailModal, CardRow, CardStats, CardEffectText, ResultsCount, ViewToggle, CardImage, FilterPanel, and all 6 filter sub-components (ColorFilter, TypeFilter, RangeFilter, CounterFilter, SetFilter, AttributeFilter). Also update shared/Modal.tsx to ensure its existing token references (--color-surface, --color-border) flip correctly. Use the mapping table in blueprint sections 3.3 through 3.13.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "5 SP",
+      "dependencies": ["T-R01"],
+      "acceptance_criteria": [
+        "Zero remaining references to text-white (except inside theme-invariant contexts like cost pips)",
+        "Zero remaining references to border-white/ (replaced with border-border or border-card-border)",
+        "Zero remaining references to bg-optcg-navy as a page/section background (replaced with bg-page)",
+        "Zero remaining references to bg-optcg-navy-light as an input/card background (replaced with bg-input or bg-card)",
+        "CardThumbnail cost pip and life pip retain gold/navy colors (theme-invariant)",
+        "CardDetailModal art panel keeps bg-black/20 regardless of theme",
+        "OPTCG color indicators (red/blue/green/yellow/purple/black dots) unchanged in both themes",
+        "Type badges (Leader=gold, Character=blue, Event=purple, Stage=green) maintain correct contrast in both themes",
+        "Modal backdrop and glass effects work in both themes",
+        "Every component visually inspected in both light and dark mode"
+      ]
+    },
+    {
+      "id": "T-R09",
+      "title": "Update App.tsx — apply theme class to <html> on mount + inline script",
+      "description": "Add the inline <script> to index.html <head> that synchronously reads localStorage and applies html.light or html.dark class before React hydrates (prevents flash). Mount useTheme() at the App level (or inside LandingPage and SearchPage individually — since both already include ThemeToggle which calls useTheme). Verify no flash of wrong theme on hard reload.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 SP",
+      "dependencies": ["T-R01", "T-R02"],
+      "acceptance_criteria": [
+        "index.html contains inline <script> in <head> that sets html.light or html.dark before body renders",
+        "Hard refresh with localStorage set to 'dark' shows dark theme immediately (no flash of light)",
+        "Hard refresh with localStorage set to 'light' shows light theme immediately (no flash of dark)",
+        "Hard refresh with no localStorage entry resolves from system preference with no flash",
+        "The inline script is fewer than 10 lines and has no external dependencies"
+      ]
+    },
+    {
+      "id": "T-R10",
+      "title": "Verify all tests pass, update snapshots if needed",
+      "description": "Run the full test suite (vitest run). Fix any broken imports (CardSearchPage -> SearchPage rename). Update snapshot tests if class names changed. Ensure coverage remains above existing baseline. Test both theme modes manually in the browser.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 SP",
+      "dependencies": ["T-R05", "T-R06", "T-R07", "T-R08", "T-R09"],
+      "acceptance_criteria": [
+        "vitest run passes with zero failures",
+        "No broken import references to CardSearchPage",
+        "Snapshot files updated if class names changed",
+        "Manual browser test: landing page renders at /",
+        "Manual browser test: search from landing page navigates to /search?q=...",
+        "Manual browser test: /search?q=Luffy loads correct results",
+        "Manual browser test: theme toggle cycles correctly and persists across reload",
+        "Manual browser test: system preference detection works (toggle OS dark mode)",
+        "Manual browser test: all components look correct in light mode",
+        "Manual browser test: all components look correct in dark mode (no visual regression from current design)"
+      ]
+    }
+  ]
+}
