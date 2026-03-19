@@ -19,6 +19,12 @@ import type {
   DeleteSpaceDialogState,
   ToastState,
   ConfigFile,
+  AgentInfo,
+  AgentRun,
+  PipelineState,
+  PipelineStage,
+  PreparedRun,
+  AgentSettings,
 } from '@/types';
 
 /** Keys used to persist state across page reloads. */
@@ -112,6 +118,49 @@ interface AppState {
   selectConfigFile: (fileId: string) => Promise<void>;
   setConfigContent: (content: string) => void;
   saveConfigFile: () => Promise<void>;
+
+  // ── Agent launcher (ADR-1: Agent Launcher) ────────────────────────────────
+
+  /** Bridge function from useTerminal — null when terminal is not connected. */
+  terminalSender: ((data: string) => boolean) | null;
+  setTerminalSender: (fn: ((data: string) => boolean) | null) => void;
+
+  /** Agents discovered from ~/.claude/agents/*.md */
+  availableAgents: AgentInfo[];
+  loadAgents: () => Promise<void>;
+
+  /** Non-null while an agent command is running in the PTY. */
+  activeRun: AgentRun | null;
+  clearActiveRun: () => void;
+  cancelAgentRun: () => void;
+
+  /** Prepared run waiting in the prompt preview modal. */
+  preparedRun: PreparedRun | null;
+  prepareAgentRun: (taskId: string, agentId: string) => Promise<void>;
+  clearPreparedRun: () => void;
+
+  /** Execute the prepared run — injects command into the terminal PTY. */
+  executeAgentRun: () => Promise<void>;
+
+  /** Whether the prompt preview modal is open. */
+  promptPreviewOpen: boolean;
+
+  /** Active pipeline state — null when no pipeline is running. */
+  pipelineState: PipelineState | null;
+  startPipeline: (spaceId: string) => Promise<void>;
+  advancePipeline: () => Promise<void>;
+  abortPipeline: () => void;
+
+  /** Agent settings panel open state. */
+  agentSettingsPanelOpen: boolean;
+  setAgentSettingsPanelOpen: (open: boolean) => void;
+
+  // ── Agent settings (ADR-1: Settings Persistence) ──────────────────────────
+
+  agentSettings: AgentSettings | null;
+  settingsLoading: boolean;
+  loadSettings: () => Promise<void>;
+  saveSettings: (partial: Partial<AgentSettings>) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -392,6 +441,210 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ configSaving: false });
     }
   },
+
+  // ── Agent launcher ────────────────────────────────────────────────────────
+
+  terminalSender:         null,
+  setTerminalSender:      (fn) => set({ terminalSender: fn }),
+
+  availableAgents: [],
+  loadAgents: async () => {
+    try {
+      const agents = await api.getAgents();
+      set({ availableAgents: agents });
+    } catch (err) {
+      get().showToast(`Failed to load agents: ${(err as Error).message}`, 'error');
+    }
+  },
+
+  activeRun: null,
+  clearActiveRun: () => set({ activeRun: null }),
+
+  cancelAgentRun: () => {
+    const { terminalSender, activeRun, showToast } = get();
+    if (terminalSender) {
+      terminalSender('\x03'); // Ctrl+C
+      showToast('Agent run cancelled.');
+    } else {
+      showToast('Terminal disconnected — run cleared.', 'error');
+    }
+    set({ activeRun: null });
+  },
+
+  preparedRun:      null,
+  promptPreviewOpen: false,
+
+  prepareAgentRun: async (taskId: string, agentId: string) => {
+    const { activeSpaceId, agentSettings, showToast } = get();
+    try {
+      const result = await api.generatePrompt({
+        agentId,
+        taskId,
+        spaceId:          activeSpaceId,
+        workingDirectory: agentSettings?.prompts.workingDirectory,
+      });
+      set({
+        preparedRun: {
+          taskId,
+          agentId,
+          spaceId:        activeSpaceId,
+          promptPath:     result.promptPath,
+          cliCommand:     result.cliCommand,
+          promptPreview:  result.promptPreview,
+          estimatedTokens: result.estimatedTokens,
+        },
+        promptPreviewOpen: true,
+      });
+    } catch (err) {
+      showToast(`Failed to prepare agent run: ${(err as Error).message}`, 'error');
+    }
+  },
+
+  clearPreparedRun: () => set({ preparedRun: null, promptPreviewOpen: false }),
+
+  executeAgentRun: async () => {
+    const { preparedRun, terminalSender, setTerminalOpen, showToast } = get();
+    if (!preparedRun) return;
+
+    // If terminal sender is null, open the terminal and wait for connection.
+    if (!terminalSender) {
+      showToast('Opening terminal...', 'success');
+      setTerminalOpen(true);
+      // Retry after 500ms to allow WebSocket to establish.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const sender = get().terminalSender;
+      if (!sender) {
+        showToast('Could not connect to terminal. Please open the terminal panel and try again.', 'error');
+        return;
+      }
+    }
+
+    const sender = get().terminalSender!;
+    const cmd    = preparedRun.cliCommand;
+    const sent   = sender(cmd + '\n');
+
+    if (!sent) {
+      showToast('Could not connect to terminal. Please open the terminal panel and try again.', 'error');
+      return;
+    }
+
+    set({
+      activeRun: {
+        taskId:     preparedRun.taskId,
+        agentId:    preparedRun.agentId,
+        spaceId:    preparedRun.spaceId,
+        startedAt:  new Date().toISOString(),
+        cliCommand: cmd,
+        promptPath: preparedRun.promptPath,
+      },
+      preparedRun:       null,
+      promptPreviewOpen: false,
+    });
+
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level:     'info',
+      component: 'agent-launcher',
+      event:     'agent_run_started',
+      agentId:   preparedRun.agentId,
+      taskId:    preparedRun.taskId,
+    }));
+  },
+
+  // ── Pipeline ──────────────────────────────────────────────────────────────
+
+  pipelineState: null,
+
+  startPipeline: async (spaceId: string) => {
+    const { agentSettings, showToast } = get();
+    const stages = (agentSettings?.pipeline.stages ?? [
+      'senior-architect',
+      'ux-api-designer',
+      'developer-agent',
+      'qa-engineer-e2e',
+    ]) as PipelineStage[];
+
+    set({
+      pipelineState: {
+        spaceId,
+        stages,
+        currentStageIndex: 0,
+        startedAt: new Date().toISOString(),
+        status:    'running',
+      },
+    });
+
+    // Trigger the first stage
+    const firstStage = stages[0];
+    // Use a synthetic task — pipeline creates its own context from space
+    await get().prepareAgentRun('pipeline', firstStage);
+    showToast(`Pipeline started — Stage 1: ${firstStage}`);
+  },
+
+  advancePipeline: async () => {
+    const { pipelineState, showToast } = get();
+    if (!pipelineState || pipelineState.status !== 'running') return;
+
+    const nextIndex = pipelineState.currentStageIndex + 1;
+
+    if (nextIndex >= pipelineState.stages.length) {
+      set({ pipelineState: { ...pipelineState, status: 'completed' } });
+      showToast('Pipeline complete. All stages finished.');
+      setTimeout(() => set({ pipelineState: null }), 3000);
+      return;
+    }
+
+    set({
+      pipelineState: { ...pipelineState, currentStageIndex: nextIndex },
+    });
+
+    const nextStage = pipelineState.stages[nextIndex];
+    showToast(`Stage ${nextIndex + 1}: ${nextStage}`);
+    await get().prepareAgentRun('pipeline', nextStage);
+  },
+
+  abortPipeline: () => {
+    const { pipelineState, terminalSender, showToast } = get();
+    if (!pipelineState) return;
+
+    if (terminalSender) {
+      terminalSender('\x03'); // Ctrl+C
+    }
+
+    const stage = pipelineState.currentStageIndex + 1;
+    set({ pipelineState: null, activeRun: null });
+    showToast(`Pipeline aborted at stage ${stage}.`);
+  },
+
+  agentSettingsPanelOpen:    false,
+  setAgentSettingsPanelOpen: (open: boolean) => set({ agentSettingsPanelOpen: open }),
+
+  // ── Agent settings ────────────────────────────────────────────────────────
+
+  agentSettings:  null,
+  settingsLoading: false,
+
+  loadSettings: async () => {
+    set({ settingsLoading: true });
+    try {
+      const settings = await api.getSettings();
+      set({ agentSettings: settings });
+    } catch (err) {
+      get().showToast(`Failed to load settings: ${(err as Error).message}`, 'error');
+    } finally {
+      set({ settingsLoading: false });
+    }
+  },
+
+  saveSettings: async (partial: Partial<AgentSettings>) => {
+    try {
+      const updated = await api.saveSettings(partial);
+      set({ agentSettings: updated });
+      get().showToast('Settings saved.');
+    } catch (err) {
+      get().showToast(`Failed to save settings: ${(err as Error).message}`, 'error');
+    }
+  },
 }));
 
 // Convenience selector hooks for common slices
@@ -413,3 +666,14 @@ export const useActiveConfigFileId = () => useAppStore((s) => s.activeConfigFile
 export const useConfigDirty        = () => useAppStore((s) => s.configDirty);
 export const useConfigLoading      = () => useAppStore((s) => s.configLoading);
 export const useConfigSaving       = () => useAppStore((s) => s.configSaving);
+
+// Agent launcher selectors
+export const useActiveRun      = () => useAppStore((s) => s.activeRun);
+export const useAvailableAgents = () => useAppStore((s) => s.availableAgents);
+export const usePipelineState  = () => useAppStore((s) => s.pipelineState);
+export const usePreparedRun    = () => useAppStore((s) => s.preparedRun);
+export const usePromptPreviewOpen = () => useAppStore((s) => s.promptPreviewOpen);
+
+// Agent settings selectors
+export const useAgentSettings        = () => useAppStore((s) => s.agentSettings);
+export const useAgentSettingsPanelOpen = () => useAppStore((s) => s.agentSettingsPanelOpen);

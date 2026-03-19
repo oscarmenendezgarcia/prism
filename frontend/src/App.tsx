@@ -14,6 +14,8 @@ import { SpaceTabs } from '@/components/layout/SpaceTabs';
 import { Board } from '@/components/board/Board';
 import { TerminalPanel } from '@/components/terminal/TerminalPanel';
 import { ConfigPanel } from '@/components/config/ConfigPanel';
+import { AgentSettingsPanel } from '@/components/agent-launcher/AgentSettingsPanel';
+import { AgentPromptPreview } from '@/components/agent-launcher/AgentPromptPreview';
 import { CreateTaskModal } from '@/components/modals/CreateTaskModal';
 import { AttachmentModal } from '@/components/modals/AttachmentModal';
 import { SpaceModal } from '@/components/modals/SpaceModal';
@@ -21,6 +23,7 @@ import { DeleteSpaceDialog } from '@/components/modals/DeleteSpaceDialog';
 import { Toast } from '@/components/shared/Toast';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
+import { useAgentCompletion } from '@/hooks/useAgentCompletion';
 
 /** React Error Boundary to prevent white-screen crashes. */
 class ErrorBoundary extends React.Component<
@@ -65,15 +68,19 @@ class ErrorBoundary extends React.Component<
 }
 
 function AppContent() {
-  const loadSpaces      = useAppStore((s) => s.loadSpaces);
-  const terminalOpen    = useAppStore((s) => s.terminalOpen);
-  const configPanelOpen = useAppStore((s) => s.configPanelOpen);
+  const loadSpaces           = useAppStore((s) => s.loadSpaces);
+  const loadSettings         = useAppStore((s) => s.loadSettings);
+  const terminalOpen         = useAppStore((s) => s.terminalOpen);
+  const configPanelOpen      = useAppStore((s) => s.configPanelOpen);
+  const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
 
   useEffect(() => {
     loadSpaces();
-  }, [loadSpaces]);
+    loadSettings();
+  }, [loadSpaces, loadSettings]);
 
   usePolling();
+  useAgentCompletion();
 
   return (
     <div className="flex flex-col h-full">
@@ -90,9 +97,11 @@ function AppContent() {
           </div>
           {terminalOpen && <TerminalPanel />}
           {configPanelOpen && <ConfigPanel />}
+          {agentSettingsPanelOpen && <AgentSettingsPanel />}
         </div>
       </div>
 
+      <AgentPromptPreview />
       <CreateTaskModal />
       <AttachmentModal />
       <SpaceModal />

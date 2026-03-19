@@ -2,6 +2,7 @@
  * Typed HTTP client for the Prism REST API.
  * Mirrors the api object from the legacy app.js exactly.
  * ADR-002: all endpoints unchanged, only typed wrappers added.
+ * ADR-1 (Agent Launcher): agent discovery, prompt generation, settings endpoints added.
  */
 
 import type {
@@ -14,6 +15,11 @@ import type {
   ConfigFile,
   ConfigFileContent,
   ConfigFileSaveResult,
+  AgentInfo,
+  AgentDetail,
+  PromptGenerationRequest,
+  PromptGenerationResponse,
+  AgentSettings,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -144,4 +150,48 @@ export const saveConfigFile = (fileId: string, content: string): Promise<ConfigF
   apiFetch<ConfigFileSaveResult>(`/config/files/${encodeURIComponent(fileId)}`, {
     method: 'PUT',
     body: JSON.stringify({ content }),
+  });
+
+// ---------------------------------------------------------------------------
+// Agent launcher API (ADR-1: Agent Launcher)
+// ---------------------------------------------------------------------------
+
+/**
+ * List all available agent definition files from ~/.claude/agents/.
+ * Returns an empty array if the directory does not exist.
+ */
+export const getAgents = (): Promise<AgentInfo[]> =>
+  apiFetch<AgentInfo[]>('/agents');
+
+/**
+ * Read the full content of a specific agent definition file by its kebab-case ID.
+ * @param agentId - Kebab-case stem (e.g. "senior-architect").
+ */
+export const getAgent = (agentId: string): Promise<AgentDetail> =>
+  apiFetch<AgentDetail>(`/agents/${encodeURIComponent(agentId)}`);
+
+/**
+ * Generate a full agent prompt from task data + agent file, write it to a
+ * temp file on the server, and return the file path plus the CLI command string.
+ */
+export const generatePrompt = (req: PromptGenerationRequest): Promise<PromptGenerationResponse> =>
+  apiFetch<PromptGenerationResponse>('/agent/prompt', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  });
+
+/**
+ * Fetch current launcher settings. Returns defaults if data/settings.json does not exist.
+ */
+export const getSettings = (): Promise<AgentSettings> =>
+  apiFetch<AgentSettings>('/settings');
+
+/**
+ * Partially update launcher settings (deep merge). Returns the full merged settings.
+ * @param partial - Partial settings object — only provided fields are updated.
+ */
+export const saveSettings = (partial: Partial<AgentSettings>): Promise<AgentSettings> =>
+  apiFetch<AgentSettings>('/settings', {
+    method: 'PUT',
+    body: JSON.stringify(partial),
   });

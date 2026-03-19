@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#7c3bed",
+                        "background-light": "#f7f6f8",
+                        "background-dark": "#171121",
+                        "panel-dark": "#1e1e2e",
+                        "border-dark": "#2e2e3e",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.5rem", "lg": "1rem", "xl": "1.5rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #463366;
+            border-radius: 10px;
+        }
+        .radio-custom:checked {
+            background-image: url('data:image/svg+xml,%3csvg viewBox=%270 0 16 16%27 fill=%27rgb(124,59,237)%27 xmlns=%27http://www.w3.org/2000/svg%27%3e%3ccircle cx=%278%27 cy=%278%27 r=%273%27/%3e%3c/svg%3e');
+        }
+    </style>
+</head>
+<body class="bg-slate-950 font-display text-slate-100 min-h-screen flex justify-end">
+<!-- Backdrop for the main app (dimmed) -->
+<div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-0">
+<div class="p-8">
+<h1 class="text-4xl font-bold opacity-20">Prism IDE</h1>
+</div>
+</div>
+<!-- Right-side Settings Panel -->
+<div class="relative z-10 w-[480px] h-screen bg-panel-dark border-l border-border-dark flex flex-col shadow-2xl">
+<!-- Header -->
+<header class="flex items-center justify-between px-6 py-5 border-b border-border-dark bg-panel-dark/80 backdrop-blur sticky top-0 z-20">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-2xl">tune</span>
+<h2 class="text-lg font-semibold tracking-tight">Agent Settings</h2>
+</div>
+<button class="p-2 hover:bg-white/5 rounded-lg transition-colors text-slate-400 hover:text-white">
+<span class="material-symbols-outlined">close</span>
+</button>
+</header>
+<!-- Main Content -->
+<main class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-8 pb-32">
+<!-- 1. CLI Tool Section -->
+<section class="space-y-4">
+<h3 class="text-xs font-bold uppercase tracking-widest text-slate-500">CLI Tool</h3>
+<div class="space-y-2">
+<label class="flex items-center gap-3 p-3 rounded-lg border border-border-dark bg-white/5 cursor-pointer hover:border-primary/50 transition-colors">
+<input checked="" class="radio-custom h-4 w-4 border-2 border-slate-600 bg-transparent text-transparent checked:border-primary focus:ring-0 focus:ring-offset-0" name="cli_tool" type="radio"/>
+<span class="text-sm font-medium">Claude Code</span>
+</label>
+<label class="flex items-center gap-3 p-3 rounded-lg border border-border-dark bg-white/5 cursor-pointer hover:border-primary/50 transition-colors">
+<input class="radio-custom h-4 w-4 border-2 border-slate-600 bg-transparent text-transparent checked:border-primary focus:ring-0 focus:ring-offset-0" name="cli_tool" type="radio"/>
+<span class="text-sm font-medium">OpenCode</span>
+</label>
+<div class="space-y-3 p-3 rounded-lg border border-border-dark bg-white/5">
+<label class="flex items-center gap-3 cursor-pointer">
+<input class="radio-custom h-4 w-4 border-2 border-slate-600 bg-transparent text-transparent checked:border-primary focus:ring-0 focus:ring-offset-0" name="cli_tool" type="radio"/>
+<span class="text-sm font-medium">Custom</span>
+</label>
+<div class="pl-7">
+<label class="block text-[11px] text-slate-500 mb-1 font-medium">BINARY PATH</label>
+<input class="w-full bg-slate-900 border border-border-dark rounded-md px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all placeholder:text-slate-600" placeholder="e.g. /usr/local/bin/mycli" type="text"/>
+</div>
+</div>
+</div>
+</section>
+<div class="h-px bg-border-dark"></div>
+<!-- 2. Prompt Delivery Method -->
+<section class="space-y-4">
+<h3 class="text-xs font-bold uppercase tracking-widest text-slate-500">Prompt Delivery Method</h3>
+<div class="space-y-2">
+<label class="flex items-center gap-3 p-3 rounded-lg border border-border-dark bg-white/5 cursor-pointer">
+<input checked="" class="radio-custom h-4 w-4 border-2 border-slate-600 bg-transparent text-transparent checked:border-primary focus:ring-0 focus:ring-offset-0" name="delivery" type="radio"/>
+<span class="text-sm text-slate-300"><code class="text-primary">$(cat ...)</code> — shell subshell (default)</span>
+</label>
+<label class="flex items-center gap-3 p-3 rounded-lg border border-border-dark bg-white/5 cursor-pointer">
+<input class="radio-custom h-4 w-4 border-2 border-slate-600 bg-transparent text-transparent checked:border-primary focus:ring-0 focus:ring-offset-0" name="delivery" type="radio"/>
+<span class="text-sm text-slate-300"><code class="text-primary">&lt; path</code> — stdin redirect</span>
+</label>
+<label class="flex items-center gap-3 p-3 rounded-lg border border-border-dark bg-white/5 cursor-pointer">
+<input class="radio-custom h-4 w-4 border-2 border-slate-600 bg-transparent text-transparent checked:border-primary focus:ring-0 focus:ring-offset-0" name="delivery" type="radio"/>
+<span class="text-sm text-slate-300"><code class="text-primary">--file</code> — file flag</span>
+</label>
+</div>
+</section>
+<div class="h-px bg-border-dark"></div>
+<!-- 3. Additional Flags -->
+<section class="space-y-4">
+<div class="flex items-center justify-between">
+<h3 class="text-xs font-bold uppercase tracking-widest text-slate-500">Additional Flags</h3>
+</div>
+<input class="w-full bg-slate-900 border border-border-dark rounded-md px-3 py-3 text-sm font-mono focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" type="text" value='--allowedTools "Agent,Bash,Read,Write,Edit,Glob,Grep"'/>
+</section>
+<div class="h-px bg-border-dark"></div>
+<!-- 4. Pipeline Section -->
+<section class="space-y-4">
+<h3 class="text-xs font-bold uppercase tracking-widest text-slate-500">Pipeline Configuration</h3>
+<div class="space-y-4">
+<div class="flex items-center justify-between">
+<span class="text-sm text-slate-200">Auto-advance stages</span>
+<button class="w-10 h-5 flex items-center bg-primary rounded-full p-1 transition-colors">
+<div class="bg-white w-3 h-3 rounded-full translate-x-5"></div>
+</button>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-sm text-slate-200">Confirm between stages</span>
+<button class="w-10 h-5 flex items-center bg-primary rounded-full p-1 transition-colors">
+<div class="bg-white w-3 h-3 rounded-full translate-x-5"></div>
+</button>
+</div>
+</div>
+<div class="bg-slate-900/50 rounded-lg p-4 border border-border-dark space-y-3">
+<p class="text-[11px] font-bold text-slate-600 uppercase">Current Sequence</p>
+<ol class="space-y-2">
+<li class="flex items-center gap-3 text-sm text-slate-400">
+<span class="text-primary font-mono w-4">1.</span> Senior Architect
+                        </li>
+<li class="flex items-center gap-3 text-sm text-slate-400">
+<span class="text-primary font-mono w-4">2.</span> UX API Designer
+                        </li>
+<li class="flex items-center gap-3 text-sm text-slate-400">
+<span class="text-primary font-mono w-4">3.</span> Developer Agent
+                        </li>
+<li class="flex items-center gap-3 text-sm text-slate-400">
+<span class="text-primary font-mono w-4">4.</span> QA Engineer E2E
+                        </li>
+</ol>
+</div>
+</section>
+<div class="h-px bg-border-dark"></div>
+<!-- 5. Prompt Content -->
+<section class="space-y-6">
+<h3 class="text-xs font-bold uppercase tracking-widest text-slate-500">Prompt Content</h3>
+<div class="space-y-4">
+<div class="flex items-center justify-between">
+<span class="text-sm text-slate-200">Include Kanban instructions</span>
+<button class="w-10 h-5 flex items-center bg-primary rounded-full p-1 transition-colors">
+<div class="bg-white w-3 h-3 rounded-full translate-x-5"></div>
+</button>
+</div>
+<div class="flex items-center justify-between">
+<span class="text-sm text-slate-200">Include Git instructions</span>
+<button class="w-10 h-5 flex items-center bg-primary rounded-full p-1 transition-colors">
+<div class="bg-white w-3 h-3 rounded-full translate-x-5"></div>
+</button>
+</div>
+</div>
+<div class="space-y-2">
+<label class="block text-xs font-medium text-slate-400">Working Directory</label>
+<input class="w-full bg-slate-900 border border-border-dark rounded-md px-3 py-2 text-sm focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all placeholder:text-slate-600" placeholder="(empty = auto-detect)" type="text"/>
+</div>
+</section>
+</main>
+<!-- Footer -->
+<footer class="absolute bottom-0 left-0 right-0 p-6 border-t border-border-dark bg-panel-dark/95 backdrop-blur-md flex items-center justify-between">
+<button class="px-5 py-2.5 text-sm font-semibold text-slate-400 hover:text-white transition-colors border border-transparent hover:border-border-dark rounded-lg">
+                Cancel
+            </button>
+<button class="px-6 py-2.5 bg-primary hover:bg-primary/90 text-white text-sm font-bold rounded-lg shadow-lg shadow-primary/20 transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">save</span>
+                Save Settings
+            </button>
+</footer>
+</div>
+</body></html>
