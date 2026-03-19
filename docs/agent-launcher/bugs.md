@@ -11,9 +11,9 @@
 
 | ID | Title | Severity | Type | Status |
 |----|-------|----------|------|--------|
-| BUG-001 | SETTINGS_FILE hardcoded to DEFAULT_DATA_DIR — ignores dataDir option | High | Functional | Open |
-| BUG-002 | AgentRunIndicator, AgentSettingsPanel, PipelineProgressBar, useAgentCompletion have zero test coverage | High | Functional | Open |
-| BUG-003 | Launcher store slice actions are untested | High | Functional | Open |
+| BUG-001 | SETTINGS_FILE hardcoded to DEFAULT_DATA_DIR — ignores dataDir option | High | Functional | Resolved (QA cycle 2) |
+| BUG-002 | AgentRunIndicator, AgentSettingsPanel, PipelineProgressBar, useAgentCompletion have zero test coverage | High | Functional | Resolved (QA cycle 2) |
+| BUG-003 | Launcher store slice actions are untested | High | Functional | Resolved (QA cycle 2) |
 | BUG-004 | customInstructions maxLength=2000 not enforced server-side | Medium | Functional | Open |
 | BUG-005 | Missing HTTP security headers on all agent-launcher endpoints (pre-existing) | Medium | Security | Open (pre-existing) |
 | BUG-006 | buildCliCommand does not quote prompt paths containing spaces | Medium | Functional | Open |
@@ -29,6 +29,7 @@
 - **Severity:** High
 - **Type:** Functional / Test Isolation
 - **Component:** `server.js` — `handleGetSettings`, `handlePutSettings`, `readSettings`, `writeSettings`
+- **Status:** Resolved — QA cycle 2 (2026-03-19). All 32 backend tests pass. TC-032 and TC-055 both pass.
 
 **Reproduction Steps:**
 1. Run `node --test 'tests/agent-launcher.test.js'`
@@ -62,6 +63,7 @@ Pass `dataDir` into the settings read/write functions and compute `SETTINGS_FILE
   - `frontend/src/components/agent-launcher/AgentSettingsPanel.tsx`
   - `frontend/src/components/agent-launcher/PipelineProgressBar.tsx`
   - `frontend/src/hooks/useAgentCompletion.ts`
+- **Status:** Resolved — QA cycle 2 (2026-03-19). Test files created: AgentRunIndicator.test.tsx (13 tests), AgentSettingsPanel.test.tsx (24 tests), PipelineProgressBar.test.tsx (14 tests), useAgentCompletion.test.ts (11 tests). All pass.
 
 **Reproduction Steps:**
 1. Run `cd frontend && npm test -- --run`
@@ -101,6 +103,7 @@ Minimum test requirements:
 - **Severity:** High
 - **Type:** Functional — Coverage gap
 - **Component:** `frontend/src/stores/useAppStore.ts` — agent launcher slice
+- **Status:** Resolved — QA cycle 2 (2026-03-19). Launcher slice suites added to useAppStore.test.ts covering prepareAgentRun, executeAgentRun, cancelAgentRun, startPipeline, advancePipeline, abortPipeline, loadSettings, saveSettings. useAppStore.test.ts now has 60 total tests, all pass.
 
 **Reproduction Steps:**
 1. Open `frontend/__tests__/stores/useAppStore.test.ts`
