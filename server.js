@@ -912,6 +912,34 @@ function buildConfigRegistry() {
     }
   }
 
+  // ── Agent files: ~/.claude/agents/*.md ───────────────────────────────────
+  const agentsDir = path.join(os.homedir(), '.claude', 'agents');
+  if (fs.existsSync(agentsDir)) {
+    let agentEntries;
+    try {
+      agentEntries = fs.readdirSync(agentsDir);
+    } catch {
+      agentEntries = [];
+    }
+    const agentMdFiles = agentEntries
+      .filter((f) => f.toLowerCase().endsWith('.md'))
+      .sort();
+
+    for (const filename of agentMdFiles) {
+      const absPath = path.join(agentsDir, filename);
+      const stem    = filename.slice(0, -3);
+      const kebab   = stem.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const id      = `agent-${kebab}-md`;
+      registry.set(id, {
+        id,
+        name:      filename,
+        scope:     'agent',
+        absPath,
+        directory: '~/.claude/agents',
+      });
+    }
+  }
+
   // ── Project file: ./CLAUDE.md ─────────────────────────────────────────────
   const projectClaudeMd = path.join(process.cwd(), 'CLAUDE.md');
   if (fs.existsSync(projectClaudeMd)) {
@@ -1099,6 +1127,547 @@ const CONFIG_FILES_LIST_ROUTE   = /^\/api\/v1\/config\/files$/;
 const CONFIG_FILES_SINGLE_ROUTE = /^\/api\/v1\/config\/files\/([^/]+)$/;
 
 // ---------------------------------------------------------------------------
+// Agent launcher — ADR-1: Agent Launcher
+//
+// Security boundary: agentId must match /^[a-z0-9]+(-[a-z0-9]+)*$/ and is
+// only resolved against ~/.claude/agents/. No user-supplied paths used.
+// ---------------------------------------------------------------------------
+
+const AGENTS_DIR = path.join(os.homedir(), '.claude', 'agents');
+const AGENT_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/**
+ * Convert a kebab-case stem to Title Case display name.
+ * "senior-architect" → "Senior Architect"
+ */
+function toDisplayName(stem) {
+  return stem
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/**
+ * GET /api/v1/agents
+ * List all .md files in ~/.claude/agents/, returning agent metadata.
+ * Returns [] if the directory does not exist.
+ */
+function handleListAgents(req, res) {
+  if (!fs.existsSync(AGENTS_DIR)) {
+    return sendJSON(res, 200, []);
+  }
+
+  let entries;
+  try {
+    entries = fs.readdirSync(AGENTS_DIR);
+  } catch (err) {
+    console.error('[agents] ERROR reading agents dir:', err.message);
+    return sendError(res, 500, 'AGENT_DIRECTORY_READ_ERROR', 'Could not read the agents directory.', {
+      suggestion: 'Check that ~/.claude/agents/ is accessible and has read permissions.',
+    });
+  }
+
+  const agents = [];
+  const mdFiles = entries.filter((f) => f.toLowerCase().endsWith('.md')).sort();
+
+  for (const filename of mdFiles) {
+    const absPath = path.join(AGENTS_DIR, filename);
+    let stat;
+    try {
+      stat = fs.statSync(absPath);
+    } catch {
+      continue; // file disappeared between readdir and stat — skip
+    }
+    const stem = filename.slice(0, -3);
+    const id   = stem.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    agents.push({
+      id,
+      name:        filename,
+      displayName: toDisplayName(stem),
+      path:        absPath,
+      sizeBytes:   stat.size,
+    });
+  }
+
+  console.log(`[agents] Listed ${agents.length} agents`);
+  sendJSON(res, 200, agents);
+}
+
+/**
+ * GET /api/v1/agents/:agentId
+ * Read the full content of a specific agent .md file.
+ * Path traversal is prevented by resolving only within AGENTS_DIR.
+ */
+function handleGetAgent(req, res, agentId) {
+  if (!AGENT_ID_RE.test(agentId)) {
+    return sendError(res, 400, 'INVALID_AGENT_ID', 'The agent ID provided is not valid.', {
+      suggestion: "Agent IDs must be lowercase kebab-case (e.g. 'senior-architect').",
+      field: 'agentId',
+    });
+  }
+
+  const filename = `${agentId}.md`;
+  const absPath  = path.join(AGENTS_DIR, filename);
+
+  // Guard: resolved path must be strictly inside AGENTS_DIR
+  const resolved = path.resolve(absPath);
+  if (!resolved.startsWith(AGENTS_DIR + path.sep)) {
+    return sendError(res, 403, 'FORBIDDEN_PATH', 'Access to this agent file is not allowed.', {
+      suggestion: 'Only agent files inside ~/.claude/agents/ can be read.',
+    });
+  }
+
+  if (!fs.existsSync(resolved)) {
+    return sendError(res, 404, 'AGENT_NOT_FOUND', `No agent named '${agentId}' was found.`, {
+      suggestion: `Check that '${filename}' exists in ~/.claude/agents/.`,
+    });
+  }
+
+  try {
+    const content = fs.readFileSync(resolved, 'utf8');
+    const stat    = fs.statSync(resolved);
+    const stem    = agentId;
+    sendJSON(res, 200, {
+      id:          agentId,
+      name:        filename,
+      displayName: toDisplayName(stem),
+      path:        resolved,
+      sizeBytes:   stat.size,
+      content,
+    });
+  } catch (err) {
+    console.error(`[agents] ERROR reading agent ${agentId}:`, err.message);
+    sendError(res, 500, 'INTERNAL_ERROR', 'Failed to read agent file');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Settings — ADR-1 §3.4: data/settings.json with atomic write + deep merge
+// ---------------------------------------------------------------------------
+
+const SETTINGS_FILE = path.join(DEFAULT_DATA_DIR, 'settings.json');
+
+const DEFAULT_SETTINGS = {
+  cli: {
+    tool:            'claude',
+    binary:          'claude',
+    flags:           ['-p'],
+    promptFlag:      '-p',
+    fileInputMethod: 'cat-subshell',
+  },
+  pipeline: {
+    autoAdvance:          true,
+    confirmBetweenStages: true,
+    stages: ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e'],
+  },
+  prompts: {
+    includeKanbanBlock: true,
+    includeGitBlock:    true,
+    workingDirectory:   '',
+  },
+};
+
+const VALID_CLI_TOOLS    = ['claude', 'opencode', 'custom'];
+const VALID_FILE_METHODS = ['cat-subshell', 'stdin-redirect', 'flag-file'];
+
+/**
+ * Deep-merge two plain objects (one level deep for known setting groups).
+ * Immutable — returns a new object.
+ */
+function deepMergeSettings(base, partial) {
+  const result = { ...base };
+  for (const key of Object.keys(partial)) {
+    if (
+      partial[key] !== null &&
+      typeof partial[key] === 'object' &&
+      !Array.isArray(partial[key]) &&
+      typeof base[key] === 'object' &&
+      !Array.isArray(base[key])
+    ) {
+      result[key] = { ...base[key], ...partial[key] };
+    } else {
+      result[key] = partial[key];
+    }
+  }
+  return result;
+}
+
+/**
+ * Read settings from disk (or return defaults if file absent/corrupt).
+ * Never throws — falls back to defaults on any error.
+ */
+function readSettings() {
+  if (!fs.existsSync(SETTINGS_FILE)) {
+    return { ...DEFAULT_SETTINGS };
+  }
+  try {
+    const raw  = fs.readFileSync(SETTINGS_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    return deepMergeSettings(DEFAULT_SETTINGS, parsed);
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+/**
+ * Atomically write settings using .tmp + rename pattern.
+ * Ensures data dir exists first.
+ */
+function writeSettings(settings) {
+  const dir = path.dirname(SETTINGS_FILE);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tmp = SETTINGS_FILE + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(settings, null, 2), 'utf8');
+  fs.renameSync(tmp, SETTINGS_FILE);
+}
+
+/**
+ * GET /api/v1/settings
+ */
+function handleGetSettings(req, res) {
+  try {
+    const settings = readSettings();
+    sendJSON(res, 200, settings);
+  } catch (err) {
+    console.error('[settings] ERROR reading settings:', err.message);
+    sendError(res, 500, 'SETTINGS_READ_ERROR', 'Could not read the settings file.', {
+      suggestion: 'Check that data/settings.json is readable and contains valid JSON.',
+    });
+  }
+}
+
+/**
+ * PUT /api/v1/settings
+ * Deep-merge partial body into current settings and persist atomically.
+ */
+async function handlePutSettings(req, res) {
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'The request body is empty or not valid JSON.', {
+      suggestion: 'Send a partial settings object. Example: { "cli": { "tool": "opencode" } }',
+    });
+  }
+
+  if (!body || typeof body !== 'object') {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'The request body is empty or not valid JSON.', {
+      suggestion: 'Send a partial settings object. Example: { "cli": { "tool": "opencode" } }',
+    });
+  }
+
+  // Validate cli.tool if provided
+  if (body.cli && body.cli.tool !== undefined && !VALID_CLI_TOOLS.includes(body.cli.tool)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', `The value '${body.cli.tool}' is not a valid CLI tool.`, {
+      suggestion: "Use one of: 'claude', 'opencode', 'custom'.",
+      field: 'cli.tool',
+    });
+  }
+
+  // Validate cli.fileInputMethod if provided
+  if (body.cli && body.cli.fileInputMethod !== undefined && !VALID_FILE_METHODS.includes(body.cli.fileInputMethod)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', `The value '${body.cli.fileInputMethod}' is not a valid prompt delivery method.`, {
+      suggestion: "Use one of: 'cat-subshell', 'stdin-redirect', 'flag-file'.",
+      field: 'cli.fileInputMethod',
+    });
+  }
+
+  try {
+    const current  = readSettings();
+    const merged   = deepMergeSettings(current, body);
+    writeSettings(merged);
+    console.log('[settings] Settings updated');
+    sendJSON(res, 200, merged);
+  } catch (err) {
+    console.error('[settings] ERROR writing settings:', err.message);
+    sendError(res, 500, 'SETTINGS_WRITE_ERROR', 'Could not save the settings file.', {
+      suggestion: 'Check that the data/ directory is writable.',
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Prompt generation — ADR-1 §3.1: temp files in data/.prompts/
+// ---------------------------------------------------------------------------
+
+const PROMPTS_DIR = path.join(DEFAULT_DATA_DIR, '.prompts');
+const PROMPT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Build the CLI command string based on current settings and prompt file path.
+ */
+function buildCliCommand(settings, promptPath) {
+  const { tool, binary, fileInputMethod } = settings.cli;
+  const bin = binary || tool;
+
+  let promptRef;
+  if (fileInputMethod === 'stdin-redirect') {
+    promptRef = `< "${promptPath}"`;
+  } else if (fileInputMethod === 'flag-file') {
+    promptRef = `--file "${promptPath}"`;
+  } else {
+    // cat-subshell (default)
+    promptRef = `"$(cat ${promptPath})"`;
+  }
+
+  if (tool === 'opencode') {
+    return `${bin} run ${promptRef}`;
+  }
+
+  // claude (default) — include allowedTools flag
+  return `${bin} -p ${promptRef} --allowedTools "Agent,Bash,Read,Write,Edit,Glob,Grep"`;
+}
+
+/**
+ * Build the full prompt text from task data, agent content, and instruction blocks.
+ * Assembles: TASK CONTEXT, AGENT INSTRUCTIONS, KANBAN INSTRUCTIONS, GIT INSTRUCTIONS, PROJECT CONTEXT.
+ */
+function buildPromptText(options) {
+  const { task, taskColumn, space, agentContent, settings, customInstructions, workingDirectory } = options;
+
+  const lines = [];
+
+  // ── TASK CONTEXT ──────────────────────────────────────────────────────────
+  lines.push('## TASK CONTEXT');
+  lines.push(`Title: ${task.title}`);
+  if (task.type)        lines.push(`Type: ${task.type}`);
+  lines.push(`Column: ${taskColumn}`);
+  lines.push(`Space: ${space.name}`);
+  lines.push(`Space ID: ${space.id}`);
+  if (task.assigned)    lines.push(`Assigned: ${task.assigned}`);
+  if (task.description) lines.push(`\nDescription:\n${task.description}`);
+  if (task.attachments && task.attachments.length > 0) {
+    lines.push(`\nAttachments (${task.attachments.length}):`);
+    for (const att of task.attachments) {
+      lines.push(`  - ${att.name} (${att.type})`);
+    }
+  }
+
+  // ── AGENT INSTRUCTIONS ────────────────────────────────────────────────────
+  lines.push('\n## AGENT INSTRUCTIONS');
+  lines.push(agentContent);
+
+  // ── KANBAN INSTRUCTIONS ───────────────────────────────────────────────────
+  if (settings.prompts.includeKanbanBlock) {
+    lines.push('\n## KANBAN INSTRUCTIONS');
+    lines.push(`Prism Kanban server is running at http://localhost:3000`);
+    lines.push(`Space ID: ${space.id}`);
+    lines.push('Use the MCP tools (mcp__prism__kanban_*) to manage tasks:');
+    lines.push('  - kanban_list_tasks: list tasks in a column');
+    lines.push('  - kanban_move_task: move a task between columns (todo → in-progress → done)');
+    lines.push('  - kanban_update_task: update task fields or attach artifacts');
+    lines.push('  - kanban_create_task: create new tasks');
+  }
+
+  // ── GIT INSTRUCTIONS ──────────────────────────────────────────────────────
+  if (settings.prompts.includeGitBlock) {
+    lines.push('\n## GIT INSTRUCTIONS');
+    lines.push('- Work on the current feature branch (do not create new branches unless specified)');
+    lines.push('- Commit format: [dev] T-XXX: <task title>');
+    lines.push('- Stage only task-relevant files (never git add -A or git add .)');
+    lines.push('- Never commit to main directly');
+  }
+
+  // ── PROJECT CONTEXT ───────────────────────────────────────────────────────
+  const cwd = workingDirectory || settings.prompts.workingDirectory || process.cwd();
+  lines.push('\n## PROJECT CONTEXT');
+  lines.push(`Working directory: ${cwd}`);
+  lines.push(`Feature: ${space.name}`);
+
+  // ── CUSTOM INSTRUCTIONS ───────────────────────────────────────────────────
+  if (customInstructions && customInstructions.trim().length > 0) {
+    lines.push('\n## ADDITIONAL INSTRUCTIONS');
+    lines.push(customInstructions.trim());
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Find a task by ID across all columns for a given space.
+ * Returns { task, column } or null if not found.
+ */
+function findTaskInSpace(spaceId, taskId, dataDir) {
+  const spaceDir = path.join(dataDir, 'spaces', spaceId);
+  for (const column of ['todo', 'in-progress', 'done']) {
+    const filePath = path.join(spaceDir, `${column}.json`);
+    if (!fs.existsSync(filePath)) continue;
+    try {
+      const tasks = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const task  = Array.isArray(tasks) ? tasks.find((t) => t.id === taskId) : null;
+      if (task) return { task, column };
+    } catch { /* skip corrupt files */ }
+  }
+  return null;
+}
+
+/**
+ * POST /api/v1/agent/prompt
+ * Assemble full prompt, write to data/.prompts/, return path + CLI command.
+ */
+async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be valid JSON.');
+  }
+
+  if (!body || typeof body !== 'object') {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object.');
+  }
+
+  // Validate required fields
+  for (const field of ['agentId', 'taskId', 'spaceId']) {
+    if (!body[field] || typeof body[field] !== 'string') {
+      return sendError(res, 400, 'VALIDATION_ERROR', `The '${field}' field is required.`, {
+        suggestion: field === 'agentId'
+          ? "Provide the kebab-case agent ID (e.g. 'senior-architect')."
+          : `Provide a valid ${field}.`,
+        field,
+      });
+    }
+  }
+
+  const { agentId, taskId, spaceId, customInstructions, workingDirectory } = body;
+
+  // Validate agentId format
+  if (!AGENT_ID_RE.test(agentId)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'The agent ID provided is not valid.', {
+      suggestion: "Agent IDs must be lowercase kebab-case (e.g. 'senior-architect').",
+      field: 'agentId',
+    });
+  }
+
+  // Validate space exists
+  const spaceResult = spaceManager.getSpace(spaceId);
+  if (!spaceResult.ok) {
+    return sendError(res, 404, 'TASK_NOT_FOUND', `Space '${spaceId}' not found.`);
+  }
+
+  // Read agent file
+  const agentFilename = `${agentId}.md`;
+  const agentPath     = path.join(AGENTS_DIR, agentFilename);
+  if (!fs.existsSync(agentPath)) {
+    return sendError(res, 404, 'AGENT_NOT_FOUND', `No agent named '${agentId}' was found.`, {
+      suggestion: `Check that '${agentFilename}' exists in ~/.claude/agents/.`,
+    });
+  }
+  const agentContent = fs.readFileSync(agentPath, 'utf8');
+
+  // Find task
+  const taskResult = findTaskInSpace(spaceId, taskId, dataDir);
+  if (!taskResult) {
+    return sendError(res, 404, 'TASK_NOT_FOUND', `Task '${taskId}' was not found in space '${spaceId}'.`, {
+      suggestion: 'Confirm the taskId and spaceId are correct. The task may have been moved or deleted.',
+    });
+  }
+
+  // Read settings
+  const settings = readSettings();
+
+  // Build prompt text
+  const promptText = buildPromptText({
+    task:             taskResult.task,
+    taskColumn:       taskResult.column,
+    space:            spaceResult.space,
+    agentContent,
+    settings,
+    customInstructions,
+    workingDirectory: workingDirectory || settings.prompts.workingDirectory,
+  });
+
+  // Ensure prompts directory exists
+  if (!fs.existsSync(PROMPTS_DIR)) {
+    fs.mkdirSync(PROMPTS_DIR, { recursive: true });
+  }
+
+  // Write prompt file atomically
+  const timestamp  = Date.now();
+  const taskPrefix = taskId.slice(0, 8);
+  const filename   = `prompt-${timestamp}-${taskPrefix}.md`;
+  const promptPath = path.join(PROMPTS_DIR, filename);
+  const tmpPath    = promptPath + '.tmp';
+
+  try {
+    fs.writeFileSync(tmpPath, promptText, 'utf8');
+    fs.renameSync(tmpPath, promptPath);
+  } catch (err) {
+    console.error('[prompt] ERROR writing prompt file:', err.message);
+    return sendError(res, 500, 'PROMPT_WRITE_ERROR', 'Could not write the prompt file to disk.', {
+      suggestion: 'Check that data/.prompts/ is writable and the disk has available space.',
+    });
+  }
+
+  const cliCommand     = buildCliCommand(settings, promptPath);
+  const promptPreview  = promptText.slice(0, 500);
+  const estimatedTokens = Math.ceil(promptText.length / 4);
+
+  console.log(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'info',
+    component: 'agent-launcher',
+    event: 'agent_prompt_generated',
+    agentId,
+    taskId,
+    spaceId,
+    promptPath,
+    estimatedTokens,
+  }));
+
+  sendJSON(res, 201, { promptPath, promptPreview, cliCommand, estimatedTokens });
+}
+
+// ---------------------------------------------------------------------------
+// Prompt file cleanup — T-007
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete prompt files in data/.prompts/ that are older than TTL_MS.
+ * Best-effort: individual file errors are logged but do not abort cleanup.
+ */
+function cleanupOldPromptFiles() {
+  if (!fs.existsSync(PROMPTS_DIR)) return;
+
+  let entries;
+  try {
+    entries = fs.readdirSync(PROMPTS_DIR);
+  } catch (err) {
+    console.warn('[cleanup] Could not read prompts dir:', err.message);
+    return;
+  }
+
+  const cutoff = Date.now() - PROMPT_TTL_MS;
+  let removed  = 0;
+
+  for (const filename of entries) {
+    if (!filename.endsWith('.md')) continue;
+    const filePath = path.join(PROMPTS_DIR, filename);
+    try {
+      const stat = fs.statSync(filePath);
+      if (stat.mtimeMs < cutoff) {
+        fs.unlinkSync(filePath);
+        removed++;
+      }
+    } catch (err) {
+      console.warn(`[cleanup] Could not process ${filename}:`, err.message);
+    }
+  }
+
+  if (removed > 0) {
+    console.log(`[cleanup] Removed ${removed} old prompt file(s)`);
+  }
+}
+
+/** Route patterns for agent launcher endpoints. */
+const AGENTS_LIST_ROUTE   = /^\/api\/v1\/agents$/;
+const AGENTS_SINGLE_ROUTE = /^\/api\/v1\/agents\/([^/]+)$/;
+const AGENT_PROMPT_ROUTE  = /^\/api\/v1\/agent\/prompt$/;
+const SETTINGS_ROUTE      = /^\/api\/v1\/settings$/;
+
+// ---------------------------------------------------------------------------
 // Server factory — exported for use by tests and direct invocation
 // ---------------------------------------------------------------------------
 
@@ -1269,6 +1838,33 @@ function startServer(options = {}) {
     }
 
     // -----------------------------------------------------------------------
+    // Agent launcher routes — ADR-1 (Agent Launcher)
+    // /api/v1/agents, /api/v1/agents/:agentId, /api/v1/agent/prompt,
+    // /api/v1/settings
+    // -----------------------------------------------------------------------
+    if (AGENTS_LIST_ROUTE.test(urlPath)) {
+      if (method === 'GET') return handleListAgents(req, res);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const agentSingleMatch = AGENTS_SINGLE_ROUTE.exec(urlPath);
+    if (agentSingleMatch) {
+      if (method === 'GET') return handleGetAgent(req, res, agentSingleMatch[1]);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    if (AGENT_PROMPT_ROUTE.test(urlPath)) {
+      if (method === 'POST') return handleGeneratePrompt(req, res, dataDir, spaceManager);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    if (SETTINGS_ROUTE.test(urlPath)) {
+      if (method === 'GET') return handleGetSettings(req, res);
+      if (method === 'PUT') return handlePutSettings(req, res);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    // -----------------------------------------------------------------------
     // Config file routes: /api/v1/config/files and /api/v1/config/files/:fileId
     // ADR-1 (Config Editor Panel): allowlisted file registry, no user paths.
     // -----------------------------------------------------------------------
@@ -1318,7 +1914,12 @@ function startServer(options = {}) {
     sendError(res, 404, 'NOT_FOUND', `Route '${method} ${urlPath}' not found`);
   }
 
-  // --- Step 5: Create and start the HTTP server. ---
+  // --- Step 5: Run startup cleanup for old prompt files (T-007). ---
+  cleanupOldPromptFiles();
+  // Periodic cleanup every 6 hours
+  setInterval(cleanupOldPromptFiles, 6 * 60 * 60 * 1000).unref();
+
+  // --- Step 6: Create and start the HTTP server. ---
 
   const server = http.createServer((req, res) => {
     mainRouter(req, res).catch((err) => {
