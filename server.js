@@ -1245,7 +1245,11 @@ function handleGetAgent(req, res, agentId) {
 // Settings — ADR-1 §3.4: data/settings.json with atomic write + deep merge
 // ---------------------------------------------------------------------------
 
-const SETTINGS_FILE = path.join(DEFAULT_DATA_DIR, 'settings.json');
+// NOTE: SETTINGS_FILE is NOT a module-level constant — it is computed
+// dynamically from dataDir inside readSettings/writeSettings/handleGetSettings/
+// handlePutSettings so that test isolation via startServer({ dataDir }) works.
+// See BUG-001: previously this was path.join(DEFAULT_DATA_DIR, 'settings.json'),
+// which bypassed the dataDir option passed to startServer().
 
 const DEFAULT_SETTINGS = {
   cli: {
@@ -1295,13 +1299,16 @@ function deepMergeSettings(base, partial) {
 /**
  * Read settings from disk (or return defaults if file absent/corrupt).
  * Never throws — falls back to defaults on any error.
+ *
+ * @param {string} dataDir - Root data directory for this server instance.
  */
-function readSettings() {
-  if (!fs.existsSync(SETTINGS_FILE)) {
+function readSettings(dataDir) {
+  const settingsFile = path.join(dataDir, 'settings.json');
+  if (!fs.existsSync(settingsFile)) {
     return { ...DEFAULT_SETTINGS };
   }
   try {
-    const raw  = fs.readFileSync(SETTINGS_FILE, 'utf8');
+    const raw    = fs.readFileSync(settingsFile, 'utf8');
     const parsed = JSON.parse(raw);
     return deepMergeSettings(DEFAULT_SETTINGS, parsed);
   } catch {
@@ -1312,23 +1319,31 @@ function readSettings() {
 /**
  * Atomically write settings using .tmp + rename pattern.
  * Ensures data dir exists first.
+ *
+ * @param {string} dataDir - Root data directory for this server instance.
+ * @param {object} settings - Full settings object to persist.
  */
-function writeSettings(settings) {
-  const dir = path.dirname(SETTINGS_FILE);
+function writeSettings(dataDir, settings) {
+  const settingsFile = path.join(dataDir, 'settings.json');
+  const dir          = path.dirname(settingsFile);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  const tmp = SETTINGS_FILE + '.tmp';
+  const tmp = settingsFile + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(settings, null, 2), 'utf8');
-  fs.renameSync(tmp, SETTINGS_FILE);
+  fs.renameSync(tmp, settingsFile);
 }
 
 /**
  * GET /api/v1/settings
+ *
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse}  res
+ * @param {string}               dataDir - Scoped data directory for this server instance.
  */
-function handleGetSettings(req, res) {
+function handleGetSettings(req, res, dataDir) {
   try {
-    const settings = readSettings();
+    const settings = readSettings(dataDir);
     sendJSON(res, 200, settings);
   } catch (err) {
     console.error('[settings] ERROR reading settings:', err.message);
@@ -1341,8 +1356,12 @@ function handleGetSettings(req, res) {
 /**
  * PUT /api/v1/settings
  * Deep-merge partial body into current settings and persist atomically.
+ *
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse}  res
+ * @param {string}               dataDir - Scoped data directory for this server instance.
  */
-async function handlePutSettings(req, res) {
+async function handlePutSettings(req, res, dataDir) {
   let body;
   try {
     body = await parseBody(req);
@@ -1375,9 +1394,9 @@ async function handlePutSettings(req, res) {
   }
 
   try {
-    const current  = readSettings();
+    const current  = readSettings(dataDir);
     const merged   = deepMergeSettings(current, body);
-    writeSettings(merged);
+    writeSettings(dataDir, merged);
     console.log('[settings] Settings updated');
     sendJSON(res, 200, merged);
   } catch (err) {
@@ -1392,7 +1411,8 @@ async function handlePutSettings(req, res) {
 // Prompt generation — ADR-1 §3.1: temp files in data/.prompts/
 // ---------------------------------------------------------------------------
 
-const PROMPTS_DIR = path.join(DEFAULT_DATA_DIR, '.prompts');
+// PROMPTS_DIR is NOT a module-level constant — it is computed from dataDir
+// inside handlers (see BUG-001: module-level constants ignored test isolation).
 const PROMPT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
@@ -1565,8 +1585,9 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
     });
   }
 
-  // Read settings
-  const settings = readSettings();
+  // Read settings — scoped to the server's dataDir, not DEFAULT_DATA_DIR.
+  const settings   = readSettings(dataDir);
+  const promptsDir = path.join(dataDir, '.prompts');
 
   // Build prompt text
   const promptText = buildPromptText({
@@ -1580,15 +1601,15 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
   });
 
   // Ensure prompts directory exists
-  if (!fs.existsSync(PROMPTS_DIR)) {
-    fs.mkdirSync(PROMPTS_DIR, { recursive: true });
+  if (!fs.existsSync(promptsDir)) {
+    fs.mkdirSync(promptsDir, { recursive: true });
   }
 
   // Write prompt file atomically
   const timestamp  = Date.now();
   const taskPrefix = taskId.slice(0, 8);
   const filename   = `prompt-${timestamp}-${taskPrefix}.md`;
-  const promptPath = path.join(PROMPTS_DIR, filename);
+  const promptPath = path.join(promptsDir, filename);
   const tmpPath    = promptPath + '.tmp';
 
   try {
@@ -1627,13 +1648,16 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
 /**
  * Delete prompt files in data/.prompts/ that are older than TTL_MS.
  * Best-effort: individual file errors are logged but do not abort cleanup.
+ *
+ * @param {string} dataDir - Root data directory for this server instance.
  */
-function cleanupOldPromptFiles() {
-  if (!fs.existsSync(PROMPTS_DIR)) return;
+function cleanupOldPromptFiles(dataDir) {
+  const promptsDir = path.join(dataDir, '.prompts');
+  if (!fs.existsSync(promptsDir)) return;
 
   let entries;
   try {
-    entries = fs.readdirSync(PROMPTS_DIR);
+    entries = fs.readdirSync(promptsDir);
   } catch (err) {
     console.warn('[cleanup] Could not read prompts dir:', err.message);
     return;
@@ -1644,7 +1668,7 @@ function cleanupOldPromptFiles() {
 
   for (const filename of entries) {
     if (!filename.endsWith('.md')) continue;
-    const filePath = path.join(PROMPTS_DIR, filename);
+    const filePath = path.join(promptsDir, filename);
     try {
       const stat = fs.statSync(filePath);
       if (stat.mtimeMs < cutoff) {
@@ -1859,8 +1883,8 @@ function startServer(options = {}) {
     }
 
     if (SETTINGS_ROUTE.test(urlPath)) {
-      if (method === 'GET') return handleGetSettings(req, res);
-      if (method === 'PUT') return handlePutSettings(req, res);
+      if (method === 'GET') return handleGetSettings(req, res, dataDir);
+      if (method === 'PUT') return handlePutSettings(req, res, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 
@@ -1915,9 +1939,9 @@ function startServer(options = {}) {
   }
 
   // --- Step 5: Run startup cleanup for old prompt files (T-007). ---
-  cleanupOldPromptFiles();
+  cleanupOldPromptFiles(dataDir);
   // Periodic cleanup every 6 hours
-  setInterval(cleanupOldPromptFiles, 6 * 60 * 60 * 1000).unref();
+  setInterval(() => cleanupOldPromptFiles(dataDir), 6 * 60 * 60 * 1000).unref();
 
   // --- Step 6: Create and start the HTTP server. ---
 
