@@ -98,6 +98,108 @@ export interface ToastState {
 export type TerminalStatus = 'connecting' | 'connected' | 'disconnected';
 
 // ---------------------------------------------------------------------------
+// Agent launcher types (ADR-1: Agent Launcher)
+// ---------------------------------------------------------------------------
+
+/** Metadata for an agent definition file discovered in ~/.claude/agents/. */
+export interface AgentInfo {
+  id: string;          // kebab-case stem, e.g. "senior-architect"
+  name: string;        // full filename, e.g. "senior-architect.md"
+  displayName: string; // human-readable, e.g. "Senior Architect"
+  path: string;        // absolute path on disk
+  sizeBytes: number;
+}
+
+/** AgentInfo extended with full file content (returned by GET /agents/:agentId). */
+export interface AgentDetail extends AgentInfo {
+  content: string;
+}
+
+/** An active agent run — set in store when a command is injected into the PTY. */
+export interface AgentRun {
+  taskId: string;
+  agentId: string;
+  spaceId: string;
+  startedAt: string; // ISO timestamp
+  cliCommand: string;
+  promptPath: string;
+}
+
+/** The four canonical pipeline stage agent IDs. */
+export type PipelineStage =
+  | 'senior-architect'
+  | 'ux-api-designer'
+  | 'developer-agent'
+  | 'qa-engineer-e2e';
+
+/** State of an in-progress pipeline run. */
+export interface PipelineState {
+  spaceId: string;
+  stages: PipelineStage[];
+  currentStageIndex: number;
+  startedAt: string; // ISO timestamp
+  status: 'running' | 'paused' | 'completed' | 'aborted';
+}
+
+/** A prepared (but not yet executed) agent run — shown in the preview modal. */
+export interface PreparedRun {
+  taskId: string;
+  agentId: string;
+  spaceId: string;
+  promptPath: string;
+  cliCommand: string;
+  promptPreview: string;
+  estimatedTokens: number;
+}
+
+/** CLI tool configuration. */
+export interface CliSettings {
+  tool: 'claude' | 'opencode' | 'custom';
+  binary: string;
+  flags: string[];
+  promptFlag: string;
+  fileInputMethod: 'cat-subshell' | 'stdin-redirect' | 'flag-file';
+}
+
+/** Pipeline orchestration configuration. */
+export interface PipelineSettings {
+  autoAdvance: boolean;
+  confirmBetweenStages: boolean;
+  stages: PipelineStage[];
+}
+
+/** Prompt content configuration. */
+export interface PromptsSettings {
+  includeKanbanBlock: boolean;
+  includeGitBlock: boolean;
+  workingDirectory: string;
+}
+
+/** Full launcher settings object — persisted in data/settings.json. */
+export interface AgentSettings {
+  cli: CliSettings;
+  pipeline: PipelineSettings;
+  prompts: PromptsSettings;
+}
+
+/** Request body for POST /api/v1/agent/prompt. */
+export interface PromptGenerationRequest {
+  agentId: string;
+  taskId: string;
+  spaceId: string;
+  customInstructions?: string;
+  workingDirectory?: string;
+}
+
+/** Response from POST /api/v1/agent/prompt. */
+export interface PromptGenerationResponse {
+  promptPath: string;
+  promptPreview: string;
+  cliCommand: string;
+  estimatedTokens: number;
+}
+
+// ---------------------------------------------------------------------------
 // Config editor types (ADR-1: Config Editor Panel)
 // ---------------------------------------------------------------------------
 
@@ -105,7 +207,7 @@ export type TerminalStatus = 'connecting' | 'connected' | 'disconnected';
 export interface ConfigFile {
   id: string;
   name: string;
-  scope: 'global' | 'project';
+  scope: 'global' | 'agent' | 'project';
   directory: string;
   sizeBytes: number;
   modifiedAt: string;
@@ -115,7 +217,7 @@ export interface ConfigFile {
 export interface ConfigFileContent {
   id: string;
   name: string;
-  scope: 'global' | 'project';
+  scope: 'global' | 'agent' | 'project';
   content: string;
   sizeBytes: number;
   modifiedAt: string;
@@ -125,7 +227,7 @@ export interface ConfigFileContent {
 export interface ConfigFileSaveResult {
   id: string;
   name: string;
-  scope: 'global' | 'project';
+  scope: 'global' | 'agent' | 'project';
   sizeBytes: number;
   modifiedAt: string;
 }
