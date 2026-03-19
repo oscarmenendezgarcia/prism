@@ -39,7 +39,9 @@ export function Header() {
 
       {/* Actions */}
       <div className="flex items-center gap-2">
+        <div className="w-px h-5 bg-border mx-1" aria-hidden="true" />
         <ThemeToggle />
+        <div className="w-px h-5 bg-border mx-1" aria-hidden="true" />
 
         {/* Agent settings gear icon */}
         <button
