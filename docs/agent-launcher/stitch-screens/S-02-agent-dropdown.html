@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Prism Developer Tool - Agent Dropdown</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#7c3bed",
+                        "background-light": "#f7f6f8",
+                        "background-dark": "#171121",
+                        "dropdown-bg": "#1e1e2e",
+                        "dropdown-border": "#2e2e3e",
+                        "dropdown-hover": "#2e2e3e",
+                        "text-main": "#e2e2e9",
+                        "text-muted": "#94a3b8"
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.5rem",
+                        "lg": "1rem",
+                        "xl": "1.5rem",
+                        "full": "9999px"
+                    },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+            font-size: 20px;
+        }
+        .spinner {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display min-h-screen">
+<div class="layout-container flex h-full grow flex-col">
+<!-- Header from Components -->
+<header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-slate-200 dark:border-dropdown-border px-10 py-4 bg-white dark:bg-background-dark">
+<div class="flex items-center gap-3 text-slate-900 dark:text-slate-100">
+<div class="size-8 text-primary">
+<svg fill="none" viewbox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<path clip-rule="evenodd" d="M24 18.4228L42 11.475V34.3663C42 34.7796 41.7457 35.1504 41.3601 35.2992L24 42V18.4228Z" fill="currentColor" fill-rule="evenodd"></path>
+<path clip-rule="evenodd" d="M24 8.18819L33.4123 11.574L24 15.2071L14.5877 11.574L24 8.18819ZM9 15.8487L21 20.4805V37.6263L9 32.9945V15.8487ZM27 37.6263V20.4805L39 15.8487V32.9945L27 37.6263ZM25.354 2.29885C24.4788 1.98402 23.5212 1.98402 22.646 2.29885L4.98454 8.65208C3.7939 9.08038 3 10.2097 3 11.475V34.3663C3 36.0196 4.01719 37.5026 5.55962 38.098L22.9197 44.7987C23.6149 45.0671 24.3851 45.0671 25.0803 44.7987L42.4404 38.098C43.9828 37.5026 45 36.0196 45 34.3663V11.475C45 10.2097 44.2061 9.08038 43.0155 8.65208L25.354 2.29885Z" fill="currentColor" fill-rule="evenodd"></path>
+</svg>
+</div>
+<h2 class="text-xl font-bold leading-tight tracking-tight">Prism</h2>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-dropdown-hover text-slate-600 dark:text-text-muted transition-colors">
+<span class="material-symbols-outlined">search</span>
+</button>
+<button class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-dropdown-hover text-slate-600 dark:text-text-muted transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="h-8 w-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center">
+<span class="text-primary text-xs font-bold uppercase">JD</span>
+</div>
+</div>
+</header>
+<main class="flex-1 flex flex-col items-center py-12 px-6 gap-12">
+<!-- Default State Dropdown -->
+<section class="flex flex-col gap-3 w-full max-w-[320px]">
+<span class="text-xs font-semibold text-text-muted uppercase tracking-wider ml-1">Default State (Agents Loaded)</span>
+<div class="w-full bg-dropdown-bg border border-dropdown-border rounded-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
+<!-- Header -->
+<div class="px-4 py-3 flex items-center gap-3 border-b border-dropdown-border bg-dropdown-bg/50">
+<span class="material-symbols-outlined text-primary">smart_toy</span>
+<span class="text-text-main font-semibold text-sm">Run Agent</span>
+</div>
+<!-- List -->
+<div class="py-2">
+<button class="w-full px-4 py-2.5 flex items-center gap-3 text-text-main hover:bg-dropdown-hover transition-colors text-left">
+<span class="material-symbols-outlined text-text-muted size-5">person</span>
+<span class="text-sm">Senior Architect</span>
+</button>
+<!-- Hover State Example -->
+<button class="w-full px-4 py-2.5 flex items-center gap-3 text-text-main bg-dropdown-hover transition-colors text-left">
+<span class="material-symbols-outlined text-primary size-5">robot_2</span>
+<span class="text-sm font-medium">UX API Designer</span>
+</button>
+<button class="w-full px-4 py-2.5 flex items-center gap-3 text-text-main hover:bg-dropdown-hover transition-colors text-left">
+<span class="material-symbols-outlined text-text-muted size-5">smart_toy</span>
+<span class="text-sm">Developer Agent</span>
+</button>
+<button class="w-full px-4 py-2.5 flex items-center gap-3 text-text-main hover:bg-dropdown-hover transition-colors text-left">
+<span class="material-symbols-outlined text-text-muted size-5">verified_user</span>
+<span class="text-sm">QA Engineer E2E</span>
+</button>
+</div>
+<!-- Divider -->
+<div class="h-px bg-dropdown-border mx-2"></div>
+<!-- Bottom Action -->
+<div class="p-2">
+<button class="w-full px-3 py-2 flex items-center justify-between group hover:bg-primary/10 rounded-md transition-all">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">fork_right</span>
+<span class="text-sm font-medium text-text-main">Run Full Pipeline</span>
+</div>
+<span class="text-[10px] bg-dropdown-border text-text-muted px-1.5 py-0.5 rounded uppercase tracking-tighter">Shift + ↵</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Loading State Dropdown -->
+<section class="flex flex-col gap-3 w-full max-w-[320px]">
+<span class="text-xs font-semibold text-text-muted uppercase tracking-wider ml-1">Loading State</span>
+<div class="w-full bg-dropdown-bg border border-dropdown-border rounded-lg shadow-2xl overflow-hidden min-h-[160px] flex flex-col">
+<div class="px-4 py-3 flex items-center gap-3 border-b border-dropdown-border bg-dropdown-bg/50">
+<span class="material-symbols-outlined text-text-muted">smart_toy</span>
+<span class="text-text-main font-semibold text-sm">Run Agent</span>
+</div>
+<div class="flex-1 flex flex-col items-center justify-center gap-3 py-10">
+<span class="material-symbols-outlined text-primary spinner">progress_activity</span>
+<span class="text-text-muted text-sm font-medium">Loading agents...</span>
+</div>
+</div>
+</section>
+<!-- Empty State Dropdown -->
+<section class="flex flex-col gap-3 w-full max-w-[320px]">
+<span class="text-xs font-semibold text-text-muted uppercase tracking-wider ml-1">Empty State</span>
+<div class="w-full bg-dropdown-bg border border-dropdown-border rounded-lg shadow-2xl overflow-hidden flex flex-col">
+<div class="px-4 py-3 flex items-center gap-3 border-b border-dropdown-border bg-dropdown-bg/50">
+<span class="material-symbols-outlined text-text-muted">smart_toy</span>
+<span class="text-text-main font-semibold text-sm">Run Agent</span>
+</div>
+<div class="p-6 flex flex-col items-center text-center gap-4">
+<div class="p-3 rounded-full bg-dropdown-border/50 text-text-muted">
+<span class="material-symbols-outlined">folder_off</span>
+</div>
+<div class="flex flex-col gap-1">
+<p class="text-text-muted text-xs leading-relaxed max-w-[200px]">
+                                No agents found in <code class="text-primary bg-primary/10 px-1 rounded">~/.claude/agents/</code>
+</p>
+</div>
+<button class="text-primary hover:text-primary/80 text-sm font-semibold flex items-center gap-1 transition-colors">
+                            Open Settings
+                            <span class="material-symbols-outlined !text-[14px]">open_in_new</span>
+</button>
+</div>
+</div>
+</section>
+</main>
+<!-- Footer Decor -->
+<footer class="mt-auto py-8 border-t border-dropdown-border/30 px-10 flex justify-between items-center text-text-muted text-xs">
+<div class="flex items-center gap-4">
+<span>Prism Engine v1.0.4</span>
+<span class="w-1 h-1 rounded-full bg-dropdown-border"></span>
+<span>Connected: local-node-01</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="flex h-2 w-2 rounded-full bg-emerald-500"></span>
+<span class="text-emerald-500/80 font-medium">Systems Operational</span>
+</div>
+</footer>
+</div>
+</body></html>
