@@ -12,12 +12,11 @@ import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { ConfigToggle } from '@/components/config/ConfigToggle';
 import { AgentRunIndicator } from '@/components/agent-launcher/AgentRunIndicator';
 import { PipelineProgressBar } from '@/components/agent-launcher/PipelineProgressBar';
+import { AgentSettingsToggle } from '@/components/agent-launcher/AgentSettingsToggle';
 import { useAppStore } from '@/stores/useAppStore';
 
 export function Header() {
-  const openCreateModal           = useAppStore((s) => s.openCreateModal);
-  const agentSettingsPanelOpen    = useAppStore((s) => s.agentSettingsPanelOpen);
-  const setAgentSettingsPanelOpen = useAppStore((s) => s.setAgentSettingsPanelOpen);
+  const openCreateModal = useAppStore((s) => s.openCreateModal);
 
   return (
     <header className="flex items-center justify-between h-header px-6 bg-surface-elevated glass-heavy border-b border-border sticky top-0 z-[100]">
@@ -38,27 +37,17 @@ export function Header() {
         <PipelineProgressBar />
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2">
-        <div className="w-px h-5 bg-border mx-1" aria-hidden="true" />
-        <ThemeToggle />
-        <div className="w-px h-5 bg-border mx-1" aria-hidden="true" />
+      {/* Actions: Panel Toggles | New Task | Utility Strip */}
+      <div className="flex items-center">
+        {/* Panel Toggles */}
+        <div className="flex items-center gap-1">
+          <AgentSettingsToggle />
+          <ConfigToggle />
+          <TerminalToggle />
+        </div>
 
-        {/* Agent settings gear icon */}
-        <button
-          onClick={() => setAgentSettingsPanelOpen(!agentSettingsPanelOpen)}
-          aria-label={agentSettingsPanelOpen ? 'Close agent settings' : 'Open agent settings'}
-          aria-pressed={agentSettingsPanelOpen}
-          title="Agent settings"
-          className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary transition-all duration-150 ease-apple"
-        >
-          <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
-            smart_toy
-          </span>
-        </button>
+        <div className="w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
 
-        <ConfigToggle />
-        <TerminalToggle />
         <Button
           variant="primary"
           onClick={openCreateModal}
@@ -69,6 +58,11 @@ export function Header() {
           </span>
           New Task
         </Button>
+
+        <div className="w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
+
+        {/* Utility Strip */}
+        <ThemeToggle />
       </div>
     </header>
   );
