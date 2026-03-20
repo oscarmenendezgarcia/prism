@@ -61,6 +61,7 @@ export function ConfigFileSidebar({ onRequestSwitch }: ConfigFileSidebarProps) {
   const configLoading      = useAppStore((s) => s.configLoading);
 
   const globalFiles  = configFiles.filter((f) => f.scope === 'global');
+  const agentFiles   = configFiles.filter((f) => f.scope === 'agent');
   const projectFiles = configFiles.filter((f) => f.scope === 'project');
 
   if (configLoading && configFiles.length === 0) {
@@ -93,6 +94,20 @@ export function ConfigFileSidebar({ onRequestSwitch }: ConfigFileSidebarProps) {
         <div>
           <ScopeHeading label="Global" />
           {globalFiles.map((file) => (
+            <FileItem
+              key={file.id}
+              file={file}
+              isActive={file.id === activeConfigFileId}
+              onClick={() => onRequestSwitch(file.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {agentFiles.length > 0 && (
+        <div>
+          <ScopeHeading label="Agents" />
+          {agentFiles.map((file) => (
             <FileItem
               key={file.id}
               file={file}
