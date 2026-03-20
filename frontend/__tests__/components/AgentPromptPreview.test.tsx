@@ -177,17 +177,18 @@ describe('AgentPromptPreview — prompt preview section', () => {
     expect(document.body).toHaveTextContent('Prompt Preview');
   });
 
-  it('shows the promptPreview content in the textarea', () => {
+  it('renders the promptPreview content via MarkdownViewer in read mode', () => {
+    // In read mode the textarea is replaced by a MarkdownViewer.
+    // "## TASK CONTEXT" becomes an <h2> element with text "TASK CONTEXT".
     renderPreview();
-    const textarea = document.body.querySelector('textarea');
-    expect(textarea).toBeInTheDocument();
-    expect(textarea!.value).toContain('## TASK CONTEXT');
+    expect(document.body.querySelector('textarea')).not.toBeInTheDocument();
+    expect(document.body).toHaveTextContent('TASK CONTEXT');
   });
 
-  it('textarea is read-only by default', () => {
+  it('does not show an editable textarea in read mode', () => {
+    // Confirm no textarea is present until the user clicks Edit.
     renderPreview();
-    const textarea = document.body.querySelector('textarea') as HTMLTextAreaElement;
-    expect(textarea.readOnly).toBe(true);
+    expect(document.body.querySelector('textarea')).toBeNull();
   });
 });
 
