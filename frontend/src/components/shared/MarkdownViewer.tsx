@@ -99,7 +99,7 @@ const components: Components = {
 
   /** Fenced code blocks — uses mono font + surface-variant bg */
   pre: ({ children }) => (
-    <pre className="bg-surface-variant border border-border rounded-md p-4 my-3 overflow-x-auto text-xs font-mono text-text-primary whitespace-pre">
+    <pre className="bg-surface-variant border border-border rounded-md p-4 my-3 overflow-x-auto text-sm font-mono text-text-primary whitespace-pre leading-snug">
       {children}
     </pre>
   ),
@@ -130,8 +130,8 @@ const components: Components = {
   // ── Table (GFM) ────────────────────────────────────────────────────────
 
   table: ({ children }) => (
-    <div className="overflow-x-auto my-3">
-      <table className="w-full text-xs border-collapse border border-border rounded-md overflow-hidden">
+    <div className="overflow-x-auto my-3 rounded-md border border-border overflow-hidden">
+      <table className="w-full text-xs border-collapse">
         {children}
       </table>
     </div>
@@ -142,17 +142,17 @@ const components: Components = {
   ),
 
   tbody: ({ children }) => (
-    <tbody className="divide-y divide-border">{children}</tbody>
+    <tbody>{children}</tbody>
   ),
 
   tr: ({ children }) => (
-    <tr className="hover:bg-surface-variant/50 transition-colors duration-100">
+    <tr className="border-t border-border hover:bg-surface-variant/50 transition-colors duration-100">
       {children}
     </tr>
   ),
 
   th: ({ children }) => (
-    <th className="px-3 py-2 text-left font-semibold text-text-secondary border-b border-border">
+    <th className="px-3 py-2 text-left font-semibold text-text-secondary border-r border-border last:border-r-0">
       {children}
     </th>
   ),
