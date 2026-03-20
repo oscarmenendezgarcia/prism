@@ -13,6 +13,7 @@ import React, { useState, useCallback } from 'react';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { Badge } from '@/components/shared/Badge';
+import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
 import { useAppStore, usePromptPreviewOpen, usePreparedRun, useAvailableAgents } from '@/stores/useAppStore';
 
 const MODAL_LABEL_ID = 'agent-prompt-preview-title';
@@ -138,16 +139,22 @@ export function AgentPromptPreview() {
               </button>
             </div>
           </div>
-          <textarea
-            readOnly={!editMode}
-            value={editMode ? editedPreview : preparedRun.promptPreview}
-            onChange={(e) => setEditedPreview(e.target.value)}
-            rows={8}
-            className={`w-full bg-surface-variant border border-border rounded-md p-3 text-xs font-mono text-text-primary resize-none focus:outline-none focus:ring-1 focus:ring-primary/50 ${
-              editMode ? '' : 'opacity-80 cursor-default'
-            }`}
-            aria-label="Prompt preview"
-          />
+          {editMode ? (
+            <textarea
+              value={editedPreview}
+              onChange={(e) => setEditedPreview(e.target.value)}
+              rows={8}
+              className="w-full bg-surface-variant border border-border rounded-md p-3 text-xs font-mono text-text-primary resize-none focus:outline-none focus:ring-1 focus:ring-primary/50"
+              aria-label="Prompt preview (edit mode)"
+            />
+          ) : (
+            <div
+              className="bg-surface-variant border border-border rounded-md p-3 overflow-y-auto max-h-64"
+              aria-label="Prompt preview"
+            >
+              <MarkdownViewer content={preparedRun.promptPreview} />
+            </div>
+          )}
           {editMode && (
             <p className="text-[11px] text-text-disabled mt-1">
               Preview only — the full prompt is in the temp file.
