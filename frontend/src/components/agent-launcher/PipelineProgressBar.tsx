@@ -8,6 +8,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore, usePipelineState } from '@/stores/useAppStore';
 
+
 const STAGE_LABELS: Record<string, string> = {
   'senior-architect': 'Architect',
   'ux-api-designer':  'UX',
@@ -24,6 +25,7 @@ function formatElapsed(seconds: number): string {
 export function PipelineProgressBar() {
   const pipelineState = usePipelineState();
   const abortPipeline = useAppStore((s) => s.abortPipeline);
+  const clearPipeline = useAppStore((s) => s.clearPipeline);
 
   const [elapsedSecs, setElapsedSecs] = useState(0);
 
@@ -103,7 +105,7 @@ export function PipelineProgressBar() {
         {formatElapsed(elapsedSecs)}
       </span>
 
-      {/* Abort button */}
+      {/* Abort button — only while actively running */}
       {status === 'running' && (
         <button
           onClick={abortPipeline}
@@ -117,6 +119,18 @@ export function PipelineProgressBar() {
           Abort
         </button>
       )}
+
+      {/* Dismiss — always visible so a stuck indicator can be cleared */}
+      <button
+        onClick={clearPipeline}
+        aria-label="Dismiss pipeline indicator"
+        title="Dismiss"
+        className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-150"
+      >
+        <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+          close
+        </span>
+      </button>
     </div>
   );
 }
