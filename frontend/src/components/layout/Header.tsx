@@ -15,7 +15,8 @@ import { PipelineProgressBar } from '@/components/agent-launcher/PipelineProgres
 import { useAppStore } from '@/stores/useAppStore';
 
 export function Header() {
-  const openCreateModal       = useAppStore((s) => s.openCreateModal);
+  const openCreateModal           = useAppStore((s) => s.openCreateModal);
+  const agentSettingsPanelOpen    = useAppStore((s) => s.agentSettingsPanelOpen);
   const setAgentSettingsPanelOpen = useAppStore((s) => s.setAgentSettingsPanelOpen);
 
   return (
@@ -45,8 +46,9 @@ export function Header() {
 
         {/* Agent settings gear icon */}
         <button
-          onClick={() => setAgentSettingsPanelOpen(true)}
-          aria-label="Open agent settings"
+          onClick={() => setAgentSettingsPanelOpen(!agentSettingsPanelOpen)}
+          aria-label={agentSettingsPanelOpen ? 'Close agent settings' : 'Open agent settings'}
+          aria-pressed={agentSettingsPanelOpen}
           title="Agent settings"
           className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary transition-all duration-150 ease-apple"
         >
