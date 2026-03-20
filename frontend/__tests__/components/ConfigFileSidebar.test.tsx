@@ -162,3 +162,58 @@ describe('ConfigFileSidebar — only global files', () => {
     expect(screen.queryByText(/project/i)).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// BUG-002: Agent-scope section coverage
+// ---------------------------------------------------------------------------
+
+const AGENT_FILE: ConfigFile = {
+  id: 'agent-developer-agent-md',
+  name: 'developer-agent.md',
+  scope: 'agent',
+  directory: '~/.claude/agents',
+  sizeBytes: 6300,
+  modifiedAt: '2026-03-18T09:00:00.000Z',
+};
+
+const AGENT_FILE_2: ConfigFile = {
+  id: 'agent-senior-architect-md',
+  name: 'senior-architect.md',
+  scope: 'agent',
+  directory: '~/.claude/agents',
+  sizeBytes: 11400,
+  modifiedAt: '2026-03-18T08:00:00.000Z',
+};
+
+describe('ConfigFileSidebar — agent-scope section', () => {
+  it('renders "Agents" section heading when agent-scope files exist', () => {
+    resetStore({ configFiles: [AGENT_FILE] });
+    render(<ConfigFileSidebar onRequestSwitch={vi.fn()} />);
+    // getAllByText because the directory label (~/.claude/agents) also matches /agents/i
+    const matches = screen.getAllByText(/agents/i);
+    expect(matches.length).toBeGreaterThanOrEqual(1);
+    // The section heading renders the exact text "Agents"
+    expect(screen.getByText('Agents')).toBeInTheDocument();
+  });
+
+  it('renders agent file names under the Agents heading', () => {
+    resetStore({ configFiles: [AGENT_FILE, AGENT_FILE_2] });
+    render(<ConfigFileSidebar onRequestSwitch={vi.fn()} />);
+    expect(screen.getByText('developer-agent.md')).toBeInTheDocument();
+    expect(screen.getByText('senior-architect.md')).toBeInTheDocument();
+  });
+
+  it('clicking an agent file calls onRequestSwitch with the correct fileId', () => {
+    resetStore({ configFiles: [AGENT_FILE, AGENT_FILE_2] });
+    const onSwitch = vi.fn();
+    render(<ConfigFileSidebar onRequestSwitch={onSwitch} />);
+    fireEvent.click(screen.getByText('developer-agent.md'));
+    expect(onSwitch).toHaveBeenCalledWith('agent-developer-agent-md');
+  });
+
+  it('does not render "Agents" heading when no agent-scope files exist', () => {
+    resetStore({ configFiles: [GLOBAL_FILE, PROJECT_FILE] });
+    render(<ConfigFileSidebar onRequestSwitch={vi.fn()} />);
+    expect(screen.queryByText(/agents/i)).not.toBeInTheDocument();
+  });
+});

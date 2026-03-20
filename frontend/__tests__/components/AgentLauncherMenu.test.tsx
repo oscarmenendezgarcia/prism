@@ -296,7 +296,7 @@ describe('AgentLauncherMenu — Run Full Pipeline', () => {
     fireEvent.click(getTrigger());
     fireEvent.click(screen.getByText(/run full pipeline/i));
 
-    expect(mockStartPipeline).toHaveBeenCalledWith('my-space-id');
+    expect(mockStartPipeline).toHaveBeenCalledWith('my-space-id', 'task-1');
   });
 
   it('dropdown closes after clicking Run Full Pipeline', () => {

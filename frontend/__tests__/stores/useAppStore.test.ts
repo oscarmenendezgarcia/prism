@@ -448,7 +448,7 @@ describe('executeAgentRun', () => {
     await useAppStore.getState().executeAgentRun();
 
     expect(senderFn).toHaveBeenCalledWith(
-      'claude -p "$(cat \'/tmp/prompt.md\')"' + '\n'
+      'claude -p "$(cat \'/tmp/prompt.md\')"' + '\r'
     );
   });
 
