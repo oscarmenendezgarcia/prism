@@ -16,13 +16,13 @@ export function ConfigToggle() {
       onClick={toggleConfigPanel}
       aria-label="Toggle configuration editor"
       aria-pressed={configPanelOpen}
-      className={`w-10 h-10 flex items-center justify-center rounded-2xl transition-all duration-150 ease-apple ${
+      className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 ease-apple ${
         configPanelOpen
           ? 'bg-primary/[0.15] text-primary'
-          : 'bg-white/5 text-text-secondary hover:bg-white/10'
+          : 'text-text-secondary hover:bg-surface-variant hover:text-text-primary'
       }`}
     >
-      <span className="material-symbols-outlined text-xl leading-none" aria-hidden="true">
+      <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
         settings
       </span>
     </button>
