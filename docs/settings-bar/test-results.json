@@ -6,27 +6,33 @@
     "author": "qa-engineer-e2e",
     "runner_frontend": "Vitest 2.1.9",
     "runner_backend": "node:test (Node.js 23.9.0)",
-    "frontend_command": "cd frontend && npm test -- --run --reporter=verbose"
+    "frontend_command": "cd frontend && npm test -- --run --reporter=verbose",
+    "verification_cycle": 2,
+    "note": "Re-verification after developer fixed BUG-001, BUG-002, BUG-003"
   },
   "summary": {
-    "total": 468,
-    "passed": 461,
-    "failed": 4,
+    "total": 466,
+    "passed": 465,
+    "failed": 1,
     "skipped": 0,
     "coverage_percent": "N/A — coverage report did not emit a summary JSON; detailed per-file coverage available via vitest run --coverage"
   },
   "frontend_suite": {
     "test_files_total": 37,
-    "test_files_passed": 35,
-    "test_files_failed": 2,
-    "tests_total": 462,
-    "tests_passed": 459,
-    "tests_failed": 3,
-    "duration_s": 6.22,
+    "test_files_passed": 36,
+    "test_files_failed": 1,
+    "tests_total": 466,
+    "tests_passed": 465,
+    "tests_failed": 1,
+    "duration_s": 6.10,
     "failed_files": [
-      "__tests__/stores/useAppStore.test.ts",
-      "__tests__/components/AgentLauncherMenu.test.tsx"
-    ]
+      "__tests__/stores/useAppStore.test.ts"
+    ],
+    "still_failing": {
+      "test": "executeAgentRun > shows 'Opening terminal...' toast and error when terminalSender is null after 500ms wait",
+      "reason": "BUG-004 (Low, deferred) — real polling loop exceeds Vitest 5s timeout. Requires fake timers fix.",
+      "resolved_this_cycle": ["BUG-001", "BUG-002", "BUG-003"]
+    }
   },
   "backend_suite": {
     "tests_total": 9,
@@ -202,27 +208,54 @@
       "type": "unit",
       "description": "AgentLauncherMenu passes spaceId AND taskId to startPipeline",
       "test_ref": "AgentLauncherMenu.test.tsx > clicking Run Full Pipeline calls startPipeline with the spaceId",
-      "status": "fail",
+      "status": "pass",
       "duration_ms": 10,
-      "notes": "BUG-001. Test asserts startPipeline called with ('my-space-id') only. Implementation now calls startPipeline(spaceId, taskId) — two arguments. Test must be updated to expect toHaveBeenCalledWith('my-space-id', 'task-1')."
+      "notes": "BUG-001 RESOLVED. Test now asserts toHaveBeenCalledWith('my-space-id', 'task-1'). Passes in cycle 2."
     },
     {
       "id": "TC-017",
       "type": "unit",
       "description": "ConfigFileSidebar renders Agents section heading",
-      "test_ref": "ConfigFileSidebar.test.tsx — no test for scope=agent files",
-      "status": "skip",
-      "duration_ms": 0,
-      "notes": "BUG-002. No test exists for the 'Agents' section added in T-008. ConfigFileSidebar.test.tsx only covers global and project scopes."
+      "test_ref": "ConfigFileSidebar.test.tsx > ConfigFileSidebar — agent-scope section > renders 'Agents' section heading when agent-scope files exist",
+      "status": "pass",
+      "duration_ms": 15,
+      "notes": "BUG-002 RESOLVED. Four new agent-scope tests added. All pass in cycle 2."
+    },
+    {
+      "id": "TC-017b",
+      "type": "unit",
+      "description": "ConfigFileSidebar renders agent file names under Agents heading",
+      "test_ref": "ConfigFileSidebar.test.tsx > ConfigFileSidebar — agent-scope section > renders agent file names under the Agents heading",
+      "status": "pass",
+      "duration_ms": 15,
+      "notes": "BUG-002 RESOLVED — new test."
+    },
+    {
+      "id": "TC-017c",
+      "type": "unit",
+      "description": "ConfigFileSidebar clicking agent file calls onRequestSwitch",
+      "test_ref": "ConfigFileSidebar.test.tsx > ConfigFileSidebar — agent-scope section > clicking an agent file calls onRequestSwitch with the correct fileId",
+      "status": "pass",
+      "duration_ms": 15,
+      "notes": "BUG-002 RESOLVED — new test."
+    },
+    {
+      "id": "TC-017d",
+      "type": "unit",
+      "description": "ConfigFileSidebar does not render Agents heading when no agent files",
+      "test_ref": "ConfigFileSidebar.test.tsx > ConfigFileSidebar — agent-scope section > does not render 'Agents' heading when no agent-scope files exist",
+      "status": "pass",
+      "duration_ms": 15,
+      "notes": "BUG-002 RESOLVED — new test."
     },
     {
       "id": "TC-018",
       "type": "unit",
       "description": "executeAgentRun sends cliCommand+CR to PTY sender",
       "test_ref": "useAppStore.test.ts > executeAgentRun > sends the CLI command + newline via terminalSender when connected",
-      "status": "fail",
+      "status": "pass",
       "duration_ms": 18,
-      "notes": "BUG-003. Implementation sends cmd + '\\r'. Test expects cmd + '\\n'. One is wrong; PTY requires carriage return ('\\r') for Enter. Test assertion is incorrect."
+      "notes": "BUG-003 RESOLVED. Test assertion updated to cmd + '\\r'. Passes in cycle 2."
     },
     {
       "id": "TC-019",
@@ -230,8 +263,8 @@
       "description": "executeAgentRun null-sender path completes within timeout",
       "test_ref": "useAppStore.test.ts > executeAgentRun > shows Opening terminal... toast and error when terminalSender is null after 500ms wait",
       "status": "fail",
-      "duration_ms": 5002,
-      "notes": "BUG-004. Real polling loop with 3-second timeout plus 800ms delay inside test — exceeds Vitest 5s default timeout. Requires fake timers (vi.useFakeTimers) in test setup."
+      "duration_ms": 5033,
+      "notes": "BUG-004 still open (deferred Low). Real polling loop exceeds 5s Vitest default timeout. Requires vi.useFakeTimers() fix. Does not block merge gate."
     },
     {
       "id": "TC-020",
