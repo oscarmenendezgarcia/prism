@@ -135,6 +135,7 @@ export type PipelineStage =
 /** State of an in-progress pipeline run. */
 export interface PipelineState {
   spaceId: string;
+  taskId: string;
   stages: PipelineStage[];
   currentStageIndex: number;
   startedAt: string; // ISO timestamp

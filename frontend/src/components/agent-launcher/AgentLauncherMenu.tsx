@@ -7,6 +7,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useAppStore, useActiveRun, useAvailableAgents } from '@/stores/useAppStore';
 import type { AgentInfo } from '@/types';
 
@@ -16,9 +17,10 @@ interface AgentLauncherMenuProps {
 }
 
 export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
-  const [open, setOpen]     = useState(false);
-  const menuRef             = useRef<HTMLDivElement>(null);
-  const buttonRef           = useRef<HTMLButtonElement>(null);
+  const [open, setOpen]         = useState(false);
+  const [menuPos, setMenuPos]   = useState({ top: 0, left: 0 });
+  const menuRef                 = useRef<HTMLDivElement>(null);
+  const buttonRef               = useRef<HTMLButtonElement>(null);
 
   const activeRun       = useActiveRun();
   const availableAgents = useAvailableAgents();
@@ -28,9 +30,19 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
 
   const isDisabled = activeRun !== null;
 
+  const MENU_WIDTH    = 200;
+  const MENU_MAX_HEIGHT = 300;
+
   /** Open dropdown — lazy-load agents on first open. */
   const handleOpen = useCallback(() => {
     if (isDisabled) return;
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      // Always open downward; clamp so the menu never leaves the viewport.
+      const top  = Math.min(rect.bottom + 4, window.innerHeight - MENU_MAX_HEIGHT - 8);
+      const left = Math.min(rect.left, window.innerWidth - MENU_WIDTH - 8);
+      setMenuPos({ top, left });
+    }
     setOpen(true);
     if (availableAgents.length === 0) {
       loadAgents();
@@ -46,11 +58,11 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
     [prepareAgentRun, taskId]
   );
 
-  /** Run full pipeline for the current space. */
+  /** Run full pipeline for the current space, anchored to this task card. */
   const handleRunPipeline = useCallback(() => {
     setOpen(false);
-    startPipeline(spaceId);
-  }, [startPipeline, spaceId]);
+    startPipeline(spaceId, taskId);
+  }, [startPipeline, spaceId, taskId]);
 
   /** Close dropdown on outside click. */
   useEffect(() => {
@@ -96,12 +108,13 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
         </span>
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
           ref={menuRef}
           role="menu"
           aria-label="Select agent"
-          className="absolute bottom-full mb-1 left-0 z-50 min-w-[200px] bg-surface-elevated border border-border rounded-lg shadow-modal overflow-hidden"
+          style={{ top: menuPos.top, left: menuPos.left, maxHeight: 300 }}
+          className="fixed z-[9999] min-w-[200px] bg-surface-elevated border border-border rounded-lg shadow-modal overflow-y-auto"
         >
           {/* Agent list */}
           {availableAgents.length === 0 ? (
@@ -146,7 +159,8 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
               <span>Run Full Pipeline</span>
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

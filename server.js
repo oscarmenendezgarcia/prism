@@ -1436,8 +1436,9 @@ function buildCliCommand(settings, promptPath) {
     return `${bin} run ${promptRef}`;
   }
 
-  // claude (default) — include allowedTools flag
-  return `${bin} -p ${promptRef} --allowedTools "Agent,Bash,Read,Write,Edit,Glob,Grep"`;
+  // claude (default) — interactive mode so tool calls and thinking are visible in the TUI.
+  // Omitting -p intentionally: -p (non-interactive) hides intermediate steps and exits immediately.
+  return `${bin} ${promptRef} --allowedTools "Agent,Bash,Read,Write,Edit,Glob,Grep"`;
 }
 
 /**

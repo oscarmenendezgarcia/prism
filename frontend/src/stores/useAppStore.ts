@@ -147,9 +147,11 @@ interface AppState {
 
   /** Active pipeline state — null when no pipeline is running. */
   pipelineState: PipelineState | null;
-  startPipeline: (spaceId: string) => Promise<void>;
+  startPipeline: (spaceId: string, taskId: string) => Promise<void>;
   advancePipeline: () => Promise<void>;
   abortPipeline: () => void;
+  /** Silently dismiss the pipeline indicator without sending Ctrl+C or toasting. */
+  clearPipeline: () => void;
 
   /** Agent settings panel open state. */
   agentSettingsPanelOpen: boolean;
@@ -444,8 +446,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // ── Agent launcher ────────────────────────────────────────────────────────
 
-  terminalSender:         null,
-  setTerminalSender:      (fn) => set({ terminalSender: fn }),
+  terminalSender:    null,
+  setTerminalSender: (fn) => {
+    set({ terminalSender: fn });
+    // When the terminal disconnects, clear any active run so the launcher
+    // button re-enables. The pipeline indicator stays visible (user dismisses
+    // it explicitly via the × button).
+    if (!fn && get().activeRun) {
+      set({ activeRun: null });
+    }
+  },
 
   availableAgents: [],
   loadAgents: async () => {
@@ -506,22 +516,37 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { preparedRun, terminalSender, setTerminalOpen, showToast } = get();
     if (!preparedRun) return;
 
-    // If terminal sender is null, open the terminal and wait for connection.
+    // If terminal sender is null, open the terminal and poll until connected (up to 3s).
+    let justOpened = false;
     if (!terminalSender) {
+      justOpened = true;
       showToast('Opening terminal...', 'success');
       setTerminalOpen(true);
-      // Retry after 500ms to allow WebSocket to establish.
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const sender = get().terminalSender;
-      if (!sender) {
+      const POLL_INTERVAL = 100;
+      const POLL_TIMEOUT  = 3000;
+      let elapsed = 0;
+      while (elapsed < POLL_TIMEOUT) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
+        elapsed += POLL_INTERVAL;
+        if (get().terminalSender) break;
+      }
+      if (!get().terminalSender) {
         showToast('Could not connect to terminal. Please open the terminal panel and try again.', 'error');
         return;
       }
     }
 
+    // When the terminal was just opened, the shell (zsh/bash) may still be loading
+    // its rc files. Give it time to fully initialize before injecting the command,
+    // otherwise the \r can be consumed during shell startup and the command appears
+    // typed but not submitted.
+    if (justOpened) {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+    }
+
     const sender = get().terminalSender!;
     const cmd    = preparedRun.cliCommand;
-    const sent   = sender(cmd + '\n');
+    const sent   = sender(cmd + '\r');
 
     if (!sent) {
       showToast('Could not connect to terminal. Please open the terminal panel and try again.', 'error');
@@ -555,7 +580,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   pipelineState: null,
 
-  startPipeline: async (spaceId: string) => {
+  startPipeline: async (spaceId: string, taskId: string) => {
     const { agentSettings, showToast } = get();
     const stages = (agentSettings?.pipeline.stages ?? [
       'senior-architect',
@@ -571,13 +596,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         currentStageIndex: 0,
         startedAt: new Date().toISOString(),
         status:    'running',
+        taskId,
       },
     });
 
-    // Trigger the first stage
+    // Trigger the first stage using the real task ID from the card.
     const firstStage = stages[0];
-    // Use a synthetic task — pipeline creates its own context from space
-    await get().prepareAgentRun('pipeline', firstStage);
+    await get().prepareAgentRun(taskId, firstStage);
     showToast(`Pipeline started — Stage 1: ${firstStage}`);
   },
 
@@ -600,7 +625,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const nextStage = pipelineState.stages[nextIndex];
     showToast(`Stage ${nextIndex + 1}: ${nextStage}`);
-    await get().prepareAgentRun('pipeline', nextStage);
+    await get().prepareAgentRun(pipelineState.taskId, nextStage);
   },
 
   abortPipeline: () => {
@@ -615,6 +640,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ pipelineState: null, activeRun: null });
     showToast(`Pipeline aborted at stage ${stage}.`);
   },
+
+  clearPipeline: () => set({ pipelineState: null, activeRun: null }),
 
   agentSettingsPanelOpen:    false,
   setAgentSettingsPanelOpen: (open: boolean) => set({ agentSettingsPanelOpen: open }),
