@@ -18,6 +18,7 @@ import { AgentSettingsPanel } from '@/components/agent-launcher/AgentSettingsPan
 import { AgentPromptPreview } from '@/components/agent-launcher/AgentPromptPreview';
 import { CreateTaskModal } from '@/components/modals/CreateTaskModal';
 import { AttachmentModal } from '@/components/modals/AttachmentModal';
+import { MarkdownModal } from '@/components/modals/MarkdownModal';
 import { SpaceModal } from '@/components/modals/SpaceModal';
 import { DeleteSpaceDialog } from '@/components/modals/DeleteSpaceDialog';
 import { Toast } from '@/components/shared/Toast';
@@ -104,6 +105,7 @@ function AppContent() {
       <AgentPromptPreview />
       <CreateTaskModal />
       <AttachmentModal />
+      <MarkdownModal />
       <SpaceModal />
       <DeleteSpaceDialog />
 

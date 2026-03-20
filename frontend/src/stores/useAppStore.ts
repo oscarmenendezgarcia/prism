@@ -15,6 +15,7 @@ import type {
   Column,
   CreateTaskPayload,
   AttachmentModalState,
+  MarkdownModalState,
   SpaceModalState,
   DeleteSpaceDialogState,
   ToastState,
@@ -77,6 +78,11 @@ interface AppState {
   attachmentModal: AttachmentModalState | null;
   openAttachmentModal: (spaceId: string, taskId: string, index: number, name: string) => void;
   closeAttachmentModal: () => void;
+
+  // Markdown modal (rendered .md viewer)
+  markdownModal: MarkdownModalState | null;
+  openMarkdownModal: (title: string, content: string, source?: string) => void;
+  closeMarkdownModal: () => void;
 
   // Space modal (create/rename)
   spaceModal: SpaceModalState | null;
@@ -308,6 +314,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   openAttachmentModal: (spaceId, taskId, index, name) =>
     set({ attachmentModal: { open: true, spaceId, taskId, index, name } }),
   closeAttachmentModal: () => set({ attachmentModal: null }),
+
+  // ── Markdown modal ───────────────────────────────────────────────────────
+
+  markdownModal: null,
+  openMarkdownModal: (title, content, source) =>
+    set({ markdownModal: { open: true, title, content, source } }),
+  closeMarkdownModal: () => set({ markdownModal: null }),
 
   // ── Space modal ──────────────────────────────────────────────────────────
 

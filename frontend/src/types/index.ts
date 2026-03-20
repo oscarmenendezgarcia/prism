@@ -94,6 +94,17 @@ export interface ToastState {
   type: 'success' | 'error';
 }
 
+/** Markdown viewer modal state — used to show .md attachments rendered. */
+export interface MarkdownModalState {
+  open: boolean;
+  /** Display title shown in the modal header. */
+  title: string;
+  /** Raw markdown string to render. */
+  content: string;
+  /** Optional source file path (shown in a footer banner). */
+  source?: string;
+}
+
 /** Terminal connection status. */
 export type TerminalStatus = 'connecting' | 'connected' | 'disconnected';
 
