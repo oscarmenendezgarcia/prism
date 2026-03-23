@@ -177,6 +177,33 @@ interface AppState {
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
+// ---------------------------------------------------------------------------
+// Private pipeline helpers (not part of AppState interface)
+// ---------------------------------------------------------------------------
+
+/**
+ * Search the already-loaded tasks slice for a task by ID and return its title.
+ * Looks across all three columns so it works regardless of the task's current position.
+ * Falls back to a safe string when the task is not in the local store yet.
+ *
+ * ADR-1 (pipeline-subtasks): avoids an extra API round-trip because the board
+ * is already loaded in Zustand when the pipeline starts.
+ *
+ * @param get   - Zustand get() accessor from the store closure
+ * @param taskId - The task ID to look up
+ */
+function resolveMainTaskTitle(
+  get: () => AppState,
+  taskId: string,
+): string {
+  const tasks = get().tasks;
+  const found =
+    tasks['todo'].find((t) => t.id === taskId) ??
+    tasks['in-progress'].find((t) => t.id === taskId) ??
+    tasks['done'].find((t) => t.id === taskId);
+  return found?.title ?? `Task ${taskId}`;
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   // ── Spaces ──────────────────────────────────────────────────────────────
 
@@ -594,7 +621,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   pipelineState: null,
 
   startPipeline: async (spaceId: string, taskId: string) => {
-    const { agentSettings, showToast } = get();
+    const { agentSettings, availableAgents, showToast } = get();
     const stages = (agentSettings?.pipeline.stages ?? [
       'senior-architect',
       'ux-api-designer',
@@ -602,6 +629,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       'qa-engineer-e2e',
     ]) as PipelineStage[];
 
+    // Initialise pipeline state with an empty subTaskIds array.
+    // taskId is the main anchor task — it is never moved by the pipeline.
+    // ADR-1 (pipeline-subtasks): each stage gets its own dedicated sub-task.
     set({
       pipelineState: {
         spaceId,
@@ -610,17 +640,52 @@ export const useAppStore = create<AppState>((set, get) => ({
         startedAt: new Date().toISOString(),
         status:    'running',
         taskId,
+        subTaskIds: [],
       },
     });
 
-    // Trigger the first stage using the real task ID from the card.
-    const firstStage = stages[0];
-    await get().prepareAgentRun(taskId, firstStage);
-    showToast(`Pipeline started — Stage 1: ${firstStage}`);
+    const firstStage      = stages[0];
+    const mainTitle       = resolveMainTaskTitle(get, taskId);
+    const agentDisplayName =
+      availableAgents.find((a) => a.id === firstStage)?.displayName ?? firstStage;
+
+    let subTask;
+    try {
+      subTask = await api.createTask(spaceId, {
+        title:       `${mainTitle} / Stage 1: ${agentDisplayName}`,
+        type:        'research',
+        assigned:    firstStage,
+        description: `Pipeline sub-task for stage 1. Parent task: ${taskId}`,
+      });
+    } catch (err) {
+      showToast(
+        `Pipeline aborted: could not create sub-task for stage 1 — ${(err as Error).message}`,
+        'error',
+      );
+      set({ pipelineState: null, activeRun: null });
+      return;
+    }
+
+    // Store the sub-task ID and pass it — not the main taskId — to the agent.
+    set({ pipelineState: { ...get().pipelineState!, subTaskIds: [subTask.id] } });
+
+    console.log(JSON.stringify({
+      timestamp:  new Date().toISOString(),
+      level:      'info',
+      component:  'agent-launcher',
+      event:      'pipeline_subtask_created',
+      stageIndex: 0,
+      subTaskId:  subTask.id,
+      mainTaskId: taskId,
+      agentId:    firstStage,
+    }));
+
+    await get().prepareAgentRun(subTask.id, firstStage);
+    showToast(`Pipeline started — Stage 1: ${agentDisplayName}`);
   },
 
   advancePipeline: async () => {
-    const { pipelineState, showToast } = get();
+    const { pipelineState, availableAgents, showToast } = get();
     if (!pipelineState || pipelineState.status !== 'running') return;
 
     const nextIndex = pipelineState.currentStageIndex + 1;
@@ -632,13 +697,50 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
+    const nextStage        = pipelineState.stages[nextIndex];
+    const agentDisplayName =
+      availableAgents.find((a) => a.id === nextStage)?.displayName ?? nextStage;
+    const mainTitle        = resolveMainTaskTitle(get, pipelineState.taskId);
+
+    let subTask;
+    try {
+      subTask = await api.createTask(pipelineState.spaceId, {
+        title:       `${mainTitle} / Stage ${nextIndex + 1}: ${agentDisplayName}`,
+        type:        'research',
+        assigned:    nextStage,
+        description: `Pipeline sub-task for stage ${nextIndex + 1}. Parent task: ${pipelineState.taskId}`,
+      });
+    } catch (err) {
+      showToast(
+        `Pipeline aborted: could not create sub-task for stage ${nextIndex + 1} — ${(err as Error).message}`,
+        'error',
+      );
+      set({ pipelineState: null, activeRun: null });
+      return;
+    }
+
+    // Advance the stage index and append the new sub-task ID atomically.
     set({
-      pipelineState: { ...pipelineState, currentStageIndex: nextIndex },
+      pipelineState: {
+        ...pipelineState,
+        currentStageIndex: nextIndex,
+        subTaskIds: [...pipelineState.subTaskIds, subTask.id],
+      },
     });
 
-    const nextStage = pipelineState.stages[nextIndex];
-    showToast(`Stage ${nextIndex + 1}: ${nextStage}`);
-    await get().prepareAgentRun(pipelineState.taskId, nextStage);
+    console.log(JSON.stringify({
+      timestamp:  new Date().toISOString(),
+      level:      'info',
+      component:  'agent-launcher',
+      event:      'pipeline_subtask_created',
+      stageIndex: nextIndex,
+      subTaskId:  subTask.id,
+      mainTaskId: pipelineState.taskId,
+      agentId:    nextStage,
+    }));
+
+    showToast(`Stage ${nextIndex + 1}: ${agentDisplayName}`);
+    await get().prepareAgentRun(subTask.id, nextStage);
   },
 
   abortPipeline: () => {
