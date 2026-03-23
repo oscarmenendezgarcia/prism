@@ -34,7 +34,7 @@ import type {
 const ACTIVE_SPACE_KEY    = 'prism-active-space';
 const TERMINAL_OPEN_KEY   = 'terminal:open';
 const CONFIG_OPEN_KEY     = 'config-panel:open';
-const ACTIVITY_OPEN_KEY   = 'activity-panel:open';
+const ACTIVITY_OPEN_KEY   = 'prism:activity-panel-open';
 
 /** Maximum number of activity events held in memory at once. */
 const ACTIVITY_MAX_EVENTS = 500;
