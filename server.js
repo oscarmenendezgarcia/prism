@@ -19,6 +19,7 @@ const path = require('path');
 
 const { migrate }             = require('./src/migrator');
 const { createSpaceManager }  = require('./src/spaceManager');
+const pipelineManager         = require('./src/pipelineManager');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -2001,6 +2002,160 @@ function handleListAgentRuns(req, res, dataDir) {
 // Server factory — exported for use by tests and direct invocation
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Pipeline routes — ADR-1 (mcp-start-pipeline)
+// POST   /api/v1/runs
+// GET    /api/v1/runs/:runId
+// GET    /api/v1/runs/:runId/stages/:stageIndex/log
+// DELETE /api/v1/runs/:runId
+// ---------------------------------------------------------------------------
+
+/** Route patterns for pipeline run endpoints (compiled once at module level). */
+const PIPELINE_RUNS_LIST_ROUTE   = /^\/api\/v1\/runs$/;
+const PIPELINE_RUNS_SINGLE_ROUTE = /^\/api\/v1\/runs\/([^/]+)$/;
+const PIPELINE_RUNS_LOG_ROUTE    = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/log$/;
+
+/**
+ * POST /api/v1/runs
+ * Create and kick off a new pipeline run.
+ * Body: { spaceId, taskId, stages? }
+ * Returns 201 with the initial run object.
+ *
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse}  res
+ * @param {string}               dataDir
+ */
+async function handleCreateRun(req, res, dataDir) {
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+  }
+
+  if (!body || typeof body !== 'object') {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
+  }
+
+  const { spaceId, taskId, stages } = body;
+
+  if (!spaceId || typeof spaceId !== 'string') {
+    return sendError(res, 400, 'VALIDATION_ERROR', "The 'spaceId' field is required.");
+  }
+  if (!taskId || typeof taskId !== 'string') {
+    return sendError(res, 400, 'VALIDATION_ERROR', "The 'taskId' field is required.");
+  }
+  if (stages !== undefined && !Array.isArray(stages)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', "The 'stages' field must be an array when provided.");
+  }
+
+  try {
+    const run = await pipelineManager.createRun({ spaceId, taskId, stages, dataDir });
+    return sendJSON(res, 201, run);
+  } catch (err) {
+    if (err.code === 'TASK_NOT_FOUND')         return sendError(res, 404, err.code, err.message);
+    if (err.code === 'TASK_NOT_IN_TODO')        return sendError(res, 422, err.code, err.message);
+    if (err.code === 'MAX_CONCURRENT_REACHED')  return sendError(res, 409, err.code, err.message);
+    if (err.code === 'AGENT_NOT_FOUND')         return sendError(res, 422, err.code, err.message);
+    console.error('[pipeline] ERROR creating run:', err);
+    return sendError(res, 500, 'INTERNAL_ERROR', err.message);
+  }
+}
+
+/**
+ * GET /api/v1/runs/:runId
+ * Return the full run state.
+ * Returns 200 with run object, or 404 RUN_NOT_FOUND.
+ *
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse}  res
+ * @param {string}               runId
+ * @param {string}               dataDir
+ */
+async function handleGetRun(req, res, runId, dataDir) {
+  const run = await pipelineManager.getRun(runId, dataDir);
+  if (!run) {
+    return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
+  }
+  return sendJSON(res, 200, run);
+}
+
+/**
+ * GET /api/v1/runs/:runId/stages/:stageIndex/log?tail=200
+ * Return the log file content for a specific stage.
+ * Returns 200 text/plain, or 404 for missing run/stage/log.
+ *
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse}  res
+ * @param {string}               runId
+ * @param {number}               stageIndex
+ * @param {string}               dataDir
+ */
+async function handleGetStageLog(req, res, runId, stageIndex, dataDir) {
+  const run = await pipelineManager.getRun(runId, dataDir);
+  if (!run) {
+    return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
+  }
+
+  if (stageIndex < 0 || stageIndex >= run.stages.length) {
+    return sendError(res, 404, 'STAGE_NOT_FOUND', `Stage ${stageIndex} does not exist in run '${runId}'.`);
+  }
+
+  const logPath = pipelineManager.stageLogPath(dataDir, runId, stageIndex);
+  if (!fs.existsSync(logPath)) {
+    return sendError(res, 404, 'LOG_NOT_AVAILABLE', `Log for stage ${stageIndex} of run '${runId}' is not yet available.`);
+  }
+
+  try {
+    const urlObj   = new URL(req.url, 'http://x');
+    const tailParam = urlObj.searchParams.get('tail');
+    const tailN    = tailParam ? parseInt(tailParam, 10) : 0;
+
+    const content = fs.readFileSync(logPath, 'utf8');
+    let output    = content;
+
+    if (tailN > 0) {
+      const lines = content.split('\n');
+      output = lines.slice(Math.max(0, lines.length - tailN)).join('\n');
+    }
+
+    const buf = Buffer.from(output, 'utf8');
+    res.writeHead(200, {
+      'Content-Type':   'text/plain; charset=utf-8',
+      'Content-Length': buf.length,
+    });
+    res.end(buf);
+  } catch (err) {
+    console.error(`[pipeline] ERROR reading log for run ${runId} stage ${stageIndex}:`, err.message);
+    return sendError(res, 500, 'INTERNAL_ERROR', 'Failed to read stage log file');
+  }
+}
+
+/**
+ * DELETE /api/v1/runs/:runId
+ * Cancel and remove a run. Sends SIGTERM to any active stage process.
+ * Returns 200 { deleted: true }.
+ *
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse}  res
+ * @param {string}               runId
+ * @param {string}               dataDir
+ */
+async function handleDeleteRun(req, res, runId, dataDir) {
+  const run = await pipelineManager.getRun(runId, dataDir);
+  if (!run) {
+    return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
+  }
+
+  try {
+    await pipelineManager.deleteRun(runId, dataDir);
+    return sendJSON(res, 200, { deleted: true, runId });
+  } catch (err) {
+    console.error(`[pipeline] ERROR deleting run ${runId}:`, err.message);
+    return sendError(res, 500, 'INTERNAL_ERROR', err.message);
+  }
+}
+
 /**
  * Route patterns for space management.
  * Defined at module level for performance — compiled once.
@@ -2036,6 +2191,10 @@ function startServer(options = {}) {
   // --- Step 2: Create SpaceManager and ensure all space directories exist. ---
   const spaceManager = createSpaceManager(dataDir);
   spaceManager.ensureAllSpaces();
+
+  // --- Step 2b: Initialize pipeline manager (startup recovery). ---
+  // Marks any run with status='running' as 'interrupted' from a previous crash.
+  pipelineManager.init(dataDir);
 
   // --- Step 3: Build a Map-based cache of createApp instances by spaceId. ---
   /** @type {Map<string, ReturnType<createApp>>} */
@@ -2232,6 +2391,33 @@ function startServer(options = {}) {
     if (agentRunSingleMatch) {
       const runId = agentRunSingleMatch[1];
       if (method === 'PATCH') return handleUpdateAgentRun(req, res, dataDir, runId);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    // -----------------------------------------------------------------------
+    // Pipeline run routes — ADR-1 (mcp-start-pipeline)
+    // Exact /api/v1/runs route MUST be tested before the parameterized regex.
+    // Log route MUST be tested before the single-run route to avoid shadowing.
+    // -----------------------------------------------------------------------
+
+    const pipelineLogMatch = PIPELINE_RUNS_LOG_ROUTE.exec(urlPath);
+    if (pipelineLogMatch) {
+      const runId      = pipelineLogMatch[1];
+      const stageIndex = parseInt(pipelineLogMatch[2], 10);
+      if (method === 'GET') return handleGetStageLog(req, res, runId, stageIndex, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    if (PIPELINE_RUNS_LIST_ROUTE.test(urlPath)) {
+      if (method === 'POST') return handleCreateRun(req, res, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const pipelineSingleMatch = PIPELINE_RUNS_SINGLE_ROUTE.exec(urlPath);
+    if (pipelineSingleMatch) {
+      const runId = pipelineSingleMatch[1];
+      if (method === 'GET')    return handleGetRun(req, res, runId, dataDir);
+      if (method === 'DELETE') return handleDeleteRun(req, res, runId, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

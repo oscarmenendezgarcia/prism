@@ -2,6 +2,8 @@ node_modules
 dist/
 data/
 !data/.gitkeep
+!data/runs/
+!data/runs/.gitkeep
 .env
 .env.local
 .env.*.local
