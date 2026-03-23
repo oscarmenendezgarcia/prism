@@ -252,3 +252,45 @@ export interface ConfigFileSaveResult {
   sizeBytes: number;
   modifiedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Agent run history types (ADR-1: Agent Run History)
+// ---------------------------------------------------------------------------
+
+/** Lifecycle status of an agent run. Terminal states: completed, cancelled, failed. */
+export type RunStatus = 'running' | 'completed' | 'cancelled' | 'failed';
+
+/**
+ * A persisted record of one agent run lifecycle.
+ * Fields are denormalized at write time so historical records remain accurate
+ * even if the task or space is later renamed or deleted.
+ */
+export interface AgentRunRecord {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  agentId: string;
+  agentDisplayName: string;
+  spaceId: string;
+  spaceName: string;
+  status: RunStatus;
+  startedAt: string;           // ISO timestamp
+  completedAt: string | null;  // ISO timestamp or null while running
+  durationMs: number | null;   // milliseconds, null while running
+  cliCommand: string;
+  promptPath: string;
+  reason?: 'stale';            // only on status=failed stale runs (not persisted)
+}
+
+/** Payload for PATCH /api/v1/agent-runs/:runId — transitions run to a terminal status. */
+export interface AgentRunPatchPayload {
+  status: 'completed' | 'cancelled' | 'failed';
+  completedAt: string;
+  durationMs: number;
+}
+
+/** Response from GET /api/v1/agent-runs. */
+export interface AgentRunsResponse {
+  runs: AgentRunRecord[];
+  total: number;
+}
