@@ -75,6 +75,21 @@ describe('ConfigPanel — structure', () => {
     expect(screen.getByRole('button', { name: /close configuration panel/i })).toBeInTheDocument();
   });
 
+  it('renders a drag handle with role=separator for panel resize', () => {
+    render(<ConfigPanel />);
+    const handle = screen.getByRole('separator', { name: /resize panel/i });
+    expect(handle).toBeInTheDocument();
+  });
+
+  it('<aside> uses inline style width instead of a hardcoded w-[480px] class', () => {
+    render(<ConfigPanel />);
+    const aside = screen.getByRole('complementary', { name: /configuration editor/i });
+    // Dynamic width is applied via style attribute
+    expect(aside).toHaveStyle({ width: '480px' });
+    // Hardcoded Tailwind width class must not be present
+    expect(aside.className).not.toContain('w-[480px]');
+  });
+
   it('calls loadConfigFiles on mount', async () => {
     render(<ConfigPanel />);
     await waitFor(() => {
