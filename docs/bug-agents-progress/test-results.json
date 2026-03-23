@@ -1,0 +1,251 @@
+{
+  "meta": {
+    "feature": "bug-agents-progress",
+    "branch": "feature/bug-agents-progress",
+    "qa_date": "2026-03-23",
+    "qa_engineer": "qa-engineer-e2e",
+    "test_runner": "Vitest 3.x + React Testing Library",
+    "node_version": "23",
+    "typescript_version": "5.x"
+  },
+  "summary": {
+    "total": 25,
+    "passed": 22,
+    "failed": 1,
+    "skipped": 0,
+    "gap": 1,
+    "advisory": 1,
+    "coverage_percent_changed_files": 100,
+    "typescript_errors": 0,
+    "pre_existing_failures_excluded": 1
+  },
+  "automated_suite": {
+    "total_suite_tests": 523,
+    "suite_passed": 522,
+    "suite_failed": 1,
+    "suite_failed_test": "__tests__/stores/useAppStore.test.ts > executeAgentRun > shows 'Opening terminal...' toast and error when terminalSender is null after 500ms wait",
+    "suite_failure_reason": "Test timed out in 5000ms — pre-existing on main, not introduced by this branch",
+    "hook_tests_useAgentCompletion": 11,
+    "hook_tests_usePolling": 9,
+    "hook_tests_passed": 20,
+    "hook_tests_failed": 0,
+    "duration_ms": 9710
+  },
+  "performance": {
+    "polling_interval_active_ms": 1000,
+    "polling_interval_idle_ms": 3000,
+    "max_detection_latency_ms": 1000,
+    "previous_max_detection_latency_ms": 3000,
+    "notes": "Completion detection latency reduced 3x when activeRun is present. No API performance regression — polling cadence only. p95/p99 API thresholds not applicable to this client-side-only change."
+  },
+  "security": {
+    "owasp_checks": [
+      { "category": "A01:2021 Broken Access Control", "result": "N/A — client-side hook, no access control surface" },
+      { "category": "A03:2021 Injection", "result": "N/A — no user input processed" },
+      { "category": "A05:2021 Security Misconfiguration", "result": "N/A" }
+    ],
+    "vulnerabilities_found": 0
+  },
+  "test_cases": [
+    {
+      "id": "TC-001",
+      "type": "unit",
+      "description": "Does nothing when activeRun is null",
+      "status": "pass",
+      "duration_ms": 5,
+      "notes": "Covered by useAgentCompletion.test.ts"
+    },
+    {
+      "id": "TC-002",
+      "type": "unit",
+      "description": "Fires clearActiveRun when task enters done with updatedAt >= startedAt",
+      "status": "pass",
+      "duration_ms": 5,
+      "notes": "Core fix path verified"
+    },
+    {
+      "id": "TC-003",
+      "type": "unit",
+      "description": "Shows completion toast when task moves to done",
+      "status": "pass",
+      "duration_ms": 4,
+      "notes": ""
+    },
+    {
+      "id": "TC-004",
+      "type": "unit",
+      "description": "Uses agent displayName in toast",
+      "status": "pass",
+      "duration_ms": 4,
+      "notes": "Falls back to agentId when agent not in availableAgents — not tested explicitly"
+    },
+    {
+      "id": "TC-005",
+      "type": "unit",
+      "description": "Does NOT fire when task is in in-progress, not done",
+      "status": "pass",
+      "duration_ms": 3,
+      "notes": ""
+    },
+    {
+      "id": "TC-006",
+      "type": "unit",
+      "description": "Does NOT fire when task.updatedAt < startedAt (pipeline stage guard)",
+      "status": "pass",
+      "duration_ms": 4,
+      "notes": "Critical pipeline stages 2-4 regression guard. The primary bug scenario."
+    },
+    {
+      "id": "TC-007",
+      "type": "unit",
+      "description": "Calls advancePipeline when autoAdvance=true, confirmBetweenStages=false",
+      "status": "pass",
+      "duration_ms": 4,
+      "notes": ""
+    },
+    {
+      "id": "TC-008",
+      "type": "unit",
+      "description": "Does NOT call advancePipeline when autoAdvance=false",
+      "status": "pass",
+      "duration_ms": 3,
+      "notes": ""
+    },
+    {
+      "id": "TC-009",
+      "type": "unit",
+      "description": "Shows confirmation toast instead of advancing when confirmBetweenStages=true",
+      "status": "pass",
+      "duration_ms": 4,
+      "notes": ""
+    },
+    {
+      "id": "TC-010",
+      "type": "unit",
+      "description": "Does NOT call advancePipeline when pipelineState is null",
+      "status": "pass",
+      "duration_ms": 3,
+      "notes": ""
+    },
+    {
+      "id": "TC-011",
+      "type": "unit",
+      "description": "Does NOT call advancePipeline when pipelineState.status != running",
+      "status": "pass",
+      "duration_ms": 3,
+      "notes": ""
+    },
+    {
+      "id": "TC-012",
+      "type": "unit",
+      "description": "Polls loadBoard every 3000ms at idle",
+      "status": "pass",
+      "duration_ms": 12,
+      "notes": "Uses fake timers"
+    },
+    {
+      "id": "TC-013",
+      "type": "unit",
+      "description": "Skips loadBoard when isMutating=true",
+      "status": "pass",
+      "duration_ms": 6,
+      "notes": ""
+    },
+    {
+      "id": "TC-014",
+      "type": "unit",
+      "description": "Clears interval on unmount",
+      "status": "pass",
+      "duration_ms": 4,
+      "notes": ""
+    },
+    {
+      "id": "TC-015",
+      "type": "unit",
+      "description": "Does not create multiple intervals on re-render",
+      "status": "pass",
+      "duration_ms": 5,
+      "notes": "setInterval spy asserted to be called exactly once across 2 rerenders"
+    },
+    {
+      "id": "TC-016",
+      "type": "unit",
+      "description": "Resumes polling when isMutating becomes false",
+      "status": "pass",
+      "duration_ms": 8,
+      "notes": ""
+    },
+    {
+      "id": "TC-017",
+      "type": "unit",
+      "description": "Polls at 1000ms when activeRun is set",
+      "status": "pass",
+      "duration_ms": 7,
+      "notes": "Adaptive interval fast path"
+    },
+    {
+      "id": "TC-018",
+      "type": "unit",
+      "description": "Does NOT poll at 1000ms when activeRun is null",
+      "status": "pass",
+      "duration_ms": 9,
+      "notes": "Verifies idle cadence is 3000ms not 1000ms"
+    },
+    {
+      "id": "TC-019",
+      "type": "unit",
+      "description": "Switches to 1000ms when activeRun becomes non-null",
+      "status": "pass",
+      "duration_ms": 10,
+      "notes": "Interval restart on activeRun change verified"
+    },
+    {
+      "id": "TC-020",
+      "type": "unit",
+      "description": "Switches back to 3000ms when activeRun cleared",
+      "status": "pass",
+      "duration_ms": 11,
+      "notes": "Interval restart on activeRun → null verified"
+    },
+    {
+      "id": "TC-021",
+      "type": "static",
+      "description": "Dead code: intervalMsRef declared and updated but never read in usePolling",
+      "status": "fail",
+      "duration_ms": 0,
+      "notes": "BUG-001. Lines 41-44 in usePolling.ts. Low severity."
+    },
+    {
+      "id": "TC-022",
+      "type": "static",
+      "description": "Equal-timestamp boundary: updatedAt === startedAt not explicitly tested",
+      "status": "gap",
+      "duration_ms": 0,
+      "notes": "BUG-002. The >= operator in code is correct but the test suite only covers strict-before and strict-after. Low severity gap."
+    },
+    {
+      "id": "TC-023",
+      "type": "static",
+      "description": "agentSettings null guard with pipelineState running",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": "Nullish coalescing defaults (autoAdvance ?? true, confirmBetween ?? true) are safe"
+    },
+    {
+      "id": "TC-024",
+      "type": "integration",
+      "description": "TypeScript compilation — no type errors",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": "npx tsc --noEmit completed with zero errors"
+    },
+    {
+      "id": "TC-025",
+      "type": "static",
+      "description": "Blueprint spec uses React selector; implementation uses subscription+useState — advisory only",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": "Both approaches are functionally equivalent. Subscription approach avoids unnecessary re-renders from selector. Advisory only."
+    }
+  ]
+}
