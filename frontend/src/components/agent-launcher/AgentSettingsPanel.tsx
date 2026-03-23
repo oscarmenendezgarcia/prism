@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore, useAgentSettings, useAgentSettingsPanelOpen } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
+import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
 import type { AgentSettings, CliSettings, PipelineSettings, PromptsSettings } from '@/types';
 
 const CLI_TOOLS = [
@@ -125,6 +126,36 @@ export function AgentSettingsPanel() {
           <p className="text-sm text-text-secondary">Loading settings...</p>
         ) : (
           <>
+            {/* Custom instructions section */}
+            {prompts && (
+              <section aria-labelledby="settings-custom-instructions-heading">
+                <h3
+                  id="settings-custom-instructions-heading"
+                  className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3"
+                >
+                  Custom Instructions
+                </h3>
+
+                <div className="space-y-2">
+                  <p className="text-xs text-text-secondary">
+                    Add custom instructions that will be appended to the agent prompt. Markdown is supported.
+                  </p>
+                  <textarea
+                    value={prompts.customInstructions}
+                    onChange={(e) => setPrompts((p) => ({ ...p!, customInstructions: e.target.value }))}
+                    rows={6}
+                    className="w-full bg-surface-variant border border-border rounded-md px-3 py-2 text-xs font-mono text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 overflow-y-auto"
+                    placeholder="e.g. Always use TypeScript and follow the project's coding conventions."
+                  />
+                   {prompts?.customInstructions?.trim().length > 0 && (
+                    <div className="bg-surface border border-border rounded-md p-3 overflow-y-auto max-h-64">
+                      <MarkdownViewer content={prompts.customInstructions} />
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
+
             {/* CLI Tool section */}
             <section aria-labelledby="settings-cli-heading">
               <h3

@@ -52,11 +52,12 @@ const DEFAULT_SETTINGS: AgentSettings = {
     confirmBetweenStages: true,
     stages: ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e'],
   },
-  prompts: {
-    includeKanbanBlock: true,
-    includeGitBlock:    true,
-    workingDirectory:   '',
-  },
+    prompts: {
+      includeKanbanBlock: true,
+      includeGitBlock:    true,
+      workingDirectory:   '',
+      customInstructions: '',
+    },
 };
 
 // ---------------------------------------------------------------------------
@@ -217,6 +218,72 @@ describe('AgentSettingsPanel — working directory input', () => {
     });
     render(<AgentSettingsPanel />);
     expect(screen.getByLabelText(/working directory/i)).toHaveValue('/home/user/project');
+  });
+});
+
+describe('AgentSettingsPanel — custom instructions', () => {
+  it('renders custom instructions textarea', () => {
+    resetStore({ agentSettingsPanelOpen: true });
+    render(<AgentSettingsPanel />);
+    expect(screen.getByPlaceholderText(/e.g. Always use TypeScript/i)).toBeInTheDocument();
+  });
+
+  it('reflects the settings customInstructions value', () => {
+    resetStore({
+      agentSettingsPanelOpen: true,
+      agentSettings: {
+        ...DEFAULT_SETTINGS,
+        prompts: { ...DEFAULT_SETTINGS.prompts, customInstructions: 'Use markdown formatting.' },
+      },
+    });
+    render(<AgentSettingsPanel />);
+    expect(screen.getByPlaceholderText(/e.g. Always use TypeScript/i)).toHaveValue('Use markdown formatting.');
+  });
+
+  it('renders MarkdownViewer when custom instructions contain content', () => {
+    resetStore({
+      agentSettingsPanelOpen: true,
+      agentSettings: {
+        ...DEFAULT_SETTINGS,
+        prompts: { ...DEFAULT_SETTINGS.prompts, customInstructions: '# Heading\n\n**Bold text**' },
+      },
+    });
+    render(<AgentSettingsPanel />);
+    expect(screen.getByRole('heading', { name: 'Heading' })).toBeInTheDocument();
+  });
+
+  it('does NOT render MarkdownViewer when custom instructions are empty', () => {
+    resetStore({
+      agentSettingsPanelOpen: true,
+      agentSettings: {
+        ...DEFAULT_SETTINGS,
+        prompts: { ...DEFAULT_SETTINGS.prompts, customInstructions: '' },
+      },
+    });
+    render(<AgentSettingsPanel />);
+    expect(screen.queryByText('Heading')).not.toBeInTheDocument();
+    expect(screen.queryByText('Bold text')).not.toBeInTheDocument();
+  });
+
+  it('includes customInstructions in save', async () => {
+    const saveFn = vi.fn().mockResolvedValue(undefined);
+    resetStore({
+      agentSettingsPanelOpen: true,
+      saveSettings: saveFn,
+      agentSettings: {
+        ...DEFAULT_SETTINGS,
+        prompts: { ...DEFAULT_SETTINGS.prompts, customInstructions: 'Custom note.' },
+      },
+    });
+    render(<AgentSettingsPanel />);
+    fireEvent.click(screen.getByRole('button', { name: /save settings/i }));
+    await waitFor(() => {
+      expect(saveFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompts: expect.objectContaining({ customInstructions: 'Custom note.' }),
+        })
+      );
+    });
   });
 });
 
