@@ -15,6 +15,7 @@ import { Board } from '@/components/board/Board';
 import { TerminalPanel } from '@/components/terminal/TerminalPanel';
 import { ConfigPanel } from '@/components/config/ConfigPanel';
 import { AgentSettingsPanel } from '@/components/agent-launcher/AgentSettingsPanel';
+import { RunHistoryPanel } from '@/components/agent-run-history/RunHistoryPanel';
 import { AgentPromptPreview } from '@/components/agent-launcher/AgentPromptPreview';
 import { CreateTaskModal } from '@/components/modals/CreateTaskModal';
 import { AttachmentModal } from '@/components/modals/AttachmentModal';
@@ -25,6 +26,8 @@ import { Toast } from '@/components/shared/Toast';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
 import { useAgentCompletion } from '@/hooks/useAgentCompletion';
+import { useRunHistoryPolling } from '@/hooks/useRunHistoryPolling';
+import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
 
 /** React Error Boundary to prevent white-screen crashes. */
 class ErrorBoundary extends React.Component<
@@ -71,9 +74,10 @@ class ErrorBoundary extends React.Component<
 function AppContent() {
   const loadSpaces           = useAppStore((s) => s.loadSpaces);
   const loadSettings         = useAppStore((s) => s.loadSettings);
-  const terminalOpen         = useAppStore((s) => s.terminalOpen);
-  const configPanelOpen      = useAppStore((s) => s.configPanelOpen);
+  const terminalOpen           = useAppStore((s) => s.terminalOpen);
+  const configPanelOpen        = useAppStore((s) => s.configPanelOpen);
   const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
+  const historyPanelOpen       = useRunHistoryStore((s) => s.historyPanelOpen);
 
   useEffect(() => {
     loadSpaces();
@@ -82,6 +86,7 @@ function AppContent() {
 
   usePolling();
   useAgentCompletion();
+  useRunHistoryPolling();
 
   return (
     <div className="flex flex-col h-full">
@@ -97,6 +102,7 @@ function AppContent() {
             <Board />
           </div>
           {terminalOpen && <TerminalPanel />}
+          {historyPanelOpen && <RunHistoryPanel />}
           {configPanelOpen && <ConfigPanel />}
           {agentSettingsPanelOpen && <AgentSettingsPanel />}
         </div>
