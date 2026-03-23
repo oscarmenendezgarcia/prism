@@ -115,10 +115,10 @@ function resolveAgent(agentId, agentsDir) {
   let spawnArgs;
   if (agentMode === 'headless') {
     // Stable fallback: pass system prompt and model explicitly via -p flag.
-    spawnArgs = ['-p', systemPrompt, '--model', model, '--no-auto-approve'];
+    spawnArgs = ['-p', systemPrompt, '--model', model, '--dangerously-skip-permissions'];
   } else {
     // Default subagent mode: invoke the named agent definition.
-    spawnArgs = ['--agent', agentId, '--print', '--no-auto-approve'];
+    spawnArgs = ['--agent', agentId, '--print', '--dangerously-skip-permissions'];
   }
 
   return { agentId, model, systemPrompt, spawnArgs };

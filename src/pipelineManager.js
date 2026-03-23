@@ -28,6 +28,30 @@ const { spawn }    = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 
+/**
+ * Read a task from the kanban column files by ID.
+ * Searches todo, in-progress, and done columns.
+ * Returns null if not found.
+ *
+ * @param {string} baseDataDir - Base data directory (parent of spaceId dirs)
+ * @param {string} spaceId
+ * @param {string} taskId
+ * @returns {object|null}
+ */
+function readTaskFromSpace(baseDataDir, spaceId, taskId) {
+  const spaceDir = path.join(baseDataDir, spaceId);
+  for (const col of ['todo', 'in-progress', 'done']) {
+    try {
+      const tasks = JSON.parse(fs.readFileSync(path.join(spaceDir, `${col}.json`), 'utf8'));
+      const task  = tasks.find((t) => t.id === taskId);
+      if (task) return task;
+    } catch {
+      // Column file missing or unreadable — skip.
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Constants and configuration
 // ---------------------------------------------------------------------------
@@ -335,13 +359,23 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   pipelineLog('stage.started', { runId: run.runId, stageIndex, agentId });
 
+  // Build the task prompt to pass via stdin.
+  const task = readTaskFromSpace(dataDir, run.spaceId, run.taskId);
+  const taskPrompt = task
+    ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${run.spaceId}\n`
+    : `TaskId: ${run.taskId}\nSpaceId: ${run.spaceId}\n`;
+
   const logPath   = stageLogPath(dataDir, run.runId, stageIndex);
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 
   const child = spawn('claude', agentSpec.spawnArgs, {
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
     env:   { ...process.env },
   });
+
+  // Write task context to stdin and close so claude receives the prompt.
+  child.stdin.write(taskPrompt);
+  child.stdin.end();
 
   activeProcesses.set(run.runId, { process: child, stageIndex });
 
