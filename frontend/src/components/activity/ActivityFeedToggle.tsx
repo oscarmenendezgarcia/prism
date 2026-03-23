@@ -30,7 +30,7 @@ export function ActivityFeedToggle() {
   return (
     <button
       onClick={togglePanel}
-      aria-label={`Toggle activity feed${showBadge ? `, ${unreadCount} unread` : ''}`}
+      aria-label={`Activity feed${showBadge ? `, ${unreadCount} unread events` : ''}`}
       aria-pressed={panelOpen}
       className={`relative w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 ease-apple ${
         panelOpen
