@@ -8,6 +8,9 @@
 
 import { create } from 'zustand';
 import * as api from '@/api/client';
+// Imported via getState() to avoid circular imports with useRunHistoryStore.
+// ADR-1 (Agent Run History) §5.1: all lifecycle calls use getState() boundary.
+import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
 import type {
   Space,
   Task,
@@ -512,6 +515,20 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   cancelAgentRun: () => {
     const { terminalSender, activeRun, showToast } = get();
+
+    // ADR-1 (Agent Run History) §5.1: record cancellation before clearing activeRun.
+    if (activeRun) {
+      const durationMs = Date.now() - Date.parse(activeRun.startedAt);
+      // Look up the run ID from the history store (last running run for this task).
+      const runs = useRunHistoryStore.getState().runs;
+      const activeRecord = runs.find(
+        (r) => r.status === 'running' && r.taskId === activeRun.taskId
+      );
+      if (activeRecord) {
+        useRunHistoryStore.getState().recordRunFinished(activeRecord.id, 'cancelled', durationMs);
+      }
+    }
+
     if (terminalSender) {
       terminalSender('\x03'); // Ctrl+C
       showToast('Agent run cancelled.');
@@ -593,12 +610,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
+    const startedAt = new Date().toISOString();
+
     set({
       activeRun: {
         taskId:     preparedRun.taskId,
         agentId:    preparedRun.agentId,
         spaceId:    preparedRun.spaceId,
-        startedAt:  new Date().toISOString(),
+        startedAt,
         cliCommand: cmd,
         promptPath: preparedRun.promptPath,
       },
@@ -614,6 +633,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       agentId:   preparedRun.agentId,
       taskId:    preparedRun.taskId,
     }));
+
+    // ADR-1 (Agent Run History) §5.1: record run start in history store.
+    // Resolve taskTitle and spaceName from current store state (denormalized for history).
+    const { tasks, spaces } = get();
+    const allTasks = [...tasks['todo'], ...tasks['in-progress'], ...tasks['done']];
+    const task     = allTasks.find((t) => t.id === preparedRun.taskId);
+    const space    = spaces.find((s) => s.id === preparedRun.spaceId);
+    const runId    = `run_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const { availableAgents } = get();
+    const agentDisplayName =
+      availableAgents.find((a) => a.id === preparedRun.agentId)?.displayName ??
+      preparedRun.agentId;
+
+    useRunHistoryStore.getState().recordRunStarted({
+      id:               runId,
+      taskId:           preparedRun.taskId,
+      taskTitle:        task?.title ?? `Task ${preparedRun.taskId}`,
+      agentId:          preparedRun.agentId,
+      agentDisplayName,
+      spaceId:          preparedRun.spaceId,
+      spaceName:        space?.name ?? preparedRun.spaceId,
+      startedAt,
+      cliCommand:       cmd,
+      promptPath:       preparedRun.promptPath,
+    });
   },
 
   // ── Pipeline ──────────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@
 
 import { useEffect } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
+import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
 
 export function useAgentCompletion(): void {
   useEffect(() => {
@@ -41,6 +42,16 @@ export function useAgentCompletion(): void {
       const agentDisplayName =
         availableAgents.find((a) => a.id === activeRun.agentId)?.displayName ??
         activeRun.agentId;
+
+      // ADR-1 (Agent Run History) §5.1: record completion in history store.
+      const durationMs = Date.now() - Date.parse(activeRun.startedAt);
+      const runs = useRunHistoryStore.getState().runs;
+      const activeRecord = runs.find(
+        (r) => r.status === 'running' && r.taskId === activeRun.taskId
+      );
+      if (activeRecord) {
+        useRunHistoryStore.getState().recordRunFinished(activeRecord.id, 'completed', durationMs);
+      }
 
       state.clearActiveRun();
       state.showToast(`Agent run completed: ${agentDisplayName}`);
