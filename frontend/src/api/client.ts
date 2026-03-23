@@ -195,3 +195,66 @@ export const saveSettings = (partial: Partial<AgentSettings>): Promise<AgentSett
     method: 'PUT',
     body: JSON.stringify(partial),
   });
+
+// ---------------------------------------------------------------------------
+// Agent run history API (ADR-1: Agent Run History)
+// ---------------------------------------------------------------------------
+
+import type {
+  AgentRunRecord,
+  AgentRunPatchPayload,
+  AgentRunsResponse,
+  RunStatus,
+} from '@/types';
+
+/**
+ * POST /api/v1/agent-runs
+ * Record a new agent run with status=running.
+ * Called from executeAgentRun() after injecting the CLI command into the PTY.
+ *
+ * @param record - Run record without server-set fields (status, completedAt, durationMs).
+ * @returns The created run ID.
+ */
+export const createAgentRun = (
+  record: Omit<AgentRunRecord, 'status' | 'completedAt' | 'durationMs' | 'reason'>
+): Promise<{ id: string }> =>
+  apiFetch<{ id: string }>('/agent-runs', {
+    method: 'POST',
+    body: JSON.stringify(record),
+  });
+
+/**
+ * PATCH /api/v1/agent-runs/:runId
+ * Transition a run to a terminal status (completed, cancelled, or failed).
+ * Called from useAgentCompletion and cancelAgentRun.
+ *
+ * @param runId - The run ID to update.
+ * @param patch - Status transition payload.
+ * @returns The updated run ID and status.
+ */
+export const updateAgentRun = (
+  runId: string,
+  patch: AgentRunPatchPayload
+): Promise<{ id: string; status: RunStatus }> =>
+  apiFetch<{ id: string; status: RunStatus }>(`/agent-runs/${encodeURIComponent(runId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+
+/**
+ * GET /api/v1/agent-runs
+ * Fetch agent run history, newest-first.
+ * Stale healing is applied server-side: running records older than 4 hours are returned as failed.
+ *
+ * @param params - Optional status filter and result limit.
+ * @returns Paginated run list and total count.
+ */
+export const getAgentRuns = (
+  params?: { status?: RunStatus; limit?: number }
+): Promise<AgentRunsResponse> => {
+  const qs = new URLSearchParams();
+  if (params?.status)          qs.set('status', params.status);
+  if (params?.limit != null)   qs.set('limit', String(params.limit));
+  const query = qs.toString() ? `?${qs.toString()}` : '';
+  return apiFetch<AgentRunsResponse>(`/agent-runs${query}`);
+};
