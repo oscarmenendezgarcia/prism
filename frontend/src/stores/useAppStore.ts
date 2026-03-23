@@ -26,12 +26,18 @@ import type {
   PipelineStage,
   PreparedRun,
   AgentSettings,
+  ActivityEvent,
+  ActivityFilter,
 } from '@/types';
 
 /** Keys used to persist state across page reloads. */
-const ACTIVE_SPACE_KEY  = 'prism-active-space';
-const TERMINAL_OPEN_KEY = 'terminal:open';
-const CONFIG_OPEN_KEY   = 'config-panel:open';
+const ACTIVE_SPACE_KEY    = 'prism-active-space';
+const TERMINAL_OPEN_KEY   = 'terminal:open';
+const CONFIG_OPEN_KEY     = 'config-panel:open';
+const ACTIVITY_OPEN_KEY   = 'activity-panel:open';
+
+/** Maximum number of activity events held in memory at once. */
+const ACTIVITY_MAX_EVENTS = 500;
 
 const COLUMNS: Column[] = ['todo', 'in-progress', 'done'];
 
@@ -169,6 +175,40 @@ interface AppState {
   settingsLoading: boolean;
   loadSettings: () => Promise<void>;
   saveSettings: (partial: Partial<AgentSettings>) => Promise<void>;
+
+  // ── Activity Feed (ADR-1: Activity Feed) ──────────────────────────────────
+
+  /** Whether the activity sidebar panel is visible. Persisted in localStorage. */
+  activityPanelOpen: boolean;
+  /** Live + loaded events. Capped at ACTIVITY_MAX_EVENTS (oldest dropped). */
+  activityEvents: ActivityEvent[];
+  /** Current filter applied in the activity panel. */
+  activityFilter: ActivityFilter;
+  /** Count of unseen events that arrived while the panel was closed. */
+  activityUnreadCount: number;
+  /** True while loadActivityHistory is in flight. */
+  activityLoading: boolean;
+
+  toggleActivityPanel: () => void;
+  setActivityPanelOpen: (open: boolean) => void;
+  /**
+   * Prepend a single event from the WebSocket broadcast.
+   * Increments unreadCount when the panel is closed.
+   * Drops oldest events beyond ACTIVITY_MAX_EVENTS.
+   */
+  addActivityEvent: (event: ActivityEvent) => void;
+  /**
+   * Merge partial filter fields into the current activityFilter.
+   * Passing undefined for a field leaves it unchanged.
+   */
+  setActivityFilter: (filter: Partial<ActivityFilter>) => void;
+  /**
+   * Fetch a page of historical events from the REST API and append them.
+   * @param cursor - Pagination cursor from a previous nextCursor value. Omit for first page.
+   */
+  loadActivityHistory: (cursor?: string) => Promise<void>;
+  /** Reset activityUnreadCount to 0 (called when the panel is opened). */
+  clearActivityUnread: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -787,6 +827,79 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().showToast(`Failed to save settings: ${(err as Error).message}`, 'error');
     }
   },
+
+  // ── Activity Feed ─────────────────────────────────────────────────────────
+
+  activityPanelOpen:   localStorage.getItem(ACTIVITY_OPEN_KEY) === '1',
+  activityEvents:      [],
+  activityFilter:      {},
+  activityUnreadCount: 0,
+  activityLoading:     false,
+
+  toggleActivityPanel: () => {
+    const next = !get().activityPanelOpen;
+    if (next) {
+      localStorage.setItem(ACTIVITY_OPEN_KEY, '1');
+      // Clear badge when panel is opened
+      set({ activityPanelOpen: true, activityUnreadCount: 0 });
+    } else {
+      localStorage.removeItem(ACTIVITY_OPEN_KEY);
+      set({ activityPanelOpen: false });
+    }
+  },
+
+  setActivityPanelOpen: (open: boolean) => {
+    if (open) {
+      localStorage.setItem(ACTIVITY_OPEN_KEY, '1');
+      set({ activityPanelOpen: true, activityUnreadCount: 0 });
+    } else {
+      localStorage.removeItem(ACTIVITY_OPEN_KEY);
+      set({ activityPanelOpen: false });
+    }
+  },
+
+  addActivityEvent: (event: ActivityEvent) => {
+    const { activityEvents, activityPanelOpen, activityUnreadCount } = get();
+    // Prepend newest; drop oldest when the cap is exceeded
+    const updated = [event, ...activityEvents].slice(0, ACTIVITY_MAX_EVENTS);
+    set({
+      activityEvents:      updated,
+      activityUnreadCount: activityPanelOpen ? 0 : activityUnreadCount + 1,
+    });
+  },
+
+  setActivityFilter: (filter: Partial<ActivityFilter>) => {
+    const current = get().activityFilter;
+    set({ activityFilter: { ...current, ...filter } });
+  },
+
+  loadActivityHistory: async (cursor?: string) => {
+    const { activeSpaceId, activityFilter, activityEvents, showToast } = get();
+    set({ activityLoading: true });
+    try {
+      const params = {
+        ...activityFilter,
+        limit: 50,
+        ...(cursor ? { cursor } : {}),
+      };
+      // Query the active space's activity; fall back to global when no space set
+      const result = activeSpaceId
+        ? await api.getActivity(activeSpaceId, params)
+        : await api.getGlobalActivity(params);
+
+      // Append fetched events (deduplicate by id to be safe)
+      const existingIds = new Set(activityEvents.map((e) => e.id));
+      const newEvents   = result.events.filter((e) => !existingIds.has(e.id));
+      const merged      = [...activityEvents, ...newEvents].slice(0, ACTIVITY_MAX_EVENTS);
+      set({ activityEvents: merged });
+    } catch (err) {
+      showToast(`Failed to load activity: ${(err as Error).message}`, 'error');
+    } finally {
+      set({ activityLoading: false });
+    }
+  },
+
+  clearActivityUnread: () => set({ activityUnreadCount: 0 }),
 }));
 
 // Convenience selector hooks for common slices
@@ -819,3 +932,10 @@ export const usePromptPreviewOpen = () => useAppStore((s) => s.promptPreviewOpen
 // Agent settings selectors
 export const useAgentSettings        = () => useAppStore((s) => s.agentSettings);
 export const useAgentSettingsPanelOpen = () => useAppStore((s) => s.agentSettingsPanelOpen);
+
+// Activity Feed selectors
+export const useActivityPanelOpen   = () => useAppStore((s) => s.activityPanelOpen);
+export const useActivityEvents      = () => useAppStore((s) => s.activityEvents);
+export const useActivityUnreadCount = () => useAppStore((s) => s.activityUnreadCount);
+export const useActivityFilter      = () => useAppStore((s) => s.activityFilter);
+export const useActivityLoading     = () => useAppStore((s) => s.activityLoading);
