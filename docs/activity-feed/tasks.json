@@ -1,0 +1,353 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "activity-feed",
+  "date": "2026-03-23",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Implement ActivityStore module (src/activityStore.js)",
+      "description": "Create the JSONL-based persistence layer: append events, query with filters (spaceId, type, date range, cursor, limit), day-partitioned files in data/activity/, retention cleanup (delete files > 30 days).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 SP",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "append(event) writes a single JSON line to data/activity/YYYY-MM-DD.jsonl",
+        "query({ spaceId, type, from, to, limit, cursor }) returns { events, nextCursor } reading newest-first",
+        "Malformed JSONL lines are skipped with a console warning, not thrown",
+        "cleanup() deletes .jsonl files older than 30 days",
+        "data/activity/ directory is created automatically if missing",
+        "Unit tests cover: append, query with all filter combinations, cursor pagination, retention cleanup, missing directory, malformed lines"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Implement ActivityLogger module (src/activityLogger.js)",
+      "description": "Create the event capture facade: receives mutation metadata, constructs ActivityEvent objects (id, type, spaceId, timestamp, actor, payload), calls ActivityStore.append(), and broadcasts to registered WebSocket listeners. Fire-and-forget: errors are logged, never thrown.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 SP",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "createActivityLogger({ store, broadcast }) returns a logger with log(type, spaceId, payload) method",
+        "log() constructs event with crypto.randomUUID() id, ISO timestamp, 'system' actor",
+        "log() calls store.append(event) and broadcast(event) in sequence",
+        "Errors in append or broadcast are caught and logged, not re-thrown",
+        "Unit tests verify event construction, store.append called, broadcast called, error swallowing"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Implement Activity WebSocket server (activity-ws.js)",
+      "description": "Create the WebSocket endpoint at /ws/activity using ws npm in noServer mode. Handles upgrade requests, enforces localhost origin check, caps connections at 10, sends 'connected' message on open, broadcasts activity events to all connected clients, supports ping/pong keep-alive.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 SP",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "setupActivityWebSocket(httpServer) registers an upgrade handler for /ws/activity path",
+        "Non-/ws/activity paths are ignored (not destroyed) so other upgrade handlers still work",
+        "Localhost origin validation matches LOCALHOST_ORIGINS set (same as terminal.js)",
+        "Max 10 concurrent connections; 11th gets HTTP 429",
+        "'connected' message with timestamp sent on successful connection",
+        "broadcast(event) sends JSON to all connected clients; per-client errors caught",
+        "Client 'ping' messages receive 'pong' response",
+        "maxPayload set to 8192 bytes",
+        "Connection cleanup on close (decrement counter)",
+        "Returns { broadcast } function for use by ActivityLogger"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Fix terminal.js upgrade handler to pass through unknown paths",
+      "description": "Change terminal.js line ~480 from socket.destroy() to return (no-op) for non-/ws/terminal upgrade paths. This allows multiple WebSocket upgrade handlers to coexist on the same HTTP server.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 SP",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Upgrade requests to /ws/terminal still work as before",
+        "Upgrade requests to /ws/activity are no longer destroyed by terminal.js",
+        "Upgrade requests to unknown paths are not destroyed (left unhandled)",
+        "Existing terminal.test.js tests still pass",
+        "New test: verify that a /ws/activity upgrade request is not rejected by terminal.js"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Integrate ActivityLogger into server.js mutation handlers",
+      "description": "Inject the ActivityLogger into createApp() as a parameter. Call logger.log() after the HTTP response is sent in all mutation handlers: handleCreateTask, handleMoveTask, handleUpdateTask, handleDeleteTask, handleClearBoard, handleUpdateAttachments. Also hook space mutation endpoints (create, rename, delete) in the top-level router.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 SP",
+      "dependencies": ["T-001", "T-002", "T-003", "T-004"],
+      "acceptance_criteria": [
+        "createApp(dataDir, { logger }) accepts an optional logger parameter",
+        "Each mutation handler calls logger.log(type, spaceId, payload) after sendJSON()",
+        "When logger is null/undefined, handlers work as before (no logging)",
+        "Space create/rename/delete endpoints in server.js also call logger.log()",
+        "Event types match the blueprint: task.created, task.moved, task.updated, task.deleted, board.cleared, space.created, space.renamed, space.deleted",
+        "Payload includes taskId, taskTitle (or spaceName) as specified in blueprint",
+        "All existing API tests still pass (no behavioral change to responses)"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Wire up server.js startup: ActivityStore + Logger + WS",
+      "description": "In the server.js startup sequence (after server.listen), instantiate ActivityStore, ActivityWS, and ActivityLogger. Wire them together: store -> logger -> broadcast. Schedule retention cleanup at startup and every 24h. Ensure data/activity/ directory exists.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 SP",
+      "dependencies": ["T-005"],
+      "acceptance_criteria": [
+        "ActivityStore is created with data/activity/ directory",
+        "Activity WS server is set up on the HTTP server (after terminal WS)",
+        "ActivityLogger is created with store and broadcast function",
+        "Logger is passed to createApp() and to space route handlers",
+        "Retention cleanup runs at startup and every 24 hours",
+        "Server starts cleanly with no errors when data/activity/ does not exist yet"
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Add REST endpoint: GET /api/v1/spaces/:spaceId/activity",
+      "description": "Add route handler for querying historical activity events for a specific space. Supports query parameters: type, from, to, limit, cursor. Returns { events, nextCursor }. Also add GET /api/v1/activity for global (all-space) queries.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "2 SP",
+      "dependencies": ["T-001", "T-006"],
+      "acceptance_criteria": [
+        "GET /api/v1/spaces/:spaceId/activity returns events filtered by spaceId",
+        "GET /api/v1/activity returns events across all spaces",
+        "Query param 'type' filters by event type (e.g., task.moved)",
+        "Query params 'from' and 'to' filter by date range (ISO-8601)",
+        "Query param 'limit' caps results (default 50, max 200)",
+        "Query param 'cursor' enables cursor-based pagination",
+        "Response shape: { events: [...], nextCursor: string | null }",
+        "400 for invalid query params, 404 for unknown space, 500 for internal errors",
+        "Integration tests cover: no filters, type filter, date range, pagination, invalid params"
+      ]
+    },
+    {
+      "id": "T-008",
+      "title": "Add MCP tool: kanban_list_activity",
+      "description": "Add a new MCP tool in mcp/mcp-server.js that wraps the activity REST endpoint. Allows agents to query activity history programmatically.",
+      "role": "Developer",
+      "priority": "Low",
+      "estimate": "1 SP",
+      "dependencies": ["T-007"],
+      "acceptance_criteria": [
+        "kanban_list_activity tool registered with parameters: spaceId (optional), type (optional), limit (optional, default 20)",
+        "Tool calls GET /api/v1/activity or GET /api/v1/spaces/:spaceId/activity",
+        "Returns formatted event list",
+        "Tool description is clear and matches existing tool naming conventions"
+      ]
+    },
+    {
+      "id": "T-009",
+      "title": "Add TypeScript types for Activity Feed (frontend/src/types/index.ts)",
+      "description": "Add ActivityEvent, ActivityFilter, and related types to the shared types file.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 SP",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "ActivityEvent interface matches blueprint schema (id, type, spaceId, timestamp, actor, payload)",
+        "ActivityEventType union type covers all 8 event types",
+        "ActivityFilter interface has fields: type, from, to",
+        "ActivityQueryResponse interface has fields: events, nextCursor",
+        "Types exported from @/types"
+      ]
+    },
+    {
+      "id": "T-010",
+      "title": "Add API client functions for Activity Feed (frontend/src/api/client.ts)",
+      "description": "Add getActivity(spaceId, filters) and getGlobalActivity(filters) functions to the typed API client.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "1 SP",
+      "dependencies": ["T-009"],
+      "acceptance_criteria": [
+        "getActivity(spaceId, params?) calls GET /api/v1/spaces/:spaceId/activity with query string",
+        "getGlobalActivity(params?) calls GET /api/v1/activity with query string",
+        "Both return Promise<ActivityQueryResponse>",
+        "Query params (type, from, to, limit, cursor) are properly URL-encoded",
+        "Unit test verifies correct URL construction"
+      ]
+    },
+    {
+      "id": "T-011",
+      "title": "Add Zustand store slice for Activity Feed",
+      "description": "Add activity-related state and actions to useAppStore: activityPanelOpen, activityEvents, activityFilter, activityUnreadCount, activityLoading, and corresponding actions (toggle, add event, set filter, load history, clear unread).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 SP",
+      "dependencies": ["T-009", "T-010"],
+      "acceptance_criteria": [
+        "activityPanelOpen boolean with toggle and setter, persisted in localStorage",
+        "activityEvents array holds live + loaded events (max 500 in memory, oldest dropped)",
+        "addActivityEvent(event) prepends to array, increments unreadCount if panel closed",
+        "setActivityFilter(partial) merges filter fields",
+        "loadActivityHistory(cursor?) calls API client, appends to events array",
+        "clearActivityUnread() resets unreadCount to 0",
+        "Selector hooks exported: useActivityPanelOpen, useActivityEvents, useActivityUnreadCount"
+      ]
+    },
+    {
+      "id": "T-012",
+      "title": "Implement useActivityFeed hook (WebSocket lifecycle)",
+      "description": "Create hook that manages the /ws/activity WebSocket connection: connect on mount, auto-reconnect with exponential backoff, parse incoming events, push to Zustand store. Ping/pong keep-alive every 30s.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 SP",
+      "dependencies": ["T-011"],
+      "acceptance_criteria": [
+        "Connects to ws://localhost:3000/ws/activity on mount (or ws://localhost:5173/ws/activity in dev via Vite proxy)",
+        "Auto-reconnect with exponential backoff: 1s, 2s, 4s, 8s, max 30s",
+        "Backoff resets on successful connection",
+        "Parses 'activity' messages and calls addActivityEvent in store",
+        "Sends ping every 30 seconds when connected",
+        "Cleans up WebSocket and timers on unmount",
+        "Unit tests with mocked WebSocket verify: connect, reconnect, event parsing, cleanup"
+      ]
+    },
+    {
+      "id": "T-013",
+      "title": "Add Vite proxy config for /ws/activity",
+      "description": "Update frontend/vite.config.ts to proxy /ws/activity WebSocket requests to localhost:3000, matching the existing /ws/terminal proxy pattern.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 SP",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "/ws/activity proxied to ws://localhost:3000/ws/activity",
+        "WebSocket upgrade (ws: true) configured",
+        "Existing /ws/terminal proxy still works",
+        "Dev server connects successfully to activity WS through Vite proxy"
+      ]
+    },
+    {
+      "id": "T-014",
+      "title": "Implement ActivityFeedPanel component",
+      "description": "Create the sidebar panel component with header (title, close button), filter controls (event type dropdown, date range), scrollable event list, and empty state. Follows design system tokens and shared component patterns.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "5 SP",
+      "dependencies": ["T-011", "T-012"],
+      "acceptance_criteria": [
+        "Panel renders as an aside with resizable width via usePanelResize (like TerminalPanel)",
+        "Header shows 'Activity' title with close button (material-symbols-outlined close icon)",
+        "Event type filter dropdown with options: All, task.created, task.moved, task.updated, task.deleted, space.created, space.renamed, space.deleted, board.cleared",
+        "Each event card shows: icon (per type), human-readable description, relative timestamp (e.g., '2m ago')",
+        "Events auto-scroll to newest when at bottom, preserve position when scrolled up",
+        "Empty state shown when no events match filters",
+        "'Load more' button at bottom for paginated history loading",
+        "Uses Tailwind CSS tokens only (bg-surface, text-text-primary, etc.), no inline styles",
+        "Renders correctly in dark theme (default)"
+      ]
+    },
+    {
+      "id": "T-015",
+      "title": "Add ActivityFeedToggle button to Header",
+      "description": "Add an icon button to the header that toggles the ActivityFeedPanel. Shows unread count badge when panel is closed and new events have arrived.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 SP",
+      "dependencies": ["T-011"],
+      "acceptance_criteria": [
+        "Icon button uses material-symbols-outlined 'notifications' icon",
+        "Click toggles activityPanelOpen in store",
+        "Badge shows activityUnreadCount when > 0 and panel is closed",
+        "Badge hidden when count is 0 or panel is open",
+        "Opening panel calls clearActivityUnread()",
+        "Button placement: in header bar, near terminal toggle and config toggle"
+      ]
+    },
+    {
+      "id": "T-016",
+      "title": "Wire ActivityFeedPanel into App.tsx layout",
+      "description": "Conditionally render ActivityFeedPanel in the flex layout row alongside Board, TerminalPanel, ConfigPanel. Mount useActivityFeed hook in AppContent so events accumulate regardless of panel visibility.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 SP",
+      "dependencies": ["T-014", "T-015"],
+      "acceptance_criteria": [
+        "ActivityFeedPanel renders when activityPanelOpen is true",
+        "Panel appears in the flex row after other panels",
+        "useActivityFeed() called in AppContent (always active)",
+        "Board resizes correctly when activity panel opens/closes",
+        "No layout regressions with terminal + activity panels both open"
+      ]
+    },
+    {
+      "id": "T-017",
+      "title": "Backend integration tests for Activity Feed",
+      "description": "Write integration tests covering the full backend flow: mutation triggers event logging, event appears in REST query, WebSocket broadcast delivers event.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "3 SP",
+      "dependencies": ["T-006", "T-007"],
+      "acceptance_criteria": [
+        "Test: creating a task produces a task.created event in the activity REST response",
+        "Test: moving a task produces a task.moved event with from/to columns",
+        "Test: deleting a task produces a task.deleted event",
+        "Test: clearing board produces a board.cleared event",
+        "Test: space create/rename/delete produce corresponding events",
+        "Test: type filter returns only matching events",
+        "Test: date range filter excludes out-of-range events",
+        "Test: cursor pagination returns correct pages",
+        "Test: WebSocket client receives broadcast within 500ms of mutation",
+        "All tests use the existing node:test runner"
+      ]
+    },
+    {
+      "id": "T-018",
+      "title": "Frontend component tests for ActivityFeedPanel",
+      "description": "Write Vitest + React Testing Library tests for ActivityFeedPanel, ActivityFeedToggle, and useActivityFeed hook.",
+      "role": "QA",
+      "priority": "Medium",
+      "estimate": "3 SP",
+      "dependencies": ["T-014", "T-015", "T-016"],
+      "acceptance_criteria": [
+        "Test: panel renders event list from store",
+        "Test: filter dropdown updates store filter",
+        "Test: close button calls setActivityPanelOpen(false)",
+        "Test: toggle button shows/hides unread badge",
+        "Test: opening panel clears unread count",
+        "Test: useActivityFeed connects WebSocket and parses events",
+        "Test: useActivityFeed reconnects after disconnect",
+        "Tests run via cd frontend && npm test"
+      ]
+    },
+    {
+      "id": "T-019",
+      "title": "Retention cleanup integration test",
+      "description": "Write a test that verifies the 30-day retention cleanup: create JSONL files with old dates, run cleanup, verify only recent files remain.",
+      "role": "QA",
+      "priority": "Medium",
+      "estimate": "1 SP",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "Test creates JSONL files dated 35 days ago and 10 days ago in a temp directory",
+        "cleanup() deletes the 35-day-old file and keeps the 10-day-old file",
+        "Test verifies file existence/absence after cleanup",
+        "Test uses node:test runner"
+      ]
+    },
+    {
+      "id": "T-020",
+      "title": "Update CHANGELOG.md with Activity Feed feature",
+      "description": "Add a changelog entry describing the Activity Feed feature: real-time push via WebSocket, JSONL persistence, sidebar panel with filters, REST query endpoint.",
+      "role": "Developer",
+      "priority": "Low",
+      "estimate": "1 SP",
+      "dependencies": ["T-016"],
+      "acceptance_criteria": [
+        "Changelog entry follows existing format in CHANGELOG.md",
+        "Entry lists: WebSocket endpoint, REST endpoint, sidebar panel, 30-day retention",
+        "Entry mentions the terminal.js fix for multi-WS coexistence"
+      ]
+    }
+  ]
+}
