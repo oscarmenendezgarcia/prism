@@ -7,6 +7,7 @@
  */
 
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
 import { createAgentRun, updateAgentRun, getAgentRuns } from '@/api/client';
 import type { AgentRunRecord, AgentRunPatchPayload, RunStatus } from '@/types';
 
@@ -166,8 +167,10 @@ export const useHistoryPanelOpen = () =>
 
 /** Filtered runs based on the current filter setting. */
 export const useFilteredRuns = (): AgentRunRecord[] =>
-  useRunHistoryStore((s) =>
-    s.filter === 'all'
-      ? s.runs
-      : s.runs.filter((r) => r.status === s.filter)
+  useRunHistoryStore(
+    useShallow((s) =>
+      s.filter === 'all'
+        ? s.runs
+        : s.runs.filter((r) => r.status === s.filter)
+    )
   );
