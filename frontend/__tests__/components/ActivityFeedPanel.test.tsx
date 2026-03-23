@@ -63,6 +63,7 @@ beforeEach(() => {
     activityFilter:      {},
     activityUnreadCount: 0,
     activityLoading:     false,
+    activityNextCursor:  null,
   });
 });
 
@@ -183,28 +184,60 @@ describe('ActivityFeedPanel — filter dropdown', () => {
 });
 
 describe('ActivityFeedPanel — load more', () => {
-  it('renders "Load more" button', () => {
+  it('renders "Load more" button when no events have been loaded yet', () => {
+    // events.length === 0 → button is shown regardless of cursor
+    useAppStore.setState({ activityEvents: [], activityNextCursor: null });
     renderPanel();
     expect(screen.getByRole('button', { name: /load more/i })).toBeInTheDocument();
   });
 
-  it('Load more button calls loadActivityHistory', () => {
+  it('renders "Load more" button when nextCursor is non-null (more pages available)', () => {
+    useAppStore.setState({ activityNextCursor: 'cursor-abc' });
+    renderPanel();
+    expect(screen.getByRole('button', { name: /load more/i })).toBeInTheDocument();
+  });
+
+  it('hides "Load more" button when events are loaded and nextCursor is null (all pages exhausted)', () => {
+    useAppStore.setState({
+      activityEvents:     [makeEvent()],
+      activityNextCursor: null,
+    });
+    renderPanel();
+    expect(screen.queryByRole('button', { name: /load more/i })).not.toBeInTheDocument();
+  });
+
+  it('Load more button passes cursor to loadActivityHistory', () => {
     const mockLoad = vi.fn().mockResolvedValue(undefined);
-    useAppStore.setState({ loadActivityHistory: mockLoad } as any);
+    useAppStore.setState({
+      loadActivityHistory: mockLoad,
+      activityNextCursor: 'cursor-xyz',
+    } as any);
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: /load more/i }));
-    expect(mockLoad).toHaveBeenCalledWith();
+    expect(mockLoad).toHaveBeenCalledWith('cursor-xyz');
+  });
+
+  it('Load more button passes undefined when nextCursor is null (initial load)', () => {
+    const mockLoad = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({
+      loadActivityHistory: mockLoad,
+      activityEvents:      [],
+      activityNextCursor:  null,
+    } as any);
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: /load more/i }));
+    expect(mockLoad).toHaveBeenCalledWith(undefined);
   });
 
   it('Load more button is disabled while loading', () => {
-    useAppStore.setState({ activityLoading: true });
+    useAppStore.setState({ activityLoading: true, activityEvents: [], activityNextCursor: null });
     renderPanel();
     const btn = screen.getByRole('button', { name: /load more/i });
     expect(btn).toBeDisabled();
   });
 
   it('shows "Loading…" text while activityLoading is true', () => {
-    useAppStore.setState({ activityLoading: true });
+    useAppStore.setState({ activityLoading: true, activityEvents: [], activityNextCursor: null });
     renderPanel();
     expect(screen.getByText('Loading…')).toBeInTheDocument();
   });

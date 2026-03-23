@@ -43,7 +43,7 @@ beforeEach(() => {
 describe('ActivityFeedToggle — basic rendering', () => {
   it('renders the toggle button with accessible label', () => {
     render(<ActivityFeedToggle />);
-    expect(screen.getByRole('button', { name: /toggle activity feed/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /activity feed/i })).toBeInTheDocument();
   });
 
   it('renders the notifications icon', () => {
@@ -55,14 +55,14 @@ describe('ActivityFeedToggle — basic rendering', () => {
   it('aria-pressed is false when panel is closed', () => {
     useAppStore.setState({ activityPanelOpen: false });
     render(<ActivityFeedToggle />);
-    const btn = screen.getByRole('button', { name: /toggle activity feed/i });
+    const btn = screen.getByRole('button', { name: /activity feed/i });
     expect(btn).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('aria-pressed is true when panel is open', () => {
     useAppStore.setState({ activityPanelOpen: true });
     render(<ActivityFeedToggle />);
-    const btn = screen.getByRole('button', { name: /toggle activity feed/i });
+    const btn = screen.getByRole('button', { name: /activity feed/i });
     expect(btn).toHaveAttribute('aria-pressed', 'true');
   });
 });
@@ -102,7 +102,7 @@ describe('ActivityFeedToggle — badge', () => {
   it('includes unread count in aria-label when badge is shown', () => {
     useAppStore.setState({ activityPanelOpen: false, activityUnreadCount: 7 });
     render(<ActivityFeedToggle />);
-    const btn = screen.getByRole('button', { name: /7 unread/i });
+    const btn = screen.getByRole('button', { name: /7 unread events/i });
     expect(btn).toBeInTheDocument();
   });
 });
@@ -112,21 +112,35 @@ describe('ActivityFeedToggle — interactions', () => {
     const mockToggle = vi.fn();
     useAppStore.setState({ toggleActivityPanel: mockToggle } as any);
     render(<ActivityFeedToggle />);
-    fireEvent.click(screen.getByRole('button', { name: /toggle activity feed/i }));
+    fireEvent.click(screen.getByRole('button', { name: /activity feed/i }));
     expect(mockToggle).toHaveBeenCalledOnce();
   });
 
   it('button has active style class when panel is open', () => {
     useAppStore.setState({ activityPanelOpen: true });
     render(<ActivityFeedToggle />);
-    const btn = screen.getByRole('button', { name: /toggle activity feed/i });
+    const btn = screen.getByRole('button', { name: /activity feed/i });
     expect(btn.className).toContain('bg-primary');
   });
 
   it('button does not have active style when panel is closed', () => {
     useAppStore.setState({ activityPanelOpen: false });
     render(<ActivityFeedToggle />);
-    const btn = screen.getByRole('button', { name: /toggle activity feed/i });
+    const btn = screen.getByRole('button', { name: /activity feed/i });
     expect(btn.className).not.toContain('bg-primary/[0.15]');
+  });
+
+  it('aria-label format matches spec: "Activity feed, N unread events"', () => {
+    useAppStore.setState({ activityPanelOpen: false, activityUnreadCount: 3 });
+    render(<ActivityFeedToggle />);
+    const btn = screen.getByRole('button', { name: 'Activity feed, 3 unread events' });
+    expect(btn).toBeInTheDocument();
+  });
+
+  it('aria-label is plain "Activity feed" when no unread events', () => {
+    useAppStore.setState({ activityPanelOpen: false, activityUnreadCount: 0 });
+    render(<ActivityFeedToggle />);
+    const btn = screen.getByRole('button', { name: 'Activity feed' });
+    expect(btn).toBeInTheDocument();
   });
 });
