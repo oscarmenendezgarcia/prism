@@ -115,11 +115,11 @@ describe('AgentSettingsPanel — visibility', () => {
     expect(handle).toBeInTheDocument();
   });
 
-  it('<aside> uses inline style width instead of a hardcoded w-[480px] class', () => {
+  it('<aside> uses CSS variable for dynamic width instead of a hardcoded w-[480px] class', () => {
     resetStore({ agentSettingsPanelOpen: true });
     render(<AgentSettingsPanel />);
     const aside = screen.getByRole('complementary', { name: /agent launcher settings/i });
-    expect(aside).toHaveStyle({ width: '480px' });
+    expect(aside.style.getPropertyValue('--panel-w')).toBe('480px');
     expect(aside.className).not.toContain('w-[480px]');
   });
 });

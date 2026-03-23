@@ -81,11 +81,11 @@ describe('ConfigPanel — structure', () => {
     expect(handle).toBeInTheDocument();
   });
 
-  it('<aside> uses inline style width instead of a hardcoded w-[480px] class', () => {
+  it('<aside> uses CSS variable for dynamic width instead of a hardcoded w-[480px] class', () => {
     render(<ConfigPanel />);
     const aside = screen.getByRole('complementary', { name: /configuration editor/i });
-    // Dynamic width is applied via style attribute
-    expect(aside).toHaveStyle({ width: '480px' });
+    // Dynamic width is applied via CSS custom property (no inline style violation)
+    expect(aside.style.getPropertyValue('--panel-w')).toBe('480px');
     // Hardcoded Tailwind width class must not be present
     expect(aside.className).not.toContain('w-[480px]');
   });

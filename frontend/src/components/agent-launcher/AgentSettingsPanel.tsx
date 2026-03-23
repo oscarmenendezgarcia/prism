@@ -104,8 +104,8 @@ export function AgentSettingsPanel() {
 
   return (
     <aside
-      className="relative flex flex-col bg-surface-elevated border-l border-border h-full shrink-0"
-      style={{ width }}
+      className="relative flex flex-col bg-surface-elevated border-l border-border h-full shrink-0 w-[var(--panel-w)]"
+      style={{ '--panel-w': `${width}px` } as React.CSSProperties}
       aria-label="Agent launcher settings"
     >
       {/* Left-edge drag handle — ADR-1 (allow-resize-settings) §4 */}

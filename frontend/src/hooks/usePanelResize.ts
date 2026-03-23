@@ -49,9 +49,12 @@ export function usePanelResize({
 }: UsePanelResizeOptions): UsePanelResizeResult {
   const [storedWidth, setStoredWidth] = useLocalStorage<number>(storageKey, defaultWidth);
 
+  // Guard against non-numeric values written manually to localStorage (e.g. via DevTools).
+  const safeStored = Number.isFinite(storedWidth) ? storedWidth : defaultWidth;
+
   // Always serve a clamped value so stale stored widths (e.g. from a wider monitor
   // session) never violate the current bounds.
-  const width = clamp(storedWidth, minWidth, maxWidth);
+  const width = clamp(safeStored, minWidth, maxWidth);
 
   // Drag state held in a ref so the mousemove handler can read it without being
   // recreated on every render.
