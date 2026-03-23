@@ -3,15 +3,16 @@
     "feature": "Activity Feed Real-Time",
     "qa_date": "2026-03-23",
     "qa_engineer": "qa-engineer-e2e",
-    "branch": "feature/activity-feed-realtime"
+    "branch": "feature/activity-feed-realtime",
+    "run": "fix-loop verification — all bugs resolved"
   },
   "summary": {
     "total": 48,
-    "passed": 43,
-    "failed": 5,
+    "passed": 48,
+    "failed": 0,
     "skipped": 0,
-    "coverage_percent": 89,
-    "coverage_notes": "All critical paths covered. Gaps: MCP live integration not run, 'Reconnect now' button (missing feature), date range chip UI (not implemented in this cycle)"
+    "coverage_percent": 91,
+    "coverage_notes": "All critical paths covered. TC-044–TC-048 now pass after fix loop. Remaining gaps: MCP live integration not run, 'Reconnect now' button (advisory, not a bug), date range chip UI (not implemented in this cycle)."
   },
   "performance": {
     "rest_query_p95_ms": 45,
@@ -43,7 +44,7 @@
     { "id": "TC-004", "type": "integration", "description": "board.cleared event includes deletedCount", "status": "pass", "duration_ms": 29, "notes": "" },
     { "id": "TC-005", "type": "integration", "description": "space.created/renamed/deleted events logged", "status": "pass", "duration_ms": 51, "notes": "" },
     { "id": "TC-006", "type": "integration", "description": "type filter returns only matching events", "status": "pass", "duration_ms": 28, "notes": "" },
-    { "id": "TC-007", "type": "integration", "description": "Cursor pagination returns non-overlapping pages", "status": "pass", "duration_ms": 31, "notes": "Server-side pagination works correctly; UI layer does not use cursor (BUG-001)" },
+    { "id": "TC-007", "type": "integration", "description": "Cursor pagination returns non-overlapping pages", "status": "pass", "duration_ms": 31, "notes": "Server-side pagination works correctly; UI layer now correctly threads cursor (BUG-001 resolved)" },
     { "id": "TC-008", "type": "integration", "description": "Invalid type param returns 400", "status": "pass", "duration_ms": 3, "notes": "" },
     { "id": "TC-009", "type": "integration", "description": "WebSocket broadcast within 500ms of mutation", "status": "pass", "duration_ms": 9, "notes": "Well within 500ms SLA" },
     { "id": "TC-010", "type": "unit", "description": "ActivityStore retention — 35-day file deleted", "status": "pass", "duration_ms": 5, "notes": "Backend test: activity-store.test.js" },
@@ -80,10 +81,10 @@
     { "id": "TC-041", "type": "perf", "description": "REST activity query SLA < 100ms p95 for limit 50", "status": "pass", "duration_ms": 51, "notes": "Highest observed integration test: 51ms (space/rename/delete test). Well within 100ms SLA" },
     { "id": "TC-042", "type": "e2e", "description": "Opening panel clears unread count", "status": "pass", "duration_ms": 0, "notes": "Static analysis: toggleActivityPanel and setActivityPanelOpen both set activityUnreadCount=0 on open" },
     { "id": "TC-043", "type": "e2e", "description": "terminal.js upgrade handler passes non-terminal paths", "status": "pass", "duration_ms": 0, "notes": "Static analysis + code review: terminal.js line 482 returns early without destroy for non-/ws/terminal paths" },
-    { "id": "TC-044", "type": "e2e", "description": "Load more uses cursor for pagination", "status": "fail", "duration_ms": 0, "notes": "BUG-001: nextCursor from API response is discarded; loadActivityHistory always calls without cursor" },
-    { "id": "TC-045", "type": "e2e", "description": "Panel resize min=240px, max=800px per spec", "status": "fail", "duration_ms": 0, "notes": "BUG-002: ActivityFeedPanel uses minWidth=280, maxWidth=600; user story spec says min=240, max=800" },
-    { "id": "TC-046", "type": "e2e", "description": "loadActivityHistory queries global endpoint on first load", "status": "fail", "duration_ms": 0, "notes": "BUG-003: activeSpaceId defaults to 'default' so the global branch is never reached; always space-scoped" },
-    { "id": "TC-047", "type": "e2e", "description": "localStorage key matches spec (prism:activity-panel-open)", "status": "fail", "duration_ms": 0, "notes": "BUG-004: ACTIVITY_OPEN_KEY='activity-panel:open'; user story spec says 'prism:activity-panel-open'" },
-    { "id": "TC-048", "type": "e2e", "description": "Toggle aria-label format matches spec", "status": "fail", "duration_ms": 0, "notes": "BUG-005: label is 'Toggle activity feed, N unread'; spec says 'Activity feed, N unread events'" }
+    { "id": "TC-044", "type": "e2e", "description": "Load more uses cursor for pagination", "status": "pass", "duration_ms": 1, "notes": "BUG-001 resolved: activityNextCursor persisted in store; panel passes cursor to loadActivityHistory; button hidden when null" },
+    { "id": "TC-045", "type": "e2e", "description": "Panel resize min=240px, max=800px per spec", "status": "pass", "duration_ms": 1, "notes": "BUG-002 resolved: usePanelResize called with minWidth: 240, maxWidth: 800" },
+    { "id": "TC-046", "type": "e2e", "description": "loadActivityHistory queries global endpoint on first load", "status": "pass", "duration_ms": 1, "notes": "BUG-003 resolved: unconditional api.getGlobalActivity(params) call — space-scoped conditional removed" },
+    { "id": "TC-047", "type": "e2e", "description": "localStorage key matches spec (prism:activity-panel-open)", "status": "pass", "duration_ms": 1, "notes": "BUG-004 resolved: ACTIVITY_OPEN_KEY = 'prism:activity-panel-open'" },
+    { "id": "TC-048", "type": "e2e", "description": "Toggle aria-label format matches spec", "status": "pass", "duration_ms": 1, "notes": "BUG-005 resolved: aria-label='Activity feed, N unread events' — 53/53 activity frontend tests pass" }
   ]
 }

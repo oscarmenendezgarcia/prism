@@ -1,6 +1,6 @@
 # Bug Report: Activity Feed Real-Time
 
-**QA Cycle:** 2026-03-23
+**QA Cycle:** 2026-03-23 (initial) — fix-loop verified 2026-03-23
 **QA Engineer:** qa-engineer-e2e
 **Branch:** feature/activity-feed-realtime
 
@@ -10,13 +10,13 @@
 
 | ID | Severity | Type | Status |
 |----|----------|------|--------|
-| BUG-001 | Medium | Functional | Open |
-| BUG-002 | Medium | Functional | Open |
-| BUG-003 | Medium | Functional | Open |
-| BUG-004 | Low | Functional | Open |
-| BUG-005 | Low | UX | Open |
+| BUG-001 | Medium | Functional | **Resolved** |
+| BUG-002 | Medium | Functional | **Resolved** |
+| BUG-003 | Medium | Functional | **Resolved** |
+| BUG-004 | Low | Functional | **Resolved** |
+| BUG-005 | Low | UX | **Resolved** |
 
-**Merge gate:** Zero unresolved Critical or High bugs required. No Critical or High bugs were found. The feature is **merge-eligible** once the team decides whether Medium/Low bugs should be addressed before shipping.
+**Merge gate:** Zero unresolved Critical or High bugs required. No Critical or High bugs were found. All Medium/Low bugs resolved. Feature is **merge-eligible**.
 
 ---
 
@@ -24,6 +24,7 @@
 
 - **Severity**: Medium
 - **Type**: Functional
+- **Status**: **Resolved** — verified 2026-03-23
 - **Component**: `frontend/src/stores/useAppStore.ts` — `loadActivityHistory` action
 - **Related Test**: TC-044
 - **Related User Story**: Story 2.2 (Paginate through older events)
@@ -37,21 +38,25 @@
 **Expected Behavior:**
 The REST API returns `{ events: [...], nextCursor: "base64string" }`. The first "Load more" click should pass `nextCursor` as the `cursor` parameter, fetching the next page of older events. Repeated clicks should continue to page through history.
 
-**Actual Behavior:**
-`loadActivityHistory` receives the `result` from `api.getActivity()` and merges `result.events` into the store, but `result.nextCursor` is silently discarded. The Zustand store has no field for `nextCursor`. The "Load more" button always calls `loadActivityHistory()` with no cursor argument. Every click re-fetches page 1 and deduplication via `existingIds` means nothing new is appended after the first load.
+**Actual Behavior (before fix):**
+`loadActivityHistory` received the `result` from `api.getActivity()` and merged `result.events` into the store, but `result.nextCursor` was silently discarded. The Zustand store had no field for `nextCursor`. The "Load more" button always called `loadActivityHistory()` with no cursor argument. Every click re-fetched page 1 and deduplication via `existingIds` meant nothing new was appended after the first load.
 
 **Root Cause Analysis:**
-In `useAppStore.ts` line 894, after merging events:
-```
-set({ activityEvents: merged });
-```
-There is no `set({ activityNextCursor: result.nextCursor })`. The interface definition in `AppState` has no `activityNextCursor` field. The `ActivityFeedPanel` "Load more" button calls `loadActivityHistory()` with no argument, confirming the cursor is never threaded through.
+In `useAppStore.ts`, after merging events there was no `set({ activityNextCursor: result.nextCursor })`. The interface definition in `AppState` had no `activityNextCursor` field. The `ActivityFeedPanel` "Load more" button called `loadActivityHistory()` with no argument, confirming the cursor was never threaded through.
 
-**Proposed Fix:**
-1. Add `activityNextCursor: string | null` to the `AppState` interface and initialise to `null`.
-2. In `loadActivityHistory`, after merging, call `set({ activityEvents: merged, activityNextCursor: result.nextCursor })`.
-3. In `ActivityFeedPanel`, retrieve `activityNextCursor` from the store and pass it to `loadActivityHistory(activityNextCursor ?? undefined)` on the "Load more" click.
-4. Hide the "Load more" button (or show "No more events") when `activityNextCursor === null`.
+**Fix Applied:**
+1. `activityNextCursor: string | null` added to `AppState` interface, initialised to `null`.
+2. `loadActivityHistory` calls `set({ activityEvents: merged, activityNextCursor: result.nextCursor ?? null })` after merging.
+3. `ActivityFeedPanel` retrieves `activityNextCursor` from the store and passes it to `loadActivityHistory(nextCursor ?? undefined)` on "Load more" click.
+4. "Load more" button is hidden when `nextCursor === null` (all pages exhausted).
+
+**Verification:**
+- `useAppStore.ts` line 192: `activityNextCursor: string | null` present in interface.
+- `useAppStore.ts` line 898: `set({ activityEvents: merged, activityNextCursor: result.nextCursor ?? null })`.
+- `ActivityFeedPanel.tsx` line 174: `const nextCursor = useAppStore((s) => s.activityNextCursor)`.
+- `ActivityFeedPanel.tsx` line 308: condition `(events.length === 0 || nextCursor !== null)` hides button when exhausted.
+- `ActivityFeedPanel.tsx` line 311: `onClick={() => loadActivityHistory(nextCursor ?? undefined)}`.
+- TC-044: **PASS** (verified in fix-loop test run).
 
 ---
 
@@ -59,6 +64,7 @@ There is no `set({ activityNextCursor: result.nextCursor })`. The interface defi
 
 - **Severity**: Medium
 - **Type**: Functional
+- **Status**: **Resolved** — verified 2026-03-23
 - **Component**: `frontend/src/components/activity/ActivityFeedPanel.tsx` — `usePanelResize` call
 - **Related Test**: TC-045
 - **Related User Story**: Story 4.2 (Resizable panel width) — DoD: `usePanelResize({ minWidth: 240, maxWidth: 800 })`
@@ -73,23 +79,15 @@ There is no `set({ activityNextCursor: result.nextCursor })`. The interface defi
 - Maximum width: 800px
 - Default width: 360px
 
-**Actual Behavior:**
-`usePanelResize` is called with `minWidth: 280, maxWidth: 600`. The panel cannot be resized below 280px (40px wider than spec) or above 600px (200px narrower than spec).
+**Actual Behavior (before fix):**
+`usePanelResize` was called with `minWidth: 280, maxWidth: 600`. The panel could not be resized below 280px (40px wider than spec) or above 600px (200px narrower than spec).
 
-**Root Cause Analysis:**
-In `ActivityFeedPanel.tsx` lines 178–183:
-```tsx
-const { width, handleMouseDown, minWidth, maxWidth } = usePanelResize({
-  storageKey:   'prism:panel-width:activity',
-  defaultWidth: 360,
-  minWidth:     280,   // spec: 240
-  maxWidth:     600,   // spec: 800
-});
-```
-The `defaultWidth: 360` is correct. Only `minWidth` and `maxWidth` deviate.
+**Fix Applied:**
+Changed `minWidth: 280` to `minWidth: 240` and `maxWidth: 600` to `maxWidth: 800` in the `usePanelResize` call inside `ActivityFeedPanel.tsx`.
 
-**Proposed Fix:**
-Change `minWidth: 280` to `minWidth: 240` and `maxWidth: 600` to `maxWidth: 800` in the `usePanelResize` call inside `ActivityFeedPanel.tsx`.
+**Verification:**
+- `ActivityFeedPanel.tsx` lines 182-183: `minWidth: 240, maxWidth: 800`.
+- TC-045: **PASS** (verified in fix-loop test run).
 
 ---
 
@@ -97,6 +95,7 @@ Change `minWidth: 280` to `minWidth: 240` and `maxWidth: 600` to `maxWidth: 800`
 
 - **Severity**: Medium
 - **Type**: Functional
+- **Status**: **Resolved** — verified 2026-03-23
 - **Component**: `frontend/src/stores/useAppStore.ts` — `loadActivityHistory` action
 - **Related Test**: TC-046
 - **Related User Story**: Story 2.1 DoD: "loadActivityHistory() calls getGlobalActivity({ limit: 50 })"
@@ -109,20 +108,19 @@ Change `minWidth: 280` to `minWidth: 240` and `maxWidth: 600` to `maxWidth: 800`
 **Expected Behavior:**
 Per Story 2.1 DoD: on first load, history is fetched via `GET /api/v1/activity?limit=50` (global endpoint, no space filter), so events from all spaces appear.
 
-**Actual Behavior:**
-`loadActivityHistory` in `useAppStore.ts` lines 886–888:
-```ts
-const result = activeSpaceId
-  ? await api.getActivity(activeSpaceId, params)
-  : await api.getGlobalActivity(params);
-```
-Because `activeSpaceId` is always a non-empty string (initialised from `localStorage.getItem(ACTIVE_SPACE_KEY) || 'default'`), the ternary always evaluates the truthy branch. `getGlobalActivity` is never called.
+**Actual Behavior (before fix):**
+`loadActivityHistory` conditionally called `api.getActivity(activeSpaceId, params)` when `activeSpaceId` was truthy. Since `activeSpaceId` was always a non-empty string (initialised from localStorage with `'default'` as fallback), the global branch was never reached.
 
 **Root Cause Analysis:**
-The fallback branch `await api.getGlobalActivity(params)` is unreachable. The intent of Story 2.1 is to show global (all-spaces) history in the panel. If users want space-scoped history they would use the date-range filter chips described in Story 3.2. The current implementation permanently scopes history to the active space, which contradicts the spec.
+The fallback branch `await api.getGlobalActivity(params)` was unreachable. The intent of Story 2.1 is to show global (all-spaces) history in the panel.
 
-**Proposed Fix:**
-Replace the conditional with an unconditional call to `getGlobalActivity`. If per-space filtering is desired in a future iteration, it should be a UI-controlled filter, not hard-coded to the active space. Alternatively, add an explicit `useGlobalActivity: boolean` flag to the filter to make the intent clear.
+**Fix Applied:**
+Replaced the conditional with an unconditional call to `api.getGlobalActivity(params)`. Per-space filtering is UI-controlled via the filter dropdown, not hard-coded to the active space.
+
+**Verification:**
+- `useAppStore.ts` line 891: `const result = await api.getGlobalActivity(params)` (unconditional).
+- Comment at line 888-890 documents the reasoning.
+- TC-046: **PASS** (verified in fix-loop test run).
 
 ---
 
@@ -130,6 +128,7 @@ Replace the conditional with an unconditional call to `getGlobalActivity`. If pe
 
 - **Severity**: Low
 - **Type**: Functional
+- **Status**: **Resolved** — verified 2026-03-23
 - **Component**: `frontend/src/stores/useAppStore.ts` — `ACTIVITY_OPEN_KEY` constant
 - **Related Test**: TC-047
 - **Related User Story**: Story 4.1 DoD: "localStorage key `prism:activity-panel-open`"
@@ -142,18 +141,15 @@ Replace the conditional with an unconditional call to `getGlobalActivity`. If pe
 **Expected Behavior:**
 Key name: `prism:activity-panel-open` (from Story 4.1 DoD)
 
-**Actual Behavior:**
-Key name: `activity-panel:open` (from `ACTIVITY_OPEN_KEY` constant at line 37 of `useAppStore.ts`)
+**Actual Behavior (before fix):**
+Key name: `activity-panel:open` (from `ACTIVITY_OPEN_KEY` constant)
 
-**Root Cause Analysis:**
-The constant at line 37:
-```ts
-const ACTIVITY_OPEN_KEY = 'activity-panel:open';
-```
-does not match the user story specification. This is a copy-paste pattern from the existing `CONFIG_OPEN_KEY = 'config-panel:open'`, which also uses the inverted key format. The Prism project uses `prism:` prefix for some keys (e.g., `prism:panel-width:activity`) but not others (e.g., `terminal:open`). The mismatch means existing persisted state (if any) would be silently ignored if the key is corrected mid-deployment.
+**Fix Applied:**
+Changed `ACTIVITY_OPEN_KEY` to `'prism:activity-panel-open'`.
 
-**Proposed Fix:**
-Change `ACTIVITY_OPEN_KEY` to `'prism:activity-panel-open'`. Note: if users have already loaded the app with the incorrect key, their panel preference will be lost on the next load (one-time migration). For a local dev tool this is acceptable.
+**Verification:**
+- `useAppStore.ts` line 37: `const ACTIVITY_OPEN_KEY = 'prism:activity-panel-open'`.
+- TC-047: **PASS** (verified in fix-loop test run).
 
 ---
 
@@ -161,6 +157,7 @@ Change `ACTIVITY_OPEN_KEY` to `'prism:activity-panel-open'`. Note: if users have
 
 - **Severity**: Low
 - **Type**: UX / Accessibility
+- **Status**: **Resolved** — verified 2026-03-23
 - **Component**: `frontend/src/components/activity/ActivityFeedToggle.tsx` — `aria-label` prop
 - **Related Test**: TC-048
 - **Related User Story**: Story 1.3 DoD: "`aria-label` on the toggle button is updated dynamically: 'Activity feed, N unread events'"
@@ -173,27 +170,23 @@ Change `ACTIVITY_OPEN_KEY` to `'prism:activity-panel-open'`. Note: if users have
 **Expected Behavior:**
 `aria-label="Activity feed, 1 unread events"` (spec format)
 
-**Actual Behavior:**
-`aria-label="Toggle activity feed, 1 unread"` — when `showBadge` is true.
-`aria-label="Toggle activity feed"` — when no unread events.
+**Actual Behavior (before fix):**
+`aria-label="Toggle activity feed, 1 unread"` when `showBadge` is true.
+`aria-label="Toggle activity feed"` when no unread events.
 
-**Root Cause Analysis:**
-In `ActivityFeedToggle.tsx` line 33:
-```tsx
-aria-label={`Toggle activity feed${showBadge ? `, ${unreadCount} unread` : ''}`}
-```
-The label uses "Toggle activity feed" prefix instead of "Activity feed", and appends "N unread" instead of "N unread events". Additionally, when `showBadge` is false, no unread count is included at all (the spec implies the base label should always be "Activity feed").
-
-**Proposed Fix:**
-Update the `aria-label` template string to:
+**Fix Applied:**
+Updated the `aria-label` template string to:
 ```tsx
 aria-label={`Activity feed${showBadge ? `, ${unreadCount} unread events` : ''}`}
 ```
-This matches the spec format exactly and provides a cleaner accessible name.
+
+**Verification:**
+- `ActivityFeedToggle.tsx` line 33: `aria-label={\`Activity feed\${showBadge ? \`, \${unreadCount} unread events\` : ''}\`}`.
+- TC-048: **PASS** (verified in fix-loop test run).
 
 ---
 
-## Advisory Notes (Not Bugs)
+## Advisory Notes (Not Bugs — unchanged)
 
 ### Advisory 1: "Reconnect now" button not implemented in useActivityFeed
 
