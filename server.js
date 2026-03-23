@@ -1722,6 +1722,168 @@ const AGENTS_SINGLE_ROUTE = /^\/api\/v1\/agents\/([^/]+)$/;
 const AGENT_PROMPT_ROUTE  = /^\/api\/v1\/agent\/prompt$/;
 const SETTINGS_ROUTE      = /^\/api\/v1\/settings$/;
 
+/** Route patterns for activity endpoints (ADR-1 Activity Feed §2.5). */
+const ACTIVITY_GLOBAL_ROUTE = /^\/api\/v1\/activity$/;
+const ACTIVITY_SPACE_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/activity$/;
+
+/** Valid event type strings for query parameter validation. */
+const VALID_ACTIVITY_TYPES = new Set([
+  'task.created', 'task.moved', 'task.updated', 'task.deleted',
+  'space.created', 'space.renamed', 'space.deleted', 'board.cleared',
+]);
+
+// ---------------------------------------------------------------------------
+// Activity REST handler — GET /api/v1/activity and GET /api/v1/spaces/:spaceId/activity
+// ADR-1 (Activity Feed) §2.5: paginated, newest-first, filters: type/from/to/limit/cursor.
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse and validate activity query parameters from a URL query string.
+ * Returns { valid: true, params } or { valid: false, error: { code, message, suggestion, field? } }.
+ *
+ * @param {URL} url - URL object (with searchParams).
+ * @returns {{ valid: boolean, params?: object, error?: object }}
+ */
+function parseActivityQueryParams(url) {
+  const params = {};
+
+  // type
+  const typeParam = url.searchParams.get('type');
+  if (typeParam !== null) {
+    if (!VALID_ACTIVITY_TYPES.has(typeParam)) {
+      return {
+        valid: false,
+        error: {
+          code:       'INVALID_EVENT_TYPE',
+          message:    `The event type '${typeParam}' is not recognized.`,
+          suggestion: `Use one of: ${[...VALID_ACTIVITY_TYPES].join(', ')}`,
+        },
+      };
+    }
+    params.type = typeParam;
+  }
+
+  // limit
+  const limitParam = url.searchParams.get('limit');
+  if (limitParam !== null) {
+    const limitNum = parseInt(limitParam, 10);
+    if (isNaN(limitNum) || limitNum < 1 || limitNum > 200) {
+      return {
+        valid: false,
+        error: {
+          code:       'INVALID_LIMIT',
+          message:    `The limit value '${limitParam}' is outside the allowed range.`,
+          suggestion: 'Provide a limit between 1 and 200. The default is 50.',
+        },
+      };
+    }
+    params.limit = limitNum;
+  }
+
+  // from
+  const fromParam = url.searchParams.get('from');
+  if (fromParam !== null) {
+    const fromDate = new Date(fromParam);
+    if (isNaN(fromDate.getTime())) {
+      return {
+        valid: false,
+        error: {
+          code:       'INVALID_DATE_FORMAT',
+          message:    "The 'from' date could not be parsed.",
+          suggestion: 'Provide dates in ISO-8601 format, e.g. 2026-03-23T00:00:00.000Z',
+          field:      'from',
+        },
+      };
+    }
+    params.from = fromDate;
+  }
+
+  // to
+  const toParam = url.searchParams.get('to');
+  if (toParam !== null) {
+    const toDate = new Date(toParam);
+    if (isNaN(toDate.getTime())) {
+      return {
+        valid: false,
+        error: {
+          code:       'INVALID_DATE_FORMAT',
+          message:    "The 'to' date could not be parsed.",
+          suggestion: 'Provide dates in ISO-8601 format, e.g. 2026-03-23T23:59:59.000Z',
+          field:      'to',
+        },
+      };
+    }
+    params.to = toDate;
+  }
+
+  // cursor
+  const cursorParam = url.searchParams.get('cursor');
+  if (cursorParam !== null) {
+    params.cursor = cursorParam;
+  }
+
+  return { valid: true, params };
+}
+
+/**
+ * Handle GET /api/v1/activity or GET /api/v1/spaces/:spaceId/activity.
+ *
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse}  res
+ * @param {object} activityStore    - ActivityStore instance.
+ * @param {object} spaceManager     - SpaceManager instance (for space validation).
+ * @param {string|null} spaceId     - Space ID to filter to, or null for global query.
+ */
+function handleGetActivity(req, res, activityStore, spaceManager, spaceId) {
+  // Validate space exists when spaceId is provided.
+  if (spaceId) {
+    const spaceResult = spaceManager.getSpace(spaceId);
+    if (!spaceResult.ok) {
+      return sendError(res, 404, 'SPACE_NOT_FOUND',
+        `No space was found with the ID '${spaceId}'.`,
+        { suggestion: 'Check the space ID and try again. You can list all spaces at GET /api/v1/spaces.' }
+      );
+    }
+  }
+
+  // Parse query parameters.
+  const url = new URL(req.url, 'http://localhost');
+  const parseResult = parseActivityQueryParams(url);
+  if (!parseResult.valid) {
+    return sendError(res, 400, parseResult.error.code, parseResult.error.message,
+      { suggestion: parseResult.error.suggestion, ...(parseResult.error.field ? { field: parseResult.error.field } : {}) }
+    );
+  }
+
+  const queryParams = { ...parseResult.params };
+  if (spaceId) queryParams.spaceId = spaceId;
+
+  // Validate cursor format (deferred to store but we check decodability here).
+  if (queryParams.cursor) {
+    try {
+      const decoded = Buffer.from(queryParams.cursor, 'base64').toString('utf8');
+      const parsed  = JSON.parse(decoded);
+      if (!parsed.date || typeof parsed.offset !== 'number') throw new Error('invalid');
+    } catch {
+      return sendError(res, 400, 'INVALID_CURSOR',
+        'The pagination cursor is malformed or expired.',
+        { suggestion: 'Restart pagination from the beginning by omitting the cursor parameter.' }
+      );
+    }
+  }
+
+  try {
+    const result = activityStore.query(queryParams);
+    sendJSON(res, 200, result);
+  } catch (err) {
+    console.error('[activity] ERROR querying activity:', err.message);
+    sendError(res, 500, 'ACTIVITY_READ_ERROR',
+      'Could not read activity history at this time.',
+      { suggestion: 'Try again in a moment. If the problem persists, check that data/activity/ directory is accessible.' }
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Server factory — exported for use by tests and direct invocation
 // ---------------------------------------------------------------------------
@@ -1741,16 +1903,18 @@ const LEGACY_TASKS_ROUTE  = /^\/api\/v1(\/tasks.*)$/;
  * Create and start an HTTP server.
  *
  * @param {object} [options]
- * @param {number}  [options.port]           - Port to listen on. Pass 0 for OS-assigned port.
- * @param {string}  [options.dataDir]        - Absolute path to data directory.
- * @param {boolean} [options.silent]         - Suppress startup log.
+ * @param {number}  [options.port]             - Port to listen on. Pass 0 for OS-assigned port.
+ * @param {string}  [options.dataDir]          - Absolute path to data directory.
+ * @param {boolean} [options.silent]           - Suppress startup log.
  * @param {{ log: Function }|null} [options.activityLogger] - ActivityLogger for mutation events.
+ * @param {object|null} [options.activityStore] - ActivityStore for REST history queries.
  * @returns {http.Server}
  */
 function startServer(options = {}) {
   const dataDir        = options.dataDir || DEFAULT_DATA_DIR;
   const port           = options.port !== undefined ? options.port : DEFAULT_PORT;
   const activityLogger = options.activityLogger || null;
+  const activityStore  = options.activityStore  || null;
 
   // --- Step 1: Create SpaceManager and ensure all space directories exist. ---
   const spaceManager = createSpaceManager(dataDir);
@@ -1779,6 +1943,26 @@ function startServer(options = {}) {
   async function mainRouter(req, res) {
     const { method } = req;
     const urlPath    = req.url.split('?')[0];
+
+    // -----------------------------------------------------------------------
+    // Activity feed routes — ADR-1 (Activity Feed) §2.5
+    // Must be checked BEFORE space-tasks route so /spaces/:id/activity is
+    // not accidentally matched by SPACES_TASKS_ROUTE (which only matches /tasks*).
+    // -----------------------------------------------------------------------
+    if (activityStore) {
+      // Global: GET /api/v1/activity
+      if (ACTIVITY_GLOBAL_ROUTE.test(urlPath)) {
+        if (method === 'GET') return handleGetActivity(req, res, activityStore, spaceManager, null);
+        return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+      }
+
+      // Space-scoped: GET /api/v1/spaces/:spaceId/activity
+      const activitySpaceMatch = ACTIVITY_SPACE_ROUTE.exec(urlPath);
+      if (activitySpaceMatch) {
+        if (method === 'GET') return handleGetActivity(req, res, activityStore, spaceManager, activitySpaceMatch[1]);
+        return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+      }
+    }
 
     // -----------------------------------------------------------------------
     // Space-scoped task routes: /api/v1/spaces/:spaceId/tasks/*
@@ -2026,8 +2210,8 @@ if (require.main === module) {
   // Create logger with the lazy wrapper — safe to pass to startServer now.
   const activityLogger = createActivityLogger({ store: activityStore, broadcast: lazyBroadcast });
 
-  // Start server with activityLogger already wired.
-  const server = startServer({ activityLogger });
+  // Start server with activityLogger and activityStore already wired.
+  const server = startServer({ activityLogger, activityStore });
 
   // Attach terminal WS first (lower path-priority handler).
   setupTerminalWebSocket(server);
