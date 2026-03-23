@@ -48,6 +48,8 @@ interface UseTerminalOptions {
   onStatusChange: (status: TerminalStatus) => void;
   onReconnectAvailable: (available: boolean) => void;
   onReconnectCountdown: (seconds: number) => void;
+  /** Called when the PTY process exits. code is null when unavailable. */
+  onProcessExit?: (code: number | null) => void;
 }
 
 interface UseTerminalReturn {
@@ -67,6 +69,7 @@ export function useTerminal({
   onStatusChange,
   onReconnectAvailable,
   onReconnectCountdown,
+  onProcessExit,
 }: UseTerminalOptions): UseTerminalReturn {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -84,9 +87,11 @@ export function useTerminal({
   const onStatusChangeRef      = useRef(onStatusChange);
   const onReconnectAvailableRef = useRef(onReconnectAvailable);
   const onReconnectCountdownRef = useRef(onReconnectCountdown);
+  const onProcessExitRef        = useRef(onProcessExit);
   useEffect(() => { onStatusChangeRef.current = onStatusChange; });
   useEffect(() => { onReconnectAvailableRef.current = onReconnectAvailable; });
   useEffect(() => { onReconnectCountdownRef.current = onReconnectCountdown; });
+  useEffect(() => { onProcessExitRef.current = onProcessExit; });
 
   const send = useCallback((payload: object): boolean => {
     const ws = wsRef.current;
@@ -172,6 +177,7 @@ export function useTerminal({
       } else if (parsed.type === 'exit') {
         const code = parsed.code != null ? parsed.code : '—';
         terminalRef.current?.write(`\r\n\x1b[33m--- Shell exited (code ${code}) ---\x1b[0m\r\n`);
+        onProcessExitRef.current?.(parsed.code ?? null);
       } else if (parsed.type === 'error') {
         terminalRef.current?.write(`\r\n\x1b[31m[error] ${parsed.message ?? ''}\x1b[0m\r\n`);
       }

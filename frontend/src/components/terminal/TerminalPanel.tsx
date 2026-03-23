@@ -36,6 +36,7 @@ export function TerminalPanel() {
   const setTerminalOpen    = useAppStore((s) => s.setTerminalOpen);
   const terminalOpen       = useAppStore((s) => s.terminalOpen);
   const setTerminalSender  = useAppStore((s) => s.setTerminalSender);
+  const clearActiveRun     = useAppStore((s) => s.clearActiveRun);
 
   const [status, setStatus]                     = useState<TerminalStatus>('connecting');
   const [reconnectAvailable, setReconnectAvail] = useState(false);
@@ -62,6 +63,7 @@ export function TerminalPanel() {
     },
     onReconnectAvailable: setReconnectAvail,
     onReconnectCountdown: setCountdownSecs,
+    onProcessExit: () => clearActiveRun(),
   });
 
   // Clear terminal sender on unmount so stale references don't linger.

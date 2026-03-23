@@ -1475,11 +1475,13 @@ function buildPromptText(options) {
     lines.push('\n## KANBAN INSTRUCTIONS');
     lines.push(`Prism Kanban server is running at http://localhost:3000`);
     lines.push(`Space ID: ${space.id}`);
+    lines.push(`Task ID: ${task.id}  ← this task already exists. Do NOT create a new kanban task.`);
+    lines.push(`Move THIS task through the board: todo → in-progress (immediately) → done (when finished).`);
     lines.push('Use the MCP tools (mcp__prism__kanban_*) to manage tasks:');
     lines.push('  - kanban_list_tasks: list tasks in a column');
     lines.push('  - kanban_move_task: move a task between columns (todo → in-progress → done)');
     lines.push('  - kanban_update_task: update task fields or attach artifacts');
-    lines.push('  - kanban_create_task: create new tasks');
+    lines.push('  - kanban_create_task: create new tasks (only if genuinely needed for a sub-task)');
   }
 
   // ── GIT INSTRUCTIONS ──────────────────────────────────────────────────────
