@@ -42,6 +42,8 @@ const MIME_TYPES = {
   '.svg':  'image/svg+xml',
 };
 
+// Vite build output — the only static root. The legacy public/ directory was
+// removed after the React migration; all frontend assets now live here.
 const PUBLIC_DIR = path.join(__dirname, 'dist');
 
 // ---------------------------------------------------------------------------
