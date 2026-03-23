@@ -17,7 +17,6 @@ const fs   = require('fs');
 const os   = require('os');
 const path = require('path');
 
-const { migrate }             = require('./src/migrator');
 const { createSpaceManager }  = require('./src/spaceManager');
 
 // ---------------------------------------------------------------------------
@@ -67,10 +66,19 @@ const VALID_ATTACHMENT_TYPES       = ['text', 'file'];
  * Create a router and supporting helpers bound to the given data directory.
  * All file I/O is scoped to `dataDir`; no module-level mutable state is used.
  *
+ * ADR-1 (Activity Feed) §2.6.2: ActivityLogger injected as a dependency so
+ * mutation handlers can call logger.log() after sending their HTTP response.
+ * When logger is null/undefined the handlers behave exactly as before.
+ *
  * @param {string} dataDir - Absolute path to the directory holding column JSON files.
+ * @param {object} [options]
+ * @param {{ log: Function }|null} [options.logger]  - ActivityLogger instance (optional).
+ * @param {string}                 [options.spaceId] - Space ID for activity events.
  * @returns {{ router: Function, ensureDataFiles: Function }}
  */
-function createApp(dataDir) {
+function createApp(dataDir, options = {}) {
+  const logger  = (options && options.logger)  || null;
+  const spaceId = (options && options.spaceId) || 'default';
   const COLUMN_FILES = {
     todo:          path.join(dataDir, 'todo.json'),
     'in-progress': path.join(dataDir, 'in-progress.json'),
@@ -351,6 +359,8 @@ function createApp(dataDir) {
       tasks.push(task);
       writeColumn('todo', tasks);
       sendJSON(res, 201, stripAttachmentContent(task));
+      // Activity logging — fire-and-forget after response sent.
+      if (logger) logger.log('task.created', spaceId, { taskId: task.id, taskTitle: task.title });
     } catch (err) {
       console.error('POST tasks error:', err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to persist task');
@@ -415,6 +425,7 @@ function createApp(dataDir) {
       writeColumn(to, targetTasks);
 
       sendJSON(res, 200, { task: updatedTask, from: sourceColumn, to });
+      if (logger) logger.log('task.moved', spaceId, { taskId: updatedTask.id, taskTitle: updatedTask.title, from: sourceColumn, to });
     } catch (err) {
       console.error(`PUT tasks/${taskId}/move error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to move task');
@@ -530,6 +541,7 @@ function createApp(dataDir) {
       writeColumn(foundColumn, columnTasks);
 
       sendJSON(res, 200, stripAttachmentContent(updatedTask));
+      if (logger) logger.log('task.updated', spaceId, { taskId: updatedTask.id, taskTitle: updatedTask.title, fields: provided });
     } catch (err) {
       console.error(`PUT tasks/${taskId} error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to update task');
@@ -546,6 +558,7 @@ function createApp(dataDir) {
         writeColumn(column, []);
       }
       sendJSON(res, 200, { deleted: totalCount });
+      if (logger) logger.log('board.cleared', spaceId, { deletedCount: totalCount });
     } catch (err) {
       console.error('DELETE tasks error:', err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to clear board');
@@ -554,12 +567,14 @@ function createApp(dataDir) {
 
   function handleDeleteTask(req, res, taskId) {
     try {
-      let deleted = false;
+      let deleted     = false;
+      let deletedTask = null;
 
       for (const column of COLUMNS) {
         const tasks = readColumn(column);
         const index = tasks.findIndex((t) => t.id === taskId);
         if (index !== -1) {
+          deletedTask = tasks[index];
           tasks.splice(index, 1);
           writeColumn(column, tasks);
           deleted = true;
@@ -572,6 +587,7 @@ function createApp(dataDir) {
       }
 
       sendJSON(res, 200, { deleted: true, id: taskId });
+      if (logger && deletedTask) logger.log('task.deleted', spaceId, { taskId: deletedTask.id, taskTitle: deletedTask.title });
     } catch (err) {
       console.error(`DELETE tasks/${taskId} error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to delete task');
@@ -636,6 +652,7 @@ function createApp(dataDir) {
 
       console.log(`[attachment] Updated ${attachmentResult.data.length} attachments for task ${taskId}`);
       sendJSON(res, 200, stripAttachmentContent(updatedTask));
+      if (logger) logger.log('task.updated', spaceId, { taskId: updatedTask.id, taskTitle: updatedTask.title, fields: ['attachments'] });
     } catch (err) {
       console.error(`PUT tasks/${taskId}/attachments error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to update attachments');
@@ -1268,6 +1285,7 @@ const DEFAULT_SETTINGS = {
     includeKanbanBlock: true,
     includeGitBlock:    true,
     workingDirectory:   '',
+    customInstructions: '',
   },
 };
 
@@ -1438,7 +1456,8 @@ function buildCliCommand(settings, promptPath) {
 
   // claude (default) — interactive mode so tool calls and thinking are visible in the TUI.
   // Omitting -p intentionally: -p (non-interactive) hides intermediate steps and exits immediately.
-  return `${bin} ${promptRef} --allowedTools "Agent,Bash,Read,Write,Edit,Glob,Grep"`;
+  // MCP kanban tools are included so agents can move their pipeline sub-task to done.
+  return `${bin} ${promptRef} --allowedTools "Agent,Bash,Read,Write,Edit,Glob,Grep,mcp__prism__kanban_list_spaces,mcp__prism__kanban_list_tasks,mcp__prism__kanban_create_task,mcp__prism__kanban_move_task,mcp__prism__kanban_update_task,mcp__prism__kanban_get_task,mcp__prism__kanban_create_space"`;
 }
 
 /**
@@ -1449,6 +1468,10 @@ function buildPromptText(options) {
   const { task, taskColumn, space, agentContent, settings, customInstructions, workingDirectory } = options;
 
   const lines = [];
+
+  // ── RESOLVE WORKING DIR + MEMORY DIR (used in agent template substitution) ─
+  const cwd = workingDirectory || settings.prompts.workingDirectory || process.cwd();
+  const agentMemoryDir = settings.prompts.agentMemoryDir || path.join(os.homedir(), '.claude', 'agent-memory');
 
   // ── TASK CONTEXT ──────────────────────────────────────────────────────────
   lines.push('## TASK CONTEXT');
@@ -1467,8 +1490,11 @@ function buildPromptText(options) {
   }
 
   // ── AGENT INSTRUCTIONS ────────────────────────────────────────────────────
+  const resolvedAgent = agentContent
+    .replace(/\{\{WORKING_DIR\}\}/g, cwd)
+    .replace(/\{\{AGENT_MEMORY_DIR\}\}/g, agentMemoryDir);
   lines.push('\n## AGENT INSTRUCTIONS');
-  lines.push(agentContent);
+  lines.push(resolvedAgent);
 
   // ── KANBAN INSTRUCTIONS ───────────────────────────────────────────────────
   if (settings.prompts.includeKanbanBlock) {
@@ -1480,19 +1506,23 @@ function buildPromptText(options) {
     lines.push('  - kanban_move_task: move a task between columns (todo → in-progress → done)');
     lines.push('  - kanban_update_task: update task fields or attach artifacts');
     lines.push('  - kanban_create_task: create new tasks');
+    lines.push('');
+    lines.push(`Your pipeline task ID: ${task.id}`);
+    lines.push('When you finish your stage work, move it to done (MANDATORY — the pipeline detects completion this way):');
+    lines.push(`  mcp__prism__kanban_move_task({ id: "${task.id}", to: "done", spaceId: "${space.id}" })`);
   }
 
   // ── GIT INSTRUCTIONS ──────────────────────────────────────────────────────
   if (settings.prompts.includeGitBlock) {
     lines.push('\n## GIT INSTRUCTIONS');
-    lines.push('- Work on the current feature branch (do not create new branches unless specified)');
+    const featureBranch = `feature/${task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+    lines.push(`- Create and work on branch \`${featureBranch}\` (run: \`git checkout -b ${featureBranch}\` or \`git checkout ${featureBranch}\` if it already exists)`);
     lines.push('- Commit format: [dev] T-XXX: <task title>');
     lines.push('- Stage only task-relevant files (never git add -A or git add .)');
     lines.push('- Never commit to main directly');
   }
 
   // ── PROJECT CONTEXT ───────────────────────────────────────────────────────
-  const cwd = workingDirectory || settings.prompts.workingDirectory || process.cwd();
   lines.push('\n## PROJECT CONTEXT');
   lines.push(`Working directory: ${cwd}`);
   lines.push(`Feature: ${space.name}`);
@@ -1692,6 +1722,168 @@ const AGENTS_SINGLE_ROUTE = /^\/api\/v1\/agents\/([^/]+)$/;
 const AGENT_PROMPT_ROUTE  = /^\/api\/v1\/agent\/prompt$/;
 const SETTINGS_ROUTE      = /^\/api\/v1\/settings$/;
 
+/** Route patterns for activity endpoints (ADR-1 Activity Feed §2.5). */
+const ACTIVITY_GLOBAL_ROUTE = /^\/api\/v1\/activity$/;
+const ACTIVITY_SPACE_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/activity$/;
+
+/** Valid event type strings for query parameter validation. */
+const VALID_ACTIVITY_TYPES = new Set([
+  'task.created', 'task.moved', 'task.updated', 'task.deleted',
+  'space.created', 'space.renamed', 'space.deleted', 'board.cleared',
+]);
+
+// ---------------------------------------------------------------------------
+// Activity REST handler — GET /api/v1/activity and GET /api/v1/spaces/:spaceId/activity
+// ADR-1 (Activity Feed) §2.5: paginated, newest-first, filters: type/from/to/limit/cursor.
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse and validate activity query parameters from a URL query string.
+ * Returns { valid: true, params } or { valid: false, error: { code, message, suggestion, field? } }.
+ *
+ * @param {URL} url - URL object (with searchParams).
+ * @returns {{ valid: boolean, params?: object, error?: object }}
+ */
+function parseActivityQueryParams(url) {
+  const params = {};
+
+  // type
+  const typeParam = url.searchParams.get('type');
+  if (typeParam !== null) {
+    if (!VALID_ACTIVITY_TYPES.has(typeParam)) {
+      return {
+        valid: false,
+        error: {
+          code:       'INVALID_EVENT_TYPE',
+          message:    `The event type '${typeParam}' is not recognized.`,
+          suggestion: `Use one of: ${[...VALID_ACTIVITY_TYPES].join(', ')}`,
+        },
+      };
+    }
+    params.type = typeParam;
+  }
+
+  // limit
+  const limitParam = url.searchParams.get('limit');
+  if (limitParam !== null) {
+    const limitNum = parseInt(limitParam, 10);
+    if (isNaN(limitNum) || limitNum < 1 || limitNum > 200) {
+      return {
+        valid: false,
+        error: {
+          code:       'INVALID_LIMIT',
+          message:    `The limit value '${limitParam}' is outside the allowed range.`,
+          suggestion: 'Provide a limit between 1 and 200. The default is 50.',
+        },
+      };
+    }
+    params.limit = limitNum;
+  }
+
+  // from
+  const fromParam = url.searchParams.get('from');
+  if (fromParam !== null) {
+    const fromDate = new Date(fromParam);
+    if (isNaN(fromDate.getTime())) {
+      return {
+        valid: false,
+        error: {
+          code:       'INVALID_DATE_FORMAT',
+          message:    "The 'from' date could not be parsed.",
+          suggestion: 'Provide dates in ISO-8601 format, e.g. 2026-03-23T00:00:00.000Z',
+          field:      'from',
+        },
+      };
+    }
+    params.from = fromDate;
+  }
+
+  // to
+  const toParam = url.searchParams.get('to');
+  if (toParam !== null) {
+    const toDate = new Date(toParam);
+    if (isNaN(toDate.getTime())) {
+      return {
+        valid: false,
+        error: {
+          code:       'INVALID_DATE_FORMAT',
+          message:    "The 'to' date could not be parsed.",
+          suggestion: 'Provide dates in ISO-8601 format, e.g. 2026-03-23T23:59:59.000Z',
+          field:      'to',
+        },
+      };
+    }
+    params.to = toDate;
+  }
+
+  // cursor
+  const cursorParam = url.searchParams.get('cursor');
+  if (cursorParam !== null) {
+    params.cursor = cursorParam;
+  }
+
+  return { valid: true, params };
+}
+
+/**
+ * Handle GET /api/v1/activity or GET /api/v1/spaces/:spaceId/activity.
+ *
+ * @param {http.IncomingMessage} req
+ * @param {http.ServerResponse}  res
+ * @param {object} activityStore    - ActivityStore instance.
+ * @param {object} spaceManager     - SpaceManager instance (for space validation).
+ * @param {string|null} spaceId     - Space ID to filter to, or null for global query.
+ */
+function handleGetActivity(req, res, activityStore, spaceManager, spaceId) {
+  // Validate space exists when spaceId is provided.
+  if (spaceId) {
+    const spaceResult = spaceManager.getSpace(spaceId);
+    if (!spaceResult.ok) {
+      return sendError(res, 404, 'SPACE_NOT_FOUND',
+        `No space was found with the ID '${spaceId}'.`,
+        { suggestion: 'Check the space ID and try again. You can list all spaces at GET /api/v1/spaces.' }
+      );
+    }
+  }
+
+  // Parse query parameters.
+  const url = new URL(req.url, 'http://localhost');
+  const parseResult = parseActivityQueryParams(url);
+  if (!parseResult.valid) {
+    return sendError(res, 400, parseResult.error.code, parseResult.error.message,
+      { suggestion: parseResult.error.suggestion, ...(parseResult.error.field ? { field: parseResult.error.field } : {}) }
+    );
+  }
+
+  const queryParams = { ...parseResult.params };
+  if (spaceId) queryParams.spaceId = spaceId;
+
+  // Validate cursor format (deferred to store but we check decodability here).
+  if (queryParams.cursor) {
+    try {
+      const decoded = Buffer.from(queryParams.cursor, 'base64').toString('utf8');
+      const parsed  = JSON.parse(decoded);
+      if (!parsed.date || typeof parsed.offset !== 'number') throw new Error('invalid');
+    } catch {
+      return sendError(res, 400, 'INVALID_CURSOR',
+        'The pagination cursor is malformed or expired.',
+        { suggestion: 'Restart pagination from the beginning by omitting the cursor parameter.' }
+      );
+    }
+  }
+
+  try {
+    const result = activityStore.query(queryParams);
+    sendJSON(res, 200, result);
+  } catch (err) {
+    console.error('[activity] ERROR querying activity:', err.message);
+    sendError(res, 500, 'ACTIVITY_READ_ERROR',
+      'Could not read activity history at this time.',
+      { suggestion: 'Try again in a moment. If the problem persists, check that data/activity/ directory is accessible.' }
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Server factory — exported for use by tests and direct invocation
 // ---------------------------------------------------------------------------
@@ -1711,35 +1903,31 @@ const LEGACY_TASKS_ROUTE  = /^\/api\/v1(\/tasks.*)$/;
  * Create and start an HTTP server.
  *
  * @param {object} [options]
- * @param {number} [options.port]    - Port to listen on. Pass 0 for OS-assigned port.
- * @param {string} [options.dataDir] - Absolute path to data directory.
- * @param {boolean} [options.silent] - Suppress startup log.
+ * @param {number}  [options.port]             - Port to listen on. Pass 0 for OS-assigned port.
+ * @param {string}  [options.dataDir]          - Absolute path to data directory.
+ * @param {boolean} [options.silent]           - Suppress startup log.
+ * @param {{ log: Function }|null} [options.activityLogger] - ActivityLogger for mutation events.
+ * @param {object|null} [options.activityStore] - ActivityStore for REST history queries.
  * @returns {http.Server}
  */
 function startServer(options = {}) {
-  const dataDir = options.dataDir || DEFAULT_DATA_DIR;
-  const port    = options.port !== undefined ? options.port : DEFAULT_PORT;
+  const dataDir        = options.dataDir || DEFAULT_DATA_DIR;
+  const port           = options.port !== undefined ? options.port : DEFAULT_PORT;
+  const activityLogger = options.activityLogger || null;
+  const activityStore  = options.activityStore  || null;
 
-  // --- Step 1: Run migrator before anything else. ---
-  try {
-    migrate(dataDir);
-  } catch (err) {
-    console.error('[startup] Migration failed — server cannot start:', err);
-    process.exit(1);
-  }
-
-  // --- Step 2: Create SpaceManager and ensure all space directories exist. ---
+  // --- Step 1: Create SpaceManager and ensure all space directories exist. ---
   const spaceManager = createSpaceManager(dataDir);
   spaceManager.ensureAllSpaces();
 
-  // --- Step 3: Build a Map-based cache of createApp instances by spaceId. ---
+  // --- Step 2: Build a Map-based cache of createApp instances by spaceId. ---
   /** @type {Map<string, ReturnType<createApp>>} */
   const appCache = new Map();
 
   function getApp(spaceId) {
     if (!appCache.has(spaceId)) {
       const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
-      const app          = createApp(spaceDataDir);
+      const app          = createApp(spaceDataDir, { logger: activityLogger, spaceId });
       app.ensureDataFiles();
       appCache.set(spaceId, app);
     }
@@ -1750,11 +1938,31 @@ function startServer(options = {}) {
     appCache.delete(spaceId);
   }
 
-  // --- Step 4: Build the main request handler. ---
+  // --- Step 3: Build the main request handler. ---
 
   async function mainRouter(req, res) {
     const { method } = req;
     const urlPath    = req.url.split('?')[0];
+
+    // -----------------------------------------------------------------------
+    // Activity feed routes — ADR-1 (Activity Feed) §2.5
+    // Must be checked BEFORE space-tasks route so /spaces/:id/activity is
+    // not accidentally matched by SPACES_TASKS_ROUTE (which only matches /tasks*).
+    // -----------------------------------------------------------------------
+    if (activityStore) {
+      // Global: GET /api/v1/activity
+      if (ACTIVITY_GLOBAL_ROUTE.test(urlPath)) {
+        if (method === 'GET') return handleGetActivity(req, res, activityStore, spaceManager, null);
+        return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+      }
+
+      // Space-scoped: GET /api/v1/spaces/:spaceId/activity
+      const activitySpaceMatch = ACTIVITY_SPACE_ROUTE.exec(urlPath);
+      if (activitySpaceMatch) {
+        if (method === 'GET') return handleGetActivity(req, res, activityStore, spaceManager, activitySpaceMatch[1]);
+        return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+      }
+    }
 
     // -----------------------------------------------------------------------
     // Space-scoped task routes: /api/v1/spaces/:spaceId/tasks/*
@@ -1804,7 +2012,9 @@ function startServer(options = {}) {
 
         // Warm cache for the newly created space.
         getApp(result.space.id);
-        return sendJSON(res, 201, result.space);
+        sendJSON(res, 201, result.space);
+        if (activityLogger) activityLogger.log('space.created', result.space.id, { spaceId: result.space.id, spaceName: result.space.name });
+        return;
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
@@ -1840,7 +2050,9 @@ function startServer(options = {}) {
           return sendError(res, status, result.code, result.message);
         }
 
-        return sendJSON(res, 200, result.space);
+        sendJSON(res, 200, result.space);
+        if (activityLogger) activityLogger.log('space.renamed', spaceId, { spaceId, spaceName: result.space.name });
+        return;
       }
 
       if (method === 'DELETE') {
@@ -1856,7 +2068,9 @@ function startServer(options = {}) {
         }
 
         evictApp(spaceId);
-        return sendJSON(res, 200, { deleted: true, id: result.id });
+        sendJSON(res, 200, { deleted: true, id: result.id });
+        if (activityLogger) activityLogger.log('space.deleted', spaceId, { spaceId, spaceName: result.name });
+        return;
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
@@ -1972,6 +2186,41 @@ module.exports = { startServer };
 
 if (require.main === module) {
   const { setupTerminalWebSocket } = require('./terminal');
-  const server = startServer();
+  const { setupActivityWebSocket } = require('./activity-ws');
+  const { createActivityStore }    = require('./src/activityStore');
+  const { createActivityLogger }   = require('./src/activityLogger');
+
+  // ADR-1 (Activity Feed) §T-006: bootstrap sequence.
+  // The challenge: broadcast() requires the HTTP server to be created first
+  // (for the WS upgrade handler), but activityLogger requires broadcast() and
+  // must be passed to startServer(). We solve this with a lazy broadcast wrapper:
+  // a wrapper function is created first, then the real broadcast fn is injected
+  // after the WS server is set up. The wrapper is passed to the logger so any
+  // events logged before the WS server is ready are safe (they just go nowhere).
+
+  const activityDir   = path.join(DEFAULT_DATA_DIR, 'activity');
+  const activityStore = createActivityStore(activityDir);
+
+  // Lazy broadcast wrapper — real function injected below after WS setup.
+  let _realBroadcast = null;
+  function lazyBroadcast(event) {
+    if (_realBroadcast) _realBroadcast(event);
+  }
+
+  // Create logger with the lazy wrapper — safe to pass to startServer now.
+  const activityLogger = createActivityLogger({ store: activityStore, broadcast: lazyBroadcast });
+
+  // Start server with activityLogger and activityStore already wired.
+  const server = startServer({ activityLogger, activityStore });
+
+  // Attach terminal WS first (lower path-priority handler).
   setupTerminalWebSocket(server);
+
+  // Attach activity WS and wire up the real broadcast function.
+  const { broadcast } = setupActivityWebSocket(server);
+  _realBroadcast = broadcast;
+
+  // Schedule retention cleanup at startup and every 24 hours.
+  activityStore.cleanup();
+  setInterval(() => activityStore.cleanup(), 24 * 60 * 60 * 1000).unref();
 }

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Prism Kanban Activity Feed</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "secondary-container": "#6f00be",
+              "on-tertiary-fixed": "#002109",
+              "outline-variant": "#424754",
+              "on-secondary-fixed-variant": "#6900b3",
+              "surface-variant": "#333348",
+              "error-container": "#93000a",
+              "on-surface": "#e2e0fc",
+              "on-background": "#e2e0fc",
+              "surface-container-low": "#1a1a2e",
+              "on-secondary-fixed": "#2c0051",
+              "inverse-primary": "#005ac2",
+              "on-secondary": "#490080",
+              "surface-dim": "#111125",
+              "primary-container": "#4d8eff",
+              "secondary-fixed": "#f0dbff",
+              "on-primary-container": "#00285d",
+              "inverse-on-surface": "#2f2e43",
+              "tertiary-container": "#00a74b",
+              "on-error": "#690005",
+              "on-tertiary": "#003915",
+              "primary-fixed-dim": "#adc6ff",
+              "surface-container-high": "#28283d",
+              "on-secondary-container": "#d6a9ff",
+              "tertiary-fixed": "#6bff8f",
+              "on-primary-fixed-variant": "#004395",
+              "on-primary": "#002e6a",
+              "tertiary": "#4ae176",
+              "on-tertiary-fixed-variant": "#005321",
+              "background": "#111125",
+              "surface-container-highest": "#333348",
+              "surface-container": "#1e1e32",
+              "secondary": "#ddb7ff",
+              "on-surface-variant": "#c2c6d6",
+              "surface-bright": "#37374d",
+              "on-tertiary-container": "#003111",
+              "inverse-surface": "#e2e0fc",
+              "outline": "#8c909f",
+              "on-primary-fixed": "#001a42",
+              "on-error-container": "#ffdad6",
+              "surface": "#111125",
+              "primary-fixed": "#d8e2ff",
+              "primary": "#adc6ff",
+              "tertiary-fixed-dim": "#4ae176",
+              "surface-container-lowest": "#0c0c1f",
+              "error": "#ffb4ab",
+              "secondary-fixed-dim": "#ddb7ff",
+              "surface-tint": "#adc6ff"
+            },
+            fontFamily: {
+              "headline": ["Inter"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .drag-handle-texture {
+            background-image: radial-gradient(circle, #424754 1px, transparent 1px);
+            background-size: 4px 4px;
+        }
+    </style>
+</head>
+<body class="bg-surface-container-lowest font-body text-on-surface antialiased flex justify-end min-h-screen overflow-hidden">
+<!-- Sidebar Panel: Prism Activity Feed -->
+<aside class="flex flex-col h-screen sticky top-0 overflow-y-auto w-[360px] bg-surface-dim border-l border-outline-variant/15 shadow-[32px_0_32px_rgba(59,130,246,0.08)] relative" id="activity-panel">
+<!-- Subtle Drag Handle Strip -->
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-surface-container-low flex flex-col items-center justify-center cursor-ew-resize hover:bg-primary/30 transition-colors group">
+<div class="w-[2px] h-8 bg-outline-variant/30 rounded-full group-hover:bg-primary transition-colors"></div>
+</div>
+<!-- Header -->
+<header class="flex items-center justify-between px-6 pt-8 pb-4 w-full">
+<div class="flex items-center gap-2">
+<h1 class="text-lg font-black text-on-surface tracking-tight">Activity</h1>
+<div class="flex items-center gap-1.5 ml-1">
+<span class="w-2 h-2 rounded-full bg-tertiary shadow-[0_0_8px_rgba(74,225,118,0.4)]"></span>
+<span class="text-[10px] font-bold tracking-widest text-on-surface-variant uppercase bg-surface-container px-1.5 py-0.5 rounded">Live</span>
+</div>
+</div>
+<button class="p-1.5 rounded-lg hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-all active:scale-95">
+<span class="material-symbols-outlined text-[20px]" data-icon="close">close</span>
+</button>
+</header>
+<!-- Filter Bar -->
+<div class="px-6 py-4 flex flex-col gap-4">
+<!-- Type Dropdown -->
+<div class="relative group">
+<div class="flex items-center justify-between w-full bg-surface-container-lowest px-3 py-2.5 rounded-xl cursor-pointer hover:bg-surface-container-low transition-colors outline outline-1 outline-outline-variant/10 focus-within:outline-primary/50">
+<div class="flex flex-col">
+<span class="text-[10px] text-on-surface-variant font-bold tracking-wider uppercase">Type</span>
+<span class="text-sm font-medium text-primary">task.moved</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+<!-- Date Chips -->
+<div class="flex items-center gap-2 overflow-x-auto pb-2 no-scrollbar">
+<!-- Today (Active) -->
+<button class="px-4 py-1.5 rounded-full text-xs font-semibold bg-primary text-on-primary-container shadow-[0_4px_12px_rgba(173,198,255,0.15)] transition-all">
+                    Today
+                </button>
+<!-- 7d -->
+<button class="px-4 py-1.5 rounded-full text-xs font-medium bg-surface-container-high text-on-surface-variant hover:text-on-surface hover:bg-surface-bright transition-all">
+                    7d
+                </button>
+<!-- 30d -->
+<button class="px-4 py-1.5 rounded-full text-xs font-medium bg-surface-container-high text-on-surface-variant hover:text-on-surface hover:bg-surface-bright transition-all">
+                    30d
+                </button>
+</div>
+</div>
+<!-- Main Content Area: Empty State -->
+<main class="flex-1 flex flex-col items-center justify-center px-8 mb-16">
+<div class="relative mb-6">
+<!-- Decorative Glow Background -->
+<div class="absolute inset-0 bg-primary/5 blur-3xl rounded-full scale-150"></div>
+<div class="w-20 h-20 rounded-full bg-surface-container-low flex items-center justify-center relative border border-outline-variant/10">
+<span class="material-symbols-outlined text-[48px] text-outline" data-icon="notifications_off" style="font-variation-settings: 'wght' 300;">notifications_off</span>
+</div>
+</div>
+<h2 class="text-sm font-semibold text-on-surface mb-2 tracking-tight">No events yet</h2>
+<p class="text-xs text-on-surface-variant text-center max-w-[200px] leading-relaxed">
+                Activity will appear here as you create, move, and update tasks.
+            </p>
+</main>
+<!-- Dynamic Visual Accent (Bottom Gradient) -->
+<div class="absolute bottom-0 left-0 right-0 h-32 pointer-events-none bg-gradient-to-t from-surface-dim to-transparent opacity-60"></div>
+</aside>
+<!-- Content Placeholder (To show sidebar context) -->
+<div class="flex-1 bg-surface-container-lowest p-8 hidden md:block">
+<div class="w-full h-full rounded-2xl border border-outline-variant/5 bg-surface-container/30 flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-cover opacity-20 grayscale brightness-50" data-alt="Abstract dark geometric wallpaper with purple and blue hues" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0FRr0av3kcNtIcGK2in4_9IfpkwAWmjis4gPQLwUn_PVPt5_6gIteLH8j7lwH_d3wVQdBaNjCdzjZR-4fRRVwO29KhkcBOqoS9Yx2X5_e2YpGOtZojIghqMQw_ONxQAka7p23E3rhB2LwFo9c0qfKiWHVehtfAz60BJjuVFwBuTK3rdul4uC8kJE5AYD7DiNy_bDA8SIH8KQMW9wJP64C28GX8Qx2OxRrEMBQmdN0d7aXPwZ8SedZkhyQajh8MMX4lZpGjspiTrk"/>
+</div>
+</div>
+</body></html>

@@ -1,0 +1,524 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Prism Kanban — Activity Feed API",
+    "version": "1.0.0",
+    "description": "REST and WebSocket API for the real-time Activity Feed feature. Covers historical event queries (REST) and live event streaming (WebSocket). Follows existing Prism API conventions: versioned /api/v1/ prefix, error envelope { error: { code, message, suggestion } }, ISO-8601 timestamps generated server-side."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Local development server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "activity",
+      "description": "Activity event history endpoints"
+    }
+  ],
+  "paths": {
+    "/api/v1/activity": {
+      "get": {
+        "tags": ["activity"],
+        "operationId": "getGlobalActivity",
+        "summary": "List activity events across all spaces",
+        "description": "Returns a paginated, newest-first list of activity events from all spaces. Supports filtering by event type and date range. Reads from JSONL day-partitioned files in data/activity/. Expected p95 latency < 100 ms for limit ≤ 50.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "description": "Filter by event type. When omitted, all event types are returned.",
+            "schema": {
+              "$ref": "#/components/schemas/ActivityEventType"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Start of the date range (inclusive). ISO-8601 timestamp. Defaults to 30 days ago.",
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "example": "2026-03-01T00:00:00.000Z"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "End of the date range (inclusive). ISO-8601 timestamp. Defaults to now.",
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "example": "2026-03-23T23:59:59.000Z"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum number of events to return. Must be between 1 and 200.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque pagination cursor returned by a previous response as nextCursor. Base64-encoded internal position marker. Pass as-is; do not construct manually.",
+            "schema": {
+              "type": "string",
+              "example": "eyJkYXRlIjoiMjAyNi0wMy0yMyIsIm9mZnNldCI6MTAwfQ=="
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Events retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityQueryResponse"
+                },
+                "example": {
+                  "events": [
+                    {
+                      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                      "type": "task.moved",
+                      "spaceId": "395c2385-8914-482f-8dbc-9dfc9971803a",
+                      "timestamp": "2026-03-23T11:30:00.000Z",
+                      "actor": "system",
+                      "payload": {
+                        "taskId": "f1e2d3c4-b5a6-7890-abcd-123456789012",
+                        "taskTitle": "Fix auth bug",
+                        "from": "todo",
+                        "to": "in-progress"
+                      }
+                    }
+                  ],
+                  "nextCursor": "eyJkYXRlIjoiMjAyNi0wMy0yMyIsIm9mZnNldCI6NTB9"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "invalid_type": {
+                    "value": {
+                      "error": {
+                        "code": "INVALID_EVENT_TYPE",
+                        "message": "The event type 'task.jumped' is not recognized.",
+                        "suggestion": "Use one of: task.created, task.moved, task.updated, task.deleted, space.created, space.renamed, space.deleted, board.cleared"
+                      }
+                    }
+                  },
+                  "invalid_limit": {
+                    "value": {
+                      "error": {
+                        "code": "INVALID_LIMIT",
+                        "message": "The limit value '250' is outside the allowed range.",
+                        "suggestion": "Provide a limit between 1 and 200. The default is 50."
+                      }
+                    }
+                  },
+                  "invalid_date": {
+                    "value": {
+                      "error": {
+                        "code": "INVALID_DATE_FORMAT",
+                        "message": "The 'from' date could not be parsed.",
+                        "suggestion": "Provide dates in ISO-8601 format, e.g. 2026-03-23T00:00:00.000Z",
+                        "field": "from"
+                      }
+                    }
+                  },
+                  "invalid_cursor": {
+                    "value": {
+                      "error": {
+                        "code": "INVALID_CURSOR",
+                        "message": "The pagination cursor is malformed or expired.",
+                        "suggestion": "Restart pagination from the beginning by omitting the cursor parameter."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error (e.g. disk read failure).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "ACTIVITY_READ_ERROR",
+                    "message": "Could not read activity history at this time.",
+                    "suggestion": "Try again in a moment. If the problem persists, check that data/activity/ directory is accessible."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/spaces/{spaceId}/activity": {
+      "get": {
+        "tags": ["activity"],
+        "operationId": "getSpaceActivity",
+        "summary": "List activity events for a specific space",
+        "description": "Returns a paginated, newest-first list of activity events filtered to the given space. Same query parameters and response shape as the global endpoint. Returns 404 when the spaceId does not exist.",
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "description": "The ID of the space to query. Use 'default' for the default space.",
+            "schema": {
+              "type": "string",
+              "example": "395c2385-8914-482f-8dbc-9dfc9971803a"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ActivityEventType"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Events retrieved successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityQueryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query parameters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Space not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "SPACE_NOT_FOUND",
+                    "message": "No space was found with the ID 'xyz-123'.",
+                    "suggestion": "Check the space ID and try again. You can list all spaces at GET /api/v1/spaces."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ActivityEventType": {
+        "type": "string",
+        "enum": [
+          "task.created",
+          "task.moved",
+          "task.updated",
+          "task.deleted",
+          "space.created",
+          "space.renamed",
+          "space.deleted",
+          "board.cleared"
+        ],
+        "description": "Discriminator for activity event types. Each type corresponds to a specific mutation on the kanban board or its spaces."
+      },
+      "ActivityEventPayload": {
+        "type": "object",
+        "description": "Contextual metadata for the event. Fields present depend on the event type.",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the affected task. Present on all task.* events."
+          },
+          "taskTitle": {
+            "type": "string",
+            "description": "Snapshot of the task title at the time of the event. Present on all task.* events."
+          },
+          "from": {
+            "type": "string",
+            "enum": ["todo", "in-progress", "done"],
+            "description": "Source column. Present only on task.moved events."
+          },
+          "to": {
+            "type": "string",
+            "enum": ["todo", "in-progress", "done"],
+            "description": "Destination column. Present only on task.moved events."
+          },
+          "spaceName": {
+            "type": "string",
+            "description": "Name of the affected space. Present on space.* events."
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of field names that were changed. Present on task.updated events.",
+            "example": ["title", "description"]
+          },
+          "deletedCount": {
+            "type": "integer",
+            "description": "Number of tasks deleted. Present only on board.cleared events."
+          }
+        }
+      },
+      "ActivityEvent": {
+        "type": "object",
+        "required": ["id", "type", "spaceId", "timestamp", "actor", "payload"],
+        "description": "A single activity event representing a mutation on the kanban board.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique event ID (UUID v4), generated server-side.",
+            "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ActivityEventType"
+          },
+          "spaceId": {
+            "type": "string",
+            "description": "ID of the space in which the event occurred. 'default' for the default space.",
+            "example": "395c2385-8914-482f-8dbc-9dfc9971803a"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO-8601 UTC timestamp of when the event was recorded, generated server-side.",
+            "example": "2026-03-23T11:30:00.000Z"
+          },
+          "actor": {
+            "type": "string",
+            "enum": ["system"],
+            "description": "Who triggered the event. Always 'system' in Phase 1 (single-user local tool, no auth)."
+          },
+          "payload": {
+            "$ref": "#/components/schemas/ActivityEventPayload"
+          }
+        }
+      },
+      "ActivityQueryResponse": {
+        "type": "object",
+        "required": ["events", "nextCursor"],
+        "description": "Paginated list of activity events. Events are ordered newest-first.",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivityEvent"
+            },
+            "description": "Array of activity events matching the query. May be empty."
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Opaque cursor for retrieving the next page. Null when no more events exist. Pass as the 'cursor' query parameter in the next request.",
+            "example": "eyJkYXRlIjoiMjAyNi0wMy0yMyIsIm9mZnNldCI6NTB9"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "description": "Standard error envelope used by all Prism API error responses.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message", "suggestion"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Machine-readable error code in SCREAMING_SNAKE_CASE.",
+                "example": "INVALID_EVENT_TYPE"
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable explanation of what went wrong. Never exposes internal stack traces.",
+                "example": "The event type 'task.jumped' is not recognized."
+              },
+              "suggestion": {
+                "type": "string",
+                "description": "Actionable guidance for fixing the error.",
+                "example": "Use one of: task.created, task.moved, task.updated, task.deleted, space.created, space.renamed, space.deleted, board.cleared"
+              },
+              "field": {
+                "type": "string",
+                "description": "Name of the request field that caused the error. Only present for VALIDATION_ERROR and field-specific errors.",
+                "example": "from"
+              }
+            }
+          }
+        }
+      }
+    },
+    "x-websocket-protocol": {
+      "activityFeed": {
+        "endpoint": "ws://localhost:3000/ws/activity",
+        "description": "WebSocket endpoint for real-time activity event streaming. Uses the ws npm package in noServer mode. All connected clients receive all events (no server-side filtering). Client-side filtering is done in the React component.",
+        "security": {
+          "description": "Localhost-only origin check (LOCALHOST_ORIGINS set). Max 10 concurrent connections.",
+          "maxConnections": 10,
+          "maxPayload": 8192
+        },
+        "serverToClient": {
+          "connected": {
+            "description": "Sent immediately after a successful WebSocket upgrade.",
+            "schema": {
+              "type": "object",
+              "required": ["type", "timestamp"],
+              "properties": {
+                "type": { "type": "string", "enum": ["connected"] },
+                "timestamp": { "type": "string", "format": "date-time" }
+              }
+            },
+            "example": { "type": "connected", "timestamp": "2026-03-23T11:41:41.460Z" }
+          },
+          "activity": {
+            "description": "Sent whenever a mutation event is logged. Broadcasts to ALL connected clients.",
+            "schema": {
+              "type": "object",
+              "required": ["type", "event"],
+              "properties": {
+                "type": { "type": "string", "enum": ["activity"] },
+                "event": { "$ref": "#/components/schemas/ActivityEvent" }
+              }
+            },
+            "example": {
+              "type": "activity",
+              "event": {
+                "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                "type": "task.moved",
+                "spaceId": "395c2385-8914-482f-8dbc-9dfc9971803a",
+                "timestamp": "2026-03-23T11:30:00.000Z",
+                "actor": "system",
+                "payload": {
+                  "taskId": "f1e2d3c4-b5a6-7890-abcd-123456789012",
+                  "taskTitle": "Fix auth bug",
+                  "from": "todo",
+                  "to": "in-progress"
+                }
+              }
+            }
+          },
+          "pong": {
+            "description": "Response to a client ping message. Used for keep-alive.",
+            "schema": {
+              "type": "object",
+              "required": ["type"],
+              "properties": {
+                "type": { "type": "string", "enum": ["pong"] }
+              }
+            },
+            "example": { "type": "pong" }
+          }
+        },
+        "clientToServer": {
+          "ping": {
+            "description": "Keep-alive ping. The client sends this every 30 seconds. The server responds with pong.",
+            "schema": {
+              "type": "object",
+              "required": ["type"],
+              "properties": {
+                "type": { "type": "string", "enum": ["ping"] }
+              }
+            },
+            "example": { "type": "ping" }
+          }
+        },
+        "reconnectBehavior": {
+          "description": "Client-side reconnect with exponential backoff.",
+          "backoffSequenceSeconds": [1, 2, 4, 8, 16, 30],
+          "backoffCap": 30,
+          "resetOnSuccess": true
+        }
+      }
+    }
+  }
+}
