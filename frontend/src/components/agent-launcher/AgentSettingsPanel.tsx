@@ -1,13 +1,15 @@
 /**
  * Agent settings panel — slide-over for configuring CLI tool, flags, and pipeline settings.
- * Follows the ConfigPanel pattern: fixed w-[480px], border-l, bg-surface-elevated.
+ * Follows the ConfigPanel pattern: width now dynamic via usePanelResize (was fixed w-[480px]).
  * ADR-1 (Agent Launcher) §3.3: GET/PUT /api/v1/settings.
+ * ADR-1 (allow-resize-settings) §5.2: left-edge drag handle + localStorage persistence.
  */
 
 import React, { useEffect, useState } from 'react';
 import { useAppStore, useAgentSettings, useAgentSettingsPanelOpen } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
 import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
+import { usePanelResize } from '@/hooks/usePanelResize';
 import type { AgentSettings, CliSettings, PipelineSettings, PromptsSettings } from '@/types';
 
 const CLI_TOOLS = [
@@ -64,6 +66,13 @@ export function AgentSettingsPanel() {
   const setOpen         = useAppStore((s) => s.setAgentSettingsPanelOpen);
   const saveSettings    = useAppStore((s) => s.saveSettings);
 
+  const { width, handleMouseDown, minWidth, maxWidth } = usePanelResize({
+    storageKey:   'prism:panel-width:agent-settings',
+    defaultWidth: 480,
+    minWidth:     320,
+    maxWidth:     800,
+  });
+
   // Local draft state — only committed on Save.
   const [cli, setCli]           = useState<CliSettings | null>(null);
   const [pipeline, setPipeline] = useState<PipelineSettings | null>(null);
@@ -95,9 +104,21 @@ export function AgentSettingsPanel() {
 
   return (
     <aside
-      className="flex flex-col bg-surface-elevated border-l border-border h-full w-[480px] shrink-0"
+      className="relative flex flex-col bg-surface-elevated border-l border-border h-full shrink-0"
+      style={{ width }}
       aria-label="Agent launcher settings"
     >
+      {/* Left-edge drag handle — ADR-1 (allow-resize-settings) §4 */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize panel"
+        aria-valuenow={width}
+        aria-valuemin={minWidth}
+        aria-valuemax={maxWidth}
+        onMouseDown={handleMouseDown}
+        className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
+      />
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
