@@ -3,6 +3,11 @@
  * ADR-1 (Agent Launcher) §3.2: uses the existing 3-second polling cycle,
  * no new polling interval added.
  *
+ * Completion is detected by checking whether the task is in the done column
+ * AND its updatedAt timestamp is >= the run's startedAt timestamp. This
+ * correctly handles pipeline stages 2-4 where the task ID was already in the
+ * done column before the stage started (the old done-diff approach failed here).
+ *
  * When the task associated with activeRun moves to the 'done' column:
  * - Calls clearActiveRun()
  * - Shows a completion toast
@@ -10,29 +15,27 @@
  *   (or shows a confirmation toast if confirmBetweenStages is true)
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 
 export function useAgentCompletion(): void {
-  const prevTasksRef = useRef<string>('');
-
   useEffect(() => {
     return useAppStore.subscribe((state) => {
       const { activeRun, tasks, pipelineState, agentSettings, availableAgents } = state;
 
       if (!activeRun) return;
 
-      // Serialize current done column task IDs for change detection.
-      const doneTasks     = tasks['done'];
-      const doneIds       = doneTasks.map((t) => t.id).sort().join(',');
-      const prevDoneIds   = prevTasksRef.current;
+      // Find the task in the done column.
+      const doneTasks  = tasks['done'];
+      const taskInDone = doneTasks.find((t) => t.id === activeRun.taskId);
 
-      if (doneIds === prevDoneIds) return;
-      prevTasksRef.current = doneIds;
-
-      // Check if the active task has moved to done.
-      const taskInDone = doneTasks.some((t) => t.id === activeRun.taskId);
+      // Task not in done yet — nothing to do.
       if (!taskInDone) return;
+
+      // Guard: only treat as completion if the task was updated AFTER the run
+      // started. This prevents false-positive triggers when the task was already
+      // in the done column at the beginning of a later pipeline stage.
+      if (new Date(taskInDone.updatedAt) < new Date(activeRun.startedAt)) return;
 
       // Task is done — clear active run.
       const agentDisplayName =
