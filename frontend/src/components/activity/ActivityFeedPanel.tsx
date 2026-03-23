@@ -171,6 +171,7 @@ export function ActivityFeedPanel({ status }: ActivityFeedPanelProps) {
   const events              = useAppStore((s) => s.activityEvents);
   const filter              = useAppStore((s) => s.activityFilter);
   const loading             = useAppStore((s) => s.activityLoading);
+  const nextCursor          = useAppStore((s) => s.activityNextCursor);
   const setActivityPanelOpen = useAppStore((s) => s.setActivityPanelOpen);
   const setActivityFilter   = useAppStore((s) => s.setActivityFilter);
   const loadActivityHistory = useAppStore((s) => s.loadActivityHistory);
@@ -303,29 +304,31 @@ export function ActivityFeedPanel({ status }: ActivityFeedPanelProps) {
         )}
       </div>
 
-      {/* Load more */}
-      <div className="px-3 py-2 border-t border-border shrink-0">
-        <button
-          onClick={() => loadActivityHistory()}
-          disabled={loading}
-          className="w-full text-xs text-text-secondary hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed py-1 transition-colors duration-150"
-          aria-label="Load more activity history"
-        >
-          {loading ? (
-            <span className="flex items-center justify-center gap-1.5">
-              <span
-                className="material-symbols-outlined text-sm leading-none animate-spin"
-                aria-hidden="true"
-              >
-                progress_activity
+      {/* Load more — hidden once all pages are exhausted (nextCursor is null after first fetch) */}
+      {(events.length === 0 || nextCursor !== null) && (
+        <div className="px-3 py-2 border-t border-border shrink-0">
+          <button
+            onClick={() => loadActivityHistory(nextCursor ?? undefined)}
+            disabled={loading}
+            className="w-full text-xs text-text-secondary hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed py-1 transition-colors duration-150"
+            aria-label="Load more activity history"
+          >
+            {loading ? (
+              <span className="flex items-center justify-center gap-1.5">
+                <span
+                  className="material-symbols-outlined text-sm leading-none animate-spin"
+                  aria-hidden="true"
+                >
+                  progress_activity
+                </span>
+                Loading…
               </span>
-              Loading…
-            </span>
-          ) : (
-            'Load more'
-          )}
-        </button>
-      </div>
+            ) : (
+              'Load more'
+            )}
+          </button>
+        </div>
+      )}
     </aside>
   );
 }

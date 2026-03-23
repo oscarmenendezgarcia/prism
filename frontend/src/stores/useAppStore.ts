@@ -188,6 +188,8 @@ interface AppState {
   activityUnreadCount: number;
   /** True while loadActivityHistory is in flight. */
   activityLoading: boolean;
+  /** Cursor returned by the last loadActivityHistory call. Null when all pages exhausted. */
+  activityNextCursor: string | null;
 
   toggleActivityPanel: () => void;
   setActivityPanelOpen: (open: boolean) => void;
@@ -835,6 +837,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activityFilter:      {},
   activityUnreadCount: 0,
   activityLoading:     false,
+  activityNextCursor:  null,
 
   toggleActivityPanel: () => {
     const next = !get().activityPanelOpen;
@@ -874,7 +877,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadActivityHistory: async (cursor?: string) => {
-    const { activeSpaceId, activityFilter, activityEvents, showToast } = get();
+    const { activityFilter, activityEvents, showToast } = get();
     set({ activityLoading: true });
     try {
       const params = {
@@ -882,16 +885,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         limit: 50,
         ...(cursor ? { cursor } : {}),
       };
-      // Query the active space's activity; fall back to global when no space set
-      const result = activeSpaceId
-        ? await api.getActivity(activeSpaceId, params)
-        : await api.getGlobalActivity(params);
+      // Always query the global (all-spaces) endpoint per Story 2.1 DoD.
+      // Per-space filtering is UI-controlled via the filter dropdown, not
+      // hard-coded to the active space (BUG-003 fix).
+      const result = await api.getGlobalActivity(params);
 
       // Append fetched events (deduplicate by id to be safe)
       const existingIds = new Set(activityEvents.map((e) => e.id));
       const newEvents   = result.events.filter((e) => !existingIds.has(e.id));
       const merged      = [...activityEvents, ...newEvents].slice(0, ACTIVITY_MAX_EVENTS);
-      set({ activityEvents: merged });
+      // Persist nextCursor so the panel can pass it on the next "Load more" click (BUG-001 fix).
+      set({ activityEvents: merged, activityNextCursor: result.nextCursor ?? null });
     } catch (err) {
       showToast(`Failed to load activity: ${(err as Error).message}`, 'error');
     } finally {
