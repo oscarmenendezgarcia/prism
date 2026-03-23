@@ -17,7 +17,6 @@ const fs   = require('fs');
 const os   = require('os');
 const path = require('path');
 
-const { migrate }             = require('./src/migrator');
 const { createSpaceManager }  = require('./src/spaceManager');
 
 // ---------------------------------------------------------------------------
@@ -67,10 +66,19 @@ const VALID_ATTACHMENT_TYPES       = ['text', 'file'];
  * Create a router and supporting helpers bound to the given data directory.
  * All file I/O is scoped to `dataDir`; no module-level mutable state is used.
  *
+ * ADR-1 (Activity Feed) §2.6.2: ActivityLogger injected as a dependency so
+ * mutation handlers can call logger.log() after sending their HTTP response.
+ * When logger is null/undefined the handlers behave exactly as before.
+ *
  * @param {string} dataDir - Absolute path to the directory holding column JSON files.
+ * @param {object} [options]
+ * @param {{ log: Function }|null} [options.logger]  - ActivityLogger instance (optional).
+ * @param {string}                 [options.spaceId] - Space ID for activity events.
  * @returns {{ router: Function, ensureDataFiles: Function }}
  */
-function createApp(dataDir) {
+function createApp(dataDir, options = {}) {
+  const logger  = (options && options.logger)  || null;
+  const spaceId = (options && options.spaceId) || 'default';
   const COLUMN_FILES = {
     todo:          path.join(dataDir, 'todo.json'),
     'in-progress': path.join(dataDir, 'in-progress.json'),
@@ -351,6 +359,8 @@ function createApp(dataDir) {
       tasks.push(task);
       writeColumn('todo', tasks);
       sendJSON(res, 201, stripAttachmentContent(task));
+      // Activity logging — fire-and-forget after response sent.
+      if (logger) logger.log('task.created', spaceId, { taskId: task.id, taskTitle: task.title });
     } catch (err) {
       console.error('POST tasks error:', err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to persist task');
@@ -415,6 +425,7 @@ function createApp(dataDir) {
       writeColumn(to, targetTasks);
 
       sendJSON(res, 200, { task: updatedTask, from: sourceColumn, to });
+      if (logger) logger.log('task.moved', spaceId, { taskId: updatedTask.id, taskTitle: updatedTask.title, from: sourceColumn, to });
     } catch (err) {
       console.error(`PUT tasks/${taskId}/move error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to move task');
@@ -530,6 +541,7 @@ function createApp(dataDir) {
       writeColumn(foundColumn, columnTasks);
 
       sendJSON(res, 200, stripAttachmentContent(updatedTask));
+      if (logger) logger.log('task.updated', spaceId, { taskId: updatedTask.id, taskTitle: updatedTask.title, fields: provided });
     } catch (err) {
       console.error(`PUT tasks/${taskId} error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to update task');
@@ -546,6 +558,7 @@ function createApp(dataDir) {
         writeColumn(column, []);
       }
       sendJSON(res, 200, { deleted: totalCount });
+      if (logger) logger.log('board.cleared', spaceId, { deletedCount: totalCount });
     } catch (err) {
       console.error('DELETE tasks error:', err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to clear board');
@@ -554,12 +567,14 @@ function createApp(dataDir) {
 
   function handleDeleteTask(req, res, taskId) {
     try {
-      let deleted = false;
+      let deleted     = false;
+      let deletedTask = null;
 
       for (const column of COLUMNS) {
         const tasks = readColumn(column);
         const index = tasks.findIndex((t) => t.id === taskId);
         if (index !== -1) {
+          deletedTask = tasks[index];
           tasks.splice(index, 1);
           writeColumn(column, tasks);
           deleted = true;
@@ -572,6 +587,7 @@ function createApp(dataDir) {
       }
 
       sendJSON(res, 200, { deleted: true, id: taskId });
+      if (logger && deletedTask) logger.log('task.deleted', spaceId, { taskId: deletedTask.id, taskTitle: deletedTask.title });
     } catch (err) {
       console.error(`DELETE tasks/${taskId} error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to delete task');
@@ -636,6 +652,7 @@ function createApp(dataDir) {
 
       console.log(`[attachment] Updated ${attachmentResult.data.length} attachments for task ${taskId}`);
       sendJSON(res, 200, stripAttachmentContent(updatedTask));
+      if (logger) logger.log('task.updated', spaceId, { taskId: updatedTask.id, taskTitle: updatedTask.title, fields: ['attachments'] });
     } catch (err) {
       console.error(`PUT tasks/${taskId}/attachments error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to update attachments');
@@ -1268,6 +1285,7 @@ const DEFAULT_SETTINGS = {
     includeKanbanBlock: true,
     includeGitBlock:    true,
     workingDirectory:   '',
+    customInstructions: '',
   },
 };
 
@@ -1438,7 +1456,8 @@ function buildCliCommand(settings, promptPath) {
 
   // claude (default) — interactive mode so tool calls and thinking are visible in the TUI.
   // Omitting -p intentionally: -p (non-interactive) hides intermediate steps and exits immediately.
-  return `${bin} ${promptRef} --allowedTools "Agent,Bash,Read,Write,Edit,Glob,Grep"`;
+  // MCP kanban tools are included so agents can move their pipeline sub-task to done.
+  return `${bin} ${promptRef} --allowedTools "Agent,Bash,Read,Write,Edit,Glob,Grep,mcp__prism__kanban_list_spaces,mcp__prism__kanban_list_tasks,mcp__prism__kanban_create_task,mcp__prism__kanban_move_task,mcp__prism__kanban_update_task,mcp__prism__kanban_get_task,mcp__prism__kanban_create_space"`;
 }
 
 /**
@@ -1449,6 +1468,10 @@ function buildPromptText(options) {
   const { task, taskColumn, space, agentContent, settings, customInstructions, workingDirectory } = options;
 
   const lines = [];
+
+  // ── RESOLVE WORKING DIR + MEMORY DIR (used in agent template substitution) ─
+  const cwd = workingDirectory || settings.prompts.workingDirectory || process.cwd();
+  const agentMemoryDir = settings.prompts.agentMemoryDir || path.join(os.homedir(), '.claude', 'agent-memory');
 
   // ── TASK CONTEXT ──────────────────────────────────────────────────────────
   lines.push('## TASK CONTEXT');
@@ -1467,8 +1490,11 @@ function buildPromptText(options) {
   }
 
   // ── AGENT INSTRUCTIONS ────────────────────────────────────────────────────
+  const resolvedAgent = agentContent
+    .replace(/\{\{WORKING_DIR\}\}/g, cwd)
+    .replace(/\{\{AGENT_MEMORY_DIR\}\}/g, agentMemoryDir);
   lines.push('\n## AGENT INSTRUCTIONS');
-  lines.push(agentContent);
+  lines.push(resolvedAgent);
 
   // ── KANBAN INSTRUCTIONS ───────────────────────────────────────────────────
   if (settings.prompts.includeKanbanBlock) {
@@ -1480,19 +1506,23 @@ function buildPromptText(options) {
     lines.push('  - kanban_move_task: move a task between columns (todo → in-progress → done)');
     lines.push('  - kanban_update_task: update task fields or attach artifacts');
     lines.push('  - kanban_create_task: create new tasks');
+    lines.push('');
+    lines.push(`Your pipeline task ID: ${task.id}`);
+    lines.push('When you finish your stage work, move it to done (MANDATORY — the pipeline detects completion this way):');
+    lines.push(`  mcp__prism__kanban_move_task({ id: "${task.id}", to: "done", spaceId: "${space.id}" })`);
   }
 
   // ── GIT INSTRUCTIONS ──────────────────────────────────────────────────────
   if (settings.prompts.includeGitBlock) {
     lines.push('\n## GIT INSTRUCTIONS');
-    lines.push('- Work on the current feature branch (do not create new branches unless specified)');
+    const featureBranch = `feature/${task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+    lines.push(`- Create and work on branch \`${featureBranch}\` (run: \`git checkout -b ${featureBranch}\` or \`git checkout ${featureBranch}\` if it already exists)`);
     lines.push('- Commit format: [dev] T-XXX: <task title>');
     lines.push('- Stage only task-relevant files (never git add -A or git add .)');
     lines.push('- Never commit to main directly');
   }
 
   // ── PROJECT CONTEXT ───────────────────────────────────────────────────────
-  const cwd = workingDirectory || settings.prompts.workingDirectory || process.cwd();
   lines.push('\n## PROJECT CONTEXT');
   lines.push(`Working directory: ${cwd}`);
   lines.push(`Feature: ${space.name}`);
@@ -1711,35 +1741,29 @@ const LEGACY_TASKS_ROUTE  = /^\/api\/v1(\/tasks.*)$/;
  * Create and start an HTTP server.
  *
  * @param {object} [options]
- * @param {number} [options.port]    - Port to listen on. Pass 0 for OS-assigned port.
- * @param {string} [options.dataDir] - Absolute path to data directory.
- * @param {boolean} [options.silent] - Suppress startup log.
+ * @param {number}  [options.port]           - Port to listen on. Pass 0 for OS-assigned port.
+ * @param {string}  [options.dataDir]        - Absolute path to data directory.
+ * @param {boolean} [options.silent]         - Suppress startup log.
+ * @param {{ log: Function }|null} [options.activityLogger] - ActivityLogger for mutation events.
  * @returns {http.Server}
  */
 function startServer(options = {}) {
-  const dataDir = options.dataDir || DEFAULT_DATA_DIR;
-  const port    = options.port !== undefined ? options.port : DEFAULT_PORT;
+  const dataDir        = options.dataDir || DEFAULT_DATA_DIR;
+  const port           = options.port !== undefined ? options.port : DEFAULT_PORT;
+  const activityLogger = options.activityLogger || null;
 
-  // --- Step 1: Run migrator before anything else. ---
-  try {
-    migrate(dataDir);
-  } catch (err) {
-    console.error('[startup] Migration failed — server cannot start:', err);
-    process.exit(1);
-  }
-
-  // --- Step 2: Create SpaceManager and ensure all space directories exist. ---
+  // --- Step 1: Create SpaceManager and ensure all space directories exist. ---
   const spaceManager = createSpaceManager(dataDir);
   spaceManager.ensureAllSpaces();
 
-  // --- Step 3: Build a Map-based cache of createApp instances by spaceId. ---
+  // --- Step 2: Build a Map-based cache of createApp instances by spaceId. ---
   /** @type {Map<string, ReturnType<createApp>>} */
   const appCache = new Map();
 
   function getApp(spaceId) {
     if (!appCache.has(spaceId)) {
       const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
-      const app          = createApp(spaceDataDir);
+      const app          = createApp(spaceDataDir, { logger: activityLogger, spaceId });
       app.ensureDataFiles();
       appCache.set(spaceId, app);
     }
@@ -1750,7 +1774,7 @@ function startServer(options = {}) {
     appCache.delete(spaceId);
   }
 
-  // --- Step 4: Build the main request handler. ---
+  // --- Step 3: Build the main request handler. ---
 
   async function mainRouter(req, res) {
     const { method } = req;
@@ -1804,7 +1828,9 @@ function startServer(options = {}) {
 
         // Warm cache for the newly created space.
         getApp(result.space.id);
-        return sendJSON(res, 201, result.space);
+        sendJSON(res, 201, result.space);
+        if (activityLogger) activityLogger.log('space.created', result.space.id, { spaceId: result.space.id, spaceName: result.space.name });
+        return;
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
@@ -1840,7 +1866,9 @@ function startServer(options = {}) {
           return sendError(res, status, result.code, result.message);
         }
 
-        return sendJSON(res, 200, result.space);
+        sendJSON(res, 200, result.space);
+        if (activityLogger) activityLogger.log('space.renamed', spaceId, { spaceId, spaceName: result.space.name });
+        return;
       }
 
       if (method === 'DELETE') {
@@ -1856,7 +1884,9 @@ function startServer(options = {}) {
         }
 
         evictApp(spaceId);
-        return sendJSON(res, 200, { deleted: true, id: result.id });
+        sendJSON(res, 200, { deleted: true, id: result.id });
+        if (activityLogger) activityLogger.log('space.deleted', spaceId, { spaceId, spaceName: result.name });
+        return;
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
