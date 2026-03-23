@@ -2002,6 +2002,41 @@ module.exports = { startServer };
 
 if (require.main === module) {
   const { setupTerminalWebSocket } = require('./terminal');
-  const server = startServer();
+  const { setupActivityWebSocket } = require('./activity-ws');
+  const { createActivityStore }    = require('./src/activityStore');
+  const { createActivityLogger }   = require('./src/activityLogger');
+
+  // ADR-1 (Activity Feed) §T-006: bootstrap sequence.
+  // The challenge: broadcast() requires the HTTP server to be created first
+  // (for the WS upgrade handler), but activityLogger requires broadcast() and
+  // must be passed to startServer(). We solve this with a lazy broadcast wrapper:
+  // a wrapper function is created first, then the real broadcast fn is injected
+  // after the WS server is set up. The wrapper is passed to the logger so any
+  // events logged before the WS server is ready are safe (they just go nowhere).
+
+  const activityDir   = path.join(DEFAULT_DATA_DIR, 'activity');
+  const activityStore = createActivityStore(activityDir);
+
+  // Lazy broadcast wrapper — real function injected below after WS setup.
+  let _realBroadcast = null;
+  function lazyBroadcast(event) {
+    if (_realBroadcast) _realBroadcast(event);
+  }
+
+  // Create logger with the lazy wrapper — safe to pass to startServer now.
+  const activityLogger = createActivityLogger({ store: activityStore, broadcast: lazyBroadcast });
+
+  // Start server with activityLogger already wired.
+  const server = startServer({ activityLogger });
+
+  // Attach terminal WS first (lower path-priority handler).
   setupTerminalWebSocket(server);
+
+  // Attach activity WS and wire up the real broadcast function.
+  const { broadcast } = setupActivityWebSocket(server);
+  _realBroadcast = broadcast;
+
+  // Schedule retention cleanup at startup and every 24 hours.
+  activityStore.cleanup();
+  setInterval(() => activityStore.cleanup(), 24 * 60 * 60 * 1000).unref();
 }
