@@ -20,8 +20,6 @@ import type {
   PromptGenerationRequest,
   PromptGenerationResponse,
   AgentSettings,
-  ActivityFilter,
-  ActivityQueryResponse,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -197,48 +195,3 @@ export const saveSettings = (partial: Partial<AgentSettings>): Promise<AgentSett
     method: 'PUT',
     body: JSON.stringify(partial),
   });
-
-// ---------------------------------------------------------------------------
-// Activity feed API (ADR-1: Activity Feed)
-// ---------------------------------------------------------------------------
-
-/**
- * Build a URL query string from an ActivityFilter and optional cursor/limit.
- * Only includes defined values — omits undefined keys entirely.
- */
-function buildActivityQueryString(params: ActivityFilter & { limit?: number; cursor?: string }): string {
-  const qs = new URLSearchParams();
-  if (params.type)   qs.set('type',   params.type);
-  if (params.from)   qs.set('from',   params.from);
-  if (params.to)     qs.set('to',     params.to);
-  if (params.limit)  qs.set('limit',  String(params.limit));
-  if (params.cursor) qs.set('cursor', params.cursor);
-  const str = qs.toString();
-  return str ? `?${str}` : '';
-}
-
-/**
- * Query activity events for a specific space.
- * Maps to GET /api/v1/spaces/:spaceId/activity.
- *
- * @param spaceId - The space to query.
- * @param params  - Optional filter / pagination parameters.
- */
-export const getActivity = (
-  spaceId: string,
-  params: ActivityFilter & { limit?: number; cursor?: string } = {}
-): Promise<ActivityQueryResponse> =>
-  apiFetch<ActivityQueryResponse>(
-    `/spaces/${encodeURIComponent(spaceId)}/activity${buildActivityQueryString(params)}`
-  );
-
-/**
- * Query activity events across all spaces.
- * Maps to GET /api/v1/activity.
- *
- * @param params - Optional filter / pagination parameters.
- */
-export const getGlobalActivity = (
-  params: ActivityFilter & { limit?: number; cursor?: string } = {}
-): Promise<ActivityQueryResponse> =>
-  apiFetch<ActivityQueryResponse>(`/activity${buildActivityQueryString(params)}`);

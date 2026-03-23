@@ -4,7 +4,7 @@
  *
  * Layout:
  *   Header (sticky)
- *   SpaceTabs + Board + optional panels (Terminal, Config, AgentSettings, ActivityFeed)
+ *   SpaceTabs + Board + optional TerminalPanel + optional ConfigPanel
  *   Portals: modals + Toast
  */
 
@@ -16,7 +16,6 @@ import { TerminalPanel } from '@/components/terminal/TerminalPanel';
 import { ConfigPanel } from '@/components/config/ConfigPanel';
 import { AgentSettingsPanel } from '@/components/agent-launcher/AgentSettingsPanel';
 import { AgentPromptPreview } from '@/components/agent-launcher/AgentPromptPreview';
-import { ActivityFeedPanel } from '@/components/activity/ActivityFeedPanel';
 import { CreateTaskModal } from '@/components/modals/CreateTaskModal';
 import { AttachmentModal } from '@/components/modals/AttachmentModal';
 import { MarkdownModal } from '@/components/modals/MarkdownModal';
@@ -26,7 +25,6 @@ import { Toast } from '@/components/shared/Toast';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
 import { useAgentCompletion } from '@/hooks/useAgentCompletion';
-import { useActivityFeed } from '@/hooks/useActivityFeed';
 
 /** React Error Boundary to prevent white-screen crashes. */
 class ErrorBoundary extends React.Component<
@@ -71,12 +69,11 @@ class ErrorBoundary extends React.Component<
 }
 
 function AppContent() {
-  const loadSpaces             = useAppStore((s) => s.loadSpaces);
-  const loadSettings           = useAppStore((s) => s.loadSettings);
-  const terminalOpen           = useAppStore((s) => s.terminalOpen);
-  const configPanelOpen        = useAppStore((s) => s.configPanelOpen);
+  const loadSpaces           = useAppStore((s) => s.loadSpaces);
+  const loadSettings         = useAppStore((s) => s.loadSettings);
+  const terminalOpen         = useAppStore((s) => s.terminalOpen);
+  const configPanelOpen      = useAppStore((s) => s.configPanelOpen);
   const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
-  const activityPanelOpen      = useAppStore((s) => s.activityPanelOpen);
 
   useEffect(() => {
     loadSpaces();
@@ -86,19 +83,15 @@ function AppContent() {
   usePolling();
   useAgentCompletion();
 
-  // Mount the activity feed WebSocket regardless of panel visibility so events
-  // accumulate in the store even when the panel is closed (ADR-1 Activity Feed §T-016).
-  const { status: activityStatus } = useActivityFeed();
-
   return (
     <div className="flex flex-col h-full">
       <Header />
 
       <div className="flex-1 overflow-hidden flex flex-col">
         <SpaceTabs />
-        {/* Board + optional side panels in a flex row.
+        {/* Board + optional side panels (TerminalPanel, ConfigPanel) in a flex row.
             Board uses flex-1 so it shrinks gracefully when panels are open.
-            Layout order: Board | TerminalPanel | ConfigPanel | AgentSettingsPanel | ActivityFeedPanel */}
+            Layout order: Board | TerminalPanel | ConfigPanel (ADR-1 §5.1). */}
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 overflow-hidden">
             <Board />
@@ -106,7 +99,6 @@ function AppContent() {
           {terminalOpen && <TerminalPanel />}
           {configPanelOpen && <ConfigPanel />}
           {agentSettingsPanelOpen && <AgentSettingsPanel />}
-          {activityPanelOpen && <ActivityFeedPanel status={activityStatus} />}
         </div>
       </div>
 

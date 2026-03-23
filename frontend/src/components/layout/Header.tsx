@@ -13,7 +13,6 @@ import { ConfigToggle } from '@/components/config/ConfigToggle';
 import { AgentRunIndicator } from '@/components/agent-launcher/AgentRunIndicator';
 import { PipelineProgressBar } from '@/components/agent-launcher/PipelineProgressBar';
 import { AgentSettingsToggle } from '@/components/agent-launcher/AgentSettingsToggle';
-import { ActivityFeedToggle } from '@/components/activity/ActivityFeedToggle';
 import { useAppStore } from '@/stores/useAppStore';
 
 export function Header() {
@@ -44,7 +43,6 @@ export function Header() {
         <div className="flex items-center gap-1">
           <AgentSettingsToggle />
           <ConfigToggle />
-          <ActivityFeedToggle />
           <TerminalToggle />
         </div>
 
