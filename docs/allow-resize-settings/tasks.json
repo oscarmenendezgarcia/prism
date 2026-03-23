@@ -1,0 +1,95 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "allow-resize-settings",
+  "date": "2026-03-23",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Implement usePanelResize hook",
+      "description": "Create frontend/src/hooks/usePanelResize.ts. The hook accepts storageKey, defaultWidth, minWidth, maxWidth. Reads initial width from localStorage via useLocalStorage. Attaches/removes window mousemove+mouseup listeners during drag. Clamps width on every render. Returns { width, handleMouseDown }.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Hook file exists at frontend/src/hooks/usePanelResize.ts",
+        "Returns clamped width between minWidth and maxWidth on first render when stored value is out of bounds",
+        "handleMouseDown triggers a drag sequence: mousemove updates width, mouseup removes listeners",
+        "Width is persisted to localStorage under the given storageKey after each mousemove",
+        "useEffect cleanup removes window listeners if component unmounts during an active drag",
+        "No Zustand store imports"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Apply usePanelResize to ConfigPanel",
+      "description": "In frontend/src/components/config/ConfigPanel.tsx: import usePanelResize, call it with storageKey='prism:panel-width:config', defaultWidth=480, minWidth=320, maxWidth=800. Replace w-[480px] on <aside> with style={{ width }}. Add relative to <aside> className. Render drag handle as first child of <aside>.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "w-[480px] class is removed from ConfigPanel's <aside>",
+        "<aside> has position: relative (via relative class)",
+        "<aside> style attribute contains width in pixels driven by usePanelResize",
+        "Drag handle div is the first child of <aside>, has role=separator, aria-orientation=vertical, cursor-col-resize",
+        "Dragging the handle left/right changes the panel width visually",
+        "Width persists across page reload under localStorage key prism:panel-width:config",
+        "Existing ConfigPanel tests pass"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Apply usePanelResize to AgentSettingsPanel",
+      "description": "In frontend/src/components/agent-launcher/AgentSettingsPanel.tsx: identical changes as T-002 but with storageKey='prism:panel-width:agent-settings'.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "w-[480px] class is removed from AgentSettingsPanel's <aside>",
+        "<aside> has position: relative (via relative class)",
+        "<aside> style attribute contains width in pixels driven by usePanelResize",
+        "Drag handle div is the first child of <aside>",
+        "Dragging the handle changes the panel width visually",
+        "Width persists across page reload under localStorage key prism:panel-width:agent-settings",
+        "Existing AgentSettingsPanel tests pass"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Unit tests for usePanelResize",
+      "description": "Create frontend/__tests__/hooks/usePanelResize.test.ts. Test: initial width read from localStorage, clamping of out-of-bound stored values, drag sequence (mousedown → mousemove → mouseup), listener cleanup on unmount during drag, localStorage write after each move.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "Test file exists at frontend/__tests__/hooks/usePanelResize.test.ts",
+        "Test: hook returns defaultWidth when localStorage is empty",
+        "Test: hook returns clamped minWidth when stored value is below minimum",
+        "Test: hook returns clamped maxWidth when stored value is above maximum",
+        "Test: handleMouseDown + simulated mousemove updates width and writes to localStorage",
+        "Test: mouseup removes window event listeners",
+        "Test: unmounting during an active drag does not throw and removes listeners",
+        "All tests pass with vitest"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Update ConfigPanel and AgentSettingsPanel render tests",
+      "description": "Update frontend/__tests__/components/ConfigPanel... and AgentSettingsPanel... tests to assert presence of drag handle (role=separator) and absence of w-[480px] class on <aside>. Existing tests must be updated rather than deleted.",
+      "role": "QA",
+      "priority": "Medium",
+      "estimate": "1",
+      "dependencies": ["T-002", "T-003"],
+      "acceptance_criteria": [
+        "ConfigPanel test asserts getByRole('separator') exists",
+        "AgentSettingsPanel test asserts getByRole('separator') exists",
+        "No test asserts presence of w-[480px] on <aside>",
+        "All existing assertions that are unrelated to sizing continue to pass"
+      ]
+    }
+  ]
+}
