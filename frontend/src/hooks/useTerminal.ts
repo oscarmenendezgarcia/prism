@@ -107,6 +107,9 @@ export function useTerminal({
   const onContainerResize = useCallback(() => {
     if (!fitAddonRef.current || !terminalRef.current || !xtermMounted.current) return;
     fitAddonRef.current.fit();
+    // Restore scroll position after fit — xterm.js v5 can jump to the top of the
+    // scrollback buffer when the terminal is resized during active output.
+    terminalRef.current.scrollToBottom();
     if (resizeTimer.current) clearTimeout(resizeTimer.current);
     resizeTimer.current = setTimeout(() => {
       send({
@@ -172,6 +175,7 @@ export function useTerminal({
       } else if (parsed.type === 'ready') {
         if (terminalRef.current && fitAddonRef.current && xtermMounted.current) {
           fitAddonRef.current.fit();
+          terminalRef.current.scrollToBottom();
           send({ type: 'resize', cols: terminalRef.current.cols, rows: terminalRef.current.rows });
         }
       } else if (parsed.type === 'exit') {
@@ -263,6 +267,7 @@ export function useTerminal({
     if (!panelOpen || !xtermMounted.current) return;
     const id = setTimeout(() => {
       fitAddonRef.current?.fit();
+      terminalRef.current?.scrollToBottom();
       terminalRef.current?.focus();
     }, 50);
     return () => clearTimeout(id);
