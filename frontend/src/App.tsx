@@ -101,7 +101,7 @@ function AppContent() {
           <div className="flex-1 overflow-hidden">
             <Board />
           </div>
-          {terminalOpen && <TerminalPanel />}
+          <TerminalPanel />
           {historyPanelOpen && <RunHistoryPanel />}
           {configPanelOpen && <ConfigPanel />}
           {agentSettingsPanelOpen && <AgentSettingsPanel />}

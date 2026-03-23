@@ -79,7 +79,7 @@ export function TerminalPanel() {
 
   return (
     <aside
-      className="relative flex flex-col bg-terminal-bg border-l border-[rgba(255,255,255,0.08)] h-full shrink-0 w-[var(--panel-w)]"
+      className={`relative flex flex-col bg-terminal-bg border-l border-[rgba(255,255,255,0.08)] h-full shrink-0 w-[var(--panel-w)]${terminalOpen ? '' : ' hidden'}`}
       style={{ '--panel-w': `${width}px` } as React.CSSProperties}
       aria-label="Embedded terminal"
     >
