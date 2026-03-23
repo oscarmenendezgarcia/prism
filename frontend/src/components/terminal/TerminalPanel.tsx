@@ -4,12 +4,14 @@
  * ADR-003 §8.10: replace all hardcoded border-[#333] / bg-[#252525] / hover:bg-[#333]
  *   with token-based classes. Terminal is always dark — static terminal.* tokens, no
  *   html.dark class dependence.
+ * Width is now dynamic via usePanelResize (was fixed w-terminal / 420px).
  */
 
 import React, { useState, useEffect } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminal } from '@/hooks/useTerminal';
 import { useAppStore } from '@/stores/useAppStore';
+import { usePanelResize } from '@/hooks/usePanelResize';
 import type { TerminalStatus } from '@/types';
 
 const statusDotClass: Record<TerminalStatus, string> = {
@@ -38,6 +40,13 @@ export function TerminalPanel() {
   const [status, setStatus]                     = useState<TerminalStatus>('connecting');
   const [reconnectAvailable, setReconnectAvail] = useState(false);
   const [_countdownSecs, setCountdownSecs]      = useState(0);
+
+  const { width, handleMouseDown, minWidth, maxWidth } = usePanelResize({
+    storageKey:   'prism:panel-width:terminal',
+    defaultWidth: 420,
+    minWidth:     280,
+    maxWidth:     900,
+  });
 
   const { containerRef, reconnectNow, sendInput } = useTerminal({
     panelOpen: terminalOpen,
@@ -68,9 +77,21 @@ export function TerminalPanel() {
 
   return (
     <aside
-      className="flex flex-col bg-terminal-bg border-l border-[rgba(255,255,255,0.08)] h-full w-terminal"
+      className="relative flex flex-col bg-terminal-bg border-l border-[rgba(255,255,255,0.08)] h-full shrink-0 w-[var(--panel-w)]"
+      style={{ '--panel-w': `${width}px` } as React.CSSProperties}
       aria-label="Embedded terminal"
     >
+      {/* Left-edge drag handle */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize terminal panel"
+        aria-valuenow={width}
+        aria-valuemin={minWidth}
+        aria-valuemax={maxWidth}
+        onMouseDown={handleMouseDown}
+        className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
+      />
       {/* Terminal header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[rgba(255,255,255,0.08)] shrink-0">
         <div className="flex items-center gap-3">

@@ -714,6 +714,12 @@
             "description": "Working directory injected into PROJECT CONTEXT. Empty string means auto-detect from server cwd.",
             "default": "",
             "example": "/Users/oscar/projects/prism"
+          },
+          "customInstructions": {
+            "type": "string",
+            "description": "Custom instructions appended to the agent prompt. Markdown is supported and rendered with a MarkdownViewer component.",
+            "default": "",
+            "example": "Follow the PRISM design system when building UI components."
           }
         }
       },
