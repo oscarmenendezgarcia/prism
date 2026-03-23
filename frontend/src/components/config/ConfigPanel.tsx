@@ -1,6 +1,7 @@
 /**
  * Config editor panel — slide-over with file sidebar + editor area.
- * ADR-1 §5.1: fixed width w-[480px], border-l border-border, bg-surface-elevated.
+ * ADR-1 §5.1: width is now dynamic via usePanelResize (was fixed w-[480px]).
+ * ADR-1 (allow-resize-settings) §5.1: left-edge drag handle + localStorage persistence.
  * Matches the TerminalPanel pattern structurally.
  *
  * Responsibilities:
@@ -15,12 +16,20 @@ import { useAppStore } from '@/stores/useAppStore';
 import { ConfigFileSidebar } from '@/components/config/ConfigFileSidebar';
 import { ConfigEditor } from '@/components/config/ConfigEditor';
 import { DiscardChangesDialog } from '@/components/config/DiscardChangesDialog';
+import { usePanelResize } from '@/hooks/usePanelResize';
 
 export function ConfigPanel() {
   const setConfigPanelOpen = useAppStore((s) => s.setConfigPanelOpen);
   const loadConfigFiles    = useAppStore((s) => s.loadConfigFiles);
   const selectConfigFile   = useAppStore((s) => s.selectConfigFile);
   const configDirty        = useAppStore((s) => s.configDirty);
+
+  const { width, handleMouseDown, minWidth, maxWidth } = usePanelResize({
+    storageKey:   'prism:panel-width:config',
+    defaultWidth: 480,
+    minWidth:     320,
+    maxWidth:     800,
+  });
 
   /**
    * Pending file ID for which the user has not yet confirmed discarding changes.
@@ -73,9 +82,21 @@ export function ConfigPanel() {
   return (
     <>
       <aside
-        className="flex flex-col bg-surface-elevated border-l border-border h-full w-[480px] shrink-0"
+        className="relative flex flex-col bg-surface-elevated border-l border-border h-full shrink-0"
+        style={{ width }}
         aria-label="Configuration editor"
       >
+        {/* Left-edge drag handle — ADR-1 (allow-resize-settings) §4 */}
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize panel"
+          aria-valuenow={width}
+          aria-valuemin={minWidth}
+          aria-valuemax={maxWidth}
+          onMouseDown={handleMouseDown}
+          className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
+        />
         {/* Panel header */}
         <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
           <div className="flex items-center gap-2">
