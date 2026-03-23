@@ -39,12 +39,14 @@ const FILTER_OPTIONS: FilterOption[] = [
  * Rendered conditionally from App.tsx when historyPanelOpen is true.
  */
 export function RunHistoryPanel() {
-  const filter          = useRunHistoryStore((s) => s.filter);
-  const setFilter       = useRunHistoryStore((s) => s.setFilter);
-  const togglePanel     = useRunHistoryStore((s) => s.toggleHistoryPanel);
-  const loading         = useRunHistoryStore((s) => s.loading);
-  const runs            = useRunHistoryStore((s) => s.runs);
-  const filteredRuns    = useFilteredRuns();
+  const filter           = useRunHistoryStore((s) => s.filter);
+  const setFilter        = useRunHistoryStore((s) => s.setFilter);
+  const togglePanel      = useRunHistoryStore((s) => s.toggleHistoryPanel);
+  const loading          = useRunHistoryStore((s) => s.loading);
+  const runs             = useRunHistoryStore((s) => s.runs);
+  const taskIdFilter     = useRunHistoryStore((s) => s.taskIdFilter);
+  const clearTaskIdFilter = useRunHistoryStore((s) => s.clearTaskIdFilter);
+  const filteredRuns     = useFilteredRuns();
 
   // Check if any run is currently active (for pulsing header dot).
   const hasActiveRun = runs.some((r) => r.status === 'running');
@@ -98,6 +100,23 @@ export function RunHistoryPanel() {
         </button>
       </div>
 
+      {/* Task ID filter chip — shown when opened from a task card indicator */}
+      {taskIdFilter && (
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 bg-[#3b82f6]/5">
+          <span className="material-symbols-outlined text-sm text-[#3b82f6] leading-none" aria-hidden="true">
+            filter_alt
+          </span>
+          <span className="text-xs text-[#3b82f6] flex-1 truncate">Filtering by task</span>
+          <button
+            onClick={clearTaskIdFilter}
+            aria-label="Clear task filter"
+            className="w-5 h-5 flex items-center justify-center rounded text-[#3b82f6] hover:bg-[#3b82f6]/20 transition-colors duration-150"
+          >
+            <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">close</span>
+          </button>
+        </div>
+      )}
+
       {/* Filter pill bar */}
       <div className="flex items-center gap-1 px-3 py-2 border-b border-border shrink-0 overflow-x-auto">
         {FILTER_OPTIONS.map((opt) => {
@@ -136,10 +155,12 @@ export function RunHistoryPanel() {
               history
             </span>
             <p className="text-sm font-medium text-text-secondary">
-              {filter === 'all' ? 'No runs yet' : `No ${filter} runs`}
+              {taskIdFilter ? 'No runs for this task' : filter === 'all' ? 'No runs yet' : `No ${filter} runs`}
             </p>
             <p className="text-xs text-text-disabled leading-relaxed max-w-[200px]">
-              {filter === 'all'
+              {taskIdFilter
+                ? 'No agents have been launched on this task yet.'
+                : filter === 'all'
                 ? 'Agent runs will appear here when you launch an agent from a task card.'
                 : `Switch to "All" to see runs with other statuses.`}
             </p>
