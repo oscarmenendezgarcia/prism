@@ -179,8 +179,8 @@ export function ActivityFeedPanel({ status }: ActivityFeedPanelProps) {
   const { width, handleMouseDown, minWidth, maxWidth } = usePanelResize({
     storageKey:   'prism:panel-width:activity',
     defaultWidth: 360,
-    minWidth:     280,
-    maxWidth:     600,
+    minWidth:     240,
+    maxWidth:     800,
   });
 
   // ---------------------------------------------------------------------------
