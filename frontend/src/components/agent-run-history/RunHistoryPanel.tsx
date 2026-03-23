@@ -25,7 +25,7 @@ type FilterOption = { label: string; value: RunStatus | 'all' };
 const FILTER_OPTIONS: FilterOption[] = [
   { label: 'All',       value: 'all'       },
   { label: 'Running',   value: 'running'   },
-  { label: 'Done',      value: 'completed' },
+  { label: 'Completed', value: 'completed' },
   { label: 'Cancelled', value: 'cancelled' },
   { label: 'Failed',    value: 'failed'    },
 ];
@@ -83,10 +83,13 @@ export function RunHistoryPanel() {
           <span className="text-sm font-medium text-text-primary">Run History</span>
           {hasActiveRun && (
             <span
-              className="w-2 h-2 rounded-full bg-primary animate-pulse"
+              className="relative flex h-2 w-2"
               aria-label="Agent run active"
               title="An agent run is currently active"
-            />
+            >
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
+            </span>
           )}
         </div>
         <button

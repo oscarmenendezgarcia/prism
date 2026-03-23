@@ -189,3 +189,36 @@ describe('useRunHistoryStore — toggleHistoryPanel', () => {
     expect(useRunHistoryStore.getState().historyPanelOpen).toBe(false);
   });
 });
+
+describe('useRunHistoryStore — openPanelForTask', () => {
+  it('opens the panel, sets taskIdFilter, and resets status filter to all', () => {
+    useRunHistoryStore.setState({ historyPanelOpen: false, taskIdFilter: null, filter: 'running' });
+    useRunHistoryStore.getState().openPanelForTask('task-abc');
+    const state = useRunHistoryStore.getState();
+    expect(state.historyPanelOpen).toBe(true);
+    expect(state.taskIdFilter).toBe('task-abc');
+    expect(state.filter).toBe('all');
+  });
+
+  it('persists panel open state to localStorage', () => {
+    useRunHistoryStore.setState({ historyPanelOpen: false });
+    useRunHistoryStore.getState().openPanelForTask('task-xyz');
+    expect(localStorage.getItem('prism:run-history:open')).toBe('1');
+  });
+});
+
+describe('useRunHistoryStore — clearTaskIdFilter', () => {
+  it('sets taskIdFilter back to null', () => {
+    useRunHistoryStore.setState({ taskIdFilter: 'task-abc' });
+    useRunHistoryStore.getState().clearTaskIdFilter();
+    expect(useRunHistoryStore.getState().taskIdFilter).toBeNull();
+  });
+
+  it('does not affect other state when clearing the filter', () => {
+    useRunHistoryStore.setState({ taskIdFilter: 'task-abc', filter: 'running', historyPanelOpen: true });
+    useRunHistoryStore.getState().clearTaskIdFilter();
+    const state = useRunHistoryStore.getState();
+    expect(state.filter).toBe('running');
+    expect(state.historyPanelOpen).toBe(true);
+  });
+});

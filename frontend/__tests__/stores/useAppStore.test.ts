@@ -21,6 +21,10 @@ vi.mock('../../src/api/client', () => ({
   generatePrompt:       vi.fn(),
   getSettings:          vi.fn(),
   saveSettings:         vi.fn(),
+  // Agent run history API
+  createAgentRun:       vi.fn().mockResolvedValue({ id: 'run_mock' }),
+  updateAgentRun:       vi.fn().mockResolvedValue({ id: 'run_mock', status: 'completed' }),
+  getAgentRuns:         vi.fn().mockResolvedValue({ runs: [], total: 0 }),
 }));
 
 import { useAppStore } from '../../src/stores/useAppStore';
@@ -512,7 +516,7 @@ describe('executeAgentRun', () => {
     expect(useAppStore.getState().activeRun).toBeNull();
   });
 
-  it('shows "Opening terminal..." toast and error when terminalSender is null after 500ms wait', async () => {
+  it('shows "Opening terminal..." toast and error when terminalSender is still null after 3000ms polling timeout', async () => {
     vi.useFakeTimers();
     useAppStore.setState({
       terminalSender: null,
@@ -524,17 +528,26 @@ describe('executeAgentRun', () => {
       },
     } as any);
 
+    // Subscribe to capture the toast the moment it is set — before the 3000ms
+    // auto-clear timer (also fired by runAllTimersAsync) removes it from the store.
+    let capturedToastType: string | undefined;
+    const unsub = useAppStore.subscribe((state) => {
+      if (state.toast) capturedToastType = state.toast.type;
+    });
+
     const execPromise = useAppStore.getState().executeAgentRun();
 
     // The 'Opening terminal...' toast should be shown synchronously (before await)
     // and terminalOpen toggled
     expect(useAppStore.getState().terminalOpen).toBe(true);
 
-    // Advance the 500ms wait — sender is still null
-    vi.advanceTimersByTime(500);
+    // runAllTimersAsync fires each 100ms setTimeout in the polling loop AND flushes
+    // the microtask queue between callbacks — required for async polling loops.
+    await vi.runAllTimersAsync();
     await execPromise;
+    unsub();
 
-    expect(useAppStore.getState().toast?.type).toBe('error');
+    expect(capturedToastType).toBe('error');
     vi.useRealTimers();
   });
 });

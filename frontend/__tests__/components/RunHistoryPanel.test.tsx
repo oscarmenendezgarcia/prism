@@ -60,6 +60,7 @@ beforeEach(() => {
   useRunHistoryStore.setState({
     runs:             [],
     filter:           'all',
+    taskIdFilter:     null,
     loading:          false,
     historyPanelOpen: true,
   });
@@ -128,7 +129,7 @@ describe('RunHistoryPanel — filter pills', () => {
     render(<RunHistoryPanel />);
     expect(screen.getByRole('button', { name: 'All' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Running' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Done' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Completed' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancelled' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Failed' })).toBeInTheDocument();
   });
@@ -142,8 +143,8 @@ describe('RunHistoryPanel — filter pills', () => {
     });
     render(<RunHistoryPanel />);
 
-    // Click "Done" filter
-    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    // Click "Completed" filter
+    fireEvent.click(screen.getByRole('button', { name: 'Completed' }));
     expect(useRunHistoryStore.getState().filter).toBe('completed');
   });
 
@@ -180,7 +181,7 @@ describe('RunHistoryPanel — active run indicator', () => {
       runs: [makeRun({ status: 'running' })],
     });
     const { container } = render(<RunHistoryPanel />);
-    const dot = container.querySelector('.animate-pulse');
+    const dot = container.querySelector('.animate-ping');
     expect(dot).toBeInTheDocument();
   });
 
@@ -189,8 +190,35 @@ describe('RunHistoryPanel — active run indicator', () => {
       runs: [makeRun({ status: 'completed', completedAt: new Date().toISOString(), durationMs: 1000 })],
     });
     const { container } = render(<RunHistoryPanel />);
-    const dot = container.querySelector('.animate-pulse');
+    const dot = container.querySelector('.animate-ping');
     expect(dot).not.toBeInTheDocument();
+  });
+});
+
+describe('RunHistoryPanel — taskIdFilter chip', () => {
+  it('does not render the task filter chip when taskIdFilter is null', () => {
+    render(<RunHistoryPanel />);
+    expect(screen.queryByText('Filtering by task')).not.toBeInTheDocument();
+  });
+
+  it('renders the task filter chip when taskIdFilter is set', () => {
+    useRunHistoryStore.setState({ taskIdFilter: 'task-001' });
+    render(<RunHistoryPanel />);
+    expect(screen.getByText('Filtering by task')).toBeInTheDocument();
+  });
+
+  it('clicking the X on the chip calls clearTaskIdFilter', () => {
+    const mockClear = vi.fn();
+    useRunHistoryStore.setState({ taskIdFilter: 'task-001', clearTaskIdFilter: mockClear } as any);
+    render(<RunHistoryPanel />);
+    fireEvent.click(screen.getByLabelText('Clear task filter'));
+    expect(mockClear).toHaveBeenCalled();
+  });
+
+  it('shows task-specific empty message when taskIdFilter is set and no runs match', () => {
+    useRunHistoryStore.setState({ taskIdFilter: 'task-001' });
+    render(<RunHistoryPanel />);
+    expect(screen.getByText('No runs for this task')).toBeInTheDocument();
   });
 });
 
