@@ -1,0 +1,58 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "bug-agents-progress",
+  "date": "2026-03-23",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Fix useAgentCompletion — replace prevTasksRef with updatedAt predicate",
+      "description": "Remove the prevTasksRef / done-column-diff logic from useAgentCompletion.ts. Replace with a direct comparison: task.updatedAt >= activeRun.startedAt. Ensures pipeline stages 2–4 are detected correctly. Update/add unit tests.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "prevTasksRef and prevDoneIds logic removed from useAgentCompletion",
+        "Completion fires when task.id === activeRun.taskId AND task is in done column AND task.updatedAt >= activeRun.startedAt",
+        "clearActiveRun() is called exactly once per run completion",
+        "advancePipeline() is called for pipeline stages that are not the last",
+        "After final pipeline stage completes, pipelineState.status becomes 'completed' and clears after 3 s",
+        "Existing useAgentCompletion tests pass; new test cases cover pipeline stage 2+ scenario",
+        "No TypeScript errors"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Fix usePolling — adaptive interval (1 s during active run, 3 s idle)",
+      "description": "Modify usePolling.ts to read activeRun from the store. Use a 1000 ms interval when activeRun is non-null, 3000 ms otherwise. Restart the setInterval when the interval value changes. Update tests.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "1",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "usePolling uses 1000 ms interval when useAppStore.getState().activeRun is non-null",
+        "usePolling uses 3000 ms interval when activeRun is null",
+        "Interval restarts correctly when activeRun changes (null → value or value → null)",
+        "isMutating guard still applies at both intervals",
+        "usePolling unit tests updated to verify interval switching"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "QA: verify pipeline progress advances and closes correctly",
+      "description": "Manual and/or automated E2E verification that the pipeline progress bar advances through all stages and the AgentRunIndicator closes after the final stage. Covers the two reported symptoms.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": ["T-001", "T-002"],
+      "acceptance_criteria": [
+        "Launching a single agent run: AgentRunIndicator appears, disappears automatically after task moves to done",
+        "Launching a full 4-stage pipeline: PipelineProgressBar stage node advances from 1→2→3→4 as each stage completes",
+        "After stage 4 completes, PipelineProgressBar shows 'completed' state and auto-dismisses within 3 s",
+        "AgentRunIndicator is hidden (not visible) after each stage's clearActiveRun() fires",
+        "Aborting a pipeline mid-run clears both the indicator and progress bar"
+      ]
+    }
+  ]
+}

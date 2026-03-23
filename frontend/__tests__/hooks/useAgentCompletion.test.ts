@@ -1,13 +1,13 @@
 /**
  * Hook tests for useAgentCompletion.
- * BUG-002: zero coverage — these tests cover:
+ * Covers:
  *   - does nothing when activeRun is null
- *   - calls clearActiveRun + showToast when task moves to done
+ *   - calls clearActiveRun + showToast when task moves to done (updatedAt >= startedAt)
  *   - calls advancePipeline when autoAdvance=true and confirmBetweenStages=false
  *   - shows confirmation toast instead when confirmBetweenStages=true
  *   - does NOT call advancePipeline when autoAdvance=false
  *   - does NOT call advancePipeline when pipelineState is null
- *   - does NOT trigger when doneIds are unchanged
+ *   - does NOT trigger when task.updatedAt is before activeRun.startedAt (pipeline stage guard)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -42,12 +42,17 @@ vi.mock('../../src/api/client', () => ({
 
 const ACTIVE_TASK_ID = 'task-active-001';
 
+// Fixed reference timestamps so tests can reason about before/after relationships.
+const RUN_STARTED_AT  = '2026-01-01T10:00:00.000Z';
+const UPDATED_BEFORE  = '2026-01-01T09:59:59.000Z'; // one second BEFORE run started
+const UPDATED_AFTER   = '2026-01-01T10:00:01.000Z'; // one second AFTER run started
+
 function makeActiveRun(taskId = ACTIVE_TASK_ID): AgentRun {
   return {
     taskId,
     agentId:    'developer-agent',
     spaceId:    'space-1',
-    startedAt:  new Date().toISOString(),
+    startedAt:  RUN_STARTED_AT,
     cliCommand: 'claude -p "$(cat /tmp/prompt.md)"',
     promptPath: '/tmp/prompt.md',
   };
@@ -131,7 +136,7 @@ describe('useAgentCompletion — no activeRun', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: '' }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -156,7 +161,7 @@ describe('useAgentCompletion — task completes', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: '' }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -177,7 +182,7 @@ describe('useAgentCompletion — task completes', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: '' }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -199,7 +204,7 @@ describe('useAgentCompletion — task completes', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: '' }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -216,7 +221,7 @@ describe('useAgentCompletion — task completes', () => {
       useAppStore.setState({
         tasks: {
           todo: [],
-          'in-progress': [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: '' }],
+          'in-progress': [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
           done: [],
         },
       } as any);
@@ -225,32 +230,29 @@ describe('useAgentCompletion — task completes', () => {
     expect(clearFn).not.toHaveBeenCalled();
   });
 
-  it('does NOT fire again if doneIds have not changed', () => {
-    const clearFn = vi.fn(() => useAppStore.setState({ activeRun: null } as any));
+  it('does NOT trigger when task.updatedAt is before activeRun.startedAt (pipeline stage guard)', () => {
+    // Simulates pipeline stages 2-4: task was already in done before the new
+    // stage's run started. The updatedAt timestamp predates startedAt, so the
+    // hook must NOT fire clearActiveRun.
+    const clearFn = vi.fn();
     resetStore({
-      activeRun: makeActiveRun(),
+      activeRun:      makeActiveRun(), // startedAt = RUN_STARTED_AT
       clearActiveRun: clearFn,
     });
     renderCompletionHook();
 
-    const doneTask = { id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: '' };
-
     act(() => {
       useAppStore.setState({
-        tasks: { todo: [], 'in-progress': [], done: [doneTask] },
+        tasks: {
+          todo: [],
+          'in-progress': [],
+          // updatedAt is BEFORE the run started — stale done entry
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_BEFORE }],
+        },
       } as any);
     });
 
-    const callsAfterFirst = clearFn.mock.calls.length;
-
-    // Same state update — doneIds unchanged, should not fire again
-    act(() => {
-      useAppStore.setState({
-        tasks: { todo: [], 'in-progress': [], done: [doneTask] },
-      } as any);
-    });
-
-    expect(clearFn.mock.calls.length).toBe(callsAfterFirst);
+    expect(clearFn).not.toHaveBeenCalled();
   });
 });
 
@@ -270,7 +272,7 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: '' }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -293,7 +295,7 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: '' }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -318,7 +320,7 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: '' }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -343,7 +345,7 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: '' }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -366,7 +368,7 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: '' }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
