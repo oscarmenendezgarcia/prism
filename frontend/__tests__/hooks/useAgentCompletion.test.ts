@@ -61,6 +61,8 @@ function makeActiveRun(taskId = ACTIVE_TASK_ID): AgentRun {
 function makePipelineState(overrides: Partial<PipelineState> = {}): PipelineState {
   return {
     spaceId:           'space-1',
+    taskId:            'task-main-anchor',
+    subTaskIds:        [],
     stages:            ['senior-architect', 'developer-agent'] as PipelineStage[],
     currentStageIndex: 0,
     startedAt:         new Date().toISOString(),
@@ -374,5 +376,115 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
     });
 
     expect(advanceFn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-008: sub-task discrimination tests
+// ADR-1 (pipeline-subtasks): activeRun.taskId now points to the sub-task, not
+// the main anchor task. These tests confirm the hook fires on the sub-task and
+// is NOT triggered by the main task moving to done.
+// ---------------------------------------------------------------------------
+
+const MAIN_TASK_ID   = 'task-main-anchor';
+const SUB_TASK_ID    = 'sub-task-stage-1';
+
+describe('useAgentCompletion — sub-task vs main task discrimination (T-008)', () => {
+  it('fires clearActiveRun when the sub-task (activeRun.taskId) moves to done', () => {
+    // activeRun.taskId points to the sub-task ID — the behaviour the pipeline
+    // now guarantees after the fix.
+    const clearFn = vi.fn(() => useAppStore.setState({ activeRun: null } as any));
+    resetStore({
+      activeRun: {
+        taskId:    SUB_TASK_ID,
+        agentId:   'senior-architect',
+        spaceId:   'space-1',
+        startedAt: RUN_STARTED_AT,
+        cliCommand: 'claude run',
+        promptPath: '/tmp/p.md',
+      },
+      clearActiveRun: clearFn,
+    });
+    renderCompletionHook();
+
+    act(() => {
+      useAppStore.setState({
+        tasks: {
+          todo: [],
+          'in-progress': [],
+          done: [
+            { id: SUB_TASK_ID, title: 'Sub Task', type: 'research', createdAt: '', updatedAt: UPDATED_AFTER },
+          ],
+        },
+      } as any);
+    });
+
+    expect(clearFn).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT fire clearActiveRun when the main anchor task moves to done but activeRun tracks the sub-task', () => {
+    // The main task should never be moved by the pipeline — but even if it
+    // happens to appear in done, it must NOT trigger completion because
+    // activeRun.taskId points to the sub-task, not the main task.
+    const clearFn = vi.fn();
+    resetStore({
+      activeRun: {
+        taskId:    SUB_TASK_ID,
+        agentId:   'senior-architect',
+        spaceId:   'space-1',
+        startedAt: RUN_STARTED_AT,
+        cliCommand: 'claude run',
+        promptPath: '/tmp/p.md',
+      },
+      clearActiveRun: clearFn,
+    });
+    renderCompletionHook();
+
+    act(() => {
+      useAppStore.setState({
+        tasks: {
+          todo: [],
+          'in-progress': [],
+          // Only the MAIN task is in done — sub-task is not yet
+          done: [
+            { id: MAIN_TASK_ID, title: 'Main Task', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER },
+          ],
+        },
+      } as any);
+    });
+
+    expect(clearFn).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire when the sub-task is in done but updatedAt is before startedAt (timestamp guard)', () => {
+    // Defense-in-depth: timestamp guard remains valid even with sub-tasks.
+    const clearFn = vi.fn();
+    resetStore({
+      activeRun: {
+        taskId:    SUB_TASK_ID,
+        agentId:   'senior-architect',
+        spaceId:   'space-1',
+        startedAt: RUN_STARTED_AT,
+        cliCommand: 'claude run',
+        promptPath: '/tmp/p.md',
+      },
+      clearActiveRun: clearFn,
+    });
+    renderCompletionHook();
+
+    act(() => {
+      useAppStore.setState({
+        tasks: {
+          todo: [],
+          'in-progress': [],
+          // sub-task in done but with stale updatedAt (before run started)
+          done: [
+            { id: SUB_TASK_ID, title: 'Sub Task', type: 'research', createdAt: '', updatedAt: UPDATED_BEFORE },
+          ],
+        },
+      } as any);
+    });
+
+    expect(clearFn).not.toHaveBeenCalled();
   });
 });

@@ -146,11 +146,19 @@ export type PipelineStage =
 /** State of an in-progress pipeline run. */
 export interface PipelineState {
   spaceId: string;
+  /** Main task anchor — never moved by the pipeline. */
   taskId: string;
   stages: PipelineStage[];
   currentStageIndex: number;
   startedAt: string; // ISO timestamp
   status: 'running' | 'paused' | 'completed' | 'aborted';
+  /**
+   * Parallel index with stages[]. subTaskIds[i] is the Kanban ID of the
+   * dedicated sub-task created for stages[i]. Grows incrementally as stages run.
+   * ADR-1 (pipeline-subtasks): each agent works on its own sub-task, not the
+   * main task, so completion detection is unambiguous.
+   */
+  subTaskIds: string[];
 }
 
 /** A prepared (but not yet executed) agent run — shown in the preview modal. */
@@ -185,6 +193,7 @@ export interface PromptsSettings {
   includeKanbanBlock: boolean;
   includeGitBlock: boolean;
   workingDirectory: string;
+  customInstructions: string;
 }
 
 /** Full launcher settings object — persisted in data/settings.json. */
