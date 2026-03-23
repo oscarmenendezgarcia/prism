@@ -20,6 +20,7 @@ import type {
   PromptGenerationRequest,
   PromptGenerationResponse,
   AgentSettings,
+  BackendRun,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -258,3 +259,23 @@ export const getAgentRuns = (
   const query = qs.toString() ? `?${qs.toString()}` : '';
   return apiFetch<AgentRunsResponse>(`/agent-runs${query}`);
 };
+
+/** Launch a pipeline run via backend spawn (no PTY required). */
+export const startRun = (
+  spaceId: string,
+  taskId: string,
+  stages?: string[],
+): Promise<BackendRun> =>
+  apiFetch<BackendRun>('/runs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ spaceId, taskId, ...(stages ? { stages } : {}) }),
+  });
+
+/** Fetch the current status of a backend pipeline run. */
+export const getBackendRun = (runId: string): Promise<BackendRun> =>
+  apiFetch<BackendRun>(`/runs/${runId}`);
+
+/** Cancel a backend pipeline run. */
+export const deleteRun = (runId: string): Promise<void> =>
+  apiFetch<void>(`/runs/${runId}`, { method: 'DELETE' });

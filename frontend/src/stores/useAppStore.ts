@@ -516,10 +516,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   cancelAgentRun: () => {
     const { terminalSender, activeRun, showToast } = get();
 
-    // ADR-1 (Agent Run History) §5.1: record cancellation before clearing activeRun.
+    // Record cancellation in history before clearing activeRun.
     if (activeRun) {
       const durationMs = Date.now() - Date.parse(activeRun.startedAt);
-      // Look up the run ID from the history store (last running run for this task).
       const runs = useRunHistoryStore.getState().runs;
       const activeRecord = runs.find(
         (r) => r.status === 'running' && r.taskId === activeRun.taskId
@@ -527,14 +526,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (activeRecord) {
         useRunHistoryStore.getState().recordRunFinished(activeRecord.id, 'cancelled', durationMs);
       }
+
+      if (activeRun.backendRunId) {
+        // Backend spawn run — cancel via API (fire-and-forget).
+        api.deleteRun(activeRun.backendRunId).catch(() => {});
+        showToast('Agent run cancelled.');
+      } else if (terminalSender) {
+        // PTY run — send Ctrl+C.
+        terminalSender('\x03');
+        showToast('Agent run cancelled.');
+      } else {
+        showToast('Run cleared.', 'error');
+      }
     }
 
-    if (terminalSender) {
-      terminalSender('\x03'); // Ctrl+C
-      showToast('Agent run cancelled.');
-    } else {
-      showToast('Terminal disconnected — run cleared.', 'error');
-    }
     set({ activeRun: null });
   },
 
@@ -570,47 +575,34 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearPreparedRun: () => set({ preparedRun: null, promptPreviewOpen: false }),
 
   executeAgentRun: async () => {
-    const { preparedRun, terminalSender, setTerminalOpen, showToast } = get();
+    const { preparedRun, terminalSender, showToast } = get();
     if (!preparedRun) return;
 
-    // If terminal sender is null, open the terminal and poll until connected (up to 3s).
-    let justOpened = false;
-    if (!terminalSender) {
-      justOpened = true;
-      showToast('Opening terminal...', 'success');
-      setTerminalOpen(true);
-      const POLL_INTERVAL = 100;
-      const POLL_TIMEOUT  = 3000;
-      let elapsed = 0;
-      while (elapsed < POLL_TIMEOUT) {
-        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
-        elapsed += POLL_INTERVAL;
-        if (get().terminalSender) break;
+    const startedAt      = new Date().toISOString();
+    const cmd            = preparedRun.cliCommand;
+    let   backendRunId: string | undefined;
+
+    if (terminalSender) {
+      // Terminal is open — inject into PTY so the user sees live output.
+      const sent = terminalSender(cmd + '\r');
+      if (!sent) {
+        showToast('Could not send to terminal. Please try again.', 'error');
+        return;
       }
-      if (!get().terminalSender) {
-        showToast('Could not connect to terminal. Please open the terminal panel and try again.', 'error');
+    } else {
+      // Terminal is closed — dispatch to backend spawn (no PTY needed).
+      try {
+        const run = await api.startRun(
+          preparedRun.spaceId,
+          preparedRun.taskId,
+          [preparedRun.agentId],
+        );
+        backendRunId = run.runId;
+      } catch (err) {
+        showToast(`Failed to start agent run: ${(err as Error).message}`, 'error');
         return;
       }
     }
-
-    // When the terminal was just opened, the shell (zsh/bash) may still be loading
-    // its rc files. Give it time to fully initialize before injecting the command,
-    // otherwise the \r can be consumed during shell startup and the command appears
-    // typed but not submitted.
-    if (justOpened) {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-    }
-
-    const sender = get().terminalSender!;
-    const cmd    = preparedRun.cliCommand;
-    const sent   = sender(cmd + '\r');
-
-    if (!sent) {
-      showToast('Could not connect to terminal. Please open the terminal panel and try again.', 'error');
-      return;
-    }
-
-    const startedAt = new Date().toISOString();
 
     set({
       activeRun: {
@@ -620,34 +612,24 @@ export const useAppStore = create<AppState>((set, get) => ({
         startedAt,
         cliCommand: cmd,
         promptPath: preparedRun.promptPath,
+        ...(backendRunId ? { backendRunId } : {}),
       },
       preparedRun:       null,
       promptPreviewOpen: false,
     });
 
-    console.log(JSON.stringify({
-      timestamp: new Date().toISOString(),
-      level:     'info',
-      component: 'agent-launcher',
-      event:     'agent_run_started',
-      agentId:   preparedRun.agentId,
-      taskId:    preparedRun.taskId,
-    }));
-
-    // ADR-1 (Agent Run History) §5.1: record run start in history store.
-    // Resolve taskTitle and spaceName from current store state (denormalized for history).
-    const { tasks, spaces } = get();
-    const allTasks = [...tasks['todo'], ...tasks['in-progress'], ...tasks['done']];
-    const task     = allTasks.find((t) => t.id === preparedRun.taskId);
-    const space    = spaces.find((s) => s.id === preparedRun.spaceId);
-    const runId    = `run_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const { availableAgents } = get();
+    // Record run start in history store.
+    const { tasks, spaces, availableAgents } = get();
+    const allTasks         = [...tasks['todo'], ...tasks['in-progress'], ...tasks['done']];
+    const task             = allTasks.find((t) => t.id === preparedRun.taskId);
+    const space            = spaces.find((s) => s.id === preparedRun.spaceId);
+    const historyRunId     = `run_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     const agentDisplayName =
       availableAgents.find((a) => a.id === preparedRun.agentId)?.displayName ??
       preparedRun.agentId;
 
     useRunHistoryStore.getState().recordRunStarted({
-      id:               runId,
+      id:               historyRunId,
       taskId:           preparedRun.taskId,
       taskTitle:        task?.title ?? `Task ${preparedRun.taskId}`,
       agentId:          preparedRun.agentId,
@@ -658,6 +640,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       cliCommand:       cmd,
       promptPath:       preparedRun.promptPath,
     });
+
+    // For backend runs: poll for completion and clear activeRun when done.
+    if (backendRunId) {
+      const runIdToWatch = backendRunId;
+      const POLL_MS = 5000;
+      const pollId = setInterval(async () => {
+        try {
+          const run = await api.getBackendRun(runIdToWatch);
+          if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+            clearInterval(pollId);
+            const durationMs = Date.now() - Date.parse(startedAt);
+            useRunHistoryStore.getState().recordRunFinished(
+              historyRunId,
+              run.status === 'completed' ? 'completed' : 'failed',
+              durationMs,
+            );
+            get().clearActiveRun();
+            get().loadBoard();
+          }
+        } catch {
+          clearInterval(pollId);
+          get().clearActiveRun();
+        }
+      }, POLL_MS);
+    }
   },
 
   // ── Pipeline ──────────────────────────────────────────────────────────────

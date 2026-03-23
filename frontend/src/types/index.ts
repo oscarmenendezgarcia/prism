@@ -126,7 +126,7 @@ export interface AgentDetail extends AgentInfo {
   content: string;
 }
 
-/** An active agent run — set in store when a command is injected into the PTY. */
+/** An active agent run — set in store when a run is dispatched (backend spawn or PTY). */
 export interface AgentRun {
   taskId: string;
   agentId: string;
@@ -134,6 +134,17 @@ export interface AgentRun {
   startedAt: string; // ISO timestamp
   cliCommand: string;
   promptPath: string;
+  backendRunId?: string; // set when launched via POST /api/v1/runs (backend spawn)
+}
+
+/** Run object returned by the backend pipeline API. */
+export interface BackendRun {
+  runId: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  stages: string[];
+  spaceId: string;
+  taskId: string;
+  createdAt: string;
 }
 
 /** The four canonical pipeline stage agent IDs. */
