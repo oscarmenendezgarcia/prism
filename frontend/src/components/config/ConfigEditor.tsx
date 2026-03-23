@@ -9,10 +9,11 @@
  *   - Footer: "Unsaved changes" indicator + Save button (disabled when clean)
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
 import { Badge } from '@/components/shared/Badge';
+import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
 
 export function ConfigEditor() {
   const activeConfigFileId  = useAppStore((s) => s.activeConfigFileId);
@@ -24,14 +25,20 @@ export function ConfigEditor() {
   const setConfigContent    = useAppStore((s) => s.setConfigContent);
   const saveConfigFile      = useAppStore((s) => s.saveConfigFile);
 
+  const [preview, setPreview] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Focus the textarea whenever a new file is selected.
+  // Reset to edit mode when switching files.
   useEffect(() => {
-    if (activeConfigFileId && textareaRef.current) {
+    setPreview(false);
+  }, [activeConfigFileId]);
+
+  // Focus the textarea whenever a new file is selected or edit mode is entered.
+  useEffect(() => {
+    if (!preview && activeConfigFileId && textareaRef.current) {
       textareaRef.current.focus();
     }
-  }, [activeConfigFileId]);
+  }, [activeConfigFileId, preview]);
 
   // Ctrl+S / Cmd+S keyboard shortcut.
   useEffect(() => {
@@ -63,7 +70,7 @@ export function ConfigEditor() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
-      {/* Mini-header: file name + scope badge */}
+      {/* Mini-header: file name + scope badge + Edit/Preview toggle */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
         <span className="text-xs font-medium text-text-primary truncate flex-1">
           {activeFile?.name ?? activeConfigFileId}
@@ -73,7 +80,9 @@ export function ConfigEditor() {
             className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
               activeFile.scope === 'global'
                 ? 'bg-primary/[0.12] text-primary'
-                : 'bg-success/[0.15] text-success'
+                : activeFile.scope === 'agent'
+                  ? 'bg-warning/[0.15] text-warning'
+                  : 'bg-success/[0.15] text-success'
             }`}
           >
             {activeFile.scope}
@@ -84,18 +93,52 @@ export function ConfigEditor() {
             progress_activity
           </span>
         )}
+        {/* Edit / Preview toggle */}
+        <div className="flex items-center rounded border border-border overflow-hidden shrink-0">
+          <button
+            onClick={() => setPreview(false)}
+            aria-pressed={!preview}
+            className={`px-2 py-0.5 text-[10px] font-medium transition-colors duration-100 ${
+              !preview
+                ? 'bg-primary text-on-primary'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant'
+            }`}
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => setPreview(true)}
+            aria-pressed={preview}
+            className={`px-2 py-0.5 text-[10px] font-medium transition-colors duration-100 ${
+              preview
+                ? 'bg-primary text-on-primary'
+                : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant'
+            }`}
+          >
+            Preview
+          </button>
+        </div>
       </div>
 
-      {/* Textarea */}
-      <textarea
-        ref={textareaRef}
-        value={activeConfigContent}
-        onChange={(e) => setConfigContent(e.target.value)}
-        disabled={configLoading || configSaving}
-        spellCheck={false}
-        aria-label={`Edit ${activeFile?.name ?? activeConfigFileId}`}
-        className="flex-1 min-h-0 w-full resize-none bg-transparent text-text-primary font-mono text-xs leading-relaxed px-3 py-2 outline-none placeholder:text-text-secondary disabled:opacity-60 overflow-auto"
-      />
+      {/* Textarea (edit mode) */}
+      {!preview && (
+        <textarea
+          ref={textareaRef}
+          value={activeConfigContent}
+          onChange={(e) => setConfigContent(e.target.value)}
+          disabled={configLoading || configSaving}
+          spellCheck={false}
+          aria-label={`Edit ${activeFile?.name ?? activeConfigFileId}`}
+          className="flex-1 min-h-0 w-full resize-none bg-transparent text-text-primary font-mono text-xs leading-relaxed px-3 py-2 outline-none placeholder:text-text-secondary disabled:opacity-60 overflow-auto"
+        />
+      )}
+
+      {/* Markdown preview */}
+      {preview && (
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
+          <MarkdownViewer content={activeConfigContent} />
+        </div>
+      )}
 
       {/* Footer: dirty indicator + Save button */}
       <div className="flex items-center justify-between px-3 py-2 border-t border-border shrink-0 gap-2">
