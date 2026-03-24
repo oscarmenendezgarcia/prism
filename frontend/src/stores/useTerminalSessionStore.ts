@@ -167,6 +167,8 @@ export const useTerminalSessionStore = create<TerminalSessionState>((set, get) =
 
   renameSession: (id: string, label: string) => {
     const trimmed = label.trim().slice(0, 24);
+    // BUG-002: reject empty or whitespace-only labels — keep the existing name.
+    if (trimmed.length === 0) return;
     set((state) => ({
       sessions: state.sessions.map((s) =>
         s.id === id ? { ...s, label: trimmed } : s,

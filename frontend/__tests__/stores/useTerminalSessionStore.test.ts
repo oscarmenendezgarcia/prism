@@ -229,6 +229,20 @@ describe('renameSession', () => {
     useTerminalSessionStore.getState().renameSession('a', 'Renamed');
     expect(useTerminalSessionStore.getState().sessions[1].label).toBe('Terminal 2');
   });
+
+  it('keeps the existing label when new label is empty string (BUG-002)', () => {
+    const { sessions } = useTerminalSessionStore.getState();
+    const originalLabel = sessions[0].label;
+    useTerminalSessionStore.getState().renameSession(sessions[0].id, '');
+    expect(useTerminalSessionStore.getState().sessions[0].label).toBe(originalLabel);
+  });
+
+  it('keeps the existing label when new label is whitespace-only (BUG-002)', () => {
+    const { sessions } = useTerminalSessionStore.getState();
+    const originalLabel = sessions[0].label;
+    useTerminalSessionStore.getState().renameSession(sessions[0].id, '   ');
+    expect(useTerminalSessionStore.getState().sessions[0].label).toBe(originalLabel);
+  });
 });
 
 // ---------------------------------------------------------------------------
