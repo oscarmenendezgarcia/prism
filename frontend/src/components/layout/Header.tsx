@@ -15,6 +15,37 @@ import { PipelineProgressBar } from '@/components/agent-launcher/PipelineProgres
 import { AgentSettingsToggle } from '@/components/agent-launcher/AgentSettingsToggle';
 import { RunHistoryToggle } from '@/components/agent-run-history/RunHistoryToggle';
 import { useAppStore } from '@/stores/useAppStore';
+import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
+
+/**
+ * Toggle button for the Pipeline Log panel.
+ * ADR-1 (log-viewer) §3.4: visible only when pipelineState !== null.
+ * Follows the same structure as RunHistoryToggle and TerminalToggle.
+ */
+function PipelineLogToggle() {
+  const pipelineState  = useAppStore((s) => s.pipelineState);
+  const logPanelOpen   = usePipelineLogStore((s) => s.logPanelOpen);
+  const setLogPanelOpen = usePipelineLogStore((s) => s.setLogPanelOpen);
+
+  if (!pipelineState) return null;
+
+  return (
+    <button
+      onClick={() => setLogPanelOpen(!logPanelOpen)}
+      aria-label="Toggle pipeline log panel"
+      aria-pressed={logPanelOpen}
+      className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 ease-apple ${
+        logPanelOpen
+          ? 'bg-primary/[0.15] text-primary'
+          : 'text-text-secondary hover:bg-surface-variant hover:text-text-primary'
+      }`}
+    >
+      <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
+        article
+      </span>
+    </button>
+  );
+}
 
 export function Header() {
   const openCreateModal = useAppStore((s) => s.openCreateModal);
@@ -44,6 +75,7 @@ export function Header() {
         <div className="flex items-center gap-1">
           <AgentSettingsToggle />
           <RunHistoryToggle />
+          <PipelineLogToggle />
           <ConfigToggle />
           <TerminalToggle />
         </div>
