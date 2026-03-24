@@ -1,0 +1,173 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "log-viewer",
+  "date": "2026-03-24",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Extend PipelineState type and startPipeline store action to capture runId",
+      "description": "Add optional `runId?: string` field to the `PipelineState` interface in `frontend/src/types/index.ts`. In `useAppStore.ts`, after the `POST /api/v1/runs` call (inside `startPipeline` and `executeOrchestratorRun`), store the returned `run.runId` in `pipelineState.runId`. This is the source of truth for the log panel.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "`PipelineState` interface has `runId?: string` field.",
+        "After `startPipeline` completes, `useAppStore.getState().pipelineState.runId` is a non-empty string equal to the runId returned by `POST /api/v1/runs`.",
+        "Existing tests for `startPipeline` and `executeOrchestratorRun` still pass.",
+        "TypeScript compiles without errors (`tsc --noEmit`)."
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Create usePipelineLogStore Zustand store",
+      "description": "Create `frontend/src/stores/usePipelineLogStore.ts`. State: `logPanelOpen: boolean`, `selectedStageIndex: number`, `stageLogs: Record<number, string>`, `stageLoading: Record<number, boolean>`, `stageErrors: Record<number, string | null>`. Actions: `setLogPanelOpen`, `setSelectedStageIndex`, `setStageLog`, `setStageLoading`, `setStageError`, `clearStageLogs`. Export a typed selector hook `usePipelineLogStore`.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Store file exists at `frontend/src/stores/usePipelineLogStore.ts`.",
+        "All state fields initialize to their defaults (open=false, selectedStageIndex=0, stageLogs={}, etc.).",
+        "`setStageLog(2, 'hello')` sets `stageLogs[2] === 'hello'`.",
+        "`clearStageLogs()` resets `stageLogs`, `stageLoading`, `stageErrors` to empty objects.",
+        "Unit test file `frontend/__tests__/stores/usePipelineLogStore.test.ts` exists and all assertions pass."
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Add getStageLog function to api/client.ts",
+      "description": "Add `getStageLog(runId: string, stageIndex: number, tail = 500): Promise<string>` to `frontend/src/api/client.ts`. Fetches `GET /api/v1/runs/:runId/stages/:stageIndex/log?tail=:tail`. Returns the raw text body on 200. Throws a typed error with `{ code: string, status: number }` on 4xx/5xx. On 404 with code `LOG_NOT_AVAILABLE`, throw a specific `LogNotAvailableError` so callers can distinguish 'not started yet' from 'real error'.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "`api.getStageLog('runId', 0, 500)` performs a GET to `/api/v1/runs/runId/stages/0/log?tail=500`.",
+        "Returns the response body as string on 200.",
+        "Throws `LogNotAvailableError` when server returns 404 with `{ error: { code: 'LOG_NOT_AVAILABLE' } }`.",
+        "Throws a generic error on other 4xx/5xx.",
+        "Unit test covers both happy path and `LogNotAvailableError` case."
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Create usePipelineLogPolling hook",
+      "description": "Create `frontend/src/hooks/usePipelineLogPolling.ts`. Accepts `{ runId: string | null, stageIndex: number, isRunActive: boolean }`. When `runId` is non-null and panel is open: fetch immediately on mount and on `stageIndex` change, then poll every 2000 ms only if `isRunActive === true`. On `LogNotAvailableError`: set no error, leave log empty (caller renders 'not started yet'). On other error: call `setStageError(stageIndex, message)`. Clean up interval on unmount or when inputs change.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-002", "T-003"],
+      "acceptance_criteria": [
+        "Hook is exported from `frontend/src/hooks/usePipelineLogPolling.ts`.",
+        "When `isRunActive=false`, a single fetch is made at mount; no interval is set.",
+        "When `isRunActive=true`, fetches repeat every 2000 ms.",
+        "Interval is cleared on unmount (no memory leaks — verified via React Testing Library `act` + fake timers).",
+        "On `LogNotAvailableError`: `stageErrors[stageIndex]` remains null; `stageLogs[stageIndex]` is empty string.",
+        "On HTTP 500: `stageErrors[stageIndex]` is set to an error message.",
+        "Unit test covers: initial fetch, polling interval, LogNotAvailableError path, generic error path, cleanup."
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Create LogViewer component",
+      "description": "Create `frontend/src/components/pipeline-log/LogViewer.tsx`. Renders `<pre ref={containerRef}>` with the log content. Auto-scrolls to bottom on each content update if the user has not manually scrolled up (`isAtBottom` state tracked via `onScroll`). Shows 'Scroll to bottom' button when not at bottom. Empty state: 'Stage not started yet.' when content is empty + `isPending`, spinner + 'Waiting for output...' when content is empty + `isRunning`. Accepts props: `content: string`, `isPending: boolean`, `isRunning: boolean`, `isLoading: boolean`, `error: string | null`.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Component renders log content in a `<pre>` element with Tailwind `font-mono text-xs` classes.",
+        "Auto-scroll fires when `content` changes and `isAtBottom` is true.",
+        "Auto-scroll does NOT fire when user has scrolled up (isAtBottom=false).",
+        "'Scroll to bottom' button appears when not at bottom and clicking it scrolls to bottom.",
+        "Empty state shows 'Stage not started yet.' when `isPending=true` and content is empty.",
+        "Spinner + message when `isRunning=true` and content is empty.",
+        "Error string shown in error color when `error !== null`.",
+        "Unit test covers: auto-scroll on content change, scroll-up disables auto-scroll, empty state variants."
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Create StageTabBar component",
+      "description": "Create `frontend/src/components/pipeline-log/StageTabBar.tsx`. Renders one tab per stage in the run. Each tab shows: short label (Architect/UX/Dev/QA, or first word of agentId), status icon (check for completed, spinning progress_activity for running, close for failed, hourglass_empty for pending). Active tab has `bg-primary/10 text-primary border-b-2 border-primary`. Props: `stages: string[]`, `stageStatuses: StageStatus[]`, `selectedIndex: number`, `onSelect: (index: number) => void`. `StageStatus` is the shape from `GET /api/v1/runs/:runId` response.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Renders one button per stage.",
+        "Active tab has `border-b-2 border-primary` class.",
+        "Status icon is `check` for completed, rotating `progress_activity` for running, `close` for failed, `hourglass_empty` for pending.",
+        "Clicking a tab calls `onSelect(index)`.",
+        "Unit test: renders correct number of tabs, active tab styling, onSelect callback."
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Create PipelineLogPanel container component",
+      "description": "Create `frontend/src/components/pipeline-log/PipelineLogPanel.tsx`. Reads `selectedStageIndex`, `stageLogs`, `stageLoading`, `stageErrors` from `usePipelineLogStore`. Reads `pipelineState` (for `runId`, `stages`, `stageStatuses`, `status`) from `useAppStore`. Mounts `usePipelineLogPolling` with the active runId and selectedStageIndex. Renders: resizable aside using `usePanelResize({ storageKey: 'prism:panel-width:pipeline-log', defaultWidth: 480, minWidth: 320, maxWidth: 900 })`, panel header with title 'Pipeline Logs' and close button, `<StageTabBar>`, `<LogViewer>`.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-002", "T-004", "T-005", "T-006"],
+      "acceptance_criteria": [
+        "Panel renders as an `<aside>` with `border-l border-border bg-surface` Tailwind classes.",
+        "Panel width is 480px by default and resizable.",
+        "Close button (×) calls `setLogPanelOpen(false)`.",
+        "Stage tabs match the stages from `pipelineState.stages`.",
+        "Log content for the selected stage is displayed in `<LogViewer>`.",
+        "Polling is active when `pipelineState.status === 'running'`.",
+        "Component test: renders panel, close button works, stage selection updates LogViewer content."
+      ]
+    },
+    {
+      "id": "T-008",
+      "title": "Add PipelineLogToggle button to Header",
+      "description": "Modify `frontend/src/components/layout/Header.tsx` to add a `PipelineLogToggle` button (inline, no new file needed). The button uses Material Symbol icon `article`. It is visible only when `pipelineState !== null`. Clicking it toggles `logPanelOpen` in `usePipelineLogStore`. The button should follow the same styling as other header icon buttons (e.g., TerminalToggle).",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "1",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "Button is not rendered when `pipelineState === null`.",
+        "Button is rendered when `pipelineState !== null`.",
+        "Clicking toggles `usePipelineLogStore.logPanelOpen`.",
+        "Icon is `article` from Material Symbols.",
+        "Unit test: button hidden when no pipeline, visible when pipeline active, click toggles store."
+      ]
+    },
+    {
+      "id": "T-009",
+      "title": "Mount PipelineLogPanel in App.tsx",
+      "description": "Modify `frontend/src/App.tsx` to import and conditionally render `<PipelineLogPanel />` inside the flex panel row (alongside TerminalPanel, RunHistoryPanel, ConfigPanel). Condition: `logPanelOpen && pipelineState !== null`.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "1",
+      "dependencies": ["T-007", "T-008"],
+      "acceptance_criteria": [
+        "`<PipelineLogPanel />` is rendered inside the `flex flex-1 overflow-hidden` div.",
+        "It renders only when `logPanelOpen === true` (from `usePipelineLogStore`).",
+        "No regressions in other panels (TerminalPanel, RunHistoryPanel, ConfigPanel still render correctly).",
+        "Integration test: PipelineLogPanel appears in DOM when logPanelOpen=true and pipelineState is set."
+      ]
+    },
+    {
+      "id": "T-010",
+      "title": "Write unit and integration tests for the log viewer feature",
+      "description": "Ensure test coverage >90% for all new files: `usePipelineLogStore`, `usePipelineLogPolling`, `LogViewer`, `StageTabBar`, `PipelineLogPanel`. Tests live in `frontend/__tests__/`. Use Vitest + React Testing Library + fake timers for polling tests. Mock `api.getStageLog` at the module level.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-002", "T-003", "T-004", "T-005", "T-006", "T-007", "T-008", "T-009"],
+      "acceptance_criteria": [
+        "`npm test` inside `frontend/` passes with 0 failures.",
+        "Coverage for all new files reported by Vitest is ≥ 90%.",
+        "Polling hook tests use fake timers to avoid real 2s waits.",
+        "Auto-scroll behaviour is tested via `scrollTop` / `scrollHeight` spy.",
+        "No snapshot tests — only behaviour-based assertions."
+      ]
+    }
+  ]
+}
