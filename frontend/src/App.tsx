@@ -16,6 +16,7 @@ import { TerminalPanel } from '@/components/terminal/TerminalPanel';
 import { ConfigPanel } from '@/components/config/ConfigPanel';
 import { AgentSettingsPanel } from '@/components/agent-launcher/AgentSettingsPanel';
 import { RunHistoryPanel } from '@/components/agent-run-history/RunHistoryPanel';
+import { PipelineLogPanel } from '@/components/pipeline-log/PipelineLogPanel';
 import { AgentPromptPreview } from '@/components/agent-launcher/AgentPromptPreview';
 import { TaskDetailPanel } from '@/components/board/TaskDetailPanel';
 import { CreateTaskModal } from '@/components/modals/CreateTaskModal';
@@ -30,6 +31,7 @@ import { usePolling } from '@/hooks/usePolling';
 import { useAgentCompletion } from '@/hooks/useAgentCompletion';
 import { useRunHistoryPolling } from '@/hooks/useRunHistoryPolling';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
+import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
 
 /** React Error Boundary to prevent white-screen crashes. */
 class ErrorBoundary extends React.Component<
@@ -79,7 +81,9 @@ function AppContent() {
   const terminalOpen           = useAppStore((s) => s.terminalOpen);
   const configPanelOpen        = useAppStore((s) => s.configPanelOpen);
   const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
+  const pipelineState          = useAppStore((s) => s.pipelineState);
   const historyPanelOpen       = useRunHistoryStore((s) => s.historyPanelOpen);
+  const logPanelOpen           = usePipelineLogStore((s) => s.logPanelOpen);
 
   useEffect(() => {
     loadSpaces();
@@ -105,6 +109,7 @@ function AppContent() {
           </div>
           <TerminalPanel />
           {historyPanelOpen && <RunHistoryPanel />}
+          {logPanelOpen && pipelineState !== null && <PipelineLogPanel />}
           {configPanelOpen && <ConfigPanel />}
           {agentSettingsPanelOpen && <AgentSettingsPanel />}
         </div>
