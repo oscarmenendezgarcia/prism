@@ -17,11 +17,13 @@ import { ConfigPanel } from '@/components/config/ConfigPanel';
 import { AgentSettingsPanel } from '@/components/agent-launcher/AgentSettingsPanel';
 import { RunHistoryPanel } from '@/components/agent-run-history/RunHistoryPanel';
 import { AgentPromptPreview } from '@/components/agent-launcher/AgentPromptPreview';
+import { TaskDetailPanel } from '@/components/board/TaskDetailPanel';
 import { CreateTaskModal } from '@/components/modals/CreateTaskModal';
 import { AttachmentModal } from '@/components/modals/AttachmentModal';
 import { MarkdownModal } from '@/components/modals/MarkdownModal';
 import { SpaceModal } from '@/components/modals/SpaceModal';
 import { DeleteSpaceDialog } from '@/components/modals/DeleteSpaceDialog';
+import { PipelineConfirmModal } from '@/components/modals/PipelineConfirmModal';
 import { Toast } from '@/components/shared/Toast';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
@@ -108,12 +110,18 @@ function AppContent() {
         </div>
       </div>
 
+      {/* Task detail panel — z-50, above board (z-0/10), below modals (z-60+).
+          Rendered at App root so it overlays the full viewport without being
+          inside any scrollable column container. ADR-1 (task-detail-edit) §3.4. */}
+      <TaskDetailPanel />
+
       <AgentPromptPreview />
       <CreateTaskModal />
       <AttachmentModal />
       <MarkdownModal />
       <SpaceModal />
       <DeleteSpaceDialog />
+      <PipelineConfirmModal />
 
       <Toast />
     </div>
