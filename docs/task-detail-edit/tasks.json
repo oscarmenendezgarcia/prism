@@ -1,0 +1,146 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "task-detail-edit",
+  "date": "2026-03-24",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Add UpdateTaskPayload type and updateTask API client function",
+      "description": "Add the UpdateTaskPayload interface to types/index.ts and the updateTask(spaceId, taskId, patch) function to api/client.ts wrapping PUT /spaces/:spaceId/tasks/:taskId.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "UpdateTaskPayload interface exported from types/index.ts with optional fields: title, type, description, assigned",
+        "updateTask() in client.ts calls PUT /api/v1/spaces/:spaceId/tasks/:taskId with the patch body",
+        "Return type is Promise<Task>",
+        "Existing client.ts exports are unchanged",
+        "Unit test: updateTask sends correct method, path, and body"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Extend useAppStore with detailTask state and panel actions",
+      "description": "Add detailTask: Task | null, openDetailPanel(task), closeDetailPanel(), and updateTask(taskId, patch) to useAppStore. updateTask must apply an optimistic update to the tasks board and refresh detailTask after the API resolves.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1d",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "detailTask is null on initial store load",
+        "openDetailPanel(task) sets detailTask to the given task",
+        "closeDetailPanel() sets detailTask to null",
+        "updateTask() calls api.updateTask with the active spaceId, taskId, and patch",
+        "On success: the task is updated in-place in the tasks board (all columns searched) and detailTask is refreshed to the returned Task",
+        "On error: detailTask and tasks board are NOT modified; showToast('Failed to save', 'error') is called",
+        "isMutating flag is set to true during the call and false after (success or error)",
+        "Unit tests cover: open/close actions, successful update (board + detailTask sync), error path (toast called, state unchanged)"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Implement TaskDetailPanel component",
+      "description": "Create frontend/src/components/board/TaskDetailPanel.tsx. The panel reads detailTask from useAppStore, renders all four editable fields with the interaction model described in the blueprint (auto-save on blur for title/assigned, auto-save on change for type, explicit save button for description). Includes backdrop overlay, close button, Escape key handler, focus trap, and focus-return on close.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2d",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "Component renders null when detailTask is null",
+        "Panel slides in from the right with a 200 ms CSS transition (translateX)",
+        "Backdrop is semi-transparent; clicking it calls closeDetailPanel()",
+        "Close button (×) in the header calls closeDetailPanel()",
+        "Escape key anywhere in the panel calls closeDetailPanel()",
+        "Focus is trapped inside the panel while open",
+        "On open, focus lands on the title input",
+        "On close, focus returns to the element that triggered open",
+        "Title input: blurring with a changed value calls store.updateTask with { title }",
+        "Type control: changing selection immediately calls store.updateTask with { type }",
+        "Assigned input: blurring with a changed value calls store.updateTask with { assigned }",
+        "Description textarea: 'Save description' button calls store.updateTask with { description }",
+        "All editable fields are disabled while store.isMutating is true",
+        "Panel is fully read-only (all inputs disabled) while activeRun is non-null for this task",
+        "Read-only metadata shown: task id, column label, createdAt, updatedAt (refreshes after save)",
+        "Panel width: w-full on mobile, w-[380px] on sm breakpoint and above",
+        "ARIA: role=dialog, aria-modal=true, aria-label='Task detail'",
+        "All interactive elements have visible focus rings using ring-2 ring-primary"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Add expand trigger to TaskCard",
+      "description": "Modify TaskCard to add a small expand icon button in the card header. Clicking the task title or the expand icon calls openDetailPanel(task) from the store.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "An expand icon button appears in the top-right area of the card header, alongside the Badge",
+        "Clicking the icon calls store.openDetailPanel(task)",
+        "Clicking the task title text also calls store.openDetailPanel(task)",
+        "The title text is styled as a subtle link (cursor-pointer, hover:text-primary) to signal interactivity",
+        "Expand button has aria-label='Open task detail'",
+        "The expand button does not trigger drag events (e.stopPropagation on its drag handlers)",
+        "Existing card layout (badge, description, assigned avatar, timestamps, attachments, footer) is visually unchanged"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Mount TaskDetailPanel in App",
+      "description": "Import and render <TaskDetailPanel /> in App.tsx as a sibling of <Board />, outside any scrollable container, so it overlays the full viewport.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.25d",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "TaskDetailPanel is rendered at App root level, not inside Board or Column",
+        "Panel z-index is above the board and below any existing top-level modals (e.g. CreateTaskModal)",
+        "No visual regressions on the board layout when the panel is closed",
+        "Board columns remain scrollable while the panel is open"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Write unit tests for TaskDetailPanel",
+      "description": "Write Vitest + React Testing Library tests for TaskDetailPanel covering: open/close lifecycle, all four field save paths (auto-save and explicit save), disabled state during isMutating, read-only state during activeRun, keyboard accessibility (Escape), and focus management.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "1d",
+      "dependencies": ["T-003", "T-004", "T-005"],
+      "acceptance_criteria": [
+        "Test: panel is not rendered when detailTask is null",
+        "Test: panel renders with task field values pre-populated",
+        "Test: blurring title input triggers store.updateTask with correct patch",
+        "Test: changing type control triggers store.updateTask immediately",
+        "Test: blurring assigned input triggers store.updateTask with correct patch",
+        "Test: clicking 'Save description' button triggers store.updateTask with description",
+        "Test: clicking backdrop calls closeDetailPanel",
+        "Test: clicking close button calls closeDetailPanel",
+        "Test: pressing Escape calls closeDetailPanel",
+        "Test: all inputs are disabled when isMutating is true",
+        "Test: all inputs are disabled when activeRun matches task id",
+        "Test: focus is on title input on panel open",
+        "Test coverage for TaskDetailPanel >= 90%"
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Write unit tests for store updateTask action",
+      "description": "Add Vitest unit tests for the new store actions (openDetailPanel, closeDetailPanel, updateTask) in useAppStore.",
+      "role": "QA",
+      "priority": "Medium",
+      "estimate": "0.5d",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "Test: openDetailPanel sets detailTask to the given task",
+        "Test: closeDetailPanel sets detailTask to null",
+        "Test: updateTask calls api.updateTask with correct arguments",
+        "Test: on success, tasks board is updated in the correct column and detailTask is refreshed",
+        "Test: on error, tasks board and detailTask are unchanged, showToast('error') is called",
+        "Test: isMutating is true during the call and false after"
+      ]
+    }
+  ]
+}
