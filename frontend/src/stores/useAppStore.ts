@@ -17,6 +17,7 @@ import type {
   BoardTasks,
   Column,
   CreateTaskPayload,
+  UpdateTaskPayload,
   AttachmentModalState,
   MarkdownModalState,
   SpaceModalState,
@@ -60,8 +61,8 @@ interface AppState {
   activeSpaceId: string;
   setActiveSpace: (id: string) => void;
   loadSpaces: () => Promise<void>;
-  createSpace: (name: string, workingDirectory?: string) => Promise<void>;
-  renameSpace: (id: string, name: string, workingDirectory?: string) => Promise<void>;
+  createSpace: (name: string, workingDirectory?: string, pipeline?: string[]) => Promise<void>;
+  renameSpace: (id: string, name: string, workingDirectory?: string, pipeline?: string[]) => Promise<void>;
   deleteSpace: (id: string) => Promise<void>;
 
   // Tasks
@@ -156,11 +157,38 @@ interface AppState {
 
   /** Active pipeline state — null when no pipeline is running. */
   pipelineState: PipelineState | null;
-  startPipeline: (spaceId: string, taskId: string) => Promise<void>;
+  startPipeline: (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints?: number[]) => Promise<void>;
   advancePipeline: () => Promise<void>;
+  /**
+   * T-3 (manual checkpoints): resume a paused pipeline.
+   * The current checkpoint is consumed (not re-triggered) and the pipeline
+   * advances to execute the paused stage.
+   */
+  resumePipeline: () => Promise<void>;
   abortPipeline: () => void;
   /** Silently dismiss the pipeline indicator without sending Ctrl+C or toasting. */
   clearPipeline: () => void;
+  /**
+   * T-4 (orchestrator mode): dispatch a single-stage run using the
+   * `orchestrator` agent, which sub-launches the full pipeline internally.
+   * Does not use the per-stage PipelineState — shows a simplified "Orchestrator
+   * running" indicator via activeRun only.
+   */
+  executeOrchestratorRun: (spaceId: string, taskId: string, stages: PipelineStage[]) => Promise<void>;
+
+  /** Pipeline confirm modal — shown when user clicks "Run Pipeline" on a card. */
+  pipelineConfirmModal: {
+    open: boolean;
+    spaceId: string;
+    taskId: string;
+    stages: PipelineStage[];
+    /** T-3: indices into stages[] where the pipeline should pause before executing. */
+    checkpoints: number[];
+    /** T-4: when true, the modal will call executeOrchestratorRun instead of startPipeline. */
+    useOrchestratorMode: boolean;
+  } | null;
+  openPipelineConfirm: (spaceId: string, taskId: string) => void;
+  closePipelineConfirm: () => void;
 
   /** Agent settings panel open state. */
   agentSettingsPanelOpen: boolean;
@@ -172,6 +200,30 @@ interface AppState {
   settingsLoading: boolean;
   loadSettings: () => Promise<void>;
   saveSettings: (partial: Partial<AgentSettings>) => Promise<void>;
+
+  // ── Task detail panel (ADR-1: task-detail-edit) ───────────────────────────
+
+  /**
+   * The task currently shown in the detail panel.
+   * null means the panel is closed.
+   */
+  detailTask: Task | null;
+
+  /** Open the detail panel for the given task. */
+  openDetailPanel: (task: Task) => void;
+
+  /** Close the detail panel and clear detailTask. */
+  closeDetailPanel: () => void;
+
+  /**
+   * Update a task's editable fields via the PUT endpoint.
+   * Applies an optimistic update to the board and refreshes detailTask on success.
+   * Uses the current activeSpaceId from the store — no spaceId argument needed.
+   *
+   * @param taskId - The task to update.
+   * @param patch  - Partial payload; only present keys are sent.
+   */
+  updateTask: (taskId: string, patch: UpdateTaskPayload) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,17 +289,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  createSpace: async (name: string, workingDirectory?: string) => {
-    const newSpace = await api.createSpace(name, workingDirectory);
+  createSpace: async (name: string, workingDirectory?: string, pipeline?: string[]) => {
+    const newSpace = await api.createSpace(name, workingDirectory, pipeline);
     get().setActiveSpace(newSpace.id);
     await get().loadSpaces();
     get().showToast('Space created.');
   },
 
-  renameSpace: async (id: string, name: string, workingDirectory?: string) => {
-    await api.renameSpace(id, name, workingDirectory);
+  renameSpace: async (id: string, name: string, workingDirectory?: string, pipeline?: string[]) => {
+    await api.renameSpace(id, name, workingDirectory, pipeline);
     await get().loadSpaces();
-    get().showToast(`Space updated.`);
+    get().showToast('Space updated.');
   },
 
   deleteSpace: async (id: string) => {
@@ -669,15 +721,61 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Pipeline ──────────────────────────────────────────────────────────────
 
   pipelineState: null,
+  pipelineConfirmModal: null,
 
-  startPipeline: async (spaceId: string, taskId: string) => {
-    const { agentSettings, availableAgents, showToast } = get();
-    const stages = (agentSettings?.pipeline.stages ?? [
-      'senior-architect',
-      'ux-api-designer',
-      'developer-agent',
-      'qa-engineer-e2e',
-    ]) as PipelineStage[];
+  openPipelineConfirm: (spaceId: string, taskId: string) => {
+    const { agentSettings, spaces } = get();
+    const space = spaces.find((s) => s.id === spaceId);
+    const stages = (
+      (space?.pipeline && space.pipeline.length > 0 ? space.pipeline : null) ??
+      agentSettings?.pipeline?.stages ??
+      ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e']
+    ) as PipelineStage[];
+    set({
+      pipelineConfirmModal: {
+        open: true,
+        spaceId,
+        taskId,
+        stages,
+        checkpoints: [],
+        useOrchestratorMode: false,
+      },
+    });
+  },
+
+  closePipelineConfirm: () => {
+    set({ pipelineConfirmModal: null });
+  },
+
+  startPipeline: async (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints: number[] = []) => {
+    const { agentSettings, availableAgents, showToast, spaces } = get();
+    const space = spaces.find((s) => s.id === spaceId);
+    const resolvedStages: PipelineStage[] = stages && stages.length > 0
+      ? stages
+      : (
+          (space?.pipeline && space.pipeline.length > 0 ? space.pipeline : null) ??
+          agentSettings?.pipeline?.stages ??
+          ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e']
+        ) as PipelineStage[];
+
+    // T-3: check if stage 0 has a checkpoint — pause immediately before starting.
+    if (checkpoints.includes(0)) {
+      set({
+        pipelineState: {
+          spaceId,
+          stages: resolvedStages,
+          currentStageIndex: 0,
+          startedAt: new Date().toISOString(),
+          status: 'paused',
+          taskId,
+          subTaskIds: [],
+          checkpoints,
+          pausedBeforeStage: 0,
+        },
+      });
+      showToast(`Pipeline paused before stage 1: ${resolvedStages[0]}. Click Continue to proceed.`);
+      return;
+    }
 
     // Initialise pipeline state with an empty subTaskIds array.
     // taskId is the main anchor task — it is never moved by the pipeline.
@@ -685,16 +783,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       pipelineState: {
         spaceId,
-        stages,
+        stages: resolvedStages,
         currentStageIndex: 0,
         startedAt: new Date().toISOString(),
         status:    'running',
         taskId,
         subTaskIds: [],
+        checkpoints,
       },
     });
 
-    const firstStage      = stages[0];
+    const firstStage      = resolvedStages[0];
     const mainTitle       = resolveMainTaskTitle(get, taskId);
     const agentDisplayName =
       availableAgents.find((a) => a.id === firstStage)?.displayName ?? firstStage;
@@ -744,6 +843,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ pipelineState: { ...pipelineState, status: 'completed' } });
       showToast('Pipeline complete. All stages finished.');
       setTimeout(() => set({ pipelineState: null }), 3000);
+      return;
+    }
+
+    // T-3: pause before this stage if it is in the checkpoints list.
+    if ((pipelineState.checkpoints ?? []).includes(nextIndex)) {
+      set({
+        pipelineState: {
+          ...pipelineState,
+          currentStageIndex: nextIndex,
+          status: 'paused',
+          pausedBeforeStage: nextIndex,
+        },
+      });
+      const stageName = pipelineState.stages[nextIndex];
+      showToast(`Pipeline paused before stage ${nextIndex + 1}: ${stageName}. Click Continue to proceed.`);
       return;
     }
 
@@ -808,6 +922,227 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   clearPipeline: () => set({ pipelineState: null, activeRun: null }),
 
+  /**
+   * T-3 (manual checkpoints): resume a paused pipeline.
+   * Removes the current pausedBeforeStage from checkpoints so the same stage
+   * does not pause again on the next run, then executes the paused stage.
+   */
+  resumePipeline: async () => {
+    const { pipelineState, availableAgents, showToast } = get();
+    if (!pipelineState || pipelineState.status !== 'paused') return;
+
+    const { pausedBeforeStage, checkpoints } = pipelineState;
+    const resumeIndex = pausedBeforeStage ?? pipelineState.currentStageIndex;
+
+    // Consume the checkpoint so it doesn't block again on a second pass.
+    const remainingCheckpoints = checkpoints.filter((c) => c !== resumeIndex);
+
+    const resumedState: PipelineState = {
+      ...pipelineState,
+      status: 'running',
+      checkpoints: remainingCheckpoints,
+      pausedBeforeStage: undefined,
+    };
+    set({ pipelineState: resumedState });
+
+    // If stage 0 was the paused one, we haven't created a sub-task yet — kick
+    // off from scratch for stage 0.  Otherwise we are resuming mid-pipeline
+    // after advancePipeline already set currentStageIndex to resumeIndex.
+    if (resumeIndex === 0 && resumedState.subTaskIds.length === 0) {
+      const mainTitle       = resolveMainTaskTitle(get, pipelineState.taskId);
+      const firstStage      = resumedState.stages[0];
+      const agentDisplayName =
+        availableAgents.find((a) => a.id === firstStage)?.displayName ?? firstStage;
+
+      let subTask;
+      try {
+        subTask = await api.createTask(pipelineState.spaceId, {
+          title:       `${mainTitle} / Stage 1: ${agentDisplayName}`,
+          type:        'research',
+          assigned:    firstStage,
+          description: `Pipeline sub-task for stage 1. Parent task: ${pipelineState.taskId}`,
+        });
+      } catch (err) {
+        showToast(
+          `Pipeline aborted: could not create sub-task for stage 1 — ${(err as Error).message}`,
+          'error',
+        );
+        set({ pipelineState: null, activeRun: null });
+        return;
+      }
+
+      set({ pipelineState: { ...get().pipelineState!, subTaskIds: [subTask.id] } });
+
+      console.log(JSON.stringify({
+        timestamp:  new Date().toISOString(),
+        level:      'info',
+        component:  'agent-launcher',
+        event:      'pipeline_checkpoint_resumed',
+        stageIndex: 0,
+        subTaskId:  subTask.id,
+        mainTaskId: pipelineState.taskId,
+        agentId:    firstStage,
+      }));
+
+      showToast(`Pipeline resumed — Stage 1: ${agentDisplayName}`);
+      await get().prepareAgentRun(subTask.id, firstStage);
+      return;
+    }
+
+    // Mid-pipeline resume: currentStageIndex already points to the paused stage;
+    // subTaskIds may or may not contain this stage's entry (it wasn't created yet
+    // because we bailed out before createTask in advancePipeline).  We need to
+    // create the sub-task and execute it.
+    const nextStage        = resumedState.stages[resumeIndex];
+    const agentDisplayName =
+      availableAgents.find((a) => a.id === nextStage)?.displayName ?? nextStage;
+    const mainTitle        = resolveMainTaskTitle(get, pipelineState.taskId);
+
+    let subTask;
+    try {
+      subTask = await api.createTask(pipelineState.spaceId, {
+        title:       `${mainTitle} / Stage ${resumeIndex + 1}: ${agentDisplayName}`,
+        type:        'research',
+        assigned:    nextStage,
+        description: `Pipeline sub-task for stage ${resumeIndex + 1}. Parent task: ${pipelineState.taskId}`,
+      });
+    } catch (err) {
+      showToast(
+        `Pipeline aborted: could not create sub-task for stage ${resumeIndex + 1} — ${(err as Error).message}`,
+        'error',
+      );
+      set({ pipelineState: null, activeRun: null });
+      return;
+    }
+
+    set({
+      pipelineState: {
+        ...get().pipelineState!,
+        subTaskIds: [...pipelineState.subTaskIds, subTask.id],
+      },
+    });
+
+    console.log(JSON.stringify({
+      timestamp:  new Date().toISOString(),
+      level:      'info',
+      component:  'agent-launcher',
+      event:      'pipeline_checkpoint_resumed',
+      stageIndex: resumeIndex,
+      subTaskId:  subTask.id,
+      mainTaskId: pipelineState.taskId,
+      agentId:    nextStage,
+    }));
+
+    showToast(`Pipeline resumed — Stage ${resumeIndex + 1}: ${agentDisplayName}`);
+    await get().prepareAgentRun(subTask.id, nextStage);
+  },
+
+  /**
+   * T-4 (orchestrator mode): dispatch a backend run using the orchestrator
+   * agent.  The orchestrator receives the stages list as context and launches
+   * each sub-agent internally using the `Agent` tool.  The frontend shows a
+   * simplified "Orchestrator running" state via activeRun (no per-stage
+   * PipelineState).
+   */
+  executeOrchestratorRun: async (spaceId: string, taskId: string, stages: PipelineStage[]) => {
+    const { showToast, tasks, spaces, availableAgents, terminalSender } = get();
+    const startedAt = new Date().toISOString();
+
+    let cliCommand: string;
+    let promptPath: string;
+    let backendRunId: string | undefined;
+
+    if (terminalSender) {
+      // Terminal is open — generate a prompt file and inject the command into PTY.
+      let generated;
+      try {
+        generated = await api.generatePrompt({
+          agentId:            'orchestrator',
+          taskId,
+          spaceId,
+          customInstructions: `Pipeline stages to execute in order: ${stages.join(' → ')}`,
+        });
+      } catch (err) {
+        showToast(`Failed to prepare orchestrator prompt: ${(err as Error).message}`, 'error');
+        return;
+      }
+      cliCommand = generated.cliCommand;
+      promptPath = generated.promptPath;
+      const sent = terminalSender(cliCommand + '\r');
+      if (!sent) {
+        showToast('Could not send to terminal. Please try again.', 'error');
+        return;
+      }
+    } else {
+      // No terminal — spawn in backend.
+      promptPath = '~/.claude/agents/orchestrator.md';
+      cliCommand = `orchestrator (${stages.join(' → ')})`;
+      try {
+        const run = await api.startRun(spaceId, taskId, ['orchestrator'], { stages });
+        backendRunId = run.runId;
+      } catch (err) {
+        showToast(`Failed to start orchestrator run: ${(err as Error).message}`, 'error');
+        return;
+      }
+    }
+
+    set({
+      activeRun: {
+        taskId,
+        agentId:    'orchestrator',
+        spaceId,
+        startedAt,
+        cliCommand,
+        promptPath,
+        ...(backendRunId ? { backendRunId } : {}),
+      },
+    });
+
+    // Register in run history so it appears in the history panel.
+    const allTasks     = [...tasks['todo'], ...tasks['in-progress'], ...tasks['done']];
+    const task         = allTasks.find((t) => t.id === taskId);
+    const space        = spaces.find((s) => s.id === spaceId);
+    const historyRunId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    useRunHistoryStore.getState().recordRunStarted({
+      id:               historyRunId,
+      taskId,
+      taskTitle:        task?.title ?? `Task ${taskId}`,
+      agentId:          'orchestrator',
+      agentDisplayName: availableAgents.find((a) => a.id === 'orchestrator')?.displayName ?? 'Orchestrator',
+      spaceId,
+      spaceName:        space?.name ?? spaceId,
+      startedAt,
+      cliCommand,
+      promptPath,
+    });
+
+    showToast(`Orchestrator started — ${stages.length} stages queued.`);
+
+    // For backend runs (no terminal): poll for completion.
+    if (backendRunId) {
+      const runIdToWatch = backendRunId;
+      const POLL_MS = 5000;
+      const pollId = setInterval(async () => {
+        try {
+          const run = await api.getBackendRun(runIdToWatch);
+          if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+            clearInterval(pollId);
+            get().clearActiveRun();
+            get().loadBoard();
+            if (run.status === 'completed') {
+              showToast('Orchestrator run completed.');
+            } else {
+              showToast(`Orchestrator run ${run.status}.`, 'error');
+            }
+          }
+        } catch {
+          clearInterval(pollId);
+          get().clearActiveRun();
+        }
+      }, POLL_MS);
+    }
+  },
+
   agentSettingsPanelOpen:    false,
   setAgentSettingsPanelOpen: (open: boolean) => set({ agentSettingsPanelOpen: open }),
 
@@ -835,6 +1170,65 @@ export const useAppStore = create<AppState>((set, get) => ({
       get().showToast('Settings saved.');
     } catch (err) {
       get().showToast(`Failed to save settings: ${(err as Error).message}`, 'error');
+    }
+  },
+
+  // ── Task detail panel (ADR-1: task-detail-edit) ───────────────────────────
+
+  detailTask: null,
+
+  openDetailPanel: (task: Task) => {
+    set({ detailTask: task });
+  },
+
+  closeDetailPanel: () => {
+    set({ detailTask: null });
+  },
+
+  updateTask: async (taskId: string, patch: UpdateTaskPayload) => {
+    const { activeSpaceId, tasks, detailTask, showToast } = get();
+
+    // Optimistic update: apply patch immediately in-place across all columns.
+    const applyOptimistic = (columnTasks: Task[]): Task[] =>
+      columnTasks.map((t) =>
+        t.id === taskId ? { ...t, ...patch } : t
+      );
+
+    const optimisticTasks: BoardTasks = {
+      'todo':        applyOptimistic(tasks['todo']),
+      'in-progress': applyOptimistic(tasks['in-progress']),
+      'done':        applyOptimistic(tasks['done']),
+    };
+
+    // Also optimistically update detailTask if it's the same task.
+    const optimisticDetail =
+      detailTask?.id === taskId ? { ...detailTask, ...patch } : detailTask;
+
+    set({ isMutating: true, tasks: optimisticTasks, detailTask: optimisticDetail });
+
+    try {
+      const updated = await api.updateTask(activeSpaceId, taskId, patch);
+
+      // Reconcile with server response (authoritative timestamps, etc.).
+      const reconciled = (columnTasks: Task[]): Task[] =>
+        columnTasks.map((t) => (t.id === taskId ? updated : t));
+
+      set({
+        tasks: {
+          'todo':        reconciled(get().tasks['todo']),
+          'in-progress': reconciled(get().tasks['in-progress']),
+          'done':        reconciled(get().tasks['done']),
+        },
+        detailTask: get().detailTask?.id === taskId ? updated : get().detailTask,
+      });
+
+      showToast('Saved');
+    } catch (err) {
+      // Roll back optimistic changes on error.
+      set({ tasks, detailTask });
+      showToast(`Failed to save: ${(err as Error).message}`, 'error');
+    } finally {
+      set({ isMutating: false });
     }
   },
 }));
