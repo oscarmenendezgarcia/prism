@@ -11,6 +11,7 @@ export interface Space {
   id: string;
   name: string;
   workingDirectory?: string;
+  pipeline?: string[]; // ordered agent IDs for this space's default pipeline
   createdAt: string;
   updatedAt: string;
 }
@@ -52,6 +53,21 @@ export interface CreateTaskPayload {
   /** Omit from body when empty — never send null. */
   assigned?: string;
   description?: string;
+}
+
+/**
+ * Payload for PUT /spaces/:spaceId/tasks/:taskId — partial update.
+ * All fields are optional; server applies only the keys present in the body.
+ * ADR-1 (task-detail-edit): no new backend endpoint — existing PUT already
+ * supports partial updates by checking `'key' in body`.
+ */
+export interface UpdateTaskPayload {
+  title?: string;
+  type?: 'task' | 'research';
+  /** Empty string deletes the field on the server. */
+  description?: string;
+  /** Empty string deletes the field on the server. */
+  assigned?: string;
 }
 
 /** Response from PUT /spaces/:spaceId/tasks/:id/move */
@@ -171,6 +187,17 @@ export interface PipelineState {
    * main task, so completion detection is unambiguous.
    */
   subTaskIds: string[];
+  /**
+   * T-3 (manual checkpoints): zero-based stage indices where the pipeline
+   * pauses and waits for human confirmation before executing that stage.
+   * An empty array means no checkpoints (default behaviour — auto-advance).
+   */
+  checkpoints: number[];
+  /**
+   * Set when status === 'paused' to record which stage index we are waiting
+   * on.  Cleared when resumePipeline() is called.
+   */
+  pausedBeforeStage?: number;
 }
 
 /** A prepared (but not yet executed) agent run — shown in the preview modal. */

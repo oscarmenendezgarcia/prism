@@ -10,6 +10,7 @@ import type {
   Task,
   BoardTasks,
   CreateTaskPayload,
+  UpdateTaskPayload,
   MoveTaskResponse,
   AttachmentContent,
   ConfigFile,
@@ -64,17 +65,25 @@ export const getSpaces = (): Promise<Space[]> =>
   apiFetch<Space[]>('/spaces');
 
 /** Create a new space. */
-export const createSpace = (name: string, workingDirectory?: string): Promise<Space> =>
+export const createSpace = (name: string, workingDirectory?: string, pipeline?: string[]): Promise<Space> =>
   apiFetch<Space>('/spaces', {
     method: 'POST',
-    body: JSON.stringify({ name, ...(workingDirectory ? { workingDirectory } : {}) }),
+    body: JSON.stringify({
+      name,
+      ...(workingDirectory ? { workingDirectory } : {}),
+      ...(pipeline ? { pipeline } : {}),
+    }),
   });
 
-/** Rename a space (also updates workingDirectory if provided). */
-export const renameSpace = (id: string, name: string, workingDirectory?: string): Promise<Space> =>
+/** Update a space (name, workingDirectory, pipeline). */
+export const renameSpace = (id: string, name: string, workingDirectory?: string, pipeline?: string[]): Promise<Space> =>
   apiFetch<Space>(`/spaces/${id}`, {
     method: 'PUT',
-    body: JSON.stringify({ name, ...(workingDirectory !== undefined ? { workingDirectory } : {}) }),
+    body: JSON.stringify({
+      name,
+      ...(workingDirectory !== undefined ? { workingDirectory } : {}),
+      ...(pipeline !== undefined ? { pipeline } : {}),
+    }),
   });
 
 /** Delete a space and all its tasks. */
@@ -109,6 +118,26 @@ export const moveTask = (spaceId: string, id: string, to: string): Promise<MoveT
 export const deleteTask = (spaceId: string, id: string): Promise<{ deleted: true; id: string }> =>
   apiFetch<{ deleted: true; id: string }>(`/spaces/${spaceId}/tasks/${id}`, {
     method: 'DELETE',
+  });
+
+/**
+ * Update editable task fields via PUT /spaces/:spaceId/tasks/:taskId.
+ * Only the keys present in `patch` are applied by the server.
+ * ADR-1 (task-detail-edit): reuses existing partial-update PUT endpoint.
+ *
+ * @param spaceId - The space ID containing the task.
+ * @param taskId  - The task ID to update.
+ * @param patch   - Partial task payload — at least one field required.
+ * @returns The full updated Task object.
+ */
+export const updateTask = (
+  spaceId: string,
+  taskId: string,
+  patch: UpdateTaskPayload,
+): Promise<Task> =>
+  apiFetch<Task>(`/spaces/${spaceId}/tasks/${taskId}`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
   });
 
 /**
@@ -260,16 +289,29 @@ export const getAgentRuns = (
   return apiFetch<AgentRunsResponse>(`/agent-runs${query}`);
 };
 
-/** Launch a pipeline run via backend spawn (no PTY required). */
+/**
+ * Launch a pipeline run via backend spawn (no PTY required).
+ * @param spaceId - Target space.
+ * @param taskId  - Main task to process.
+ * @param stages  - Override agent stage list; omit to use space/settings default.
+ * @param context - Extra context forwarded to the spawned agent (e.g. stages list
+ *                  for the orchestrator agent in T-4 mode).
+ */
 export const startRun = (
   spaceId: string,
   taskId: string,
   stages?: string[],
+  context?: Record<string, unknown>,
 ): Promise<BackendRun> =>
   apiFetch<BackendRun>('/runs', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ spaceId, taskId, ...(stages ? { stages } : {}) }),
+    body: JSON.stringify({
+      spaceId,
+      taskId,
+      ...(stages ? { stages } : {}),
+      ...(context ? { context } : {}),
+    }),
   });
 
 /** Fetch the current status of a backend pipeline run. */
