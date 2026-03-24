@@ -1497,9 +1497,10 @@ function buildPromptText(options) {
   }
 
   // ── PROJECT CONTEXT ───────────────────────────────────────────────────────
-  const cwd = workingDirectory || settings.prompts.workingDirectory || process.cwd();
+  // Priority: request param > space.workingDirectory > global settings > omit
+  const cwd = workingDirectory || space.workingDirectory || settings.prompts.workingDirectory || '';
   lines.push('\n## PROJECT CONTEXT');
-  lines.push(`Working directory: ${cwd}`);
+  if (cwd) lines.push(`Working directory: ${cwd}`);
   lines.push(`Feature: ${space.name}`);
 
   // ── CUSTOM INSTRUCTIONS ───────────────────────────────────────────────────
@@ -2260,8 +2261,9 @@ function startServer(options = {}) {
           return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
         }
 
-        const name = body && body.name;
-        const result = spaceManager.createSpace(name);
+        const name             = body && body.name;
+        const workingDirectory = body && body.workingDirectory;
+        const result = spaceManager.createSpace(name, workingDirectory);
 
         if (!result.ok) {
           const status = result.code === 'DUPLICATE_NAME' ? 409 : 400;
@@ -2296,8 +2298,9 @@ function startServer(options = {}) {
           return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
         }
 
-        const name   = body && body.name;
-        const result = spaceManager.renameSpace(spaceId, name);
+        const name             = body && body.name;
+        const workingDirectory = body && body.workingDirectory;
+        const result = spaceManager.renameSpace(spaceId, name, workingDirectory);
 
         if (!result.ok) {
           const status = result.code === 'SPACE_NOT_FOUND' ? 404

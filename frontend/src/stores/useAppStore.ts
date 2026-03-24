@@ -60,8 +60,8 @@ interface AppState {
   activeSpaceId: string;
   setActiveSpace: (id: string) => void;
   loadSpaces: () => Promise<void>;
-  createSpace: (name: string) => Promise<void>;
-  renameSpace: (id: string, name: string) => Promise<void>;
+  createSpace: (name: string, workingDirectory?: string) => Promise<void>;
+  renameSpace: (id: string, name: string, workingDirectory?: string) => Promise<void>;
   deleteSpace: (id: string) => Promise<void>;
 
   // Tasks
@@ -237,18 +237,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  createSpace: async (name: string) => {
-    const newSpace = await api.createSpace(name);
-    // Switch to the newly created space
+  createSpace: async (name: string, workingDirectory?: string) => {
+    const newSpace = await api.createSpace(name, workingDirectory);
     get().setActiveSpace(newSpace.id);
     await get().loadSpaces();
     get().showToast('Space created.');
   },
 
-  renameSpace: async (id: string, name: string) => {
-    await api.renameSpace(id, name);
+  renameSpace: async (id: string, name: string, workingDirectory?: string) => {
+    await api.renameSpace(id, name, workingDirectory);
     await get().loadSpaces();
-    get().showToast(`Space renamed to "${name}"`);
+    get().showToast(`Space updated.`);
   },
 
   deleteSpace: async (id: string) => {

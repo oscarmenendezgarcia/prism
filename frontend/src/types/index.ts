@@ -10,6 +10,7 @@ export type Column = 'todo' | 'in-progress' | 'done';
 export interface Space {
   id: string;
   name: string;
+  workingDirectory?: string;
   createdAt: string;
   updatedAt: string;
 }

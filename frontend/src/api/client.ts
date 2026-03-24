@@ -64,17 +64,17 @@ export const getSpaces = (): Promise<Space[]> =>
   apiFetch<Space[]>('/spaces');
 
 /** Create a new space. */
-export const createSpace = (name: string): Promise<Space> =>
+export const createSpace = (name: string, workingDirectory?: string): Promise<Space> =>
   apiFetch<Space>('/spaces', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ...(workingDirectory ? { workingDirectory } : {}) }),
   });
 
-/** Rename a space. */
-export const renameSpace = (id: string, name: string): Promise<Space> =>
+/** Rename a space (also updates workingDirectory if provided). */
+export const renameSpace = (id: string, name: string, workingDirectory?: string): Promise<Space> =>
   apiFetch<Space>(`/spaces/${id}`, {
     method: 'PUT',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ...(workingDirectory !== undefined ? { workingDirectory } : {}) }),
   });
 
 /** Delete a space and all its tasks. */
