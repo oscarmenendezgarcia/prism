@@ -5,7 +5,39 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock the API client before importing the store
+// ── Mock useTerminalSessionStore ─────────────────────────────────────────────
+// executeAgentRun, cancelAgentRun, abortPipeline now call activeSendInput() on
+// this store instead of reading terminalSender from useAppStore (ADR-1 multi-tab).
+
+let mockActiveSendInput: ReturnType<typeof vi.fn> = vi.fn(() => null);
+
+vi.mock('../../src/stores/useTerminalSessionStore', () => {
+  const store = {
+    getState: () => ({
+      activeSendInput: mockActiveSendInput,
+      sessions: [],
+      activeId: null,
+      panelOpen: false,
+      openPanel: vi.fn(),
+      closePanel: vi.fn(),
+      togglePanel: vi.fn(),
+      addSession: vi.fn(),
+      removeSession: vi.fn(),
+      setActiveId: vi.fn(),
+      renameSession: vi.fn(),
+      updateStatus: vi.fn(),
+      registerSender: vi.fn(),
+    }),
+  };
+  return {
+    useTerminalSessionStore: Object.assign(vi.fn((selector: (s: unknown) => unknown) => {
+      return selector ? selector(store.getState()) : store.getState();
+    }), store),
+    MAX_SESSIONS: 4,
+  };
+});
+
+// ── Mock the API client before importing the store ───────────────────────────
 vi.mock('../../src/api/client', () => ({
   getSpaces:            vi.fn(),
   createSpace:          vi.fn(),
@@ -25,6 +57,10 @@ vi.mock('../../src/api/client', () => ({
   createAgentRun:       vi.fn().mockResolvedValue({ id: 'run_mock' }),
   updateAgentRun:       vi.fn().mockResolvedValue({ id: 'run_mock', status: 'completed' }),
   getAgentRuns:         vi.fn().mockResolvedValue({ runs: [], total: 0 }),
+  // Backend pipeline run API (T-4)
+  startRun:             vi.fn().mockResolvedValue({ runId: 'run-orch-1', status: 'pending', stages: ['orchestrator'], spaceId: 'space-1', taskId: 'task-1', createdAt: new Date().toISOString() }),
+  getBackendRun:        vi.fn().mockResolvedValue({ runId: 'run-orch-1', status: 'completed', stages: ['orchestrator'], spaceId: 'space-1', taskId: 'task-1', createdAt: new Date().toISOString() }),
+  deleteRun:            vi.fn().mockResolvedValue(undefined),
 }));
 
 import { useAppStore } from '../../src/stores/useAppStore';
@@ -42,7 +78,6 @@ function resetStore() {
     spaceModal: null,
     deleteSpaceDialog: null,
     toast: null,
-    terminalOpen: false,
   });
 }
 
@@ -270,22 +305,9 @@ describe('showToast', () => {
   });
 });
 
-describe('toggleTerminal', () => {
-  it('toggles terminalOpen state', () => {
-    expect(useAppStore.getState().terminalOpen).toBe(false);
-    useAppStore.getState().toggleTerminal();
-    expect(useAppStore.getState().terminalOpen).toBe(true);
-    useAppStore.getState().toggleTerminal();
-    expect(useAppStore.getState().terminalOpen).toBe(false);
-  });
-
-  it('persists to localStorage', () => {
-    useAppStore.getState().toggleTerminal();
-    expect(localStorage.getItem('terminal:open')).toBe('1');
-    useAppStore.getState().toggleTerminal();
-    expect(localStorage.getItem('terminal:open')).toBeNull();
-  });
-});
+// toggleTerminal has been removed from useAppStore — it now lives in
+// useTerminalSessionStore (ADR-1: multi-tab-terminal). Tests for
+// togglePanel are in useTerminalSessionStore.test.ts.
 
 // ==========================================================================
 // BUG-003: Launcher store slice tests
@@ -323,6 +345,8 @@ const MOCK_SETTINGS = {
 };
 
 function resetLauncherStore() {
+  // Reset the activeSendInput mock to return null by default (no terminal connected).
+  mockActiveSendInput = vi.fn(() => null);
   useAppStore.setState({
     spaces:           [],
     activeSpaceId:    'space-1',
@@ -333,8 +357,6 @@ function resetLauncherStore() {
     spaceModal:       null,
     deleteSpaceDialog: null,
     toast:            null,
-    terminalOpen:     false,
-    terminalSender:   null,
     availableAgents:  [],
     activeRun:        null,
     preparedRun:      null,
@@ -427,17 +449,17 @@ describe('executeAgentRun', () => {
   it('does nothing when preparedRun is null', async () => {
     useAppStore.setState({ preparedRun: null });
     const senderFn = vi.fn().mockReturnValue(true);
-    useAppStore.setState({ terminalSender: senderFn } as any);
+    mockActiveSendInput = vi.fn(() => senderFn);
 
     await useAppStore.getState().executeAgentRun();
 
     expect(senderFn).not.toHaveBeenCalled();
   });
 
-  it('sends the CLI command + newline via terminalSender when connected', async () => {
+  it('sends the CLI command + newline via activeSendInput when connected', async () => {
     const senderFn = vi.fn().mockReturnValue(true);
+    mockActiveSendInput = vi.fn(() => senderFn);
     useAppStore.setState({
-      terminalSender: senderFn,
       preparedRun: {
         taskId:          'task-1',
         agentId:         'developer-agent',
@@ -458,8 +480,8 @@ describe('executeAgentRun', () => {
 
   it('sets activeRun with taskId, agentId, spaceId, cliCommand, promptPath', async () => {
     const senderFn = vi.fn().mockReturnValue(true);
+    mockActiveSendInput = vi.fn(() => senderFn);
     useAppStore.setState({
-      terminalSender: senderFn,
       preparedRun: {
         taskId:          'task-1',
         agentId:         'developer-agent',
@@ -483,8 +505,8 @@ describe('executeAgentRun', () => {
 
   it('clears preparedRun and closes promptPreviewOpen after execution', async () => {
     const senderFn = vi.fn().mockReturnValue(true);
+    mockActiveSendInput = vi.fn(() => senderFn);
     useAppStore.setState({
-      terminalSender:    senderFn,
       promptPreviewOpen: true,
       preparedRun: {
         taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
@@ -499,10 +521,10 @@ describe('executeAgentRun', () => {
     expect(useAppStore.getState().promptPreviewOpen).toBe(false);
   });
 
-  it('shows error toast when terminalSender returns false (send failed)', async () => {
+  it('shows error toast when activeSendInput returns false (send failed)', async () => {
     const senderFn = vi.fn().mockReturnValue(false);
+    mockActiveSendInput = vi.fn(() => senderFn);
     useAppStore.setState({
-      terminalSender: senderFn,
       preparedRun: {
         taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
         promptPath: '/tmp/prompt.md', cliCommand: 'claude run',
@@ -516,11 +538,9 @@ describe('executeAgentRun', () => {
     expect(useAppStore.getState().activeRun).toBeNull();
   });
 
-  it('shows "Opening terminal..." toast and error when terminalSender is still null after 3000ms polling timeout', async () => {
-    vi.useFakeTimers();
+  it('dispatches to backend spawn via api.startRun when activeSendInput returns null', async () => {
+    mockActiveSendInput = vi.fn(() => null); // no terminal connected
     useAppStore.setState({
-      terminalSender: null,
-      terminalOpen:   false,
       preparedRun: {
         taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
         promptPath: '/tmp/prompt.md', cliCommand: 'claude run',
@@ -528,27 +548,16 @@ describe('executeAgentRun', () => {
       },
     } as any);
 
-    // Subscribe to capture the toast the moment it is set — before the 3000ms
-    // auto-clear timer (also fired by runAllTimersAsync) removes it from the store.
-    let capturedToastType: string | undefined;
-    const unsub = useAppStore.subscribe((state) => {
-      if (state.toast) capturedToastType = state.toast.type;
-    });
+    await useAppStore.getState().executeAgentRun();
 
-    const execPromise = useAppStore.getState().executeAgentRun();
+    // Backend spawn path: api.startRun is called with the agent as the single stage.
+    const { startRun } = await import('../../src/api/client');
+    expect(startRun).toHaveBeenCalledWith('space-1', 'task-1', ['developer-agent']);
 
-    // The 'Opening terminal...' toast should be shown synchronously (before await)
-    // and terminalOpen toggled
-    expect(useAppStore.getState().terminalOpen).toBe(true);
-
-    // runAllTimersAsync fires each 100ms setTimeout in the polling loop AND flushes
-    // the microtask queue between callbacks — required for async polling loops.
-    await vi.runAllTimersAsync();
-    await execPromise;
-    unsub();
-
-    expect(capturedToastType).toBe('error');
-    vi.useRealTimers();
+    // activeRun is set with a backendRunId.
+    const { activeRun } = useAppStore.getState();
+    expect(activeRun).not.toBeNull();
+    expect(activeRun?.backendRunId).toBe('run-orch-1');
   });
 });
 
@@ -562,10 +571,10 @@ describe('cancelAgentRun', () => {
     vi.clearAllMocks();
   });
 
-  it('sends Ctrl+C via terminalSender and clears activeRun when connected', () => {
+  it('sends Ctrl+C via activeSendInput and clears activeRun when connected', () => {
     const senderFn = vi.fn().mockReturnValue(true);
+    mockActiveSendInput = vi.fn(() => senderFn);
     useAppStore.setState({
-      terminalSender: senderFn,
       activeRun: {
         taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
         startedAt: new Date().toISOString(), cliCommand: 'claude run', promptPath: '/tmp/p.md',
@@ -578,18 +587,24 @@ describe('cancelAgentRun', () => {
     expect(useAppStore.getState().activeRun).toBeNull();
   });
 
-  it('shows "Agent run cancelled." toast when terminalSender is connected', () => {
+  it('shows "Agent run cancelled." toast when activeSendInput is connected', () => {
     const senderFn = vi.fn().mockReturnValue(true);
-    useAppStore.setState({ terminalSender: senderFn } as any);
+    mockActiveSendInput = vi.fn(() => senderFn);
+    useAppStore.setState({
+      activeRun: {
+        taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
+        startedAt: new Date().toISOString(), cliCommand: 'claude run', promptPath: '/tmp/p.md',
+      },
+    } as any);
 
     useAppStore.getState().cancelAgentRun();
 
     expect(useAppStore.getState().toast?.message).toContain('cancelled');
   });
 
-  it('clears activeRun and shows disconnect toast when terminalSender is null', () => {
+  it('clears activeRun and shows disconnect toast when activeSendInput is null', () => {
+    mockActiveSendInput = vi.fn(() => null);
     useAppStore.setState({
-      terminalSender: null,
       activeRun: {
         taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
         startedAt: new Date().toISOString(), cliCommand: 'claude run', promptPath: '/tmp/p.md',
@@ -601,7 +616,7 @@ describe('cancelAgentRun', () => {
     expect(useAppStore.getState().activeRun).toBeNull();
     const { toast } = useAppStore.getState();
     expect(toast?.type).toBe('error');
-    expect(toast?.message).toContain('disconnected');
+    expect(toast?.message).toContain('cleared');
   });
 });
 
@@ -810,10 +825,10 @@ describe('abortPipeline', () => {
     expect(useAppStore.getState().pipelineState).toBeNull();
   });
 
-  it('sends Ctrl+C via terminalSender when connected', () => {
+  it('sends Ctrl+C via activeSendInput when connected', () => {
     const senderFn = vi.fn().mockReturnValue(true);
+    mockActiveSendInput = vi.fn(() => senderFn);
     useAppStore.setState({
-      terminalSender: senderFn,
       pipelineState: {
         spaceId: 'space-1',
         stages: ['senior-architect', 'developer-agent'] as any,
@@ -829,8 +844,8 @@ describe('abortPipeline', () => {
   });
 
   it('clears pipelineState and activeRun', () => {
+    mockActiveSendInput = vi.fn(() => null);
     useAppStore.setState({
-      terminalSender: null,
       pipelineState: {
         spaceId: 'space-1',
         stages: ['senior-architect', 'developer-agent'] as any,
@@ -851,8 +866,8 @@ describe('abortPipeline', () => {
   });
 
   it('shows abort toast with the current stage number', () => {
+    mockActiveSendInput = vi.fn(() => null);
     useAppStore.setState({
-      terminalSender: null,
       pipelineState: {
         spaceId: 'space-1',
         stages: ['senior-architect', 'developer-agent', 'qa-engineer-e2e'] as any,
@@ -1207,5 +1222,245 @@ describe('advancePipeline — createTask failure', () => {
     expect(api.generatePrompt).not.toHaveBeenCalledWith(
       expect.objectContaining({ taskId: 'task-main' }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-3: startPipeline with checkpoints — pause on stage 0
+// ---------------------------------------------------------------------------
+
+describe('startPipeline — checkpoint on stage 0', () => {
+  beforeEach(() => {
+    resetLauncherStore();
+    vi.clearAllMocks();
+    useAppStore.setState({
+      tasks: {
+        todo: [{ id: 'task-main', title: 'Main Task', type: 'task', createdAt: '', updatedAt: '' }],
+        'in-progress': [],
+        done: [],
+      },
+    });
+  });
+
+  it('sets status to paused when checkpoint 0 is in the list', async () => {
+    await useAppStore.getState().startPipeline('space-1', 'task-main', undefined, [0]);
+
+    const ps = useAppStore.getState().pipelineState;
+    expect(ps?.status).toBe('paused');
+    expect(ps?.pausedBeforeStage).toBe(0);
+  });
+
+  it('does not create a sub-task when pausing at stage 0', async () => {
+    await useAppStore.getState().startPipeline('space-1', 'task-main', undefined, [0]);
+
+    expect(api.createTask).not.toHaveBeenCalled();
+  });
+
+  it('does not call generatePrompt when pausing at stage 0', async () => {
+    await useAppStore.getState().startPipeline('space-1', 'task-main', undefined, [0]);
+
+    expect(api.generatePrompt).not.toHaveBeenCalled();
+  });
+
+  it('stores the checkpoints array in pipelineState', async () => {
+    await useAppStore.getState().startPipeline('space-1', 'task-main', undefined, [0, 2]);
+
+    const ps = useAppStore.getState().pipelineState;
+    expect(ps?.checkpoints).toEqual([0, 2]);
+  });
+
+  it('shows a toast mentioning the paused stage', async () => {
+    await useAppStore.getState().startPipeline('space-1', 'task-main', undefined, [0]);
+
+    expect(useAppStore.getState().toast?.message).toContain('paused');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-3: advancePipeline with checkpoints — pause mid-pipeline
+// ---------------------------------------------------------------------------
+
+describe('advancePipeline — checkpoint on next stage', () => {
+  beforeEach(() => {
+    resetLauncherStore();
+    vi.clearAllMocks();
+    useAppStore.setState({
+      tasks: {
+        todo: [{ id: 'task-main', title: 'Main Task', type: 'task', createdAt: '', updatedAt: '' }],
+        'in-progress': [],
+        done: [],
+      },
+      pipelineState: {
+        spaceId:           'space-1',
+        taskId:            'task-main',
+        subTaskIds:        ['sub-task-1'],
+        stages:            ['senior-architect', 'developer-agent', 'qa-engineer-e2e'] as any,
+        currentStageIndex: 0,
+        startedAt:         new Date().toISOString(),
+        status:            'running',
+        checkpoints:       [1],  // pause before stage index 1 (developer-agent)
+      } as any,
+    });
+  });
+
+  it('sets status to paused when nextIndex is in checkpoints', async () => {
+    await useAppStore.getState().advancePipeline();
+
+    const ps = useAppStore.getState().pipelineState;
+    expect(ps?.status).toBe('paused');
+    expect(ps?.pausedBeforeStage).toBe(1);
+    expect(ps?.currentStageIndex).toBe(1);
+  });
+
+  it('does not create a sub-task when pausing mid-pipeline', async () => {
+    await useAppStore.getState().advancePipeline();
+
+    expect(api.createTask).not.toHaveBeenCalled();
+  });
+
+  it('does not call generatePrompt when pausing mid-pipeline', async () => {
+    await useAppStore.getState().advancePipeline();
+
+    expect(api.generatePrompt).not.toHaveBeenCalled();
+  });
+
+  it('shows a toast mentioning the paused stage index', async () => {
+    await useAppStore.getState().advancePipeline();
+
+    expect(useAppStore.getState().toast?.message).toContain('paused');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-3: resumePipeline
+// ---------------------------------------------------------------------------
+
+describe('resumePipeline', () => {
+  beforeEach(() => {
+    resetLauncherStore();
+    vi.clearAllMocks();
+    useAppStore.setState({
+      tasks: {
+        todo: [{ id: 'task-main', title: 'Main Task', type: 'task', createdAt: '', updatedAt: '' }],
+        'in-progress': [],
+        done: [],
+      },
+    });
+  });
+
+  it('does nothing when pipelineState is null', async () => {
+    useAppStore.setState({ pipelineState: null });
+    await useAppStore.getState().resumePipeline();
+    expect(api.createTask).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when status is running (not paused)', async () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-main', subTaskIds: [],
+        stages: ['senior-architect'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'running', checkpoints: [],
+      } as any,
+    });
+    await useAppStore.getState().resumePipeline();
+    expect(api.createTask).not.toHaveBeenCalled();
+  });
+
+  it('sets status back to running when resuming stage 0 checkpoint', async () => {
+    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-1', title: '', type: 'research', createdAt: '', updatedAt: '' });
+    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
+
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-main', subTaskIds: [],
+        stages: ['senior-architect', 'developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'paused', checkpoints: [0], pausedBeforeStage: 0,
+      } as any,
+    });
+
+    await useAppStore.getState().resumePipeline();
+
+    expect(useAppStore.getState().pipelineState?.status).toBe('running');
+  });
+
+  it('removes the consumed checkpoint so the same stage does not pause again', async () => {
+    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-1', title: '', type: 'research', createdAt: '', updatedAt: '' });
+    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
+
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-main', subTaskIds: [],
+        stages: ['senior-architect', 'developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'paused', checkpoints: [0, 1], pausedBeforeStage: 0,
+      } as any,
+    });
+
+    await useAppStore.getState().resumePipeline();
+
+    // Checkpoint 0 consumed; checkpoint 1 remains.
+    expect(useAppStore.getState().pipelineState?.checkpoints).toEqual([1]);
+  });
+
+  it('creates a sub-task and calls generatePrompt when resuming stage 0', async () => {
+    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-resume-0', title: '', type: 'research', createdAt: '', updatedAt: '' });
+    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
+
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-main', subTaskIds: [],
+        stages: ['senior-architect', 'developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'paused', checkpoints: [0], pausedBeforeStage: 0,
+      } as any,
+    });
+
+    await useAppStore.getState().resumePipeline();
+
+    expect(api.createTask).toHaveBeenCalledOnce();
+    expect(api.generatePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'sub-resume-0' }),
+    );
+  });
+
+  it('creates a sub-task for mid-pipeline resume (stage 1)', async () => {
+    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-resume-mid', title: '', type: 'research', createdAt: '', updatedAt: '' });
+    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
+
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-main', subTaskIds: ['sub-0'],
+        stages: ['senior-architect', 'developer-agent', 'qa-engineer-e2e'] as any,
+        currentStageIndex: 1, startedAt: new Date().toISOString(),
+        status: 'paused', checkpoints: [1], pausedBeforeStage: 1,
+      } as any,
+    });
+
+    await useAppStore.getState().resumePipeline();
+
+    expect(api.createTask).toHaveBeenCalledOnce();
+    expect(api.generatePrompt).toHaveBeenCalledWith(
+      expect.objectContaining({ taskId: 'sub-resume-mid' }),
+    );
+  });
+
+  it('aborts and shows error toast when createTask fails during resume', async () => {
+    vi.mocked(api.createTask).mockRejectedValue(new Error('DB error'));
+
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-main', subTaskIds: [],
+        stages: ['senior-architect'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'paused', checkpoints: [0], pausedBeforeStage: 0,
+      } as any,
+    });
+
+    await useAppStore.getState().resumePipeline();
+
+    expect(useAppStore.getState().pipelineState).toBeNull();
+    expect(useAppStore.getState().toast?.type).toBe('error');
   });
 });

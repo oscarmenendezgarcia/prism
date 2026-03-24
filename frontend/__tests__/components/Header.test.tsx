@@ -30,7 +30,7 @@ beforeEach(() => {
   localStorage.clear();
   document.documentElement.classList.remove('dark');
   setupMatchMedia();
-  useAppStore.setState({ createModalOpen: false, terminalOpen: false, agentSettingsPanelOpen: false });
+  useAppStore.setState({ createModalOpen: false, agentSettingsPanelOpen: false });
 });
 
 afterEach(() => {

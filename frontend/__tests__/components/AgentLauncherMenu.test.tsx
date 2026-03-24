@@ -58,15 +58,17 @@ const SAMPLE_AGENTS: AgentInfo[] = [
 
 function resetStore(overrides: Record<string, unknown> = {}) {
   useAppStore.setState({
-    availableAgents:  [],
-    activeRun:        null,
-    pipelineState:    null,
-    preparedRun:      null,
-    promptPreviewOpen: false,
-    terminalSender:   null,
-    loadAgents:       vi.fn(),
-    prepareAgentRun:  vi.fn(),
-    startPipeline:    vi.fn(),
+    availableAgents:      [],
+    activeRun:            null,
+    pipelineState:        null,
+    pipelineConfirmModal: null,
+    preparedRun:          null,
+    promptPreviewOpen:    false,
+    spaces:               [],
+    loadAgents:           vi.fn(),
+    prepareAgentRun:      vi.fn(),
+    startPipeline:        vi.fn(),
+    openPipelineConfirm:  vi.fn(),
     ...overrides,
   } as any);
 }
@@ -282,26 +284,27 @@ describe('AgentLauncherMenu — agent selection', () => {
 });
 
 describe('AgentLauncherMenu — Run Full Pipeline', () => {
-  it('shows "Run Full Pipeline" option in the dropdown', () => {
+  it('shows "Run Full Pipeline" option in the dropdown when space has no custom pipeline', () => {
+    // spaces is [] so spacePipeline resolves to undefined → label is "Run Full Pipeline"
     renderMenu();
     fireEvent.click(getTrigger());
     expect(screen.getByText(/run full pipeline/i)).toBeInTheDocument();
   });
 
-  it('clicking Run Full Pipeline calls startPipeline with the spaceId', () => {
-    const mockStartPipeline = vi.fn().mockResolvedValue(undefined);
-    useAppStore.setState({ startPipeline: mockStartPipeline } as any);
+  it('clicking Run Full Pipeline calls openPipelineConfirm with spaceId and taskId', () => {
+    const mockOpen = vi.fn();
+    useAppStore.setState({ openPipelineConfirm: mockOpen } as any);
 
     renderMenu({ spaceId: 'my-space-id' });
     fireEvent.click(getTrigger());
     fireEvent.click(screen.getByText(/run full pipeline/i));
 
-    expect(mockStartPipeline).toHaveBeenCalledWith('my-space-id', 'task-1');
+    expect(mockOpen).toHaveBeenCalledWith('my-space-id', 'task-1');
   });
 
   it('dropdown closes after clicking Run Full Pipeline', () => {
-    const mockStartPipeline = vi.fn().mockResolvedValue(undefined);
-    useAppStore.setState({ startPipeline: mockStartPipeline } as any);
+    const mockOpen = vi.fn();
+    useAppStore.setState({ openPipelineConfirm: mockOpen } as any);
 
     renderMenu();
     fireEvent.click(getTrigger());

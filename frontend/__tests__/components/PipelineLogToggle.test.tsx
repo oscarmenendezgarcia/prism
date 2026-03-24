@@ -41,7 +41,7 @@ beforeEach(() => {
   localStorage.clear();
   document.documentElement.classList.remove('dark');
   setupMatchMedia();
-  useAppStore.setState({ pipelineState: null, createModalOpen: false, terminalOpen: false, agentSettingsPanelOpen: false } as any);
+  useAppStore.setState({ pipelineState: null, createModalOpen: false, agentSettingsPanelOpen: false } as any);
   usePipelineLogStore.setState({ logPanelOpen: false });
 });
 
