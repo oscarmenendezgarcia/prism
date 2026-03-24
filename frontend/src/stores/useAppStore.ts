@@ -11,6 +11,10 @@ import * as api from '@/api/client';
 // Imported via getState() to avoid circular imports with useRunHistoryStore.
 // ADR-1 (Agent Run History) §5.1: all lifecycle calls use getState() boundary.
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
+import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
+// ADR-1 (multi-tab-terminal): terminal state has moved to useTerminalSessionStore.
+// getState() boundary avoids circular imports.
+import { useTerminalSessionStore } from '@/stores/useTerminalSessionStore';
 import type {
   Space,
   Task,
@@ -33,9 +37,8 @@ import type {
 } from '@/types';
 
 /** Keys used to persist state across page reloads. */
-const ACTIVE_SPACE_KEY  = 'prism-active-space';
-const TERMINAL_OPEN_KEY = 'terminal:open';
-const CONFIG_OPEN_KEY   = 'config-panel:open';
+const ACTIVE_SPACE_KEY = 'prism-active-space';
+const CONFIG_OPEN_KEY  = 'config-panel:open';
 
 const COLUMNS: Column[] = ['todo', 'in-progress', 'done'];
 
@@ -102,11 +105,6 @@ interface AppState {
   toast: ToastState | null;
   showToast: (message: string, type?: 'success' | 'error') => void;
 
-  // Terminal
-  terminalOpen: boolean;
-  toggleTerminal: () => void;
-  setTerminalOpen: (open: boolean) => void;
-
   // Config editor (ADR-1: Config Editor Panel)
   configPanelOpen: boolean;
   configFiles: ConfigFile[];
@@ -130,10 +128,6 @@ interface AppState {
   saveConfigFile: () => Promise<void>;
 
   // ── Agent launcher (ADR-1: Agent Launcher) ────────────────────────────────
-
-  /** Bridge function from useTerminal — null when terminal is not connected. */
-  terminalSender: ((data: string) => boolean) | null;
-  setTerminalSender: (fn: ((data: string) => boolean) | null) => void;
 
   /** Agents discovered from ~/.claude/agents/*.md */
   availableAgents: AgentInfo[];
@@ -429,29 +423,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }, 3000);
   },
 
-  // ── Terminal ─────────────────────────────────────────────────────────────
-
-  terminalOpen: localStorage.getItem(TERMINAL_OPEN_KEY) === '1',
-
-  toggleTerminal: () => {
-    const next = !get().terminalOpen;
-    if (next) {
-      localStorage.setItem(TERMINAL_OPEN_KEY, '1');
-    } else {
-      localStorage.removeItem(TERMINAL_OPEN_KEY);
-    }
-    set({ terminalOpen: next });
-  },
-
-  setTerminalOpen: (open: boolean) => {
-    if (open) {
-      localStorage.setItem(TERMINAL_OPEN_KEY, '1');
-    } else {
-      localStorage.removeItem(TERMINAL_OPEN_KEY);
-    }
-    set({ terminalOpen: open });
-  },
-
   // ── Config editor ─────────────────────────────────────────────────────────
 
   configPanelOpen:     localStorage.getItem(CONFIG_OPEN_KEY) === '1',
@@ -540,17 +511,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // ── Agent launcher ────────────────────────────────────────────────────────
 
-  terminalSender:    null,
-  setTerminalSender: (fn) => {
-    set({ terminalSender: fn });
-    // When the terminal disconnects, clear any active run so the launcher
-    // button re-enables. The pipeline indicator stays visible (user dismisses
-    // it explicitly via the × button).
-    if (!fn && get().activeRun) {
-      set({ activeRun: null });
-    }
-  },
-
   availableAgents: [],
   loadAgents: async () => {
     try {
@@ -565,7 +525,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearActiveRun: () => set({ activeRun: null }),
 
   cancelAgentRun: () => {
-    const { terminalSender, activeRun, showToast } = get();
+    const { activeRun, showToast } = get();
+    const terminalSender = useTerminalSessionStore.getState().activeSendInput();
 
     // Record cancellation in history before clearing activeRun.
     if (activeRun) {
@@ -626,9 +587,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearPreparedRun: () => set({ preparedRun: null, promptPreviewOpen: false }),
 
   executeAgentRun: async () => {
-    const { preparedRun, terminalSender, showToast } = get();
+    const { preparedRun, showToast } = get();
     if (!preparedRun) return;
 
+    const terminalSender = useTerminalSessionStore.getState().activeSendInput();
     const startedAt      = new Date().toISOString();
     const cmd            = preparedRun.cliCommand;
     let   backendRunId: string | undefined;
@@ -668,6 +630,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       preparedRun:       null,
       promptPreviewOpen: false,
     });
+
+    // Wire backend runId into pipelineState so PipelineLogPanel can poll stage logs.
+    // Each pipeline stage creates its own single-stage backend run; stage 0 is always
+    // the active log to fetch. Reset selectedStageIndex so the tab points at it.
+    if (backendRunId && get().pipelineState) {
+      const ps = get().pipelineState!;
+      set({ pipelineState: { ...ps, runId: backendRunId } });
+      usePipelineLogStore.getState().clearStageLogs();
+      usePipelineLogStore.getState().setSelectedStageIndex(0);
+      usePipelineLogStore.getState().setLogPanelOpen(true);
+    }
 
     // Record run start in history store.
     const { tasks, spaces, availableAgents } = get();
@@ -908,9 +881,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   abortPipeline: () => {
-    const { pipelineState, terminalSender, showToast } = get();
+    const { pipelineState, showToast } = get();
     if (!pipelineState) return;
 
+    const terminalSender = useTerminalSessionStore.getState().activeSendInput();
     if (terminalSender) {
       terminalSender('\x03'); // Ctrl+C
     }
@@ -1045,7 +1019,8 @@ export const useAppStore = create<AppState>((set, get) => ({
    * PipelineState).
    */
   executeOrchestratorRun: async (spaceId: string, taskId: string, stages: PipelineStage[]) => {
-    const { showToast, tasks, spaces, availableAgents, terminalSender } = get();
+    const { showToast, tasks, spaces, availableAgents } = get();
+    const terminalSender = useTerminalSessionStore.getState().activeSendInput();
     const startedAt = new Date().toISOString();
 
     let cliCommand: string;
@@ -1098,6 +1073,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
     });
 
+    // Set pipelineState so PipelineLogPanel becomes visible and can poll logs.
+    if (backendRunId) {
+      set({
+        pipelineState: {
+          spaceId,
+          stages,
+          currentStageIndex: 0,
+          startedAt,
+          status:      'running',
+          taskId,
+          subTaskIds:  [],
+          checkpoints: [],
+          runId:       backendRunId,
+        },
+      });
+      usePipelineLogStore.getState().clearStageLogs();
+      usePipelineLogStore.getState().setSelectedStageIndex(0);
+      usePipelineLogStore.getState().setLogPanelOpen(true);
+    }
+
     // Register in run history so it appears in the history panel.
     const allTasks     = [...tasks['todo'], ...tasks['in-progress'], ...tasks['done']];
     const task         = allTasks.find((t) => t.id === taskId);
@@ -1125,8 +1120,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       const pollId = setInterval(async () => {
         try {
           const run = await api.getBackendRun(runIdToWatch);
+          // Keep pipelineState.currentStageIndex in sync with backend.
+          const ps = get().pipelineState;
+          if (ps && ps.runId === runIdToWatch && typeof run.currentStage === 'number') {
+            set({ pipelineState: { ...ps, currentStageIndex: run.currentStage } });
+          }
           if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
             clearInterval(pollId);
+            const finalPs = get().pipelineState;
+            if (finalPs && finalPs.runId === runIdToWatch) {
+              const terminalStatus = run.status === 'completed' ? 'completed' : 'aborted';
+              set({ pipelineState: { ...finalPs, status: terminalStatus } });
+              setTimeout(() => set({ pipelineState: null }), 3000);
+            }
             get().clearActiveRun();
             get().loadBoard();
             if (run.status === 'completed') {
@@ -1239,7 +1245,8 @@ export const useSpaces = () => useAppStore((s) => s.spaces);
 export const useTasks = () => useAppStore((s) => s.tasks);
 export const useIsMutating = () => useAppStore((s) => s.isMutating);
 export const useToast = () => useAppStore((s) => s.toast);
-export const useTerminalOpen = () => useAppStore((s) => s.terminalOpen);
+/** @deprecated Use useTerminalSessionStore(s => s.panelOpen) instead. */
+export const useTerminalOpen = () => useTerminalSessionStore((s) => s.panelOpen);
 
 // Named export for direct task access by column
 export const useColumnTasks = (column: Column): Task[] =>
