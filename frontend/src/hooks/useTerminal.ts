@@ -15,7 +15,6 @@ import type { Terminal } from '@xterm/xterm';
 import type { FitAddon } from '@xterm/addon-fit';
 import type { TerminalStatus } from '@/types';
 
-const WS_URL = 'ws://localhost:3000/ws/terminal';
 const BACKOFF_BASE_MS = 2000;
 const BACKOFF_MAX_MS  = 30000;
 const RESIZE_DEBOUNCE = 100;
@@ -45,6 +44,8 @@ const XTERM_THEME = {
 
 interface UseTerminalOptions {
   panelOpen: boolean;
+  /** Full WebSocket URL including query string, e.g. 'ws://localhost:3000/ws/terminal?sessionId=abc'. */
+  wsUrl: string;
   onStatusChange: (status: TerminalStatus) => void;
   onReconnectAvailable: (available: boolean) => void;
   onReconnectCountdown: (seconds: number) => void;
@@ -66,6 +67,7 @@ interface UseTerminalReturn {
 
 export function useTerminal({
   panelOpen,
+  wsUrl,
   onStatusChange,
   onReconnectAvailable,
   onReconnectCountdown,
@@ -147,7 +149,7 @@ export function useTerminal({
 
     let newWs: WebSocket;
     try {
-      newWs = new WebSocket(WS_URL);
+      newWs = new WebSocket(wsUrl);
     } catch (err) {
       console.error('[terminal] WebSocket constructor error:', err);
       scheduleReconnect();
@@ -197,7 +199,7 @@ export function useTerminal({
     newWs.addEventListener('error', () => {
       console.warn('[terminal] WebSocket error');
     });
-  }, [scheduleReconnect, send]);
+  }, [scheduleReconnect, send, wsUrl]);
 
   const reconnectNow = useCallback(() => {
     if (reconnectTimer.current) {
