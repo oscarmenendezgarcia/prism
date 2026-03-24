@@ -148,11 +148,18 @@ export default {
           '0%': { opacity: '0', transform: 'translateY(16px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
+        // ADR-1 (task-detail-edit): right-side panel entry animation ≤ 200ms.
+        'slide-in-right': {
+          '0%': { transform: 'translateX(100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
       },
       animation: {
         'fade-in-up': 'fade-in-up 300ms cubic-bezier(0.4, 0, 0.2, 1)',
         'scale-in': 'scale-in 250ms cubic-bezier(0.4, 0, 0.2, 1)',
         'slide-in-bottom': 'slide-in-bottom 300ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+        // ADR-1 (task-detail-edit): NFR-1 — open/close ≤ 200 ms.
+        'slide-in-right': 'slide-in-right 200ms cubic-bezier(0.4, 0, 0.2, 1)',
       },
     },
   },
