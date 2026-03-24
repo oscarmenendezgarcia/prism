@@ -61,8 +61,9 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
   const deleteTask = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
   const activeSpaceId = useAppStore((s) => s.activeSpaceId);
-  const isMutating     = useAppStore((s) => s.isMutating);
-  const activeRun      = useActiveRun();
+  const isMutating      = useAppStore((s) => s.isMutating);
+  const activeRun       = useActiveRun();
+  const openDetailPanel = useAppStore((s) => s.openDetailPanel);
   const openPanelForTask = useRunHistoryStore((s) => s.openPanelForTask);
 
   const isActiveTask = activeRun?.taskId === task.id;
@@ -95,28 +96,36 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
       onDragLeave={(e) => onDragLeave(e, task.id)}
       onDrop={(e) => onDrop(e, column)}
     >
-      {/* Active agent run indicator — pulsing dot, click opens run history filtered by this task */}
-      {isActiveTask && (
-        <button
-          onClick={() => openPanelForTask(task.id)}
-          aria-label="Agent running — view run history for this task"
-          title="Agent running — click to view run history"
-          className="absolute top-2 right-2 flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-[#3b82f6]/10 hover:bg-[#3b82f6]/20 transition-colors duration-150 pointer-events-auto z-10"
-        >
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3b82f6] opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#3b82f6]" />
-          </span>
-          <span className="text-[10px] font-semibold text-[#3b82f6]">Running</span>
-        </button>
-      )}
 
-      {/* Top: title + badge */}
+      {/* Top: title + badge + expand icon */}
       <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium text-text-primary leading-snug flex-1">
+        {/* Title — clickable to open the detail panel */}
+        <button
+          type="button"
+          onClick={() => openDetailPanel(task)}
+          className="text-sm font-medium text-text-primary leading-snug flex-1 text-left cursor-pointer hover:text-primary transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary rounded-sm"
+        >
           {task.title}
-        </span>
-        <Badge type={task.type} />
+        </button>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <Badge type={task.type} />
+          {/* Expand icon — opens the detail panel */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              openDetailPanel(task);
+            }}
+            onDragStart={(e) => e.stopPropagation()}
+            aria-label="Open task detail"
+            title="Open task detail"
+            className="w-6 h-6 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant focus:outline-none focus:ring-2 focus:ring-primary transition-colors duration-150"
+          >
+            <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+              open_in_full
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* Description */}
@@ -212,6 +221,21 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
             />
           )}
         </div>
+        {/* Active agent run indicator — pulsing dot, click opens run history for this task */}
+        {isActiveTask && (
+          <button
+            onClick={() => openPanelForTask(task.id)}
+            aria-label="Agent running — view run history for this task"
+            title="Agent running — click to view run history"
+            className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-[#3b82f6]/10 hover:bg-[#3b82f6]/20 transition-colors duration-150"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3b82f6] opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#3b82f6]" />
+            </span>
+            <span className="text-[10px] font-semibold text-[#3b82f6]">Running</span>
+          </button>
+        )}
         <button
           onClick={() => deleteTask(task.id)}
           disabled={isMutating || activeRun !== null}
