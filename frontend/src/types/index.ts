@@ -154,14 +154,27 @@ export interface AgentRun {
   backendRunId?: string; // set when launched via POST /api/v1/runs (backend spawn)
 }
 
+/** Per-stage status returned by GET /api/v1/runs/:runId. */
+export interface BackendStageStatus {
+  index: number;
+  agentId: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout';
+  startedAt: string | null;
+  finishedAt: string | null;
+  exitCode: number | null;
+}
+
 /** Run object returned by the backend pipeline API. */
 export interface BackendRun {
   runId: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   stages: string[];
+  stageStatuses?: BackendStageStatus[];
   spaceId: string;
   taskId: string;
   createdAt: string;
+  updatedAt?: string;
+  currentStage?: number;
 }
 
 /** The four canonical pipeline stage agent IDs. */
