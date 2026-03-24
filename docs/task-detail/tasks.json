@@ -1,0 +1,122 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "task-detail-edit",
+  "date": "2026-03-24",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Add UpdateTaskPayload type and updateTask API client wrapper",
+      "description": "Add the UpdateTaskPayload interface to types/index.ts and the updateTask() typed fetch wrapper to api/client.ts. The wrapper calls PUT /api/v1/spaces/:spaceId/tasks/:taskId with a partial patch body.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "UpdateTaskPayload interface exists in types/index.ts with optional fields: title, description, type, assigned",
+        "updateTask(spaceId, taskId, patch) exported from api/client.ts",
+        "TypeScript compilation passes with no type errors",
+        "Unit test: updateTask sends PUT with correct URL and body"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Add TaskDetailPanelState type and store slice",
+      "description": "Add TaskDetailPanelState to types/index.ts. Extend useAppStore with: taskDetailPanel state, openTaskDetail(taskId, column), closeTaskDetail(), updateTask(taskId, patch), and patchTaskInBoard(task) internal mutation.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1d",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "TaskDetailPanelState interface added to types/index.ts: { open: boolean, taskId: string|null, column: Column|null }",
+        "openTaskDetail sets taskDetailPanel.open = true, stores taskId and column",
+        "closeTaskDetail sets taskDetailPanel.open = false and clears taskId/column",
+        "updateTask(taskId, patch) calls api.updateTask, then patchTaskInBoard on success, then closeTaskDetail, then showToast('Task updated', 'success')",
+        "updateTask shows showToast('Failed to save task', 'error') on API error and does NOT close the panel",
+        "patchTaskInBoard updates the matching task in-place across all three column arrays without triggering a full board reload",
+        "isMutating is set to true before the PUT call and false after (success or error)",
+        "Unit tests cover openTaskDetail, closeTaskDetail, successful updateTask, and error path"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Implement TaskDetailPanel drawer component",
+      "description": "Create frontend/src/components/board/TaskDetailPanel.tsx. Fixed right-side drawer with slide animation, backdrop, Escape key, focus trap, and close-on-backdrop-click. Renders TaskDetailForm as its child. Reads taskDetailPanel state from useAppStore.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1.5d",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "Panel is position:fixed, anchored top-0 right-0 bottom-0, width w-96 (w-full on mobile)",
+        "z-index z-40; backdrop z-[39] with bg-black/40",
+        "Panel slides in from right (translate-x-full to translate-x-0) with transition-transform duration-200 ease-apple",
+        "Panel slides out on close with same transition before unmounting / hiding",
+        "Escape key calls closeTaskDetail",
+        "Clicking the backdrop calls closeTaskDetail",
+        "Focus is trapped inside the panel while open",
+        "Focus returns to the triggering card header element on close",
+        "role='dialog' aria-modal='true' aria-labelledby pointing to panel heading 'Task detail'",
+        "Panel heading displays 'Task detail' and an X close button",
+        "Component is exported and added to App.tsx (rendered once at root level)"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Implement TaskDetailForm inside the drawer",
+      "description": "Create the form section inside TaskDetailPanel (can be an inline sub-component or a separate file TaskDetailForm.tsx). Pre-populates all four fields from the task resolved via taskDetailPanel.taskId + column. Validates and submits via store.updateTask.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1.5d",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "Form renders four fields: Title (input), Type (select), Assigned (select), Description (textarea)",
+        "Fields are pre-populated from the matching Task object when the panel opens",
+        "Title field receives auto-focus when the panel opens",
+        "Validation: Title is required (1–200 chars); shows inline error if blank on submit",
+        "Description is optional, ≤1000 chars",
+        "Type is required (task|research); Assigned is optional (same ASSIGNED_OPTIONS as CreateTaskModal)",
+        "Save button shows loading state ('Saving...') while PUT is in flight",
+        "Save button is disabled while isMutating",
+        "Cancel button calls closeTaskDetail immediately (no save)",
+        "Discarding a dirty form (via Cancel, Escape, or backdrop) shows toast 'Changes discarded'",
+        "Form fields use the same inputClass styling tokens as CreateTaskModal (bg-surface-variant, border-border, focus:ring-primary/40, etc.)",
+        "Unit tests: pre-population, submit success, submit validation error, cancel dirty"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Wire card header click to open TaskDetailPanel",
+      "description": "In TaskCard.tsx, wrap the title+badge header row with an onClick handler that calls openTaskDetail(task.id, column). Store the triggering element ref so focus can be restored on close. Ensure card footer buttons are unaffected.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "Clicking the title+badge header div calls openTaskDetail(task.id, column)",
+        "The header area has role='button' and tabIndex={0} for keyboard accessibility",
+        "Pressing Enter or Space on the focused header also opens the panel",
+        "Footer action buttons (move, delete, run agent) do NOT trigger the panel",
+        "Drag start is not triggered when clicking the header (e.stopPropagation used appropriately or drag is only initiated from the card body outside the header)",
+        "Unit test: clicking header dispatches openTaskDetail; clicking delete does not"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Write unit and integration tests",
+      "description": "Vitest + React Testing Library tests for the new components and store actions. Target >90% branch coverage on TaskDetailPanel and TaskDetailForm.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "1d",
+      "dependencies": ["T-004", "T-005"],
+      "acceptance_criteria": [
+        "Test file frontend/__tests__/components/TaskDetailPanel.test.tsx exists",
+        "Tests cover: panel renders when store.taskDetailPanel.open is true, panel is hidden when open is false",
+        "Tests cover: Escape key calls closeTaskDetail, backdrop click calls closeTaskDetail",
+        "Tests cover: focus trap — Tab cycles within the panel",
+        "Tests cover: form pre-population, successful save (mocked PUT returns updated task), validation error on empty title, cancel discards changes",
+        "Tests cover: store updateTask — patchTaskInBoard mutates the correct column array, toast shown on success and error",
+        "npm test passes with no failures"
+      ]
+    }
+  ]
+}
