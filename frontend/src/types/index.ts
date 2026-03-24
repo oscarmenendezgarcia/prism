@@ -181,6 +181,12 @@ export interface PipelineState {
   startedAt: string; // ISO timestamp
   status: 'running' | 'paused' | 'completed' | 'aborted';
   /**
+   * Backend run ID returned by POST /api/v1/runs when the pipeline is launched
+   * via backend spawn. Used by PipelineLogPanel to fetch stage logs.
+   * ADR-1 (log-viewer): optional — only set when startRun() is called.
+   */
+  runId?: string;
+  /**
    * Parallel index with stages[]. subTaskIds[i] is the Kanban ID of the
    * dedicated sub-task created for stages[i]. Grows incrementally as stages run.
    * ADR-1 (pipeline-subtasks): each agent works on its own sub-task, not the
