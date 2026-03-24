@@ -1,0 +1,179 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "multi-tab-terminal",
+  "date": "2026-03-24",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Create useTerminalSessionStore Zustand slice",
+      "description": "New dedicated Zustand store at frontend/src/stores/useTerminalSessionStore.ts. State: sessions[], activeId, panelOpen. Actions: addSession, removeSession, setActiveId, renameSession, updateStatus, registerSender, activeSendInput, openPanel, closePanel, togglePanel. Initial state: one default session with id=uuid, label='Terminal 1', status='connecting'. MAX_SESSIONS=4. panelOpen persisted in localStorage key 'prism:terminal:panelOpen'.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 points",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "addSession() creates a new TerminalSession with a UUID id, increments label counter, and sets activeId to the new session's id.",
+        "addSession() is a no-op (returns without adding) when sessions.length >= 4.",
+        "removeSession(id) removes the session; if it was activeId, switches to the previous session or first remaining; if sessions is now empty, sets panelOpen=false.",
+        "renameSession(id, label) updates the session label; label is trimmed and truncated to 24 characters.",
+        "updateStatus(id, status) updates the session's status field.",
+        "registerSender(id, fn) updates the session's sendInput field.",
+        "activeSendInput() returns the sendInput of the session matching activeId, or null if none.",
+        "panelOpen is read from localStorage on initialisation and written on every change.",
+        "All actions are unit-tested in frontend/__tests__/stores/useTerminalSessionStore.test.ts with >90% branch coverage."
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Extend useTerminal hook with configurable wsUrl",
+      "description": "Add wsUrl: string to UseTerminalOptions in frontend/src/hooks/useTerminal.ts. Remove the hardcoded WS_URL constant. Replace new WebSocket(WS_URL) with new WebSocket(wsUrl) everywhere inside the hook. No other logic changes.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 point",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "UseTerminalOptions type includes wsUrl: string.",
+        "WS_URL module-level constant is removed.",
+        "All WebSocket construction inside the hook uses the wsUrl parameter.",
+        "Existing useTerminal.test.ts passes unchanged (tests must supply wsUrl in options).",
+        "No other behaviour changes — reconnect, resize, input, output flows are unaffected."
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Create TerminalTab component",
+      "description": "New component at frontend/src/components/terminal/TerminalTab.tsx. Props: sessionId: string, panelOpen: boolean, isActive: boolean. Uses useTerminal with wsUrl='ws://localhost:3000/ws/terminal?sessionId='+sessionId. Calls useTerminalSessionStore.getState().updateStatus and registerSender in onStatusChange. Calls useAppStore.getState().clearActiveRun() in onProcessExit. Renders a <div ref={containerRef} className={isActive ? 'flex-1 overflow-hidden p-2 min-h-0' : 'hidden'} />. Does NOT render any chrome (header, status bar) — all chrome is in TerminalPanel.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 points",
+      "dependencies": ["T-001", "T-002"],
+      "acceptance_criteria": [
+        "Component renders without error when isActive=false (no xterm.js mount until panelOpen=true).",
+        "When isActive=true, the container div has Tailwind classes flex-1 overflow-hidden p-2 min-h-0.",
+        "When isActive=false, the container div has className='hidden'.",
+        "onStatusChange 'connected' calls registerSender(sessionId, sendInput) and updateStatus(sessionId, 'connected').",
+        "onStatusChange 'disconnected' calls registerSender(sessionId, null) and updateStatus(sessionId, 'disconnected').",
+        "onProcessExit calls useAppStore.getState().clearActiveRun().",
+        "Component is tested in frontend/__tests__/components/TerminalTab.test.tsx."
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Refactor TerminalPanel to multi-tab layout",
+      "description": "Refactor frontend/src/components/terminal/TerminalPanel.tsx. Remove useTerminal call, containerRef, and sendInput bridge. Add imports for useTerminalSessionStore and TerminalTab. Render: (1) left-edge drag handle (unchanged); (2) tab bar with one chip per session and a '+' button; (3) one <TerminalTab> per session; (4) reconnect bar based on active session status. Tab chip: label text + status dot + '×' close button. Double-click on label enters inline rename mode (controlled input, blur/Enter saves). '+' button disabled when sessions.length >= 4. Panel visibility driven by useTerminalSessionStore.panelOpen. Header no longer shows a single global status — status is on each chip.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "4 points",
+      "dependencies": ["T-001", "T-002", "T-003"],
+      "acceptance_criteria": [
+        "Panel renders one TerminalTab per session, only the active one has isActive=true.",
+        "Tab bar displays each session label with a status dot (green=connected, yellow=connecting, red=disconnected).",
+        "Clicking a tab chip calls setActiveId(id).",
+        "Clicking '×' on a chip calls removeSession(id); the button is not shown when sessions.length === 1.",
+        "Clicking '+' calls addSession(); button is disabled (aria-disabled) when sessions.length === 4.",
+        "Double-clicking a label enables inline rename; pressing Enter or blurring calls renameSession(id, newLabel).",
+        "Reconnect bar is shown when the active session status is 'disconnected'.",
+        "usePanelResize hook is retained; drag handle still works.",
+        "All existing TerminalPanel.test.tsx assertions pass (updated as needed for new markup).",
+        "No inline styles — all styling uses Tailwind tokens."
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Migrate useAppStore terminal state to useTerminalSessionStore",
+      "description": "Remove terminalSender and setTerminalSender from useAppStore. Remove terminalOpen, toggleTerminal, setTerminalOpen from useAppStore (or replace with forwarding getters to useTerminalSessionStore for the migration period). Update executeAgentRun to read activeSendInput() from useTerminalSessionStore.getState(). Update cancelAgentRun to read activeSendInput() from useTerminalSessionStore.getState(). Update TerminalToggle to call useTerminalSessionStore.getState().togglePanel(). Remove the useEffect in TerminalPanel that called setTerminalSender(null) on unmount.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 points",
+      "dependencies": ["T-001", "T-003", "T-004"],
+      "acceptance_criteria": [
+        "useAppStore no longer has terminalSender, setTerminalSender, terminalOpen, toggleTerminal, or setTerminalOpen fields.",
+        "executeAgentRun uses useTerminalSessionStore.getState().activeSendInput() instead of get().terminalSender.",
+        "cancelAgentRun uses useTerminalSessionStore.getState().activeSendInput() instead of get().terminalSender.",
+        "TerminalToggle reads panelOpen from useTerminalSessionStore and calls togglePanel().",
+        "All existing useAppStore.test.ts tests pass.",
+        "TypeScript compilation has zero errors (tsc --noEmit)."
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Write tests for useTerminalSessionStore",
+      "description": "Create frontend/__tests__/stores/useTerminalSessionStore.test.ts. Cover all actions and edge cases defined in T-001 acceptance criteria. Use Vitest + React Testing Library setup. Mock localStorage. Do NOT mock useTerminal — test the store in isolation.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 points",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "Tests cover: addSession normal, addSession at cap (4), removeSession last tab, removeSession middle tab (activeId switch), renameSession, updateStatus, registerSender, activeSendInput with and without active session.",
+        "localStorage persistence is tested: panelOpen written on togglePanel, read on store init.",
+        "Coverage for useTerminalSessionStore.ts >= 90% branches.",
+        "npm test in frontend/ passes with zero failures."
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Write tests for TerminalTab component",
+      "description": "Create frontend/__tests__/components/TerminalTab.test.tsx. Mock useTerminal hook (return { containerRef: { current: null }, reconnectNow: vi.fn(), sendInput: vi.fn() }). Mock useTerminalSessionStore. Assert rendering behaviour based on isActive and panelOpen props. Assert store callbacks are wired correctly.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "2 points",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "When isActive=false, container div has className='hidden'.",
+        "When isActive=true and panelOpen=true, container div has flex-1 overflow-hidden p-2 min-h-0.",
+        "useTerminal is called with wsUrl matching pattern '/ws/terminal?sessionId=' + sessionId.",
+        "onStatusChange('connected') triggers registerSender and updateStatus with correct arguments.",
+        "onStatusChange('disconnected') triggers registerSender(null) and updateStatus.",
+        "onProcessExit triggers useAppStore.getState().clearActiveRun().",
+        "Coverage >= 90% branches."
+      ]
+    },
+    {
+      "id": "T-008",
+      "title": "Update existing tests for renamed/removed store fields",
+      "description": "Update any existing tests in frontend/__tests__/ that reference terminalSender, setTerminalSender, terminalOpen, toggleTerminal, or setTerminalOpen from useAppStore. Replace references with the new useTerminalSessionStore equivalents. Update TerminalPanel.test.tsx for the new tab-bar markup.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "2 points",
+      "dependencies": ["T-005"],
+      "acceptance_criteria": [
+        "npm test in frontend/ passes with zero failures after migration.",
+        "No test file references the removed useAppStore fields.",
+        "TerminalPanel.test.tsx asserts tab bar is present with at least one chip.",
+        "AgentLauncherMenu.test.tsx (if it mocks terminalSender) is updated."
+      ]
+    },
+    {
+      "id": "T-009",
+      "title": "Update useTerminal.test.ts for wsUrl parameter",
+      "description": "Update frontend/__tests__/hooks/useTerminal.test.ts to pass wsUrl in the options object for all test cases. Assert that the WebSocket is constructed with the supplied wsUrl, not the old hardcoded constant.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "1 point",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "All existing useTerminal test cases pass with wsUrl added to options.",
+        "At least one test asserts that new WebSocket is called with the provided wsUrl.",
+        "WS_URL constant is not referenced anywhere in test files."
+      ]
+    },
+    {
+      "id": "T-010",
+      "title": "End-to-end smoke test: two concurrent PTY sessions",
+      "description": "Manual or automated smoke test verifying that two independent PTY sessions can run simultaneously. If automated, use Playwright. Verify: open panel, click '+', both tabs have independent shells, typing in Tab 1 does not appear in Tab 2, agent command injection goes to the active tab.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "2 points",
+      "dependencies": ["T-004", "T-005"],
+      "acceptance_criteria": [
+        "Two tabs each show an independent shell prompt.",
+        "Running 'echo hello' in Tab 1 does not produce output in Tab 2.",
+        "Switching to Tab 2 and running 'pwd' shows an independent cwd.",
+        "Closing Tab 1 while Tab 2 is active does not affect Tab 2's PTY session.",
+        "Agent launcher injects command into the active tab (Tab 2 if it is selected).",
+        "Adding a 5th tab is prevented ('+' button is disabled)."
+      ]
+    }
+  ]
+}
