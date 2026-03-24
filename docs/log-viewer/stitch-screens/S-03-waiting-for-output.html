@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Prism — Pipeline Log Viewer</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:wght@400;500&amp;family=Space+Grotesk:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "inverse-surface": "#e5e1e4",
+                        "on-primary-container": "#002957",
+                        "surface-variant": "#353437",
+                        "surface-dim": "#131315",
+                        "background": "#131315",
+                        "on-tertiary-fixed-variant": "#793100",
+                        "on-error": "#690005",
+                        "on-surface-variant": "#c0c6d6",
+                        "outline-variant": "#414754",
+                        "on-primary-fixed-variant": "#00468d",
+                        "surface-container-low": "#1b1b1d",
+                        "error": "#ffb4ab",
+                        "secondary": "#aac7ff",
+                        "surface-tint": "#aac7ff",
+                        "surface-container-highest": "#353437",
+                        "error-container": "#93000a",
+                        "on-primary-fixed": "#001b3e",
+                        "tertiary-container": "#eb6a12",
+                        "primary-container": "#3e90ff",
+                        "tertiary": "#ffb691",
+                        "primary-fixed": "#d6e3ff",
+                        "surface-container-lowest": "#0e0e10",
+                        "on-secondary-fixed": "#001b3e",
+                        "tertiary-fixed-dim": "#ffb691",
+                        "tertiary-fixed": "#ffdbcb",
+                        "primary": "#aac7ff",
+                        "surface-container-high": "#2a2a2c",
+                        "outline": "#8b91a0",
+                        "on-tertiary-fixed": "#341100",
+                        "on-secondary": "#083060",
+                        "on-surface": "#e5e1e4",
+                        "primary-fixed-dim": "#aac7ff",
+                        "inverse-primary": "#005db8",
+                        "secondary-container": "#264778",
+                        "on-tertiary": "#552000",
+                        "secondary-fixed-dim": "#aac7ff",
+                        "inverse-on-surface": "#313032",
+                        "on-tertiary-container": "#4a1b00",
+                        "on-background": "#e5e1e4",
+                        "surface-container": "#201f21",
+                        "secondary-fixed": "#d6e3ff",
+                        "surface": "#131315",
+                        "on-secondary-container": "#98b6ee",
+                        "on-secondary-fixed-variant": "#264778",
+                        "on-primary": "#003064",
+                        "surface-bright": "#39393b",
+                        "on-error-container": "#ffdad6"
+                    },
+                    fontFamily: {
+                        "headline": ["Inter"],
+                        "body": ["Inter"],
+                        "label": ["Space Grotesk"],
+                        "mono": ["JetBrains Mono"]
+                    },
+                    borderRadius: { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            font-size: 1.25rem;
+        }
+        .custom-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(170, 199, 255, 0.1);
+            border-top: 2px solid #aac7ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .glass-overlay {
+            background: rgba(19, 19, 21, 0.6);
+            backdrop-filter: blur(4px);
+        }
+        .log-panel-shadow {
+            box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body overflow-hidden">
+<!-- TopNavBar Implementation from JSON -->
+<header class="fixed top-0 w-full z-50 bg-[#131315] flex justify-between items-center h-14 px-6 w-full font-['Inter'] text-sm tracking-tight">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold tracking-tighter text-[#E0E0E0]">Prism</span>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="text-[#E0E0E0] border-b-2 border-[#0A84FF] pb-1 hover:text-[#E0E0E0] transition-colors" href="#">Architect</a>
+<a class="text-[#909090] hover:text-[#E0E0E0] transition-colors" href="#">UX</a>
+<a class="text-[#E0E0E0] border-b-2 border-[#0A84FF] pb-1 hover:text-[#E0E0E0] transition-colors" href="#">Dev</a>
+<a class="text-[#909090] hover:text-[#E0E0E0] transition-colors" href="#">QA</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-[#909090] hover:text-[#E0E0E0] transition-colors">settings</button>
+<button class="material-symbols-outlined text-[#909090] hover:text-[#E0E0E0] transition-colors">notifications</button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-outline-variant">
+<img alt="User profile" data-alt="professional portrait of a software engineer in a neutral lighting environment with subtle background depth" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDZQnbODcLxSO2PAZBIDQbfz9e_L2B2d58wR5QFooincTLMTm04VL_tGJhMB40TLm46uYD5aEyqn1Bc6sXWdfA8t7LxJtZihH6GILkxw_EidTtxKHtXOEpR-XBDEXSPejtp301YTgYHG5_3ai11rP8KA1-LIsTiQSMiMqVWvEp8T0OlgjZ1abOD8d2fp_yoIcDM4Cxgw77_MTtx7sGNuz-E0o4fdngnLPKej9kPL7RrS19U8237uNVZmsX6XU55ktdZgEt1uLNSJAs"/>
+</div>
+</div>
+</header>
+<main class="flex h-screen pt-14">
+<!-- SideNavBar Implementation from JSON -->
+<aside class="fixed left-0 top-14 h-[calc(100vh-3.5rem)] w-64 bg-[#131315] flex flex-col py-4 font-['Inter'] text-[0.875rem]">
+<div class="px-6 mb-6">
+<p class="text-[#E0E0E0] font-semibold">Project Alpha</p>
+<p class="text-[#909090] text-xs font-label">v2.4.0-stable</p>
+</div>
+<div class="flex-1 space-y-1">
+<div class="flex items-center gap-3 px-4 py-2 text-[#909090] hover:bg-[#1B1B1D] hover:text-[#E0E0E0] transition-all duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="timeline">timeline</span>
+<span>Pipeline</span>
+</div>
+<div class="flex items-center gap-3 px-4 py-2 text-[#E0E0E0] border-l-2 border-[#0A84FF] bg-[#1B1B1D] transition-all duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="build">build</span>
+<span>Builds</span>
+</div>
+<div class="flex items-center gap-3 px-4 py-2 text-[#909090] hover:bg-[#1B1B1D] hover:text-[#E0E0E0] transition-all duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+<span>Artifacts</span>
+</div>
+</div>
+<div class="mt-auto border-t border-outline-variant/10 pt-4 space-y-1">
+<div class="flex items-center gap-3 px-4 py-2 text-[#909090] hover:bg-[#1B1B1D] hover:text-[#E0E0E0] transition-all duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span>Documentation</span>
+</div>
+<div class="flex items-center gap-3 px-4 py-2 text-[#909090] hover:bg-[#1B1B1D] hover:text-[#E0E0E0] transition-all duration-200 cursor-pointer">
+<span class="material-symbols-outlined" data-icon="help_outline">help_outline</span>
+<span>Support</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Area: Kanban Board -->
+<section class="ml-64 flex-1 p-8 bg-[#0D0D0F] relative overflow-hidden">
+<div class="grid grid-cols-3 gap-8 h-full opacity-30 grayscale pointer-events-none">
+<!-- TODO Column -->
+<div class="flex flex-col gap-4">
+<div class="flex items-center justify-between px-2">
+<span class="font-label text-xs uppercase tracking-widest text-outline">TODO</span>
+<span class="text-xs text-outline">4</span>
+</div>
+<div class="bg-surface-container-low p-4 rounded-lg border border-white/5 space-y-3">
+<div class="h-2 w-12 bg-primary/20 rounded"></div>
+<div class="h-4 w-full bg-on-surface/5 rounded"></div>
+<div class="h-4 w-2/3 bg-on-surface/5 rounded"></div>
+</div>
+<div class="bg-surface-container-low p-4 rounded-lg border border-white/5 space-y-3">
+<div class="h-2 w-12 bg-tertiary/20 rounded"></div>
+<div class="h-4 w-full bg-on-surface/5 rounded"></div>
+</div>
+</div>
+<!-- IN PROGRESS Column -->
+<div class="flex flex-col gap-4">
+<div class="flex items-center justify-between px-2">
+<span class="font-label text-xs uppercase tracking-widest text-outline">IN PROGRESS</span>
+<span class="text-xs text-outline">2</span>
+</div>
+<div class="bg-surface-container-low p-4 rounded-lg border border-primary/20 space-y-3">
+<div class="h-2 w-12 bg-primary/40 rounded"></div>
+<div class="h-4 w-full bg-on-surface/5 rounded"></div>
+<div class="h-4 w-3/4 bg-on-surface/5 rounded"></div>
+</div>
+</div>
+<!-- DONE Column -->
+<div class="flex flex-col gap-4">
+<div class="flex items-center justify-between px-2">
+<span class="font-label text-xs uppercase tracking-widest text-outline">DONE</span>
+<span class="text-xs text-outline">12</span>
+</div>
+<div class="bg-surface-container-low p-4 rounded-lg border border-white/5 space-y-3">
+<div class="h-2 w-12 bg-secondary/20 rounded"></div>
+<div class="h-4 w-full bg-on-surface/5 rounded"></div>
+</div>
+</div>
+</div>
+<!-- Glass Overlay for Kanban background -->
+<div class="absolute inset-0 glass-overlay"></div>
+<!-- Right Panel: Pipeline Logs -->
+<div class="absolute top-0 right-0 h-full w-[480px] bg-[#1A1A1F] log-panel-shadow flex flex-col border-l border-white/5 z-40">
+<!-- Panel Header -->
+<div class="h-14 flex items-center justify-between px-6 border-b border-white/5">
+<h2 class="text-on-surface font-semibold tracking-tight">Pipeline Logs</h2>
+<button class="material-symbols-outlined text-outline hover:text-on-surface transition-colors cursor-pointer">close</button>
+</div>
+<!-- Stage Tab Bar -->
+<div class="flex bg-[#131315] border-b border-white/5">
+<!-- Tab 1: Architect -->
+<div class="flex-1 flex flex-col items-center py-3 gap-1 cursor-pointer hover:bg-white/5 transition-colors border-r border-white/5">
+<span class="material-symbols-outlined text-emerald-500 text-sm" data-weight="fill">check_circle</span>
+<span class="text-[10px] uppercase font-label tracking-tighter text-outline">Architect</span>
+</div>
+<!-- Tab 2: UX -->
+<div class="flex-1 flex flex-col items-center py-3 gap-1 cursor-pointer hover:bg-white/5 transition-colors border-r border-white/5">
+<span class="material-symbols-outlined text-emerald-500 text-sm" data-weight="fill">check_circle</span>
+<span class="text-[10px] uppercase font-label tracking-tighter text-outline">UX</span>
+</div>
+<!-- Tab 3: Dev (ACTIVE) -->
+<div class="flex-1 flex flex-col items-center py-3 gap-1 bg-[#1A1A1F] relative border-r border-white/5">
+<span class="material-symbols-outlined text-[#0A84FF] text-sm animate-spin">progress_activity</span>
+<span class="text-[10px] uppercase font-label tracking-tighter text-[#E0E0E0]">Dev</span>
+<div class="absolute bottom-0 left-0 w-full h-[2px] bg-[#0A84FF]"></div>
+</div>
+<!-- Tab 4: QA -->
+<div class="flex-1 flex flex-col items-center py-3 gap-1 cursor-pointer hover:bg-white/5 transition-colors opacity-50">
+<span class="material-symbols-outlined text-[#8E8E93] text-sm">hourglass_empty</span>
+<span class="text-[10px] uppercase font-label tracking-tighter text-[#8E8E93]">QA</span>
+</div>
+</div>
+<!-- Log Content Area -->
+<div class="flex-1 bg-[#0D0D0F] flex flex-col items-center justify-center p-8 text-center">
+<div class="custom-spinner mb-4"></div>
+<p class="font-body text-[13px] text-[#8E8E93] tracking-wide">Waiting for output...</p>
+<!-- Decorative technical metadata in background -->
+<div class="mt-8 flex flex-col gap-2 w-full opacity-10 select-none">
+<div class="flex gap-4 font-mono text-[10px]">
+<span class="text-primary">[INFO]</span>
+<span>INITIALIZING WORKER STREAM...</span>
+</div>
+<div class="flex gap-4 font-mono text-[10px]">
+<span class="text-primary">[INFO]</span>
+<span>CONNECTING TO KUBERNETES CLUSTER [US-EAST-1]...</span>
+</div>
+<div class="flex gap-4 font-mono text-[10px]">
+<span class="text-primary">[INFO]</span>
+<span>AWAITING STREAMING BUFFER ENCAPSULATION...</span>
+</div>
+</div>
+</div>
+<!-- Panel Footer / Meta info -->
+<div class="p-4 border-t border-white/5 bg-[#131315] flex justify-between items-center">
+<div class="flex items-center gap-2">
+<div class="w-1.5 h-1.5 rounded-full bg-[#0A84FF] animate-pulse"></div>
+<span class="font-label text-[10px] text-outline uppercase tracking-widest">Active Session</span>
+</div>
+<span class="font-mono text-[10px] text-outline/50">ID: PR-9921-A</span>
+</div>
+</div>
+</section>
+</main>
+<!-- FAB Suppression: Not rendered on focused log detail view -->
+</body></html>

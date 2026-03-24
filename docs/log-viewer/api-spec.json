@@ -1,0 +1,394 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Prism — Pipeline Log Viewer API",
+    "version": "1.0.0",
+    "description": "Documentacion de los endpoints existentes que el frontend del Pipeline Log Viewer consumira. No se introducen endpoints nuevos — todos estan ya implementados en server.js."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Servidor local de desarrollo"
+    }
+  ],
+  "paths": {
+    "/api/v1/runs/{runId}": {
+      "get": {
+        "operationId": "getRun",
+        "summary": "Obtener estado y metadatos de un pipeline run",
+        "description": "Devuelve el estado actual del run, incluyendo el status de cada stage. El frontend usa este endpoint para saber si el run esta activo (polling) o terminado (fetch unico), y para poblar el StageTabBar con los stage names y sus statuses.",
+        "tags": ["Pipeline Runs"],
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "ID unico del pipeline run, devuelto por POST /api/v1/runs al lanzar el pipeline.",
+            "example": "f7a3c2e1-0001-4b2a-9f3d-aabbccddeeff"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado del run obtenido correctamente.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineRun"
+                },
+                "example": {
+                  "runId": "f7a3c2e1-0001-4b2a-9f3d-aabbccddeeff",
+                  "status": "running",
+                  "currentStage": 2,
+                  "stages": [
+                    "senior-architect",
+                    "ux-api-designer",
+                    "developer-agent",
+                    "qa-engineer-e2e"
+                  ],
+                  "stageStatuses": [
+                    {
+                      "index": 0,
+                      "agentId": "senior-architect",
+                      "status": "completed",
+                      "startedAt": "2026-03-24T13:00:00.000Z",
+                      "finishedAt": "2026-03-24T13:05:00.000Z",
+                      "exitCode": 0
+                    },
+                    {
+                      "index": 1,
+                      "agentId": "ux-api-designer",
+                      "status": "completed",
+                      "startedAt": "2026-03-24T13:05:00.000Z",
+                      "finishedAt": "2026-03-24T13:15:00.000Z",
+                      "exitCode": 0
+                    },
+                    {
+                      "index": 2,
+                      "agentId": "developer-agent",
+                      "status": "running",
+                      "startedAt": "2026-03-24T13:15:00.000Z",
+                      "finishedAt": null,
+                      "exitCode": null
+                    },
+                    {
+                      "index": 3,
+                      "agentId": "qa-engineer-e2e",
+                      "status": "pending",
+                      "startedAt": null,
+                      "finishedAt": null,
+                      "exitCode": null
+                    }
+                  ],
+                  "createdAt": "2026-03-24T13:00:00.000Z",
+                  "updatedAt": "2026-03-24T13:15:30.000Z"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "El runId no existe.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "RUN_NOT_FOUND",
+                    "message": "No existe ningun pipeline run con el ID indicado.",
+                    "suggestion": "Verifica que el runId sea correcto. Los runs activos se listan en GET /api/v1/runs."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error interno del servidor al leer el estado del run.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "No se pudo leer el estado del pipeline run.",
+                    "suggestion": "Intenta de nuevo. Si el problema persiste, revisa los logs del servidor."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{runId}/stages/{stageIndex}/log": {
+      "get": {
+        "operationId": "getStageLog",
+        "summary": "Obtener el log de un stage especifico",
+        "description": "Devuelve el contenido del archivo de log del stage como texto plano. Soporta el parametro `tail` para limitar la cantidad de lineas devueltas desde el final del archivo. El frontend usa este endpoint en el hook `usePipelineLogPolling` cada 2 segundos mientras el run esta activo, y una sola vez para runs terminados.\n\n**Nota de uso del frontend:**\n- Usar `?tail=500` por defecto para limitar el payload.\n- Si el servidor devuelve 404 con `code: LOG_NOT_AVAILABLE`, el stage aun no ha empezado — no es un error de usuario, se debe mostrar el estado 'pending'.\n- El contenido es texto plano crudo (output del CLI de Claude), sin formato JSON ni ANSI codes procesados.",
+        "tags": ["Pipeline Logs"],
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "ID del pipeline run.",
+            "example": "f7a3c2e1-0001-4b2a-9f3d-aabbccddeeff"
+          },
+          {
+            "name": "stageIndex",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Indice del stage (0-based). El pipeline tiene 4 stages: 0=Architect, 1=UX, 2=Dev, 3=QA.",
+            "example": 2
+          },
+          {
+            "name": "tail",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "description": "Numero de lineas a devolver desde el final del archivo. `0` devuelve el log completo. El frontend usa `500` como valor por defecto para limitar el payload en runs largos.",
+            "example": 500
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Contenido del log devuelto correctamente.",
+            "headers": {
+              "Content-Type": {
+                "schema": {
+                  "type": "string",
+                  "example": "text/plain; charset=utf-8"
+                }
+              }
+            },
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "description": "Contenido crudo del log del stage. Puede contener multiples lineas separadas por \\n. En el caso de ?tail=500, son las ultimas 500 lineas del archivo."
+                },
+                "example": "[2026-03-24 13:15:01] Stage 3 (developer-agent) started\n[PIPELINE] { event: 'stage.started', stage: 2 }\nReading blueprint.md...\n> Task T-001: Extend PipelineState type\n  Reading frontend/src/types/index.ts...\n  Adding runId?: string to PipelineState interface\n  Writing file...\n  TypeScript compiled OK\n> Task T-002: Create usePipelineLogStore\n  Writing frontend/src/stores/usePipelineLogStore.ts..."
+              }
+            }
+          },
+          "404": {
+            "description": "El run, el stage o el archivo de log no existen. El campo `code` distingue los casos.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "run_not_found": {
+                    "summary": "El runId no existe",
+                    "value": {
+                      "error": {
+                        "code": "RUN_NOT_FOUND",
+                        "message": "No existe ningun pipeline run con el ID indicado.",
+                        "suggestion": "Verifica que el runId sea correcto."
+                      }
+                    }
+                  },
+                  "stage_not_found": {
+                    "summary": "El stageIndex esta fuera de rango",
+                    "value": {
+                      "error": {
+                        "code": "STAGE_NOT_FOUND",
+                        "message": "El stage indicado no existe en este run.",
+                        "suggestion": "El pipeline tiene 4 stages (indices 0-3). Verifica el stageIndex."
+                      }
+                    }
+                  },
+                  "log_not_available": {
+                    "summary": "El stage aun no ha comenzado (no error de usuario)",
+                    "value": {
+                      "error": {
+                        "code": "LOG_NOT_AVAILABLE",
+                        "message": "El stage aun no ha comenzado a ejecutarse.",
+                        "suggestion": "Espera a que el stage anterior termine. El log estara disponible cuando este stage inicie."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Error interno al leer el archivo de log.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "No se pudo leer el archivo de log del stage.",
+                    "suggestion": "Intenta de nuevo. Si el problema persiste, revisa los logs del servidor."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "PipelineRun": {
+        "type": "object",
+        "required": ["runId", "status", "currentStage", "stages", "stageStatuses", "createdAt", "updatedAt"],
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Identificador unico del run. Se almacena en `pipelineState.runId` del frontend."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "completed", "failed", "interrupted"],
+            "description": "Estado global del run. El frontend usa este campo para decidir si hace polling continuo (`running`) o fetch unico (`completed`/`failed`/`interrupted`)."
+          },
+          "currentStage": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Indice (0-based) del stage que se esta ejecutando actualmente. -1 si el run no ha iniciado. Igual a stages.length si el run ha terminado."
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lista de agentIds en orden de ejecucion. El frontend los usa como labels en el StageTabBar.",
+            "example": ["senior-architect", "ux-api-designer", "developer-agent", "qa-engineer-e2e"]
+          },
+          "stageStatuses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StageStatus"
+            },
+            "description": "Array con el estado detallado de cada stage. Mismo orden que `stages`."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp ISO 8601 de creacion del run."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp ISO 8601 de la ultima actualizacion del run."
+          }
+        }
+      },
+      "StageStatus": {
+        "type": "object",
+        "required": ["index", "agentId", "status"],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Indice 0-based del stage."
+          },
+          "agentId": {
+            "type": "string",
+            "description": "Identificador del agente que ejecuta este stage.",
+            "example": "developer-agent"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "completed", "failed", "timeout"],
+            "description": "Estado del stage. El frontend lo mapea a iconos en StageTabBar: pending→hourglass, running→spinner, completed→check, failed→close, timeout→timer_off."
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Timestamp ISO 8601 de inicio del stage. null si aun no ha empezado."
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Timestamp ISO 8601 de fin del stage. null si aun no ha terminado."
+          },
+          "exitCode": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Codigo de salida del proceso del agente. 0 = exito. null si aun esta corriendo."
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Codigo de error en SCREAMING_SNAKE_CASE. El frontend usa este campo para distinguir tipos de error sin parsear el mensaje.",
+                "enum": [
+                  "RUN_NOT_FOUND",
+                  "STAGE_NOT_FOUND",
+                  "LOG_NOT_AVAILABLE",
+                  "INTERNAL_ERROR"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "description": "Mensaje de error legible por el usuario. No debe exponer detalles tecnicos internos."
+              },
+              "suggestion": {
+                "type": "string",
+                "description": "Sugerencia de accion para el usuario. Opcional pero recomendado."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-frontend-notes": {
+    "pollingStrategy": {
+      "description": "El frontend implementa polling con setInterval en el hook usePipelineLogPolling.",
+      "interval": "2000ms",
+      "activeCondition": "run.status === 'running'",
+      "stopCondition": "run.status !== 'running' OR panel cerrado (hook desmontado)",
+      "defaultTail": 500,
+      "logNotAvailableHandling": "Tratar como estado 'pending' — no mostrar error. El stage aun no ha empezado."
+    },
+    "errorMapping": {
+      "LOG_NOT_AVAILABLE": "Estado pending — mostrar 'Stage not started yet.'",
+      "RUN_NOT_FOUND": "Error grave — mostrar mensaje de error con suggestion",
+      "STAGE_NOT_FOUND": "Error de programacion — no deberia ocurrir con indices validos",
+      "INTERNAL_ERROR": "Error transitorio — polling reintenta automaticamente en 2s"
+    },
+    "storeIntegration": {
+      "runIdSource": "useAppStore.getState().pipelineState?.runId",
+      "logStore": "usePipelineLogStore",
+      "runStatusSource": "GET /api/v1/runs/:runId (tambien con polling cada 2s)"
+    }
+  }
+}

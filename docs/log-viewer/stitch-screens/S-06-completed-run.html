@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Prism — Pipeline Log Viewer</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Space+Grotesk:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-error": "#690005",
+                        "primary-fixed": "#d6e3ff",
+                        "inverse-surface": "#e5e1e4",
+                        "on-secondary-container": "#98b6ee",
+                        "outline": "#8b91a0",
+                        "on-tertiary": "#552000",
+                        "on-primary": "#003064",
+                        "surface-bright": "#39393b",
+                        "primary-container": "#3e90ff",
+                        "secondary-fixed-dim": "#aac7ff",
+                        "surface-container": "#201f21",
+                        "on-primary-fixed": "#001b3e",
+                        "on-secondary-fixed": "#001b3e",
+                        "on-tertiary-container": "#4a1b00",
+                        "secondary-container": "#264778",
+                        "primary": "#aac7ff",
+                        "surface-variant": "#353437",
+                        "surface-tint": "#aac7ff",
+                        "surface-container-lowest": "#0e0e10",
+                        "on-primary-container": "#002957",
+                        "on-surface": "#e5e1e4",
+                        "surface-dim": "#131315",
+                        "on-tertiary-fixed": "#341100",
+                        "on-secondary": "#083060",
+                        "on-surface-variant": "#c0c6d6",
+                        "surface-container-high": "#2a2a2c",
+                        "tertiary-fixed": "#ffdbcb",
+                        "on-primary-fixed-variant": "#00468d",
+                        "on-background": "#e5e1e4",
+                        "inverse-on-surface": "#313032",
+                        "error": "#ffb4ab",
+                        "surface-container-highest": "#353437",
+                        "secondary": "#aac7ff",
+                        "inverse-primary": "#005db8",
+                        "surface-container-low": "#1b1b1d",
+                        "secondary-fixed": "#d6e3ff",
+                        "outline-variant": "#414754",
+                        "tertiary": "#ffb691",
+                        "surface": "#131315",
+                        "background": "#131315",
+                        "on-tertiary-fixed-variant": "#793100",
+                        "error-container": "#93000a",
+                        "tertiary-container": "#eb6a12",
+                        "on-secondary-fixed-variant": "#264778",
+                        "on-error-container": "#ffdad6",
+                        "tertiary-fixed-dim": "#ffb691",
+                        "primary-fixed-dim": "#aac7ff",
+                        "success-custom": "#28CD41",
+                        "accent-blue": "#0A84FF"
+                    },
+                    fontFamily: {
+                        "headline": ["Inter"],
+                        "body": ["Inter"],
+                        "label": ["Space Grotesk"],
+                        "mono": ["JetBrains Mono"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            font-size: 20px;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #353437; border-radius: 10px; }
+        .log-line:hover { background: rgba(255,255,255,0.03); }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body selection:bg-primary/30 h-screen overflow-hidden flex flex-col">
+<!-- TopNavBar -->
+<nav class="flex justify-between items-center px-6 w-full sticky top-0 z-50 bg-[#131315] w-full h-14 border-b border-[#414754]/15 font-['Inter'] tracking-tight text-sm">
+<div class="flex items-center gap-8 h-full">
+<span class="text-xl font-bold tracking-tighter text-[#E0E0E0]">Prism</span>
+<div class="flex items-center gap-6 h-full">
+<a class="text-[#E0E0E0]/60 hover:text-[#E0E0E0] hover:bg-[#353437]/40 transition-colors px-2 h-full flex items-center" href="#">Architect</a>
+<a class="text-[#E0E0E0]/60 hover:text-[#E0E0E0] hover:bg-[#353437]/40 transition-colors px-2 h-full flex items-center" href="#">UX</a>
+<a class="text-[#E0E0E0]/60 hover:text-[#E0E0E0] hover:bg-[#353437]/40 transition-colors px-2 h-full flex items-center" href="#">Dev</a>
+<a class="text-[#0A84FF] border-b-2 border-[#0A84FF] h-full flex items-center px-2" href="#">QA</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative group">
+<input class="bg-surface-container-lowest border border-outline-variant/15 text-xs px-3 py-1.5 rounded w-64 focus:outline-none focus:border-primary/50 transition-all" placeholder="Search pipeline..." type="text"/>
+</div>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-on-surface transition-colors">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-on-surface transition-colors">settings</button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-outline-variant/30">
+<img alt="User profile" data-alt="close-up portrait of a professional developer in a dark modern office setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDmPAu502Jlj0Wad8AJi-72mHyECCcPPDLzmBv3AVhNKdpkLrOGITek6Fqda91YcXNHoxxi7lODJfBKUfJhPUvvQtvopPUyB_ohbe6UqqftKLT070-bYlJ81Rzqx0iqoehS7ez2HOkVuEfjB1YFKR7MQOqCDKzAD0n7VPtEo8X8bRldvthDUXHBi6xfgj9MkCrxxNP2gipYbrUaEl2zdDI-NS9hmy7oKs6xqIOEY3tHOoLteU_b9AG3-xlFWorCF7Bf1frxshb2Tjs"/>
+</div>
+</div>
+</nav>
+<div class="flex flex-1 overflow-hidden">
+<!-- SideNavBar -->
+<aside class="flex flex-col h-full py-4 bg-[#131315] h-screen w-64 border-r border-[#414754]/15 font-['Inter'] text-[0.875rem]">
+<div class="px-6 mb-8">
+<h2 class="text-[#E0E0E0] font-black tracking-tight">Project Alpha</h2>
+<p class="text-[0.7rem] font-label text-on-surface-variant opacity-60">v2.4.0-stable</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-6 py-3 text-[#E0E0E0] border-l-2 border-[#0A84FF] bg-[#1B1B1D] font-medium transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="account_tree">account_tree</span>
+                    Pipeline
+                </a>
+<a class="flex items-center gap-3 px-6 py-3 text-[#E0E0E0]/50 hover:bg-[#1B1B1D]/50 hover:text-[#E0E0E0] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="Construction">construction</span>
+                    Builds
+                </a>
+<a class="flex items-center gap-3 px-6 py-3 text-[#E0E0E0]/50 hover:bg-[#1B1B1D]/50 hover:text-[#E0E0E0] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="inventory_2">inventory_2</span>
+                    Artifacts
+                </a>
+</nav>
+<div class="mt-auto pt-4 border-t border-outline-variant/10">
+<a class="flex items-center gap-3 px-6 py-3 text-[#E0E0E0]/50 hover:bg-[#1B1B1D]/50 hover:text-[#E0E0E0] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+                    Docs
+                </a>
+<a class="flex items-center gap-3 px-6 py-3 text-[#E0E0E0]/50 hover:bg-[#1B1B1D]/50 hover:text-[#E0E0E0] transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+                    Support
+                </a>
+</div>
+</aside>
+<!-- Main Content (Kanban Board) -->
+<main class="flex-1 bg-surface-dim overflow-x-auto p-8">
+<header class="mb-8 flex justify-between items-end">
+<div>
+<h1 class="text-2xl font-bold tracking-tight text-on-surface">Release Sprint Board</h1>
+<p class="text-sm text-on-surface-variant">Active pipeline status for Sprint 42</p>
+</div>
+<div class="flex gap-2">
+<button class="px-4 py-2 bg-surface-container-high hover:bg-surface-container-highest rounded text-xs font-medium transition-colors border border-outline-variant/10">Filter</button>
+<button class="px-4 py-2 bg-primary-container text-on-primary-fixed rounded text-xs font-bold shadow-lg shadow-primary/10 transition-transform active:scale-95">New Task</button>
+</div>
+</header>
+<div class="flex gap-6 h-[calc(100%-100px)]">
+<!-- TODO Column -->
+<div class="flex-1 min-w-[300px] flex flex-col gap-4">
+<div class="flex items-center justify-between px-2">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-outline"></span>
+<span class="text-xs font-label uppercase tracking-widest font-bold opacity-70">Todo</span>
+<span class="text-[10px] bg-surface-container-highest px-1.5 rounded-full">3</span>
+</div>
+</div>
+<div class="space-y-3">
+<div class="bg-surface-container-low p-4 rounded border border-outline-variant/10 hover:border-primary/20 transition-all cursor-grab active:cursor-grabbing group">
+<div class="flex justify-between mb-2">
+<span class="text-[10px] font-label text-accent-blue bg-accent-blue/10 px-2 py-0.5 rounded">INFRA</span>
+<span class="material-symbols-outlined text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity">more_horiz</span>
+</div>
+<p class="text-sm font-medium mb-3">Optimize Docker layer caching for CI runners</p>
+<div class="flex items-center justify-between">
+<div class="flex -space-x-2">
+<img alt="user" class="w-6 h-6 rounded-full border border-background" data-alt="portrait of a man with glasses smiling" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDQMelDWJWoXmLBLsCn6l20dsRhG8KmyQUFBe0XFIyRlBYxy3uJ6W_CNujpG5H40Mx10Hn5o4TY2-4a2wu17dGv4cFNQCiwK_sEFPvvNEQ7xk2eN5qkD1alzcTjz_CFrEfjU71CugePZEqUryFHYJDvpdDjMmzowUzuMD_lbazB3Eu1H3bdhw_HNEV2iQttWANdg6ll4jlh-J7oDR0wn1aTlrDro8yYtb2d1ikaZmqra-EVvQoiOJgyQRUeQ3DEmjzEpH34ZiMJLCo"/>
+</div>
+<span class="text-[10px] font-mono text-on-surface-variant">#QA-452</span>
+</div>
+</div>
+</div>
+</div>
+<!-- IN PROGRESS Column -->
+<div class="flex-1 min-w-[300px] flex flex-col gap-4">
+<div class="flex items-center justify-between px-2">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-accent-blue"></span>
+<span class="text-xs font-label uppercase tracking-widest font-bold text-accent-blue">In Progress</span>
+<span class="text-[10px] bg-surface-container-highest px-1.5 rounded-full">1</span>
+</div>
+</div>
+<div class="space-y-3">
+<div class="bg-surface-container-low p-4 rounded border border-accent-blue/30 shadow-lg shadow-accent-blue/5">
+<div class="flex justify-between mb-2">
+<span class="text-[10px] font-label text-tertiary bg-tertiary/10 px-2 py-0.5 rounded">SECURITY</span>
+<span class="material-symbols-outlined text-accent-blue animate-pulse">sync</span>
+</div>
+<p class="text-sm font-medium mb-3">Implement OAuth2 rotation for API services</p>
+<div class="flex items-center justify-between">
+<div class="flex -space-x-2">
+<img alt="user" class="w-6 h-6 rounded-full border border-background" data-alt="portrait of a confident woman smiling" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBKWZStpO9UhkcNaX_83DnN8E4xkrjueZe7QAoOuL62g7ag91oWzmYeWrEupHujspYq94CDrOb7xHzpQByob03NCd9haTqchJ14nhah6HwubERwX5876RZfnPKh2qngbjqBa6VsVM0JPYjuGsw6CETq6-wI68msBBo9PfPkMrpOMfRgAKV5Hnr6I471zwc4I8ZiMWX6h3t2N3g5dDzlLHiO5kEgPCTJnvqSL-UB6j-shUiJEONcNx-uyZuVjWdrHf0W5xk3LEZ0Kws"/>
+</div>
+<span class="text-[10px] font-mono text-on-surface-variant">#QA-449</span>
+</div>
+</div>
+</div>
+</div>
+<!-- DONE Column -->
+<div class="flex-1 min-w-[300px] flex flex-col gap-4">
+<div class="flex items-center justify-between px-2">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-success-custom"></span>
+<span class="text-xs font-label uppercase tracking-widest font-bold text-success-custom">Done</span>
+<span class="text-[10px] bg-surface-container-highest px-1.5 rounded-full">12</span>
+</div>
+</div>
+<div class="space-y-3 opacity-60">
+<div class="bg-surface-container-low p-4 rounded border border-outline-variant/10">
+<div class="flex justify-between mb-2">
+<span class="text-[10px] font-label text-success-custom bg-success-custom/10 px-2 py-0.5 rounded">STABLE</span>
+</div>
+<p class="text-sm font-medium mb-3 line-through">Automate QA smoke tests on build completion</p>
+<div class="flex items-center justify-between">
+<div class="flex -space-x-2">
+<img alt="user" class="w-6 h-6 rounded-full border border-background" data-alt="portrait of a man with a beard looking at camera" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAFiLyA5xGVEbtb8GmzRMuD2TvlIZcWkOzjsn0CD9nGHJ2SkDCs5m6wPyWtL2mxYTPuAeuOYXMh8caaMbaFzOdmkXjqCu7Ay0T8CYuI80CACNqBGE1EHT9OZMDVpaQjau7cX0aEMlEQwmCg9LMAK8qh59y6ipQi_xM9nlv7F0ibHFKp1QwzeFBBMlBB_NLIRR8mh2JJCw-az4gDUCBtUoRmqGNMhmyyffzkFVGhwqGkP5SJYfQq0qyHmzlYaEDba7Y0Mvww4E_T7AQ"/>
+</div>
+<span class="text-[10px] font-mono text-on-surface-variant">#QA-440</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Right Panel (Pipeline Log Panel) -->
+<aside class="w-[480px] bg-[#1A1A1F] flex flex-col border-l border-[#414754]/15 shadow-2xl relative z-40">
+<!-- Header -->
+<div class="px-5 py-4 flex items-center justify-between bg-surface-container-high/50">
+<div class="flex items-center gap-3">
+<h3 class="text-sm font-bold tracking-tight">Pipeline Logs</h3>
+<span class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-success-custom/10 text-success-custom text-[10px] font-bold uppercase tracking-wider">
+<span class="w-1.5 h-1.5 rounded-full bg-success-custom animate-pulse"></span>
+                        Completed
+                    </span>
+</div>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-on-surface transition-colors p-1">close</button>
+</div>
+<!-- Stage Tab Bar -->
+<div class="flex border-b border-outline-variant/10 bg-surface">
+<button class="flex-1 py-3 flex flex-col items-center justify-center gap-1 group">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-success-custom text-sm" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="text-[11px] font-medium text-on-surface-variant group-hover:text-on-surface">Architect</span>
+</div>
+</button>
+<button class="flex-1 py-3 flex flex-col items-center justify-center gap-1 group">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-success-custom text-sm" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="text-[11px] font-medium text-on-surface-variant group-hover:text-on-surface">UX</span>
+</div>
+</button>
+<button class="flex-1 py-3 flex flex-col items-center justify-center gap-1 group">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-success-custom text-sm" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="text-[11px] font-medium text-on-surface-variant group-hover:text-on-surface">Dev</span>
+</div>
+</button>
+<button class="flex-1 py-3 flex flex-col items-center justify-center gap-1 border-b-2 border-accent-blue bg-accent-blue/5">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-success-custom text-sm" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="text-[11px] font-bold text-accent-blue">QA</span>
+</div>
+</button>
+</div>
+<!-- Log Content -->
+<div class="flex-1 bg-[#0D0D0F] font-mono text-[11px] p-5 overflow-y-auto leading-relaxed">
+<div class="log-line text-on-surface-variant/40 py-0.5"><span class="text-blue-400/50">[2023-11-20 14:30:01]</span> [INFO] Initializing QA test suite...</div>
+<div class="log-line text-on-surface-variant/40 py-0.5"><span class="text-blue-400/50">[2023-11-20 14:30:04]</span> [INFO] Fetching latest environment variables...</div>
+<div class="log-line text-on-surface-variant py-0.5"><span class="text-blue-400/50">[2023-11-20 14:30:08]</span> [INFO] Running 148 automated UI tests</div>
+<div class="log-line py-0.5 text-on-surface"><span class="text-success-custom/60">[PASS]</span> test_login_flow (2.4s)</div>
+<div class="log-line py-0.5 text-on-surface"><span class="text-success-custom/60">[PASS]</span> test_data_persistence (1.8s)</div>
+<div class="log-line py-0.5 text-on-surface"><span class="text-success-custom/60">[PASS]</span> test_api_integration (3.1s)</div>
+<div class="log-line py-0.5 text-on-surface"><span class="text-success-custom/60">[PASS]</span> test_websocket_connectivity (4.2s)</div>
+<div class="log-line py-0.5 text-on-surface"><span class="text-success-custom/60">[PASS]</span> test_resource_cleanup (0.9s)</div>
+<div class="log-line py-0.5 text-on-surface"><span class="text-success-custom/60">[PASS]</span> test_permission_matrix_validation (12.5s)</div>
+<div class="log-line py-0.5 text-on-surface"><span class="text-success-custom/60">[PASS]</span> test_user_session_timeout (5.1s)</div>
+<div class="log-line py-0.5 text-on-surface"><span class="text-success-custom/60">[PASS]</span> test_mfa_flow_verification (8.3s)</div>
+<div class="log-line py-0.5 text-on-surface-variant/60">... (137 more tests passing)</div>
+<div class="log-line py-0.5 text-on-surface"><span class="text-success-custom/60">[PASS]</span> test_final_sanity_check (1.2s)</div>
+<div class="log-line py-2 text-success-custom font-bold bg-success-custom/5 px-2 -mx-2 rounded-sm border-l border-success-custom/30">
+<span class="material-symbols-outlined text-[14px] align-middle mr-1" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                    [SUCCESS] All 148 tests passed.
+                </div>
+<div class="log-line text-on-surface-variant py-0.5 mt-2"><span class="text-blue-400/50">[2023-11-20 14:34:12]</span> [INFO] Generating final coverage report...</div>
+<div class="log-line text-on-surface py-0.5 font-bold"><span class="text-blue-400/50">[2023-11-20 14:34:15]</span> [INFO] Coverage: 98.4%</div>
+<div class="log-line py-0.5 text-on-surface-variant/40"><span class="text-blue-400/50">[2023-11-20 14:34:18]</span> [INFO] Uploading artifacts to storage...</div>
+<div class="log-line py-0.5 text-on-surface-variant/40"><span class="text-blue-400/50">[2023-11-20 14:34:20]</span> [INFO] Cleanup complete.</div>
+<div class="log-line py-3 text-success-custom font-extrabold text-[12px] tracking-wide bg-success-custom/10 px-3 -mx-2 rounded-sm mt-4 border border-success-custom/20">
+<span class="material-symbols-outlined text-[16px] align-middle mr-1">task_alt</span>
+                    [SUCCESS] Pipeline run completed successfully.
+                </div>
+<!-- Anchor for scroll bottom -->
+<div id="log-bottom"></div>
+</div>
+<!-- Footer Meta -->
+<div class="px-5 py-3 border-t border-outline-variant/10 bg-surface-container-low flex justify-between items-center">
+<div class="flex items-center gap-4">
+<div class="flex flex-col">
+<span class="text-[10px] uppercase font-label opacity-40">Duration</span>
+<span class="text-xs font-mono">04:19s</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] uppercase font-label opacity-40">Runner</span>
+<span class="text-xs font-mono">aws-us-east-2</span>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="material-symbols-outlined text-on-surface-variant hover:text-on-surface text-sm transition-colors">download</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-on-surface text-sm transition-colors">open_in_new</button>
+</div>
+</div>
+</aside>
+</div>
+<!-- Floating status indicator for main board -->
+<div class="fixed bottom-6 left-72 bg-surface-container-highest border border-outline-variant/20 px-4 py-2 rounded-full flex items-center gap-3 shadow-2xl backdrop-blur-md">
+<div class="w-2 h-2 rounded-full bg-success-custom"></div>
+<span class="text-xs font-medium">All systems operational</span>
+<span class="h-4 w-px bg-outline-variant/30"></span>
+<span class="text-[10px] font-mono text-on-surface-variant uppercase tracking-tighter">Commit: 7a9e2f1</span>
+</div>
+</body></html>
