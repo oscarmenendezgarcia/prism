@@ -361,9 +361,22 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   // Build the task prompt to pass via stdin.
   const task = readTaskFromSpace(dataDir, run.spaceId, run.taskId);
-  const taskPrompt = task
+  let taskPrompt = task
     ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${run.spaceId}\n`
     : `TaskId: ${run.taskId}\nSpaceId: ${run.spaceId}\n`;
+
+  // Include artifact paths from previous stages (attached to the task by earlier agents).
+  // This gives each stage full context of what was produced before it.
+  if (task && Array.isArray(task.attachments) && task.attachments.length > 0) {
+    const fileArtifacts = task.attachments.filter((a) => a.type === 'file' && a.content);
+    if (fileArtifacts.length > 0) {
+      taskPrompt += '\n## ARTIFACTS FROM PREVIOUS STAGES\n';
+      taskPrompt += 'The following files were produced by earlier pipeline stages. Read them before starting your work:\n';
+      for (const att of fileArtifacts) {
+        taskPrompt += `- ${att.name}: ${att.content}\n`;
+      }
+    }
+  }
 
   const logPath   = stageLogPath(dataDir, run.runId, stageIndex);
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
