@@ -72,13 +72,24 @@ function StatusIcon({ status }: StatusIconProps) {
     );
   }
 
-  if (status === 'failed' || status === 'timeout') {
+  if (status === 'failed') {
     return (
       <span
         className="material-symbols-outlined text-sm leading-none text-error"
         aria-hidden="true"
       >
         close
+      </span>
+    );
+  }
+
+  if (status === 'timeout') {
+    return (
+      <span
+        className="material-symbols-outlined text-sm leading-none text-[#FF9500]"
+        aria-hidden="true"
+      >
+        timer_off
       </span>
     );
   }

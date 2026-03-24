@@ -73,7 +73,8 @@ export function LogViewer({
         >
           error
         </span>
-        <p className="text-xs text-error font-mono break-all">{error}</p>
+        <p className="text-xs text-error font-medium">No se pudo cargar el log.</p>
+        <p className="text-xs text-text-secondary">El servidor no respondió. Se reintentará automáticamente.</p>
       </div>
     );
   }

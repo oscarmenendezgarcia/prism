@@ -212,7 +212,7 @@ describe('StageTabBar — status icons', () => {
     expect(screen.getByText('close')).toBeInTheDocument();
   });
 
-  it('shows "close" icon for timeout stage', () => {
+  it('shows "timer_off" icon for timeout stage', () => {
     render(
       <StageTabBar
         stages={['developer-agent']}
@@ -221,7 +221,7 @@ describe('StageTabBar — status icons', () => {
         onSelect={vi.fn()}
       />
     );
-    expect(screen.getByText('close')).toBeInTheDocument();
+    expect(screen.getByText('timer_off')).toBeInTheDocument();
   });
 
   it('shows "hourglass_empty" icon for pending stage', () => {

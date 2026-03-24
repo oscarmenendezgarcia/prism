@@ -120,8 +120,8 @@ export function PipelineLogPanel() {
     <aside
       role="complementary"
       aria-label="Pipeline log viewer"
-      className="relative flex flex-col bg-surface border-l border-border h-full shrink-0"
-      style={{ '--panel-w': `${width}px`, width: `${width}px` } as React.CSSProperties}
+      className="relative flex flex-col bg-surface border-l border-border h-full shrink-0 w-[var(--panel-w)]"
+      style={{ '--panel-w': `${width}px` } as React.CSSProperties}
     >
       {/* Left-edge drag handle */}
       <div

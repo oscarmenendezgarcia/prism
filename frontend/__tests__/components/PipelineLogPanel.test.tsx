@@ -189,7 +189,7 @@ describe('PipelineLogPanel — log content routing', () => {
     expect(screen.getByText(/Hello from stage 0 log/)).toBeInTheDocument();
   });
 
-  it('displays error message from stageErrors for the selected stage', async () => {
+  it('displays user-friendly error message when stageErrors has an error for the selected stage', async () => {
     useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
     usePipelineLogStore.setState({
       selectedStageIndex: 0,
@@ -197,6 +197,6 @@ describe('PipelineLogPanel — log content routing', () => {
       stageErrors: { 0: 'Connection refused' },
     });
     await act(async () => { renderPanel(); });
-    expect(screen.getByText('Connection refused')).toBeInTheDocument();
+    expect(screen.getByText('No se pudo cargar el log.')).toBeInTheDocument();
   });
 });

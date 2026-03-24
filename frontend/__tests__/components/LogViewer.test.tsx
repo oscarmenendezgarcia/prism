@@ -26,9 +26,15 @@ const defaultProps = {
 };
 
 describe('LogViewer — error state', () => {
-  it('renders error message when error is non-null', () => {
+  it('renders user-friendly error message when error is non-null', () => {
     render(<LogViewer {...defaultProps} error="HTTP 500 server error" />);
-    expect(screen.getByText('HTTP 500 server error')).toBeInTheDocument();
+    expect(screen.getByText('No se pudo cargar el log.')).toBeInTheDocument();
+    expect(screen.getByText('El servidor no respondió. Se reintentará automáticamente.')).toBeInTheDocument();
+  });
+
+  it('does not expose technical error details in the UI', () => {
+    render(<LogViewer {...defaultProps} error="HTTP 500 server error" />);
+    expect(screen.queryByText('HTTP 500 server error')).toBeNull();
   });
 
   it('shows error icon when error is non-null', () => {
