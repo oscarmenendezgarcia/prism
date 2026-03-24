@@ -321,3 +321,66 @@ export const getBackendRun = (runId: string): Promise<BackendRun> =>
 /** Cancel a backend pipeline run. */
 export const deleteRun = (runId: string): Promise<void> =>
   apiFetch<void>(`/runs/${runId}`, { method: 'DELETE' });
+
+// ---------------------------------------------------------------------------
+// Pipeline log viewer API (ADR-1: log-viewer)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sentinel error thrown when the backend returns 404 with code LOG_NOT_AVAILABLE.
+ * This means the stage has not started yet — it is NOT a fatal error.
+ * Callers should display "Stage not started yet." rather than an error message.
+ */
+export class LogNotAvailableError extends Error {
+  constructor() {
+    super('LOG_NOT_AVAILABLE');
+    this.name = 'LogNotAvailableError';
+  }
+}
+
+/**
+ * Fetch log content for a specific pipeline stage.
+ *
+ * Uses the existing `GET /api/v1/runs/:runId/stages/:stageIndex/log?tail=N`
+ * endpoint (no backend changes required per ADR-1 §Decision).
+ *
+ * @param runId       Pipeline run ID returned by POST /api/v1/runs.
+ * @param stageIndex  Zero-based stage index.
+ * @param tail        Number of lines to return from the end. 0 = full log.
+ *                    Default 500 per ADR-1 §Consequences (mitigates large log risk).
+ * @returns Raw text content of the log.
+ * @throws {LogNotAvailableError} When the stage has not started yet (404 LOG_NOT_AVAILABLE).
+ * @throws {Error} On any other HTTP error.
+ */
+export async function getStageLog(
+  runId: string,
+  stageIndex: number,
+  tail = 500,
+): Promise<string> {
+  const qs = tail > 0 ? `?tail=${tail}` : '';
+  const url = `${API_BASE}/runs/${encodeURIComponent(runId)}/stages/${stageIndex}/log${qs}`;
+
+  const res = await fetch(url);
+
+  if (res.ok) {
+    return res.text();
+  }
+
+  // Attempt to parse the JSON error body for a typed code.
+  let code: string | undefined;
+  try {
+    const body = await res.json() as { error?: { code?: string } };
+    code = body?.error?.code;
+  } catch {
+    // Non-JSON body — fall through to generic error.
+  }
+
+  if (res.status === 404 && code === 'LOG_NOT_AVAILABLE') {
+    throw new LogNotAvailableError();
+  }
+
+  throw new Error(
+    code ? `[PipelineLog] fetch error stage=${stageIndex} code=${code} status=${res.status}`
+         : `[PipelineLog] fetch error stage=${stageIndex} status=${res.status}`,
+  );
+}
