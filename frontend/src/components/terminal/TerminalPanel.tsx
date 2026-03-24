@@ -9,7 +9,7 @@
  * Width is dynamic via usePanelResize (unchanged).
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useTerminalSessionStore } from '@/stores/useTerminalSessionStore';
 import { TerminalTab } from '@/components/terminal/TerminalTab';
 import { usePanelResize } from '@/hooks/usePanelResize';
@@ -37,6 +37,16 @@ export function TerminalPanel() {
     minWidth:     280,
     maxWidth:     900,
   });
+
+  // BUG-003: set CSS custom property imperatively on the DOM node to avoid
+  // style={{}} (which violates the no-inline-styles rule in CLAUDE.md).
+  // The --panel-w variable is consumed by the w-[var(--panel-w)] Tailwind class.
+  const asideRef = useCallback(
+    (node: HTMLElement | null) => {
+      if (node) node.style.setProperty('--panel-w', `${width}px`);
+    },
+    [width],
+  );
 
   const activeSession = sessions.find((s) => s.id === activeId);
   const activeStatus  = activeSession?.status ?? 'disconnected';
@@ -80,14 +90,12 @@ export function TerminalPanel() {
   // forwarding would require a ref from TerminalTab, which is out of scope for
   // this layout shell (see TerminalTab for the useTerminal lifecycle).
 
-  if (!panelOpen) return null;
-
   const atCap = sessions.length >= 4;
 
   return (
     <aside
-      className="relative flex flex-col bg-terminal-bg border-l border-[rgba(255,255,255,0.08)] h-full shrink-0 w-[var(--panel-w)]"
-      style={{ '--panel-w': `${width}px` } as React.CSSProperties}
+      ref={asideRef}
+      className={`relative flex flex-col bg-terminal-bg border-l border-[rgba(255,255,255,0.08)] h-full shrink-0 w-[var(--panel-w)]${panelOpen ? '' : ' hidden'}`}
       aria-label="Embedded terminal"
     >
       {/* Left-edge drag handle */}
@@ -190,7 +198,7 @@ export function TerminalPanel() {
           disabled={atCap}
           aria-disabled={atCap}
           aria-label="Add terminal tab"
-          title={atCap ? 'Maximum 4 terminal tabs' : 'New terminal tab'}
+          title={atCap ? 'Maximum 4 tabs open. Close a tab to open a new one.' : 'New terminal tab'}
           className={`shrink-0 w-6 h-6 flex items-center justify-center rounded transition-colors duration-100 ${
             atCap
               ? 'text-terminal-text/20 cursor-not-allowed'

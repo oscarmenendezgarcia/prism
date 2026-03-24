@@ -70,15 +70,33 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('TerminalPanel — visibility', () => {
-  it('renders null when panelOpen is false', () => {
+  it('hides the aside via "hidden" class when panelOpen is false (BUG-001: no unmount)', () => {
     resetStore({ panelOpen: false });
     const { container } = render(<TerminalPanel />);
-    expect(container.firstChild).toBeNull();
+    // The aside must still be in the DOM so TerminalTab components stay mounted
+    // and PTY WebSocket connections are preserved (F-10 / E-02-S02).
+    const aside = container.querySelector('aside');
+    expect(aside).toBeInTheDocument();
+    expect(aside).toHaveClass('hidden');
   });
 
-  it('renders the panel when panelOpen is true', () => {
+  it('TerminalTabs remain mounted when panelOpen is false (BUG-001: PTY preservation)', () => {
+    resetStore({
+      sessions: [makeSession('s1', 'Terminal 1'), makeSession('s2', 'Terminal 2')],
+      activeId: 's1',
+      panelOpen: false,
+    });
     render(<TerminalPanel />);
-    expect(screen.getByRole('complementary')).toBeInTheDocument();
+    // Both tab mocks must still be in the DOM even when the panel is hidden.
+    expect(screen.getByTestId('terminal-tab-s1')).toBeInTheDocument();
+    expect(screen.getByTestId('terminal-tab-s2')).toBeInTheDocument();
+  });
+
+  it('renders the panel visible when panelOpen is true', () => {
+    render(<TerminalPanel />);
+    const aside = screen.getByRole('complementary');
+    expect(aside).toBeInTheDocument();
+    expect(aside).not.toHaveClass('hidden');
   });
 });
 
@@ -197,6 +215,28 @@ describe('TerminalPanel — tab bar', () => {
     render(<TerminalPanel />);
     fireEvent.click(screen.getByRole('button', { name: /add terminal tab/i }));
     expect(mockAdd).toHaveBeenCalled();
+  });
+
+  it('disabled "+" button shows correct tooltip text when at cap (BUG-004)', () => {
+    resetStore({
+      sessions: [
+        makeSession('a', 'Terminal 1'),
+        makeSession('b', 'Terminal 2'),
+        makeSession('c', 'Terminal 3'),
+        makeSession('d', 'Terminal 4'),
+      ],
+      activeId: 'a',
+      panelOpen: true,
+    });
+    render(<TerminalPanel />);
+    const addBtn = screen.getByRole('button', { name: /add terminal tab/i });
+    expect(addBtn).toHaveAttribute('title', 'Maximum 4 tabs open. Close a tab to open a new one.');
+  });
+
+  it('"+" button shows "New terminal tab" tooltip when under cap', () => {
+    render(<TerminalPanel />); // single session, under cap
+    const addBtn = screen.getByRole('button', { name: /add terminal tab/i });
+    expect(addBtn).toHaveAttribute('title', 'New terminal tab');
   });
 });
 
