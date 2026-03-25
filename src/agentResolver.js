@@ -115,13 +115,14 @@ function resolveAgent(agentId, agentsDir) {
   let spawnArgs;
   if (agentMode === 'headless') {
     // Stable fallback: pass system prompt and model explicitly via -p flag.
-    spawnArgs = ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--enable-auto-mode'];
+    spawnArgs = ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--verbose', '--enable-auto-mode'];
   } else {
     // Default subagent mode: invoke the named agent definition.
     // stream-json emits tokens as they arrive so the log file is populated progressively
     // (text mode buffers everything and only writes at the end — empty log on timeout/kill).
+    // --verbose is required by --output-format=stream-json with --print.
     // --enable-auto-mode grants full tool access including MCP tools (mcp__prism__*, etc.)
-    spawnArgs = ['--agent', agentId, '--print', '--output-format', 'stream-json', '--enable-auto-mode'];
+    spawnArgs = ['--agent', agentId, '--print', '--output-format', 'stream-json', '--verbose', '--enable-auto-mode'];
   }
 
   return { agentId, model, systemPrompt, spawnArgs };
