@@ -1,8 +1,8 @@
 /**
- * App header — brand, agent run indicator, pipeline bar, and action buttons.
+ * App header — brand, run indicator, and action buttons.
  * ADR-002: replaces the .app-header section in legacy index.html.
  * ADR-003 §8.1: glass-heavy background, text-text-primary token, ThemeToggle added.
- * ADR-1 (Agent Launcher): AgentRunIndicator, PipelineProgressBar, agent settings gear icon.
+ * ADR-1 (Agent Launcher): RunIndicator (unified, replaces AgentRunIndicator + PipelineProgressBar).
  */
 
 import React from 'react';
@@ -10,8 +10,7 @@ import { Button } from '@/components/shared/Button';
 import { TerminalToggle } from '@/components/terminal/TerminalToggle';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { ConfigToggle } from '@/components/config/ConfigToggle';
-import { AgentRunIndicator } from '@/components/agent-launcher/AgentRunIndicator';
-import { PipelineProgressBar } from '@/components/agent-launcher/PipelineProgressBar';
+import { RunIndicator } from '@/components/agent-launcher/RunIndicator';
 import { AgentSettingsToggle } from '@/components/agent-launcher/AgentSettingsToggle';
 import { RunHistoryToggle } from '@/components/agent-run-history/RunHistoryToggle';
 import { useAppStore } from '@/stores/useAppStore';
@@ -23,11 +22,8 @@ import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
  * Follows the same structure as RunHistoryToggle and TerminalToggle.
  */
 function PipelineLogToggle() {
-  const pipelineState  = useAppStore((s) => s.pipelineState);
   const logPanelOpen   = usePipelineLogStore((s) => s.logPanelOpen);
   const setLogPanelOpen = usePipelineLogStore((s) => s.setLogPanelOpen);
-
-  if (!pipelineState) return null;
 
   return (
     <button
@@ -63,10 +59,9 @@ export function Header() {
         <h1 className="text-xl font-medium text-text-primary tracking-tight">Prism</h1>
       </div>
 
-      {/* Centre: active run indicator + pipeline bar */}
+      {/* Centre: unified run indicator (ADR-1 run-indicator) */}
       <div className="flex items-center gap-3 flex-1 justify-center">
-        <AgentRunIndicator />
-        <PipelineProgressBar />
+        <RunIndicator />
       </div>
 
       {/* Actions: Panel Toggles | New Task | Utility Strip */}
