@@ -78,7 +78,6 @@ class ErrorBoundary extends React.Component<
 function AppContent() {
   const loadSpaces           = useAppStore((s) => s.loadSpaces);
   const loadSettings         = useAppStore((s) => s.loadSettings);
-  const terminalOpen           = useAppStore((s) => s.terminalOpen);
   const configPanelOpen        = useAppStore((s) => s.configPanelOpen);
   const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
   const pipelineState          = useAppStore((s) => s.pipelineState);

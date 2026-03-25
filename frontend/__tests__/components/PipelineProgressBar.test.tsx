@@ -7,6 +7,11 @@
  *   - Abort button hidden when status is 'completed'
  *   - elapsed time display
  *   - aria-label with stage count
+ *
+ * T-3 additions:
+ *   - paused banner shown when status === 'paused'
+ *   - Continue button calls resumePipeline
+ *   - paused banner shows the stage name
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -49,10 +54,13 @@ const STAGES: PipelineStage[] = [
 function makePipelineState(overrides: Partial<PipelineState> = {}): PipelineState {
   return {
     spaceId:           'space-1',
+    taskId:            'task-1',
     stages:            STAGES,
     currentStageIndex: 0,
     startedAt:         new Date().toISOString(),
     status:            'running',
+    subTaskIds:        [],
+    checkpoints:       [],
     ...overrides,
   };
 }
@@ -189,5 +197,114 @@ describe('PipelineProgressBar — Abort button', () => {
     render(<PipelineProgressBar />);
     fireEvent.click(screen.getByRole('button', { name: /abort pipeline/i }));
     expect(abortFn).toHaveBeenCalledOnce();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-3: Paused banner
+// ---------------------------------------------------------------------------
+
+describe('PipelineProgressBar — paused banner (T-3)', () => {
+  it('renders paused banner when status is paused', () => {
+    resetStore({
+      pipelineState: makePipelineState({
+        status: 'paused',
+        currentStageIndex: 1,
+        pausedBeforeStage: 1,
+        checkpoints: [1],
+      }),
+      resumePipeline: vi.fn(),
+    });
+    render(<PipelineProgressBar />);
+    expect(screen.getByTestId('pipeline-paused-banner')).toBeInTheDocument();
+  });
+
+  it('paused banner shows the stage display name', () => {
+    resetStore({
+      pipelineState: makePipelineState({
+        status: 'paused',
+        currentStageIndex: 1,
+        pausedBeforeStage: 1,
+        checkpoints: [1],
+      }),
+      resumePipeline: vi.fn(),
+    });
+    render(<PipelineProgressBar />);
+    expect(screen.getByText(/ux \/ api designer/i)).toBeInTheDocument();
+  });
+
+  it('paused banner shows a Continue button', () => {
+    resetStore({
+      pipelineState: makePipelineState({
+        status: 'paused',
+        pausedBeforeStage: 0,
+        checkpoints: [0],
+      }),
+      resumePipeline: vi.fn(),
+    });
+    render(<PipelineProgressBar />);
+    expect(screen.getByRole('button', { name: /continue pipeline/i })).toBeInTheDocument();
+  });
+
+  it('clicking Continue calls resumePipeline', () => {
+    const resumeFn = vi.fn();
+    resetStore({
+      pipelineState: makePipelineState({
+        status: 'paused',
+        pausedBeforeStage: 0,
+        checkpoints: [0],
+      }),
+      resumePipeline: resumeFn,
+    });
+    render(<PipelineProgressBar />);
+    fireEvent.click(screen.getByRole('button', { name: /continue pipeline/i }));
+    expect(resumeFn).toHaveBeenCalledOnce();
+  });
+
+  it('paused banner shows Abort button', () => {
+    const abortFn = vi.fn();
+    resetStore({
+      pipelineState: makePipelineState({
+        status: 'paused',
+        pausedBeforeStage: 2,
+        checkpoints: [2],
+      }),
+      abortPipeline: abortFn,
+      resumePipeline: vi.fn(),
+    });
+    render(<PipelineProgressBar />);
+    expect(screen.getByRole('button', { name: /abort pipeline/i })).toBeInTheDocument();
+  });
+
+  it('paused banner aria-label mentions the stage', () => {
+    resetStore({
+      pipelineState: makePipelineState({
+        status: 'paused',
+        currentStageIndex: 2,
+        pausedBeforeStage: 2,
+        checkpoints: [2],
+      }),
+      resumePipeline: vi.fn(),
+    });
+    render(<PipelineProgressBar />);
+    expect(screen.getByRole('status')).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining('Developer Agent')
+    );
+  });
+
+  it('does NOT show the running stage-step indicator when paused', () => {
+    resetStore({
+      pipelineState: makePipelineState({
+        status: 'paused',
+        pausedBeforeStage: 1,
+        currentStageIndex: 1,
+        checkpoints: [1],
+      }),
+      resumePipeline: vi.fn(),
+    });
+    render(<PipelineProgressBar />);
+    // Running bar aria-label contains "stage N of M"; paused banner has different label.
+    expect(screen.queryByRole('status', { name: /pipeline: stage/i })).toBeNull();
   });
 });

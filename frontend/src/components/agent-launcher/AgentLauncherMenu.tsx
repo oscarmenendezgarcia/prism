@@ -22,11 +22,17 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
   const menuRef                 = useRef<HTMLDivElement>(null);
   const buttonRef               = useRef<HTMLButtonElement>(null);
 
-  const activeRun       = useActiveRun();
-  const availableAgents = useAvailableAgents();
-  const loadAgents      = useAppStore((s) => s.loadAgents);
-  const prepareAgentRun = useAppStore((s) => s.prepareAgentRun);
-  const startPipeline   = useAppStore((s) => s.startPipeline);
+  const activeRun          = useActiveRun();
+  const availableAgents    = useAvailableAgents();
+  const loadAgents         = useAppStore((s) => s.loadAgents);
+  const prepareAgentRun    = useAppStore((s) => s.prepareAgentRun);
+  const openPipelineConfirm = useAppStore((s) => s.openPipelineConfirm);
+  const spacePipeline      = useAppStore((s) => s.spaces.find((sp) => sp.id === spaceId)?.pipeline);
+
+  const pipelineStages = spacePipeline && spacePipeline.length > 0 ? spacePipeline : null;
+  const pipelineLabel  = pipelineStages
+    ? pipelineStages.map((s) => s.replace(/-/g, ' ')).join(' → ')
+    : 'Full Pipeline';
 
   const isDisabled = activeRun !== null;
 
@@ -58,11 +64,11 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
     [prepareAgentRun, taskId]
   );
 
-  /** Run full pipeline for the current space, anchored to this task card. */
+  /** Open pipeline confirm modal — user reviews/edits stages before running. */
   const handleRunPipeline = useCallback(() => {
     setOpen(false);
-    startPipeline(spaceId, taskId);
-  }, [startPipeline, spaceId, taskId]);
+    openPipelineConfirm(spaceId, taskId);
+  }, [openPipelineConfirm, spaceId, taskId]);
 
   /** Close dropdown on outside click. */
   useEffect(() => {
@@ -148,15 +154,22 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
             <button
               role="menuitem"
               onClick={handleRunPipeline}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-surface-variant transition-colors duration-100 text-left"
+              className="w-full flex flex-col gap-0.5 px-3 py-2 text-sm text-text-primary hover:bg-surface-variant transition-colors duration-100 text-left"
             >
-              <span
-                className="material-symbols-outlined text-base text-warning leading-none flex-shrink-0"
-                aria-hidden="true"
-              >
-                play_arrow
-              </span>
-              <span>Run Full Pipeline</span>
+              <div className="flex items-center gap-2">
+                <span
+                  className="material-symbols-outlined text-base text-warning leading-none flex-shrink-0"
+                  aria-hidden="true"
+                >
+                  play_arrow
+                </span>
+                <span>{pipelineStages ? 'Run Pipeline' : 'Run Full Pipeline'}</span>
+              </div>
+              {pipelineStages && (
+                <span className="text-[10px] text-text-disabled pl-6 leading-snug truncate max-w-[180px]">
+                  {pipelineLabel}
+                </span>
+              )}
             </button>
           </div>
         </div>,

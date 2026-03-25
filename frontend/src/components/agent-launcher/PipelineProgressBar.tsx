@@ -8,12 +8,18 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore, usePipelineState } from '@/stores/useAppStore';
 
-
 const STAGE_LABELS: Record<string, string> = {
   'senior-architect': 'Architect',
   'ux-api-designer':  'UX',
   'developer-agent':  'Dev',
   'qa-engineer-e2e':  'QA',
+};
+
+const STAGE_DISPLAY: Record<string, string> = {
+  'senior-architect': 'Senior Architect',
+  'ux-api-designer':  'UX / API Designer',
+  'developer-agent':  'Developer Agent',
+  'qa-engineer-e2e':  'QA Engineer E2E',
 };
 
 function formatElapsed(seconds: number): string {
@@ -23,9 +29,10 @@ function formatElapsed(seconds: number): string {
 }
 
 export function PipelineProgressBar() {
-  const pipelineState = usePipelineState();
-  const abortPipeline = useAppStore((s) => s.abortPipeline);
-  const clearPipeline = useAppStore((s) => s.clearPipeline);
+  const pipelineState  = usePipelineState();
+  const abortPipeline  = useAppStore((s) => s.abortPipeline);
+  const clearPipeline  = useAppStore((s) => s.clearPipeline);
+  const resumePipeline = useAppStore((s) => s.resumePipeline);
 
   const [elapsedSecs, setElapsedSecs] = useState(0);
 
@@ -46,7 +53,76 @@ export function PipelineProgressBar() {
 
   if (!pipelineState) return null;
 
-  const { stages, currentStageIndex, status } = pipelineState;
+  const { stages, currentStageIndex, status, pausedBeforeStage } = pipelineState;
+
+  // T-3: render a distinct paused banner when the pipeline is waiting for
+  // human confirmation before executing the next stage.
+  if (status === 'paused') {
+    const pausedIdx   = pausedBeforeStage ?? currentStageIndex;
+    const stageName   = STAGE_DISPLAY[stages[pausedIdx]] ?? stages[pausedIdx];
+
+    return (
+      <div
+        className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-warning/10 border border-warning/40"
+        role="status"
+        aria-label={`Pipeline paused before stage ${pausedIdx + 1}: ${stageName}`}
+        data-testid="pipeline-paused-banner"
+      >
+        <span
+          className="material-symbols-outlined text-base text-warning leading-none flex-shrink-0"
+          aria-hidden="true"
+        >
+          pause_circle
+        </span>
+
+        <span className="text-xs text-text-primary flex-1 truncate">
+          Paused before <strong>{stageName}</strong>
+        </span>
+
+        <span className="text-xs text-text-secondary tabular-nums flex-shrink-0">
+          {formatElapsed(elapsedSecs)}
+        </span>
+
+        {/* Continue — resumes from checkpoint */}
+        <button
+          onClick={resumePipeline}
+          aria-label="Continue pipeline"
+          title="Continue"
+          className="text-xs text-primary hover:text-primary/80 transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+        >
+          <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+            play_arrow
+          </span>
+          Continue
+        </button>
+
+        {/* Abort */}
+        <button
+          onClick={abortPipeline}
+          aria-label="Abort pipeline"
+          title="Abort pipeline"
+          className="text-xs text-error hover:text-error-hover transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+        >
+          <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+            stop
+          </span>
+          Abort
+        </button>
+
+        {/* Dismiss */}
+        <button
+          onClick={clearPipeline}
+          aria-label="Dismiss pipeline indicator"
+          title="Dismiss"
+          className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-150 flex-shrink-0"
+        >
+          <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+            close
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
