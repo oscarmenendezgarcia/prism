@@ -1494,7 +1494,8 @@ function buildCliCommand(settings, promptPath) {
 
   // claude (default) — interactive mode so tool calls and thinking are visible in the TUI.
   // Omitting -p intentionally: -p (non-interactive) hides intermediate steps and exits immediately.
-  return `${bin} ${promptRef} --allowedTools "Agent,Bash,Read,Write,Edit,Glob,Grep"`;
+  // --enable-auto-mode grants full tool access; per-agent permissions to be added later.
+  return `${bin} ${promptRef} --enable-auto-mode`;
 }
 
 /**
