@@ -37,10 +37,11 @@ const STAGE_DISPLAY: Record<string, string> = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Format elapsed seconds as m:ss (e.g. "1:05"). */
+/** Format elapsed seconds as m:ss (e.g. "1:05"). Clamps to 0 to handle clock skew. */
 function formatElapsed(seconds: number): string {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  const clamped = Math.max(0, seconds);
+  const m = Math.floor(clamped / 60);
+  const s = clamped % 60;
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
@@ -60,7 +61,7 @@ interface PausedBannerProps {
 function PausedBanner({ stageName, pausedIdx, elapsed, onContinue, onAbort, onDismiss }: PausedBannerProps) {
   return (
     <div
-      className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-warning/10 border border-warning/40"
+      className="flex items-center gap-3 px-3 py-1.5 rounded-sm bg-warning/10 border border-warning/40"
       role="status"
       aria-live="polite"
       aria-label={`Pipeline paused before stage ${pausedIdx + 1}: ${stageName}`}
@@ -128,7 +129,7 @@ interface SingleAgentDotProps {
 function SingleAgentDot({ displayName, elapsed, onAbort }: SingleAgentDotProps) {
   return (
     <div
-      className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-primary/[0.10] border border-primary/[0.20]"
+      className="flex items-center gap-2 px-3 py-1.5 rounded-sm bg-primary/[0.10] border border-primary/[0.20]"
       role="status"
       aria-live="polite"
       aria-label={`Agent running: ${displayName}, elapsed ${formatElapsed(elapsed)}`}
@@ -136,7 +137,7 @@ function SingleAgentDot({ displayName, elapsed, onAbort }: SingleAgentDotProps) 
     >
       {/* Pulsing dot */}
       <span
-        className="w-2 h-2 rounded-full bg-primary animate-pulse flex-shrink-0"
+        className="w-2 h-2 rounded-full bg-success animate-pulse flex-shrink-0"
         aria-hidden="true"
       />
 
@@ -174,7 +175,7 @@ interface StepNodesProps {
 function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDismiss }: StepNodesProps) {
   return (
     <div
-      className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-surface-variant border border-border"
+      className="flex items-center gap-3 px-3 py-1.5 rounded-sm bg-surface-variant border border-border"
       role="status"
       aria-live="polite"
       aria-label={`Pipeline: stage ${currentStageIndex + 1} of ${stages.length}`}
@@ -234,7 +235,7 @@ function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDism
           onClick={onAbort}
           aria-label="Abort pipeline"
           title="Abort pipeline"
-          className="text-xs text-error hover:text-error-hover transition-colors duration-150 flex items-center gap-1"
+          className="text-xs text-error hover:text-error-hover hover:bg-error/[0.10] px-2 py-0.5 rounded transition-colors duration-150 flex items-center gap-1"
         >
           <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
             stop
