@@ -11,6 +11,9 @@ import { useAppStore } from '@/stores/useAppStore';
 const SPACE_NAME_MAX = 100;
 const TITLE_ID = 'space-modal-title';
 
+const DEFAULT_STAGES = ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e'];
+const STAGE_OPTIONS  = DEFAULT_STAGES;
+
 const inputClass =
   'w-full px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/40 transition-colors duration-150 h-12';
 
@@ -22,6 +25,7 @@ export function SpaceModal() {
 
   const [name, setName] = useState('');
   const [workingDirectory, setWorkingDirectory] = useState('');
+  const [pipeline, setPipeline] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -35,6 +39,7 @@ export function SpaceModal() {
     if (isOpen) {
       setName(mode === 'rename' && space ? space.name : '');
       setWorkingDirectory(mode === 'rename' && space ? (space.workingDirectory ?? '') : '');
+      setPipeline(mode === 'rename' && space ? (space.pipeline ?? []) : []);
       setError('');
       setSubmitting(false);
       setTimeout(() => inputRef.current?.focus(), 50);
@@ -54,13 +59,14 @@ export function SpaceModal() {
     }
 
     const wd = workingDirectory.trim() || undefined;
+    const pl = pipeline.length > 0 ? pipeline : undefined;
     setSubmitting(true);
     try {
       if (mode === 'create') {
-        await createSpace(trimmed, wd);
+        await createSpace(trimmed, wd, pl);
         closeModal();
       } else if (mode === 'rename' && space) {
-        await renameSpace(space.id, trimmed, wd ?? '');
+        await renameSpace(space.id, trimmed, wd ?? '', pl ?? []);
         closeModal();
       }
     } catch (err) {
@@ -127,6 +133,64 @@ export function SpaceModal() {
           />
           <span className="text-xs text-text-disabled mt-1 block">
             Used as the working directory when agents run tasks in this space.
+          </span>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-text-primary mb-1.5">
+            Pipeline Stages <span className="text-text-disabled font-normal">(optional — defaults to full pipeline)</span>
+          </label>
+          <div className="flex flex-col gap-2">
+            {(pipeline.length > 0 ? pipeline : []).map((stage, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <select
+                  className={`${inputClass} flex-1 h-10`}
+                  value={stage}
+                  onChange={(e) => {
+                    const next = [...pipeline];
+                    next[i] = e.target.value;
+                    setPipeline(next);
+                  }}
+                >
+                  {STAGE_OPTIONS.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="text-text-secondary hover:text-error transition-colors px-2 py-1 text-sm"
+                  onClick={() => setPipeline(pipeline.filter((_, j) => j !== i))}
+                  aria-label="Remove stage"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            {pipeline.length < STAGE_OPTIONS.length && (
+              <button
+                type="button"
+                className="text-sm text-primary hover:text-primary/80 text-left transition-colors"
+                onClick={() => {
+                  const used = new Set(pipeline);
+                  const next = STAGE_OPTIONS.find((s) => !used.has(s));
+                  if (next) setPipeline([...pipeline, next]);
+                }}
+              >
+                + Add stage
+              </button>
+            )}
+            {pipeline.length > 0 && (
+              <button
+                type="button"
+                className="text-xs text-text-disabled hover:text-text-secondary text-left transition-colors"
+                onClick={() => setPipeline([])}
+              >
+                Reset to default
+              </button>
+            )}
+          </div>
+          <span className="text-xs text-text-disabled mt-1 block">
+            Override the default agent pipeline for tasks in this space.
           </span>
         </div>
       </ModalBody>

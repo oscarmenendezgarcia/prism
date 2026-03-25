@@ -117,7 +117,7 @@ function createSpaceManager(dataDir) {
    * @param {string} name
    * @returns {{ ok: true, space: object } | { ok: false, code: string, message: string }}
    */
-  function createSpace(name, workingDirectory) {
+  function createSpace(name, workingDirectory, pipeline) {
     const validation = validateName(name);
     if (!validation.valid) {
       return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
@@ -139,6 +139,7 @@ function createSpaceManager(dataDir) {
       id:        crypto.randomUUID(),
       name:      validation.name,
       ...(workingDirectory ? { workingDirectory } : {}),
+      ...(Array.isArray(pipeline) && pipeline.length > 0 ? { pipeline } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -163,7 +164,7 @@ function createSpaceManager(dataDir) {
    * @param {string} newName
    * @returns {{ ok: true, space: object } | { ok: false, code: string, message: string }}
    */
-  function renameSpace(id, newName, workingDirectory) {
+  function renameSpace(id, newName, workingDirectory, pipeline) {
     const validation = validateName(newName);
     if (!validation.valid) {
       return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
@@ -198,6 +199,10 @@ function createSpaceManager(dataDir) {
       updatedAt: new Date().toISOString(),
       // workingDirectory: empty string clears it, undefined leaves it unchanged
       ...(workingDirectory !== undefined ? { workingDirectory: workingDirectory || undefined } : {}),
+      // pipeline: empty array clears it, undefined leaves it unchanged
+      ...(pipeline !== undefined
+        ? { pipeline: (Array.isArray(pipeline) && pipeline.length > 0) ? pipeline : undefined }
+        : {}),
     };
 
     writeManifest(spaces);
