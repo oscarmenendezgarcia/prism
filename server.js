@@ -305,11 +305,64 @@ function createApp(dataDir) {
 
   function handleGetTasks(req, res) {
     try {
-      const result = {};
-      for (const column of COLUMNS) {
-        result[column] = readColumn(column).map(stripAttachmentContent);
+      const qs       = new URL(req.url, 'http://x').searchParams;
+      const colFilter = qs.get('column')   || null;
+      const assigned  = qs.get('assigned') || null;
+      const limitRaw  = qs.get('limit');
+      const cursor    = qs.get('cursor')   || null;
+
+      const limit = Math.min(200, Math.max(1, parseInt(limitRaw, 10) || 50));
+
+      // Validate column filter
+      if (colFilter && !COLUMNS.includes(colFilter)) {
+        return sendError(res, 400, 'VALIDATION_ERROR', `Invalid column '${colFilter}'. Must be one of: ${COLUMNS.join(', ')}`);
       }
-      sendJSON(res, 200, result);
+
+      // Build flat sequence: todo → in-progress → done
+      const columns = colFilter ? [colFilter] : COLUMNS;
+      const flat = [];
+      for (const col of columns) {
+        for (const task of readColumn(col)) {
+          if (!assigned || task.assigned === assigned) {
+            flat.push({ ...task, _col: col });
+          }
+        }
+      }
+
+      const total = flat.length;
+
+      // Decode cursor: base64url of JSON { col, id }
+      let startIdx = 0;
+      if (cursor) {
+        try {
+          const { col, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+          const idx = flat.findIndex((t) => t._col === col && t.id === id);
+          startIdx = idx === -1 ? 0 : idx + 1;
+        } catch {
+          return sendError(res, 400, 'VALIDATION_ERROR', 'Invalid cursor value');
+        }
+      }
+
+      const page = flat.slice(startIdx, startIdx + limit);
+
+      // Build next cursor if there are more items beyond this page
+      let nextCursor = null;
+      if (startIdx + limit < total) {
+        const last = page[page.length - 1];
+        nextCursor = Buffer.from(JSON.stringify({ col: last._col, id: last.id })).toString('base64url');
+      }
+
+      // Re-group into columns, strip internal _col field and attachment content
+      const result = {};
+      for (const col of columns) {
+        result[col] = [];
+      }
+      for (const task of page) {
+        const { _col, ...rest } = task;
+        result[_col].push(stripAttachmentContent(rest));
+      }
+
+      sendJSON(res, 200, { ...result, total, nextCursor });
     } catch (err) {
       console.error('GET tasks error:', err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to read task data');
@@ -2022,13 +2075,15 @@ const PIPELINE_RUNS_LOG_ROUTE    = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/lo
  * POST /api/v1/runs
  * Create and kick off a new pipeline run.
  * Body: { spaceId, taskId, stages? }
+ * When stages is omitted, falls back to the space's default pipeline, then the global default.
  * Returns 201 with the initial run object.
  *
  * @param {http.IncomingMessage} req
  * @param {http.ServerResponse}  res
  * @param {string}               dataDir
+ * @param {object}               spaceManager
  */
-async function handleCreateRun(req, res, dataDir) {
+async function handleCreateRun(req, res, dataDir, spaceManager) {
   let body;
   try {
     body = await parseBody(req);
@@ -2052,8 +2107,17 @@ async function handleCreateRun(req, res, dataDir) {
     return sendError(res, 400, 'VALIDATION_ERROR', "The 'stages' field must be an array when provided.");
   }
 
+  // Resolve stages: explicit body > space.pipeline > pipelineManager default
+  let resolvedStages = stages;
+  if (!resolvedStages || resolvedStages.length === 0) {
+    const spaceResult = spaceManager.getSpace(spaceId);
+    if (spaceResult.ok && Array.isArray(spaceResult.space.pipeline) && spaceResult.space.pipeline.length > 0) {
+      resolvedStages = spaceResult.space.pipeline;
+    }
+  }
+
   try {
-    const run = await pipelineManager.createRun({ spaceId, taskId, stages, dataDir });
+    const run = await pipelineManager.createRun({ spaceId, taskId, stages: resolvedStages, dataDir });
     return sendJSON(res, 201, run);
   } catch (err) {
     if (err.code === 'TASK_NOT_FOUND')         return sendError(res, 404, err.code, err.message);
@@ -2263,7 +2327,8 @@ function startServer(options = {}) {
 
         const name             = body && body.name;
         const workingDirectory = body && body.workingDirectory;
-        const result = spaceManager.createSpace(name, workingDirectory);
+        const pipeline         = body && body.pipeline;
+        const result = spaceManager.createSpace(name, workingDirectory, pipeline);
 
         if (!result.ok) {
           const status = result.code === 'DUPLICATE_NAME' ? 409 : 400;
@@ -2300,7 +2365,8 @@ function startServer(options = {}) {
 
         const name             = body && body.name;
         const workingDirectory = body && body.workingDirectory;
-        const result = spaceManager.renameSpace(spaceId, name, workingDirectory);
+        const pipeline         = body && body.pipeline;
+        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline);
 
         if (!result.ok) {
           const status = result.code === 'SPACE_NOT_FOUND' ? 404
@@ -2414,7 +2480,7 @@ function startServer(options = {}) {
     }
 
     if (PIPELINE_RUNS_LIST_ROUTE.test(urlPath)) {
-      if (method === 'POST') return handleCreateRun(req, res, dataDir);
+      if (method === 'POST') return handleCreateRun(req, res, dataDir, spaceManager);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

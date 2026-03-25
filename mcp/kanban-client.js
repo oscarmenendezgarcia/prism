@@ -150,27 +150,22 @@ function tasksBasePath(spaceId) {
 // ---------------------------------------------------------------------------
 
 /**
- * List all tasks, with optional client-side filtering.
+ * List tasks with optional filtering and cursor-based pagination.
  *
- * @param {{ column?: string, assigned?: string, spaceId?: string }} [filters]
+ * @param {{ column?: string, assigned?: string, spaceId?: string, limit?: number, cursor?: string }} [filters]
  * @returns {Promise<object>}
  */
 export async function listTasks(filters = {}) {
-  const { column, assigned, spaceId } = filters;
-  const result = await request('GET', tasksBasePath(spaceId));
-  if (result.error) return result;
+  const { column, assigned, spaceId, limit, cursor } = filters;
 
-  let data = column ? { [column]: result[column] ?? [] } : result;
+  const qs = new URLSearchParams();
+  if (column)   qs.set('column',   column);
+  if (assigned) qs.set('assigned', assigned);
+  if (limit)    qs.set('limit',    String(limit));
+  if (cursor)   qs.set('cursor',   cursor);
 
-  if (assigned) {
-    const filtered = {};
-    for (const [col, tasks] of Object.entries(data)) {
-      filtered[col] = tasks.filter((t) => t.assigned === assigned);
-    }
-    data = filtered;
-  }
-
-  return data;
+  const queryString = qs.toString() ? `?${qs.toString()}` : '';
+  return request('GET', `${tasksBasePath(spaceId)}${queryString}`);
 }
 
 /**

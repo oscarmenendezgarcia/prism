@@ -126,7 +126,7 @@ const server = new McpServer({
 
 server.tool(
   'kanban_list_tasks',
-  'List all tasks on the Kanban board, optionally filtered by column (todo, in-progress, done) or assigned agent name. Returns tasks grouped by column. Pass spaceId to target a specific space.',
+  'List tasks on the Kanban board with optional filtering and cursor-based pagination. Returns tasks grouped by column plus total count and nextCursor. Pass spaceId to target a specific space.',
   {
     column: z
       .enum(['todo', 'in-progress', 'done'])
@@ -136,10 +136,21 @@ server.tool(
       .string()
       .optional()
       .describe('Filter to tasks assigned to this agent name.'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe('Maximum number of tasks to return (1–200). Defaults to 50.'),
+    cursor: z
+      .string()
+      .optional()
+      .describe('Pagination cursor from a previous nextCursor response value.'),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_list_tasks', async ({ column, assigned, spaceId }) => {
-    return listTasks({ column, assigned, spaceId });
+  withTiming('kanban_list_tasks', async ({ column, assigned, limit, cursor, spaceId }) => {
+    return listTasks({ column, assigned, limit, cursor, spaceId });
   })
 );
 
