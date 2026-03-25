@@ -385,8 +385,9 @@ async function spawnStage(dataDir, run, stageIndex) {
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 
   const child = spawn('claude', agentSpec.spawnArgs, {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env:   { ...process.env },
+    stdio:    ['pipe', 'pipe', 'pipe'],
+    detached: true,
+    env:      { ...process.env },
   });
 
   // Write task context to stdin and close so claude receives the prompt.
@@ -403,7 +404,8 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   // Enforce stage timeout.
   const timer = setTimeout(() => {
-    child.kill('SIGTERM');
+    pipelineLog('stage.kill', { runId: run.runId, stageIndex, agentId, pid: child.pid, pgid: child.pid, reason: 'timeout' });
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { /* process group may already be gone */ }
     const currentRun = readRun(dataDir, run.runId);
     if (currentRun) {
       currentRun.stageStatuses[stageIndex].status     = 'timeout';
@@ -634,10 +636,11 @@ async function listRuns(dataDir) {
  * @returns {Promise<void>}
  */
 async function deleteRun(runId, dataDir) {
-  // Send SIGTERM to active process if running.
+  // Send SIGTERM to active process group if running.
   if (activeProcesses.has(runId)) {
-    const { process: child } = activeProcesses.get(runId);
-    try { child.kill('SIGTERM'); } catch { /* process may already be gone */ }
+    const { process: child, stageIndex } = activeProcesses.get(runId);
+    pipelineLog('run.aborted', { runId, pid: child.pid, pgid: child.pid, stageIndex });
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { /* process group may already be gone */ }
     activeProcesses.delete(runId);
   }
 
