@@ -65,6 +65,8 @@ Runs are async — poll `kanban_get_run_status` or `GET /api/v1/runs/:runId`.
 
 Agent mode: `PIPELINE_AGENT_MODE=subagent` (default) uses `--agent <id>`.
 
+Stage timeout: `PIPELINE_STAGE_TIMEOUT_MS` (default: `3600000` — 1 hour).
+
 ## Key ADRs
 
 | # | Decision |

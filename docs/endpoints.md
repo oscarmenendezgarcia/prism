@@ -60,9 +60,19 @@ Params: `?type=`, `?limit=` (default 20, max 200), `?from=`, `?to=`, `?cursor=`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/config/files` | List editable config files |
-| GET | `/config/files/:fileId` | Read file content |
-| PUT | `/config/files/:fileId` | Write file content |
+| GET | `/config/files[?spaceId=]` | List editable config files. If `spaceId` is provided, also includes `<workingDirectory>/CLAUDE.md` and `<workingDirectory>/.claude/agents/*.md` from the space's project dir. |
+| GET | `/config/files/:fileId[?spaceId=]` | Read file content |
+| PUT | `/config/files/:fileId[?spaceId=]` | Write file content |
+
+### Config file scopes
+
+| Scope | Source |
+|-------|--------|
+| `global` | `~/.claude/*.md` |
+| `agent` | `~/.claude/agents/*.md` |
+| `project` | `./CLAUDE.md` (Prism's own project dir) |
+| `space-project` | `<space.workingDirectory>/CLAUDE.md` |
+| `space-agent` | `<space.workingDirectory>/.claude/agents/*.md` |
 
 ## Legacy routes
 

@@ -935,9 +935,11 @@ const CONFIG_MAX_BYTES = 1 * 1024 * 1024; // 1 MB
  * File ID pattern: {scope}-{filename-without-extension-kebab}-md
  * Example: "CLAUDE.md" in global scope → "global-claude-md"
  *
+ * @param {string} [workingDirectory] - Optional project dir. If set, also loads
+ *   <workingDirectory>/CLAUDE.md and <workingDirectory>/.claude/agents/*.md.
  * @returns {Map<string, { id: string, name: string, scope: string, absPath: string, directory: string }>}
  */
-function buildConfigRegistry() {
+function buildConfigRegistry(workingDirectory) {
   const registry = new Map();
 
   // ── Global files: ~/.claude/*.md ─────────────────────────────────────────
@@ -1008,16 +1010,73 @@ function buildConfigRegistry() {
     });
   }
 
+  // ── Space project files: <workingDirectory>/CLAUDE.md + /.claude/agents/ ──
+  if (workingDirectory) {
+    const spaceClaudeMd = path.join(workingDirectory, 'CLAUDE.md');
+    if (fs.existsSync(spaceClaudeMd) && spaceClaudeMd !== projectClaudeMd) {
+      registry.set('space-claude-md', {
+        id:        'space-claude-md',
+        name:      'CLAUDE.md',
+        scope:     'space-project',
+        absPath:   spaceClaudeMd,
+        directory: workingDirectory,
+      });
+    }
+
+    const spaceAgentsDir = path.join(workingDirectory, '.claude', 'agents');
+    if (fs.existsSync(spaceAgentsDir)) {
+      let spaceAgentEntries;
+      try {
+        spaceAgentEntries = fs.readdirSync(spaceAgentsDir);
+      } catch {
+        spaceAgentEntries = [];
+      }
+      const spaceAgentMdFiles = spaceAgentEntries
+        .filter((f) => f.toLowerCase().endsWith('.md'))
+        .sort();
+
+      for (const filename of spaceAgentMdFiles) {
+        const absPath = path.join(spaceAgentsDir, filename);
+        const stem    = filename.slice(0, -3);
+        const kebab   = stem.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const id      = `space-agent-${kebab}-md`;
+        registry.set(id, {
+          id,
+          name:      filename,
+          scope:     'space-agent',
+          absPath,
+          directory: path.join(workingDirectory, '.claude', 'agents'),
+        });
+      }
+    }
+  }
+
   return registry;
 }
 
 /**
- * GET /api/v1/config/files
- * List all available config files. Registry rebuilt on each call.
+ * Resolve workingDirectory for config registry from an optional spaceId query param.
+ * @param {http.IncomingMessage} req
+ * @param {object} spaceManager
+ * @returns {string|undefined}
  */
-function handleConfigListFiles(req, res) {
+function resolveWorkingDirFromQuery(req, spaceManager) {
+  const urlObj = new URL(req.url, 'http://x');
+  const spaceId = urlObj.searchParams.get('spaceId');
+  if (!spaceId) return undefined;
+  const result = spaceManager.getSpace(spaceId);
+  return result.ok ? result.space.workingDirectory : undefined;
+}
+
+/**
+ * GET /api/v1/config/files[?spaceId=...]
+ * List all available config files. Registry rebuilt on each call.
+ * If spaceId is provided, also includes files from the space's workingDirectory.
+ */
+function handleConfigListFiles(req, res, spaceManager) {
   try {
-    const registry = buildConfigRegistry();
+    const workingDirectory = resolveWorkingDirFromQuery(req, spaceManager);
+    const registry = buildConfigRegistry(workingDirectory);
     const files    = [];
 
     for (const entry of registry.values()) {
@@ -1046,12 +1105,13 @@ function handleConfigListFiles(req, res) {
 }
 
 /**
- * GET /api/v1/config/files/:fileId
+ * GET /api/v1/config/files/:fileId[?spaceId=...]
  * Read a config file's full content.
  */
-function handleConfigReadFile(req, res, fileId) {
+function handleConfigReadFile(req, res, fileId, spaceManager) {
   try {
-    const registry = buildConfigRegistry();
+    const workingDirectory = resolveWorkingDirFromQuery(req, spaceManager);
+    const registry = buildConfigRegistry(workingDirectory);
     const entry    = registry.get(fileId);
 
     if (!entry) {
@@ -1086,7 +1146,7 @@ function handleConfigReadFile(req, res, fileId) {
  * PUT /api/v1/config/files/:fileId
  * Atomically overwrite a config file using .tmp + renameSync.
  */
-async function handleConfigSaveFile(req, res, fileId) {
+async function handleConfigSaveFile(req, res, fileId, spaceManager) {
   // Parse body — use a larger limit for config files (up to 1 MB content + JSON overhead).
   let body;
   try {
@@ -1117,7 +1177,8 @@ async function handleConfigSaveFile(req, res, fileId) {
   }
 
   // Validate file ID against registry (security boundary — no path traversal possible).
-  const registry = buildConfigRegistry();
+  const workingDirectory = resolveWorkingDirFromQuery(req, spaceManager);
+  const registry = buildConfigRegistry(workingDirectory);
   const entry    = registry.get(fileId);
   if (!entry) {
     return sendError(res, 404, 'FILE_NOT_FOUND', `Config file '${fileId}' was not found.`);
@@ -2431,7 +2492,7 @@ function startServer(options = {}) {
     // -----------------------------------------------------------------------
     if (CONFIG_FILES_LIST_ROUTE.test(urlPath)) {
       if (method === 'GET') {
-        return handleConfigListFiles(req, res);
+        return handleConfigListFiles(req, res, spaceManager);
       }
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
@@ -2440,10 +2501,10 @@ function startServer(options = {}) {
     if (configFileSingleMatch) {
       const fileId = configFileSingleMatch[1];
       if (method === 'GET') {
-        return handleConfigReadFile(req, res, fileId);
+        return handleConfigReadFile(req, res, fileId, spaceManager);
       }
       if (method === 'PUT') {
-        return handleConfigSaveFile(req, res, fileId);
+        return handleConfigSaveFile(req, res, fileId, spaceManager);
       }
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }

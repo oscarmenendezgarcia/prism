@@ -463,7 +463,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadConfigFiles: async () => {
     set({ configLoading: true });
     try {
-      const files = await api.getConfigFiles();
+      const files = await api.getConfigFiles(get().activeSpaceId);
       set({ configFiles: files });
     } catch (err) {
       get().showToast(`Failed to load config files: ${(err as Error).message}`, 'error');
@@ -475,7 +475,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectConfigFile: async (fileId: string) => {
     set({ configLoading: true });
     try {
-      const file = await api.getConfigFile(fileId);
+      const file = await api.getConfigFile(fileId, get().activeSpaceId);
       set({
         activeConfigFileId:   file.id,
         activeConfigContent:  file.content,
@@ -503,7 +503,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({ configSaving: true });
     try {
-      await api.saveConfigFile(activeConfigFileId, activeConfigContent);
+      await api.saveConfigFile(activeConfigFileId, activeConfigContent, get().activeSpaceId);
       set({
         activeConfigOriginal: activeConfigContent,
         configDirty:          false,

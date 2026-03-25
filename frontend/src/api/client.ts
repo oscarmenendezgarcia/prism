@@ -161,23 +161,25 @@ export const getAttachmentContent = (
  * List all available config files.
  * Triggers a registry rebuild on the server to pick up newly created files.
  */
-export const getConfigFiles = (): Promise<ConfigFile[]> =>
-  apiFetch<ConfigFile[]>('/config/files');
+export const getConfigFiles = (spaceId?: string): Promise<ConfigFile[]> =>
+  apiFetch<ConfigFile[]>(spaceId ? `/config/files?spaceId=${encodeURIComponent(spaceId)}` : '/config/files');
 
 /**
  * Read the full content of a config file by its opaque file ID.
- * @param fileId - Opaque ID returned by getConfigFiles (e.g. "global-claude-md").
+ * @param fileId  - Opaque ID returned by getConfigFiles (e.g. "global-claude-md").
+ * @param spaceId - Optional space ID to resolve project files from workingDirectory.
  */
-export const getConfigFile = (fileId: string): Promise<ConfigFileContent> =>
-  apiFetch<ConfigFileContent>(`/config/files/${encodeURIComponent(fileId)}`);
+export const getConfigFile = (fileId: string, spaceId?: string): Promise<ConfigFileContent> =>
+  apiFetch<ConfigFileContent>(`/config/files/${encodeURIComponent(fileId)}${spaceId ? `?spaceId=${encodeURIComponent(spaceId)}` : ''}`);
 
 /**
  * Atomically overwrite a config file with new content.
  * @param fileId  - Opaque ID returned by getConfigFiles.
  * @param content - New UTF-8 text content. Empty string is valid (clears file).
+ * @param spaceId - Optional space ID to resolve project files from workingDirectory.
  */
-export const saveConfigFile = (fileId: string, content: string): Promise<ConfigFileSaveResult> =>
-  apiFetch<ConfigFileSaveResult>(`/config/files/${encodeURIComponent(fileId)}`, {
+export const saveConfigFile = (fileId: string, content: string, spaceId?: string): Promise<ConfigFileSaveResult> =>
+  apiFetch<ConfigFileSaveResult>(`/config/files/${encodeURIComponent(fileId)}${spaceId ? `?spaceId=${encodeURIComponent(spaceId)}` : ''}`, {
     method: 'PUT',
     body: JSON.stringify({ content }),
   });
