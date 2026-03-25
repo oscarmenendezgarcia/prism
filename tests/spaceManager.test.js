@@ -1,0 +1,571 @@
+/**
+ * Unit tests for src/spaceManager.js
+ *
+ * Tests all CRUD operations, validation constraints, and edge cases:
+ *   - listSpaces, getSpace, createSpace, renameSpace, deleteSpace
+ *   - Duplicate name (case-insensitive), last-space guard, not-found errors
+ *   - Atomic manifest writes (.tmp + rename)
+ *
+ * All tests use isolated temp directories; production data is never touched.
+ *
+ * Run with: node tests/spaceManager.test.js
+ */
+
+'use strict';
+
+const fs   = require('fs');
+const os   = require('os');
+const path = require('path');
+const { createSpaceManager } = require('../src/spaceManager');
+
+// ---------------------------------------------------------------------------
+// Minimal test runner
+// ---------------------------------------------------------------------------
+
+let passed   = 0;
+let failed   = 0;
+const failures = [];
+
+function assert(condition, message) {
+  if (!condition) throw new Error(`Assertion failed: ${message}`);
+}
+
+async function test(name, fn) {
+  try {
+    await fn();
+    console.log(`  PASS  ${name}`);
+    passed++;
+  } catch (err) {
+    console.error(`  FAIL  ${name}`);
+    console.error(`        ${err.message}`);
+    failed++;
+    failures.push({ name, error: err.message });
+  }
+}
+
+function suite(name) {
+  console.log(`\n${name}`);
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function makeTmpDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'prism-sm-test-'));
+}
+
+function rmTmpDir(dir) {
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function readJSON(filePath) {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+/**
+ * Create a SpaceManager with a pre-seeded default space so tests start
+ * from a clean known state.
+ */
+function makeManager(dir) {
+  // Seed the default space manually (mimics post-migration state).
+  const spacesDir    = path.join(dir, 'spaces', 'default');
+  const manifestPath = path.join(dir, 'spaces.json');
+
+  fs.mkdirSync(spacesDir, { recursive: true });
+  const cols = ['todo', 'in-progress', 'done'];
+  for (const col of cols) {
+    fs.writeFileSync(path.join(spacesDir, `${col}.json`), '[]', 'utf8');
+  }
+
+  const now = new Date().toISOString();
+  fs.writeFileSync(
+    manifestPath,
+    JSON.stringify([{ id: 'default', name: 'General', createdAt: now, updatedAt: now }], null, 2),
+    'utf8'
+  );
+
+  return createSpaceManager(dir);
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+async function runTests() {
+
+  // =========================================================================
+  // listSpaces
+  // =========================================================================
+
+  suite('listSpaces()');
+
+  await test('returns all spaces from manifest', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm = makeManager(dir);
+      const spaces = sm.listSpaces();
+      assert(Array.isArray(spaces),      'Should return an array');
+      assert(spaces.length === 1,        'Should have 1 space');
+      assert(spaces[0].id   === 'default', 'First space id should be "default"');
+      assert(spaces[0].name === 'General', 'First space name should be "General"');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns empty array when manifest does not exist', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = createSpaceManager(dir); // no seeding
+      const spaces = sm.listSpaces();
+      assert(Array.isArray(spaces), 'Should return an array');
+      assert(spaces.length === 0,   'Should be empty when manifest absent');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  // =========================================================================
+  // getSpace
+  // =========================================================================
+
+  suite('getSpace(id)');
+
+  await test('returns { ok: true, space } for existing space', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.getSpace('default');
+      assert(result.ok === true,             'ok should be true');
+      assert(result.space.id   === 'default', 'space.id should be "default"');
+      assert(result.space.name === 'General', 'space.name should be "General"');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns SPACE_NOT_FOUND for unknown id', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.getSpace('does-not-exist');
+      assert(result.ok   === false,         'ok should be false');
+      assert(result.code === 'SPACE_NOT_FOUND', 'code should be SPACE_NOT_FOUND');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  // =========================================================================
+  // createSpace
+  // =========================================================================
+
+  suite('createSpace(name)');
+
+  await test('creates a new space with a UUID id and empty column files', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.createSpace('Feature Alpha');
+
+      assert(result.ok === true,                    'ok should be true');
+      assert(result.space.name === 'Feature Alpha',  'name should match');
+      assert(typeof result.space.id === 'string',    'id should be a string');
+      assert(result.space.id !== 'default',          'id should not be "default"');
+
+      // Directory and column files should exist.
+      const spaceDir = path.join(dir, 'spaces', result.space.id);
+      assert(fs.existsSync(spaceDir),                                        'Space dir should exist');
+      assert(fs.existsSync(path.join(spaceDir, 'todo.json')),        'todo.json should exist');
+      assert(fs.existsSync(path.join(spaceDir, 'in-progress.json')), 'in-progress.json should exist');
+      assert(fs.existsSync(path.join(spaceDir, 'done.json')),        'done.json should exist');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('appends to manifest after create', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm = makeManager(dir);
+      sm.createSpace('Sprint 1');
+
+      const spaces = sm.listSpaces();
+      assert(spaces.length === 2, 'Should have 2 spaces after create');
+      assert(spaces.some((s) => s.name === 'Sprint 1'), 'Sprint 1 should be in list');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('trims whitespace from name', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.createSpace('  Padded  ');
+      assert(result.ok === true,            'ok should be true');
+      assert(result.space.name === 'Padded', 'name should be trimmed');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns VALIDATION_ERROR for empty name', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.createSpace('   ');
+      assert(result.ok === false,              'ok should be false');
+      assert(result.code === 'VALIDATION_ERROR', 'code should be VALIDATION_ERROR');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns VALIDATION_ERROR for name exceeding 100 chars', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.createSpace('x'.repeat(101));
+      assert(result.ok === false,              'ok should be false');
+      assert(result.code === 'VALIDATION_ERROR', 'code should be VALIDATION_ERROR');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns VALIDATION_ERROR when name is not a string', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.createSpace(42);
+      assert(result.ok === false,              'ok should be false');
+      assert(result.code === 'VALIDATION_ERROR', 'code should be VALIDATION_ERROR');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns DUPLICATE_NAME for case-insensitive duplicate', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm = makeManager(dir);
+      sm.createSpace('Alpha');
+      const result = sm.createSpace('alpha');
+      assert(result.ok   === false,         'ok should be false');
+      assert(result.code === 'DUPLICATE_NAME', 'code should be DUPLICATE_NAME');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns DUPLICATE_NAME for duplicate with different casing and extra spaces', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm = makeManager(dir);
+      sm.createSpace('Dev Team');
+      const result = sm.createSpace('  DEV TEAM  ');
+      assert(result.ok   === false,         'ok should be false');
+      assert(result.code === 'DUPLICATE_NAME', 'code should be DUPLICATE_NAME');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('100-char name is accepted (boundary)', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.createSpace('x'.repeat(100));
+      assert(result.ok === true, 'Exactly 100 chars should be valid');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  // =========================================================================
+  // renameSpace
+  // =========================================================================
+
+  suite('renameSpace(id, newName)');
+
+  await test('updates name and updatedAt in manifest', async () => {
+    const dir = makeTmpDir();
+    try {
+      const sm = makeManager(dir);
+      const before = sm.getSpace('default').space.updatedAt;
+
+      // Ensure time advances (Node.js Date.now() resolution can be < 1ms).
+      await new Promise((r) => setTimeout(r, 2));
+
+      const result = sm.renameSpace('default', 'My Board');
+      assert(result.ok === true,                 'ok should be true');
+      assert(result.space.name === 'My Board',    'name should be updated');
+      assert(result.space.updatedAt !== before,   'updatedAt should change');
+      assert(result.space.createdAt === sm.getSpace('default').space.createdAt, 'createdAt should not change');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('persists rename to manifest file', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm = makeManager(dir);
+      sm.renameSpace('default', 'Renamed');
+
+      const freshSm = createSpaceManager(dir);
+      const space   = freshSm.getSpace('default');
+      assert(space.ok === true,              'Should find space after rename');
+      assert(space.space.name === 'Renamed', 'Persisted name should be "Renamed"');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns SPACE_NOT_FOUND for unknown id', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.renameSpace('no-such-id', 'Name');
+      assert(result.ok   === false,             'ok should be false');
+      assert(result.code === 'SPACE_NOT_FOUND', 'code should be SPACE_NOT_FOUND');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns DUPLICATE_NAME when renaming to an existing name', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      sm.createSpace('Beta');
+      const beta   = sm.listSpaces().find((s) => s.name === 'Beta');
+      const result = sm.renameSpace(beta.id, 'general'); // case-insensitive match with "General"
+      assert(result.ok   === false,          'ok should be false');
+      assert(result.code === 'DUPLICATE_NAME', 'code should be DUPLICATE_NAME');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns VALIDATION_ERROR for empty new name', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.renameSpace('default', '');
+      assert(result.ok   === false,              'ok should be false');
+      assert(result.code === 'VALIDATION_ERROR', 'code should be VALIDATION_ERROR');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+   await test('renaming to the same name as itself succeeds (no duplicate)', () => {
+     const dir = makeTmpDir();
+     try {
+       const sm     = makeManager(dir);
+       const result = sm.renameSpace('default', 'General');
+       assert(result.ok === true, 'Renaming to same name should succeed');
+     } finally {
+       rmTmpDir(dir);
+     }
+   });
+
+   // =========================================================================
+   // projectClaudeMdPath
+   // =========================================================================
+
+   suite('createSpace with projectClaudeMdPath');
+
+   await test('accepts projectClaudeMdPath on create', () => {
+     const dir = makeTmpDir();
+     try {
+       const sm     = makeManager(dir);
+       const result = sm.createSpace('Project', '/workspace', [], 'docs/CLAUDE.md');
+       assert(result.ok === true, 'ok should be true');
+       assert(result.space.projectClaudeMdPath === 'docs/CLAUDE.md', 'projectClaudeMdPath should be set');
+     } finally {
+       rmTmpDir(dir);
+     }
+   });
+
+   await test('omits projectClaudeMdPath if not provided', () => {
+     const dir = makeTmpDir();
+     try {
+       const sm     = makeManager(dir);
+       const result = sm.createSpace('Project');
+       assert(result.ok === true, 'ok should be true');
+       assert(result.space.projectClaudeMdPath === undefined, 'projectClaudeMdPath should be undefined');
+     } finally {
+       rmTmpDir(dir);
+     }
+   });
+
+   suite('renameSpace with projectClaudeMdPath');
+
+   await test('updates projectClaudeMdPath on rename', () => {
+     const dir = makeTmpDir();
+     try {
+       const sm = makeManager(dir);
+       const created = sm.createSpace('Project', '/workspace', [], 'docs/old.md');
+       
+       const result = sm.renameSpace(created.space.id, 'Project', '/workspace', [], 'docs/new.md');
+       assert(result.ok === true, 'ok should be true');
+       assert(result.space.projectClaudeMdPath === 'docs/new.md', 'projectClaudeMdPath should be updated');
+     } finally {
+       rmTmpDir(dir);
+     }
+   });
+
+   await test('clears projectClaudeMdPath with empty string', () => {
+     const dir = makeTmpDir();
+     try {
+       const sm = makeManager(dir);
+       const created = sm.createSpace('Project', '/workspace', [], 'docs/CLAUDE.md');
+       
+       const result = sm.renameSpace(created.space.id, 'Project', '/workspace', [], '');
+       assert(result.ok === true, 'ok should be true');
+       assert(result.space.projectClaudeMdPath === undefined, 'projectClaudeMdPath should be undefined after clearing');
+     } finally {
+       rmTmpDir(dir);
+     }
+   });
+
+  // =========================================================================
+  // deleteSpace
+  // =========================================================================
+
+  suite('deleteSpace(id)');
+
+  await test('removes the space directory from disk', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm      = makeManager(dir);
+      const created = sm.createSpace('Temp Space');
+      const spaceId = created.space.id;
+      const spaceDir = path.join(dir, 'spaces', spaceId);
+      assert(fs.existsSync(spaceDir), 'Space dir should exist before delete');
+
+      sm.deleteSpace(spaceId);
+      assert(!fs.existsSync(spaceDir), 'Space dir should be removed after delete');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('removes entry from manifest', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm      = makeManager(dir);
+      const created = sm.createSpace('To Delete');
+      const id      = created.space.id;
+
+      sm.deleteSpace(id);
+
+      const spaces = sm.listSpaces();
+      assert(!spaces.some((s) => s.id === id), 'Deleted space should not appear in list');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns { ok: true, id } on success', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm      = makeManager(dir);
+      const created = sm.createSpace('X');
+      const result  = sm.deleteSpace(created.space.id);
+
+      assert(result.ok === true,                 'ok should be true');
+      assert(result.id === created.space.id,      'id should match deleted space');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns LAST_SPACE when attempting to delete the only space', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.deleteSpace('default');
+      assert(result.ok   === false,      'ok should be false');
+      assert(result.code === 'LAST_SPACE', 'code should be LAST_SPACE');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns SPACE_NOT_FOUND for unknown id', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      sm.createSpace('Extra'); // ensure count > 1 so LAST_SPACE is not triggered
+      const result = sm.deleteSpace('ghost-id');
+      assert(result.ok   === false,             'ok should be false');
+      assert(result.code === 'SPACE_NOT_FOUND', 'code should be SPACE_NOT_FOUND');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  // =========================================================================
+  // ensureAllSpaces
+  // =========================================================================
+
+  suite('ensureAllSpaces()');
+
+  await test('recreates missing column files for a space', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm = makeManager(dir);
+      // Manually delete a column file to simulate corruption.
+      const todoPath = path.join(dir, 'spaces', 'default', 'todo.json');
+      fs.unlinkSync(todoPath);
+      assert(!fs.existsSync(todoPath), 'Precondition: todo.json is missing');
+
+      sm.ensureAllSpaces();
+      assert(fs.existsSync(todoPath), 'ensureAllSpaces should recreate todo.json');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('recreates missing space directory', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm    = makeManager(dir);
+      const spDir = path.join(dir, 'spaces', 'default');
+      fs.rmSync(spDir, { recursive: true, force: true });
+      assert(!fs.existsSync(spDir), 'Precondition: space dir is missing');
+
+      sm.ensureAllSpaces();
+      assert(fs.existsSync(spDir), 'ensureAllSpaces should recreate the space directory');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  // =========================================================================
+  // Summary
+  // =========================================================================
+
+  console.log('\n' + '='.repeat(60));
+  console.log(`Results: ${passed} passed, ${failed} failed`);
+  if (failures.length > 0) {
+    console.log('\nFailed tests:');
+    for (const f of failures) {
+      console.log(`  - ${f.name}: ${f.error}`);
+    }
+    process.exit(1);
+  } else {
+    console.log('All tests passed.');
+    process.exit(0);
+  }
+}
+
+runTests().catch((err) => {
+  console.error('Fatal test runner error:', err);
+  process.exit(1);
+});

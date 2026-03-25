@@ -10,7 +10,7 @@
  *
  * Spawn modes (controlled by PIPELINE_AGENT_MODE env var):
  *   subagent (default): ['--agent', agentId, '--print', '--no-auto-approve']
- *   headless:           ['-p', systemPrompt, '--model', model, '--no-auto-approve']
+ *   headless:           ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--verbose', '--enable-auto-mode']
  */
 
 'use strict';
@@ -122,7 +122,7 @@ function resolveAgent(agentId, agentsDir) {
     // (text mode buffers everything and only writes at the end — empty log on timeout/kill).
     // --verbose is required by --output-format=stream-json with --print.
     // --enable-auto-mode grants full tool access including MCP tools (mcp__prism__*, etc.)
-    spawnArgs = ['--agent', agentId, '--print', '--output-format', 'stream-json', '--verbose', '--enable-auto-mode'];
+    spawnArgs = ['--agent', agentId, '--print', '--enable-auto-mode'];
   }
 
   return { agentId, model, systemPrompt, spawnArgs };

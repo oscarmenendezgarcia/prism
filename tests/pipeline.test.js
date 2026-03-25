@@ -131,7 +131,7 @@ describe('agentResolver', () => {
     assert.equal(spec.agentId, 'senior-architect');
     assert.equal(spec.model, 'opus');
     assert.ok(spec.systemPrompt.includes('You are the senior architect.'));
-    assert.deepEqual(spec.spawnArgs, ['--agent', 'senior-architect', '--print', '--no-auto-approve']);
+    assert.deepEqual(spec.spawnArgs, ['--agent', 'senior-architect', '--print', '--enable-auto-mode']);
 
     fs.rmSync(agentsDir, { recursive: true, force: true });
   });
@@ -151,7 +151,10 @@ describe('agentResolver', () => {
     assert.ok(spec.spawnArgs[1].includes('You are the UX designer.'));
     assert.equal(spec.spawnArgs[2], '--model');
     assert.equal(spec.spawnArgs[3], 'sonnet');
-    assert.equal(spec.spawnArgs[4], '--no-auto-approve');
+    assert.equal(spec.spawnArgs[4], '--output-format');
+    assert.equal(spec.spawnArgs[5], 'stream-json');
+    assert.equal(spec.spawnArgs[6], '--verbose');
+    assert.equal(spec.spawnArgs[7], '--enable-auto-mode');
 
     delete process.env.PIPELINE_AGENT_MODE;
     delete require.cache[require.resolve('../src/agentResolver')];

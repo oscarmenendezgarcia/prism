@@ -146,7 +146,7 @@ async function runTests() {
       for (const item of res.body) {
         assert(typeof item.id === 'string',        `item.id should be a string, got ${typeof item.id}`);
         assert(typeof item.name === 'string',      `item.name should be a string`);
-        assert(item.scope === 'global' || item.scope === 'project', `item.scope must be 'global' or 'project'`);
+        assert(item.scope === 'global' || item.scope === 'project' || item.scope === 'agent', `item.scope must be 'global', 'project', or 'agent'`);
         assert(typeof item.directory === 'string', `item.directory should be a string`);
         assert(typeof item.sizeBytes === 'number', `item.sizeBytes should be a number`);
         assert(typeof item.modifiedAt === 'string', `item.modifiedAt should be a string`);
@@ -176,7 +176,7 @@ async function runTests() {
 
     await test('file IDs match pattern: (global|project)-[a-z0-9-]+-md', async () => {
       const res = await request('GET', '/api/v1/config/files');
-      const idPattern = /^(global|project)-[a-z0-9-]+-md$/;
+      const idPattern = /^(global|project|agent)-[a-z0-9-]+-md$/;
       for (const item of res.body) {
         assert(idPattern.test(item.id), `ID '${item.id}' does not match expected pattern`);
       }

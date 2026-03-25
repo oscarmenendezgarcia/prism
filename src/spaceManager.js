@@ -124,7 +124,7 @@ function createSpaceManager(dataDir) {
    *   Not exposed through the HTTP API.
    * @returns {{ ok: true, space: object } | { ok: false, code: string, message: string }}
    */
-  function createSpace(name, workingDirectory, pipeline, _id) {
+  function createSpace(name, workingDirectory, pipeline, projectClaudeMdPath, _id) {
     const validation = validateName(name);
     if (!validation.valid) {
       return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
@@ -147,6 +147,7 @@ function createSpaceManager(dataDir) {
       name:      validation.name,
       ...(workingDirectory ? { workingDirectory } : {}),
       ...(Array.isArray(pipeline) && pipeline.length > 0 ? { pipeline } : {}),
+      ...(projectClaudeMdPath && typeof projectClaudeMdPath === 'string' ? { projectClaudeMdPath } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -171,7 +172,7 @@ function createSpaceManager(dataDir) {
    * @param {string} newName
    * @returns {{ ok: true, space: object } | { ok: false, code: string, message: string }}
    */
-  function renameSpace(id, newName, workingDirectory, pipeline) {
+  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath) {
     const validation = validateName(newName);
     if (!validation.valid) {
       return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
@@ -209,6 +210,10 @@ function createSpaceManager(dataDir) {
       // pipeline: empty array clears it, undefined leaves it unchanged
       ...(pipeline !== undefined
         ? { pipeline: (Array.isArray(pipeline) && pipeline.length > 0) ? pipeline : undefined }
+        : {}),
+      // projectClaudeMdPath: empty string clears it, undefined leaves it unchanged
+      ...(projectClaudeMdPath !== undefined
+        ? { projectClaudeMdPath: projectClaudeMdPath || undefined }
         : {}),
     };
 
@@ -271,7 +276,7 @@ function createSpaceManager(dataDir) {
       // spaceId='default'. On a fresh install the first space MUST carry the
       // literal id 'default' so both the shim and test helpers work correctly.
       console.log('[spaceManager] No spaces found — creating default General space (id: default)');
-      createSpace('General', undefined, undefined, 'default');
+      createSpace('General', undefined, undefined, undefined, 'default');
       return;
     }
 
