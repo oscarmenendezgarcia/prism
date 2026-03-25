@@ -9,3 +9,4 @@ data/
 .env.*.local
 .claude/
 *.log
+agent-docs/
