@@ -311,7 +311,9 @@ function createApp(dataDir) {
       const limitRaw  = qs.get('limit');
       const cursor    = qs.get('cursor')   || null;
 
-      const limit = Math.min(200, Math.max(1, parseInt(limitRaw, 10) || 50));
+      // No limit param → return all tasks (frontend use case).
+      // Explicit limit → cap at 200 (MCP/agent use case).
+      const limit = limitRaw != null ? Math.min(200, Math.max(1, parseInt(limitRaw, 10) || 50)) : Infinity;
 
       // Validate column filter
       if (colFilter && !COLUMNS.includes(colFilter)) {
