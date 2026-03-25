@@ -114,10 +114,17 @@ function createSpaceManager(dataDir) {
 
   /**
    * Create a new space.
-   * @param {string} name
+   *
+   * @param {string}   name
+   * @param {string}   [workingDirectory]
+   * @param {string[]} [pipeline]
+   * @param {string}   [_id] - Internal ID override. Used only by ensureAllSpaces()
+   *   to guarantee a stable 'default' ID on fresh installs so that the legacy
+   *   /api/v1/tasks/* shim keeps working (ADR-1 section D2 / BUG-001).
+   *   Not exposed through the HTTP API.
    * @returns {{ ok: true, space: object } | { ok: false, code: string, message: string }}
    */
-  function createSpace(name, workingDirectory, pipeline) {
+  function createSpace(name, workingDirectory, pipeline, _id) {
     const validation = validateName(name);
     if (!validation.valid) {
       return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
@@ -136,7 +143,7 @@ function createSpaceManager(dataDir) {
 
     const now = new Date().toISOString();
     const space = {
-      id:        crypto.randomUUID(),
+      id:        _id || crypto.randomUUID(),
       name:      validation.name,
       ...(workingDirectory ? { workingDirectory } : {}),
       ...(Array.isArray(pipeline) && pipeline.length > 0 ? { pipeline } : {}),
@@ -260,8 +267,11 @@ function createSpaceManager(dataDir) {
     const spaces = readManifest();
 
     if (spaces.length === 0) {
-      console.log('[spaceManager] No spaces found — creating default "General" space');
-      createSpace('General');
+      // ADR-1 section D2 / BUG-001: The legacy /api/v1/tasks/* shim routes to
+      // spaceId='default'. On a fresh install the first space MUST carry the
+      // literal id 'default' so both the shim and test helpers work correctly.
+      console.log('[spaceManager] No spaces found — creating default General space (id: default)');
+      createSpace('General', undefined, undefined, 'default');
       return;
     }
 
