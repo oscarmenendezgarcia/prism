@@ -359,6 +359,7 @@ function resetLauncherStore() {
     toast:            null,
     availableAgents:  [],
     activeRun:        null,
+    _agentRunPollId:  null,
     preparedRun:      null,
     promptPreviewOpen: false,
     pipelineState:    null,
@@ -456,7 +457,8 @@ describe('executeAgentRun', () => {
     expect(senderFn).not.toHaveBeenCalled();
   });
 
-  it('sends the CLI command + newline via activeSendInput when connected', async () => {
+  it('always dispatches to api.startRun (unified pipeline path) regardless of terminal state', async () => {
+    // Terminal is open — PTY path no longer used; single-agent runs always go through the pipeline API.
     const senderFn = vi.fn().mockReturnValue(true);
     mockActiveSendInput = vi.fn(() => senderFn);
     useAppStore.setState({
@@ -473,9 +475,10 @@ describe('executeAgentRun', () => {
 
     await useAppStore.getState().executeAgentRun();
 
-    expect(senderFn).toHaveBeenCalledWith(
-      'claude -p "$(cat \'/tmp/prompt.md\')"' + '\r'
-    );
+    // PTY sender is NOT called — command goes through backend spawn instead.
+    expect(senderFn).not.toHaveBeenCalled();
+    // api.startRun is always called with the single agent as the stage list.
+    expect(api.startRun).toHaveBeenCalledWith('space-1', 'task-1', ['developer-agent']);
   });
 
   it('sets activeRun with taskId, agentId, spaceId, cliCommand, promptPath', async () => {
@@ -521,9 +524,9 @@ describe('executeAgentRun', () => {
     expect(useAppStore.getState().promptPreviewOpen).toBe(false);
   });
 
-  it('shows error toast when activeSendInput returns false (send failed)', async () => {
-    const senderFn = vi.fn().mockReturnValue(false);
-    mockActiveSendInput = vi.fn(() => senderFn);
+  it('shows error toast and does not set activeRun when api.startRun rejects', async () => {
+    mockActiveSendInput = vi.fn(() => null);
+    vi.mocked(api.startRun).mockRejectedValueOnce(new Error('server error'));
     useAppStore.setState({
       preparedRun: {
         taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
@@ -538,8 +541,8 @@ describe('executeAgentRun', () => {
     expect(useAppStore.getState().activeRun).toBeNull();
   });
 
-  it('dispatches to backend spawn via api.startRun when activeSendInput returns null', async () => {
-    mockActiveSendInput = vi.fn(() => null); // no terminal connected
+  it('dispatches to backend spawn via api.startRun (unified path — terminal state is irrelevant)', async () => {
+    mockActiveSendInput = vi.fn(() => null);
     useAppStore.setState({
       preparedRun: {
         taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
@@ -617,6 +620,101 @@ describe('cancelAgentRun', () => {
     const { toast } = useAppStore.getState();
     expect(toast?.type).toBe('error');
     expect(toast?.message).toContain('cleared');
+  });
+
+  // BUG-001: poll interval must be cleared on cancel.
+  it('clears _agentRunPollId and calls clearInterval on cancel (BUG-001)', () => {
+    vi.useFakeTimers();
+    const pollId = setInterval(() => {}, 5000);
+    useAppStore.setState({
+      activeRun: {
+        taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
+        startedAt: new Date().toISOString(), cliCommand: 'claude run', promptPath: '/tmp/p.md',
+      },
+      _agentRunPollId: pollId,
+    } as any);
+
+    const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
+    useAppStore.getState().cancelAgentRun();
+
+    expect(clearIntervalSpy).toHaveBeenCalledWith(pollId);
+    expect(useAppStore.getState()._agentRunPollId).toBeNull();
+
+    clearIntervalSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  // BUG-001: _agentRunPollId is null when no poll is running — cancel is safe.
+  it('does not throw when _agentRunPollId is null on cancel (BUG-001)', () => {
+    useAppStore.setState({
+      activeRun: {
+        taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
+        startedAt: new Date().toISOString(), cliCommand: 'claude run', promptPath: '/tmp/p.md',
+      },
+      _agentRunPollId: null,
+    } as any);
+
+    expect(() => useAppStore.getState().cancelAgentRun()).not.toThrow();
+    expect(useAppStore.getState()._agentRunPollId).toBeNull();
+  });
+
+  // BUG-002: pipelineState cleared synchronously for single-stage runs on cancel.
+  it('clears pipelineState and closes log panel for single-stage backend run on cancel (BUG-002)', async () => {
+    const { usePipelineLogStore } = await import('../../src/stores/usePipelineLogStore');
+    const setLogPanelOpen = vi.spyOn(usePipelineLogStore.getState(), 'setLogPanelOpen');
+
+    useAppStore.setState({
+      activeRun: {
+        taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
+        startedAt: new Date().toISOString(), cliCommand: 'claude run', promptPath: '/tmp/p.md',
+        backendRunId: 'run-backend-1',
+      },
+      pipelineState: {
+        spaceId:           'space-1',
+        taskId:            'task-1',
+        stages:            ['developer-agent'],
+        currentStageIndex: 0,
+        startedAt:         new Date().toISOString(),
+        status:            'running',
+        runId:             'run-backend-1',
+        subTaskIds:        [],
+        checkpoints:       [],
+      },
+    } as any);
+
+    useAppStore.getState().cancelAgentRun();
+
+    expect(useAppStore.getState().pipelineState).toBeNull();
+    expect(setLogPanelOpen).toHaveBeenCalledWith(false);
+
+    setLogPanelOpen.mockRestore();
+  });
+
+  // BUG-002: pipelineState NOT cleared for multi-stage pipeline runs on cancel.
+  it('does not clear pipelineState for multi-stage pipeline runs on cancel (BUG-002)', () => {
+    useAppStore.setState({
+      activeRun: {
+        taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
+        startedAt: new Date().toISOString(), cliCommand: 'claude run', promptPath: '/tmp/p.md',
+        backendRunId: 'run-backend-multi',
+      },
+      pipelineState: {
+        spaceId:           'space-1',
+        taskId:            'task-1',
+        stages:            ['senior-architect', 'developer-agent'],
+        currentStageIndex: 1,
+        startedAt:         new Date().toISOString(),
+        status:            'running',
+        runId:             'run-backend-multi',
+        subTaskIds:        [],
+        checkpoints:       [],
+      },
+    } as any);
+
+    useAppStore.getState().cancelAgentRun();
+
+    // pipelineState must remain — multi-stage pipelines manage their own lifecycle.
+    expect(useAppStore.getState().pipelineState).not.toBeNull();
   });
 });
 

@@ -138,6 +138,13 @@ interface AppState {
   clearActiveRun: () => void;
   cancelAgentRun: () => void;
 
+  /**
+   * Handle for the setInterval poll loop started by executeAgentRun.
+   * Stored in state so cancelAgentRun can clear it without a closure leak.
+   * BUG-001: poll interval must be cleared on cancel to prevent a stale tick.
+   */
+  _agentRunPollId: ReturnType<typeof setInterval> | null;
+
   /** Prepared run waiting in the prompt preview modal. */
   preparedRun: PreparedRun | null;
   prepareAgentRun: (taskId: string, agentId: string) => Promise<void>;
@@ -522,6 +529,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   activeRun: null,
+  _agentRunPollId: null,
   clearActiveRun: () => set({ activeRun: null }),
 
   cancelAgentRun: () => {
@@ -542,6 +550,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (activeRun.backendRunId) {
         // Backend spawn run — cancel via API (fire-and-forget).
         api.deleteRun(activeRun.backendRunId).catch(() => {});
+
+        // BUG-002: clear pipelineState synchronously for single-stage runs so
+        // the log panel closes immediately instead of waiting up to one poll cycle.
+        // activeRun must be read before it is cleared below.
+        const ps    = get().pipelineState;
+        const runId = activeRun.backendRunId;
+        if (ps && ps.stages.length === 1 && ps.runId === runId) {
+          set({ pipelineState: null });
+          usePipelineLogStore.getState().setLogPanelOpen(false);
+        }
+
         showToast('Agent run cancelled.');
       } else if (terminalSender) {
         // PTY run — send Ctrl+C.
@@ -552,7 +571,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
 
-    set({ activeRun: null });
+    // BUG-001: clear the poll loop before nulling activeRun so the interval
+    // callback cannot fire a final tick after cancellation.
+    clearInterval(get()._agentRunPollId ?? undefined);
+    set({ activeRun: null, _agentRunPollId: null });
   },
 
   preparedRun:      null,
@@ -590,57 +612,63 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { preparedRun, showToast } = get();
     if (!preparedRun) return;
 
-    const terminalSender = useTerminalSessionStore.getState().activeSendInput();
-    const startedAt      = new Date().toISOString();
-    const cmd            = preparedRun.cliCommand;
-    let   backendRunId: string | undefined;
+    const startedAt = new Date().toISOString();
+    const cmd       = preparedRun.cliCommand;
 
-    if (terminalSender) {
-      // Terminal is open — inject into PTY so the user sees live output.
-      const sent = terminalSender(cmd + '\r');
-      if (!sent) {
-        showToast('Could not send to terminal. Please try again.', 'error');
-        return;
-      }
-    } else {
-      // Terminal is closed — dispatch to backend spawn (no PTY needed).
-      try {
-        const run = await api.startRun(
-          preparedRun.spaceId,
-          preparedRun.taskId,
-          [preparedRun.agentId],
-        );
-        backendRunId = run.runId;
-      } catch (err) {
-        showToast(`Failed to start agent run: ${(err as Error).message}`, 'error');
-        return;
-      }
+    // Always dispatch to the pipeline backend (POST /api/v1/runs).
+    // A single-agent run is a pipeline run with one stage — this gives it
+    // full log capture via the stage log API.
+    let backendRunId: string;
+    try {
+      const run = await api.startRun(
+        preparedRun.spaceId,
+        preparedRun.taskId,
+        [preparedRun.agentId],
+      );
+      backendRunId = run.runId;
+    } catch (err) {
+      showToast(`Failed to start agent run: ${(err as Error).message}`, 'error');
+      return;
     }
 
     set({
       activeRun: {
-        taskId:     preparedRun.taskId,
-        agentId:    preparedRun.agentId,
-        spaceId:    preparedRun.spaceId,
+        taskId:      preparedRun.taskId,
+        agentId:     preparedRun.agentId,
+        spaceId:     preparedRun.spaceId,
         startedAt,
-        cliCommand: cmd,
-        promptPath: preparedRun.promptPath,
-        ...(backendRunId ? { backendRunId } : {}),
+        cliCommand:  cmd,
+        promptPath:  preparedRun.promptPath,
+        backendRunId,
       },
       preparedRun:       null,
       promptPreviewOpen: false,
     });
 
     // Wire backend runId into pipelineState so PipelineLogPanel can poll stage logs.
-    // Each pipeline stage creates its own single-stage backend run; stage 0 is always
-    // the active log to fetch. Reset selectedStageIndex so the tab points at it.
-    if (backendRunId && get().pipelineState) {
-      const ps = get().pipelineState!;
-      set({ pipelineState: { ...ps, runId: backendRunId } });
-      usePipelineLogStore.getState().clearStageLogs();
-      usePipelineLogStore.getState().setSelectedStageIndex(0);
-      usePipelineLogStore.getState().setLogPanelOpen(true);
+    // If a pipelineState is already set (multi-stage run), update it in place.
+    // Otherwise create a minimal single-stage pipelineState so the log panel opens.
+    const existingPs = get().pipelineState;
+    if (existingPs) {
+      set({ pipelineState: { ...existingPs, runId: backendRunId } });
+    } else {
+      set({
+        pipelineState: {
+          spaceId:           preparedRun.spaceId,
+          taskId:            preparedRun.taskId,
+          stages:            [preparedRun.agentId as PipelineStage],
+          currentStageIndex: 0,
+          startedAt,
+          status:            'running',
+          runId:             backendRunId,
+          subTaskIds:        [],
+          checkpoints:       [],
+        },
+      });
     }
+    usePipelineLogStore.getState().clearStageLogs();
+    usePipelineLogStore.getState().setSelectedStageIndex(0);
+    usePipelineLogStore.getState().setLogPanelOpen(true);
 
     // Record run start in history store.
     const { tasks, spaces, availableAgents } = get();
@@ -665,30 +693,39 @@ export const useAppStore = create<AppState>((set, get) => ({
       promptPath:       preparedRun.promptPath,
     });
 
-    // For backend runs: poll for completion and clear activeRun when done.
-    if (backendRunId) {
-      const runIdToWatch = backendRunId;
-      const POLL_MS = 5000;
-      const pollId = setInterval(async () => {
-        try {
-          const run = await api.getBackendRun(runIdToWatch);
-          if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
-            clearInterval(pollId);
-            const durationMs = Date.now() - Date.parse(startedAt);
-            useRunHistoryStore.getState().recordRunFinished(
-              historyRunId,
-              run.status === 'completed' ? 'completed' : 'failed',
-              durationMs,
-            );
-            get().clearActiveRun();
-            get().loadBoard();
-          }
-        } catch {
+    // Poll for completion and clear activeRun + pipelineState when done.
+    // BUG-001: store the interval handle in state so cancelAgentRun can clear it.
+    const runIdToWatch = backendRunId;
+    const POLL_MS = 5000;
+    const pollId = setInterval(async () => {
+      try {
+        const run = await api.getBackendRun(runIdToWatch);
+        if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
           clearInterval(pollId);
+          set({ _agentRunPollId: null });
+          const durationMs = Date.now() - Date.parse(startedAt);
+          useRunHistoryStore.getState().recordRunFinished(
+            historyRunId,
+            run.status === 'completed' ? 'completed' : 'failed',
+            durationMs,
+          );
           get().clearActiveRun();
+          // Clear the pipelineState created for this single-stage run.
+          // Multi-stage pipeline runs manage their own pipelineState transitions
+          // via advancePipeline / abortPipeline — do not clobber those.
+          const ps = get().pipelineState;
+          if (ps && ps.stages.length === 1 && ps.runId === runIdToWatch) {
+            set({ pipelineState: null });
+          }
+          get().loadBoard();
         }
-      }, POLL_MS);
-    }
+      } catch {
+        clearInterval(pollId);
+        set({ _agentRunPollId: null });
+        get().clearActiveRun();
+      }
+    }, POLL_MS);
+    set({ _agentRunPollId: pollId });
   },
 
   // ── Pipeline ──────────────────────────────────────────────────────────────
