@@ -999,15 +999,19 @@ function buildConfigRegistry(workingDirectory) {
   }
 
   // ── Project file: ./CLAUDE.md ─────────────────────────────────────────────
-  const projectClaudeMd = path.join(process.cwd(), 'CLAUDE.md');
-  if (fs.existsSync(projectClaudeMd)) {
-    registry.set('project-claude-md', {
-      id:        'project-claude-md',
-      name:      'CLAUDE.md',
-      scope:     'project',
-      absPath:   projectClaudeMd,
-      directory: './',
-    });
+  // Only include Prism's own CLAUDE.md when no space workingDirectory is active,
+  // to avoid showing an unrelated project file in other spaces' config panels.
+  if (!workingDirectory) {
+    const projectClaudeMd = path.join(process.cwd(), 'CLAUDE.md');
+    if (fs.existsSync(projectClaudeMd)) {
+      registry.set('project-claude-md', {
+        id:        'project-claude-md',
+        name:      'CLAUDE.md',
+        scope:     'project',
+        absPath:   projectClaudeMd,
+        directory: './',
+      });
+    }
   }
 
   // ── Space project files: <workingDirectory>/CLAUDE.md + /.claude/agents/ ──
