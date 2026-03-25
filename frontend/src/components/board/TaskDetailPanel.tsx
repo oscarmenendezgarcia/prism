@@ -24,6 +24,26 @@ import { formatTimestamp } from '@/utils/formatTimestamp';
 import type { Column } from '@/types';
 
 // ---------------------------------------------------------------------------
+// Copy-to-clipboard helper
+// ---------------------------------------------------------------------------
+
+async function copyToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard) {
+    await navigator.clipboard.writeText(text);
+  } else {
+    // Fallback for non-HTTPS or older browsers.
+    const el = document.createElement('textarea');
+    el.value = text;
+    el.style.position = 'fixed';
+    el.style.opacity = '0';
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -103,12 +123,13 @@ function useFocusTrap(containerRef: React.RefObject<HTMLElement | null>, active:
  * Reads detailTask from the store; renders null when the panel is closed.
  */
 export function TaskDetailPanel(): React.ReactElement | null {
-  const detailTask      = useAppStore((s) => s.detailTask);
+  const detailTask       = useAppStore((s) => s.detailTask);
   const closeDetailPanel = useAppStore((s) => s.closeDetailPanel);
-  const updateTask      = useAppStore((s) => s.updateTask);
-  const isMutating      = useAppStore((s) => s.isMutating);
-  const tasks           = useAppStore((s) => s.tasks);
-  const activeRun       = useActiveRun();
+  const updateTask       = useAppStore((s) => s.updateTask);
+  const isMutating       = useAppStore((s) => s.isMutating);
+  const tasks            = useAppStore((s) => s.tasks);
+  const showToast        = useAppStore((s) => s.showToast);
+  const activeRun        = useActiveRun();
 
   // ── Local field state ────────────────────────────────────────────────────
 
@@ -116,6 +137,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [localAssigned, setLocalAssigned]       = useState('');
   const [localDescription, setLocalDescription] = useState('');
   const [localType, setLocalType]               = useState<'task' | 'research'>('task');
+  const [isCopied, setIsCopied]                 = useState(false);
 
   // Track initial values to detect actual changes on blur.
   const savedTitle       = useRef('');
@@ -223,6 +245,18 @@ export function TaskDetailPanel(): React.ReactElement | null {
     updateTask(detailTask.id, { description: localDescription.trim() });
   }, [detailTask, localDescription, updateTask]);
 
+  const handleCopyId = useCallback(async () => {
+    if (!detailTask) return;
+    try {
+      await copyToClipboard(detailTask.id);
+      setIsCopied(true);
+      showToast('Task ID copied to clipboard', 'success');
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch {
+      showToast('Failed to copy ID', 'error');
+    }
+  }, [detailTask, showToast]);
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   if (!detailTask) return null;
@@ -298,6 +332,29 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </p>
             </div>
           )}
+
+          {/* ── ID ──────────────────────────────────────────────────── */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+              ID
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="flex-1 font-mono text-xs text-text-secondary bg-surface-elevated border border-border rounded-md px-3 py-2 select-all overflow-x-auto whitespace-nowrap">
+                {detailTask.id}
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyId}
+                aria-label="Copy task ID"
+                title="Copy task ID"
+                className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary transition-colors duration-150"
+              >
+                <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+                  {isCopied ? 'check' : 'content_copy'}
+                </span>
+              </button>
+            </div>
+          </div>
 
           {/* ── Title ───────────────────────────────────────────────── */}
           <div className="flex flex-col gap-1.5">

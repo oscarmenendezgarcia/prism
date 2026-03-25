@@ -346,6 +346,52 @@ describe('TaskDetailPanel — read-only state during activeRun', () => {
   });
 });
 
+describe('TaskDetailPanel — ID copy', () => {
+  it('renders the full task ID in the ID field', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByText(TASK.id)).toBeInTheDocument();
+  });
+
+  it('renders a copy button with aria-label "Copy task ID"', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByRole('button', { name: /copy task id/i })).toBeInTheDocument();
+  });
+
+  it('calls navigator.clipboard.writeText with full task ID on copy button click', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    const showToast = vi.fn();
+    useAppStore.setState({ detailTask: TASK, showToast } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /copy task id/i }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(TASK.id);
+      expect(showToast).toHaveBeenCalledWith('Task ID copied to clipboard', 'success');
+    });
+  });
+
+  it('calls showToast with error when clipboard.writeText throws', async () => {
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+    });
+
+    const showToast = vi.fn();
+    useAppStore.setState({ detailTask: TASK, showToast } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /copy task id/i }));
+
+    await waitFor(() => {
+      expect(showToast).toHaveBeenCalledWith('Failed to copy ID', 'error');
+    });
+  });
+});
+
 describe('TaskDetailPanel — ARIA accessibility', () => {
   it('has role="dialog" and aria-modal="true"', () => {
     useAppStore.setState({ detailTask: TASK } as any);
