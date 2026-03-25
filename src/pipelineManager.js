@@ -64,7 +64,7 @@ const DEFAULT_STAGES = [
   'qa-engineer-e2e',
 ];
 
-const DEFAULT_STAGE_TIMEOUT_MS = 600_000; // 10 minutes
+const DEFAULT_STAGE_TIMEOUT_MS = 3_600_000; // 1 hour
 const DEFAULT_MAX_CONCURRENT   = 5;
 
 // ---------------------------------------------------------------------------
