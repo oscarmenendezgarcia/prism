@@ -332,7 +332,9 @@ async function executeNextStage(dataDir, runId) {
 async function spawnStage(dataDir, run, stageIndex) {
   const agentId   = run.stages[stageIndex];
   const agentsDir = process.env.PIPELINE_AGENTS_DIR;
-  const timeoutMs = parseInt(process.env.PIPELINE_STAGE_TIMEOUT_MS || String(DEFAULT_STAGE_TIMEOUT_MS), 10);
+  const baseTimeout = parseInt(process.env.PIPELINE_STAGE_TIMEOUT_MS || String(DEFAULT_STAGE_TIMEOUT_MS), 10);
+  // Orchestrator coordinates the full pipeline internally — give it 6× the per-stage timeout.
+  const timeoutMs = agentId === 'orchestrator' ? baseTimeout * 6 : baseTimeout;
 
   // Resolve spawn args — may throw AgentNotFoundError.
   let agentSpec;
