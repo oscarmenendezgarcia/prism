@@ -60,6 +60,7 @@ const DEFAULT_STAGES = [
   'senior-architect',
   'ux-api-designer',
   'developer-agent',
+  'code-reviewer',
   'qa-engineer-e2e',
 ];
 
