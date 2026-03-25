@@ -15,7 +15,7 @@ import { usePipelineLogStore } from '../../src/stores/usePipelineLogStore';
 
 vi.mock('../../src/api/client', () => ({
   getStageLog:    vi.fn().mockResolvedValue(''),
-  getBackendRun:  vi.fn().mockResolvedValue({ runId: 'run-1', status: 'running', stages: ['senior-architect'], stageStatuses: [], spaceId: 's', taskId: 't', createdAt: new Date().toISOString() }),
+  getBackendRun:  vi.fn().mockResolvedValue({ runId: 'run-1', status: 'running', stages: ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e'], stageStatuses: [], currentStage: 0, spaceId: 's', taskId: 't', createdAt: new Date().toISOString() }),
   LogNotAvailableError: class LogNotAvailableError extends Error {
     constructor() { super('LOG_NOT_AVAILABLE'); this.name = 'LogNotAvailableError'; }
   },
@@ -32,6 +32,7 @@ vi.mock('../../src/api/client', () => ({
   getConfigFiles: vi.fn(), getConfigFile: vi.fn(), saveConfigFile: vi.fn(),
   getAgent: vi.fn(),
   updateTask: vi.fn(),
+  listRuns: vi.fn().mockResolvedValue([]),
 }));
 
 // Mock usePanelResize to avoid localStorage complexities in tests.
@@ -85,7 +86,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 function renderPanel() {
@@ -149,11 +150,11 @@ describe('PipelineLogPanel — stage tab selection', () => {
 });
 
 describe('PipelineLogPanel — no runId state', () => {
-  it('shows "No active pipeline run." message when no runId in pipelineState', async () => {
+  it('shows "No pipeline runs yet." message when no runId in pipelineState', async () => {
     const stateWithoutRunId = { ...BASE_PIPELINE_STATE, runId: undefined };
     useAppStore.setState({ pipelineState: stateWithoutRunId } as any);
     await act(async () => { renderPanel(); });
-    expect(screen.getByText('No active pipeline run.')).toBeInTheDocument();
+    expect(screen.getByText('No pipeline runs yet.')).toBeInTheDocument();
   });
 });
 
