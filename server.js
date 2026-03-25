@@ -1017,7 +1017,7 @@ function buildConfigRegistry(workingDirectory) {
   // ── Space project files: <workingDirectory>/CLAUDE.md + /.claude/agents/ ──
   if (workingDirectory) {
     const spaceClaudeMd = path.join(workingDirectory, 'CLAUDE.md');
-    if (fs.existsSync(spaceClaudeMd) && spaceClaudeMd !== projectClaudeMd) {
+    if (fs.existsSync(spaceClaudeMd)) {
       registry.set('space-claude-md', {
         id:        'space-claude-md',
         name:      'CLAUDE.md',

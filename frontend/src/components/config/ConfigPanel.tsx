@@ -21,6 +21,7 @@ import { usePanelResize } from '@/hooks/usePanelResize';
 export function ConfigPanel() {
   const setConfigPanelOpen = useAppStore((s) => s.setConfigPanelOpen);
   const loadConfigFiles    = useAppStore((s) => s.loadConfigFiles);
+  const activeSpaceId      = useAppStore((s) => s.activeSpaceId);
   const selectConfigFile   = useAppStore((s) => s.selectConfigFile);
   const configDirty        = useAppStore((s) => s.configDirty);
 
@@ -38,10 +39,10 @@ export function ConfigPanel() {
   const [pendingFileId, setPendingFileId] = useState<string | 'close' | null>(null);
   const discardDialogOpen = pendingFileId !== null;
 
-  // Load the file list once when the panel mounts.
+  // Reload the file list on mount and whenever the active space changes.
   useEffect(() => {
     loadConfigFiles();
-  }, [loadConfigFiles]);
+  }, [loadConfigFiles, activeSpaceId]);
 
   /** Called by ConfigFileSidebar when the user clicks a file. */
   const handleRequestSwitch = useCallback(

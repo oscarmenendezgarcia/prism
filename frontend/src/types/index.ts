@@ -286,7 +286,7 @@ export interface PromptGenerationResponse {
 export interface ConfigFile {
   id: string;
   name: string;
-  scope: 'global' | 'agent' | 'project';
+  scope: 'global' | 'agent' | 'project' | 'space-project' | 'space-agent';
   directory: string;
   sizeBytes: number;
   modifiedAt: string;
@@ -296,7 +296,7 @@ export interface ConfigFile {
 export interface ConfigFileContent {
   id: string;
   name: string;
-  scope: 'global' | 'agent' | 'project';
+  scope: 'global' | 'agent' | 'project' | 'space-project' | 'space-agent';
   content: string;
   sizeBytes: number;
   modifiedAt: string;
@@ -306,7 +306,7 @@ export interface ConfigFileContent {
 export interface ConfigFileSaveResult {
   id: string;
   name: string;
-  scope: 'global' | 'agent' | 'project';
+  scope: 'global' | 'agent' | 'project' | 'space-project' | 'space-agent';
   sizeBytes: number;
   modifiedAt: string;
 }

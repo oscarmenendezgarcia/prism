@@ -61,8 +61,8 @@ export function ConfigFileSidebar({ onRequestSwitch }: ConfigFileSidebarProps) {
   const configLoading      = useAppStore((s) => s.configLoading);
 
   const globalFiles  = configFiles.filter((f) => f.scope === 'global');
-  const agentFiles   = configFiles.filter((f) => f.scope === 'agent');
-  const projectFiles = configFiles.filter((f) => f.scope === 'project');
+  const agentFiles   = configFiles.filter((f) => f.scope === 'agent' || f.scope === 'space-agent');
+  const projectFiles = configFiles.filter((f) => f.scope === 'project' || f.scope === 'space-project');
 
   if (configLoading && configFiles.length === 0) {
     return (
