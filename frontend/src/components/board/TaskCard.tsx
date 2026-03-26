@@ -174,7 +174,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
       {/* ------------------------------------------------------------------ */}
       {/* ZONE A — Identity: Badge + title + optional run dot + more_vert     */}
       {/* ------------------------------------------------------------------ */}
-      <div className="flex items-start gap-2">
+      <div className="flex items-baseline gap-2">
         <Badge type={task.type} />
 
         {/* Title — clickable to open the detail panel. ADR-1: line-clamp-2 */}
