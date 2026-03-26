@@ -72,6 +72,7 @@ The Vite dev server proxies `/api/v1` and `/ws` requests to `localhost:3000`.
 | `PORT` | `3000` | HTTP server port |
 | `DATA_DIR` | `./data` | Directory for JSON persistence files |
 | `KANBAN_API_URL` | `http://localhost:3000/api/v1` | Base URL used by the MCP server |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated list of allowed WebSocket origins for the terminal. Set this when running behind a reverse proxy, in Docker, or in cloud deployments (e.g. `ALLOWED_ORIGINS=https://myapp.example.com`). |
 
 ---
 
