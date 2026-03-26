@@ -223,16 +223,17 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
       {/* Only rendered when at least one piece of metadata is present.       */}
       {/* ------------------------------------------------------------------ */}
       {hasMetadata && (
-        <div className="flex items-center gap-2 min-h-0 flex-wrap">
+        <div className="flex items-center gap-2 min-h-0 flex-wrap" data-testid="zone-b">
           {task.assigned && (
             <>
               <div
                 className={`w-5 h-5 rounded-full bg-gradient-to-br ${getGradient(task.assigned)} flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0`}
                 aria-hidden="true"
+                data-testid="avatar"
               >
                 {getInitials(task.assigned)}
               </div>
-              <span className="text-[11px] text-text-secondary truncate">
+              <span className="text-[11px] text-text-secondary truncate" data-testid="assigned-name">
                 {task.assigned}
               </span>
             </>
@@ -244,6 +245,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
               onClick={() => openAttachmentModal(activeSpaceId, task.id, 0, task.attachments![0].name)}
               aria-label={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
               title={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
+              data-testid="attachment-pill"
               className="ml-auto inline-flex items-center gap-0.5 text-[11px] text-text-secondary hover:text-primary transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary rounded-sm"
             >
               <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
@@ -254,7 +256,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
           )}
 
           {task.description && (
-            <p className="w-full text-[11px] text-text-secondary/70 line-clamp-1">
+            <p className="w-full text-[11px] text-text-secondary/70 line-clamp-1" data-testid="desc-preview">
               {task.description}
             </p>
           )}
