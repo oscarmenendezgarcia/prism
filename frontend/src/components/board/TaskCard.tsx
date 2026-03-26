@@ -10,11 +10,9 @@
  * ADR-003 §8.4: transition-all ease-apple, done state opacity-50 grayscale-[30%].
  */
 
-import React, { useRef, useState } from 'react';
+import React from 'react';
 import type { Task, Column } from '@/types';
 import { Badge } from '@/components/shared/Badge';
-import { ContextMenu } from '@/components/shared/ContextMenu';
-import type { ContextMenuItem } from '@/components/shared/ContextMenu';
 import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore, useActiveRun } from '@/stores/useAppStore';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
@@ -52,12 +50,6 @@ function getGradient(name: string): string {
 
 const COLUMNS: Column[] = ['todo', 'in-progress', 'done'];
 
-const COLUMN_LABELS: Record<Column, string> = {
-  'todo': 'Todo',
-  'in-progress': 'In Progress',
-  'done': 'Done',
-};
-
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
@@ -94,60 +86,10 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
   const showLeft = idx > 0;
   const showRight = idx < COLUMNS.length - 1;
 
-  // more_vert context-menu state
-  const moreVertRef = useRef<HTMLButtonElement>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuAnchorRect, setMenuAnchorRect] = useState<DOMRect | null>(null);
-
   const hasMetadata =
     !!task.assigned ||
     (task.attachments && task.attachments.length > 0) ||
     !!task.description;
-
-  // -----------------------------------------------------------------------
-  // Context menu items (same actions as hover overlay)
-  // -----------------------------------------------------------------------
-  const contextMenuItems: ContextMenuItem[] = [
-    ...(showLeft ? [{
-      id: 'move-left',
-      label: `Move to ${COLUMN_LABELS[COLUMNS[idx - 1]]}`,
-      icon: 'arrow_back',
-      disabled: isMutating,
-    }] : []),
-    ...(showRight ? [{
-      id: 'move-right',
-      label: `Move to ${COLUMN_LABELS[COLUMNS[idx + 1]]}`,
-      icon: 'arrow_forward',
-      disabled: isMutating,
-    }] : []),
-    ...(column === 'todo' ? [{
-      id: 'run-agent',
-      label: 'Run Agent',
-      icon: 'smart_toy',
-      disabled: activeRun !== null,
-    }] : []),
-    {
-      id: 'delete',
-      label: 'Delete',
-      icon: 'delete',
-      danger: true,
-      disabled: isMutating || activeRun !== null,
-    },
-  ];
-
-  function handleContextMenuSelect(id: string) {
-    if (id === 'move-left') moveTask(task.id, 'left', column);
-    else if (id === 'move-right') moveTask(task.id, 'right', column);
-    else if (id === 'delete') deleteTask(task.id);
-    // 'run-agent' is handled by AgentLauncherMenu inside CardActionMenu — not via ContextMenu
-  }
-
-  function handleMoreVertClick(e: React.MouseEvent) {
-    e.stopPropagation();
-    const rect = moreVertRef.current?.getBoundingClientRect() ?? null;
-    setMenuAnchorRect(rect);
-    setMenuOpen(true);
-  }
 
   return (
     <article
@@ -202,21 +144,6 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
           </button>
         )}
 
-        {/* more_vert — always visible; anchors the ContextMenu */}
-        <button
-          ref={moreVertRef}
-          type="button"
-          onClick={handleMoreVertClick}
-          onDragStart={(e) => e.stopPropagation()}
-          aria-label="Task actions"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          className="relative z-20 flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary"
-        >
-          <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
-            more_vert
-          </span>
-        </button>
       </div>
 
       {/* ------------------------------------------------------------------ */}
@@ -243,7 +170,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
           {task.attachments && task.attachments.length > 0 && (
             <button
               type="button"
-              onClick={() => openAttachmentModal(activeSpaceId, task.id, 0, task.attachments![0].name)}
+              onClick={() => openAttachmentModal(activeSpaceId, task.id, 0, task.attachments!.map((a) => a.name))}
               aria-label={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
               title={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
               data-testid="attachment-pill"
@@ -257,7 +184,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
           )}
 
           {task.description && (
-            <p className="w-full text-[11px] text-text-secondary/70 line-clamp-1" data-testid="desc-preview">
+            <p className="w-full text-[11px] text-text-secondary/70 line-clamp-3" data-testid="desc-preview">
               {task.description}
             </p>
           )}
@@ -287,16 +214,6 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
         />
       </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* CONTEXT MENU — opened via more_vert button                          */}
-      {/* ------------------------------------------------------------------ */}
-      <ContextMenu
-        open={menuOpen}
-        anchorRect={menuAnchorRect}
-        items={contextMenuItems}
-        onSelect={handleContextMenuSelect}
-        onClose={() => setMenuOpen(false)}
-      />
     </article>
   );
 }
