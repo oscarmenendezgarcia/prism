@@ -211,7 +211,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
           aria-label="Task actions"
           aria-haspopup="menu"
           aria-expanded={menuOpen}
-          className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary"
+          className="relative z-20 flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary"
         >
           <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
             more_vert
