@@ -270,7 +270,8 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
       {/* ADR-1: absolute top-2 right-2 z-10, pure CSS group-hover approach.  */}
       {/* ------------------------------------------------------------------ */}
       <div
-        className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-150 bg-surface-elevated border border-border rounded-md shadow-sm"
+        data-testid="hover-overlay"
+        className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-150 ease-apple bg-surface-elevated border border-border rounded-md shadow-sm"
         aria-hidden="true"
       >
         <CardActionMenu
