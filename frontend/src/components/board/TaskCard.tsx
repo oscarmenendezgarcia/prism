@@ -272,7 +272,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
       {/* ------------------------------------------------------------------ */}
       <div
         data-testid="hover-overlay"
-        className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-150 ease-apple bg-surface-elevated border border-border rounded-md shadow-sm"
+        className="absolute top-2 right-2 z-10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto transition-opacity duration-150 ease-apple bg-surface-elevated border border-border rounded-md shadow-sm"
         aria-hidden="true"
       >
         <CardActionMenu
