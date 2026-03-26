@@ -64,20 +64,9 @@ export function useAgentCompletion(): void {
 
       if (!autoAdvance) return;
 
-      if (confirmBetween) {
-        const nextIdx = pipelineState.currentStageIndex + 1;
-        if (nextIdx < pipelineState.stages.length) {
-          const nextStage = pipelineState.stages[nextIdx];
-          // Show a toast with actions — the user can invoke advancePipeline or abortPipeline
-          // directly from the PipelineProgressBar. The toast is informational only.
-          state.showToast(
-            `Stage ${nextIdx} complete. Advance to stage ${nextIdx + 1} (${nextStage})?`
-          );
-        }
-      } else {
-        // Auto-advance without confirmation.
-        state.advancePipeline();
-      }
+      // advancePipeline checks the checkpoints array and pauses if needed,
+      // or auto-advances if there is no checkpoint for the next stage.
+      state.advancePipeline();
     });
   }, []);
 }
