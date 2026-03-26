@@ -155,6 +155,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
       draggable
       data-id={task.id}
       data-column={column}
+      data-testid="task-card"
       className={[
         'group relative bg-surface rounded-card border shadow-card hover:shadow-card-hover',
         'transition-all duration-200 ease-apple p-3 flex flex-col gap-2',
