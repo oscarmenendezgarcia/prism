@@ -16,6 +16,35 @@ A local-first Kanban board with an integrated terminal, AI agent run history, an
 
 ---
 
+## Quick start with Docker
+
+The fastest way to run Prism — no Node.js or build tools required locally.
+
+```bash
+docker compose up -d
+# → http://localhost:3000
+```
+
+Board data is persisted in the local `./data/` directory and survives container restarts.
+
+### Environment variables (Docker)
+
+Copy-paste into a `.env` file next to `docker-compose.yml` to override defaults:
+
+```dotenv
+PORT=3000
+DATA_DIR=/app/data
+ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | HTTP server port exposed on the host |
+| `DATA_DIR` | `/app/data` | Persistence directory inside the container (leave as-is unless you change the volume target) |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,...` | Allowed WebSocket origins for the terminal. Set to your public URL when running behind a reverse proxy (e.g. `https://myapp.example.com`). |
+
+---
+
 ## Prerequisites
 
 **Node.js ≥ 18** is required.
