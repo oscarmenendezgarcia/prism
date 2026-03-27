@@ -381,6 +381,33 @@ async function spawnStage(dataDir, run, stageIndex) {
     }
   }
 
+  // Include git context so agents can evaluate what work has already been done.
+  // This helps the developer-agent avoid re-implementing code from prior partial runs.
+  try {
+    const execSync2 = require('child_process').execSync;
+    const opts = { encoding: 'utf8', timeout: 5000 };
+    const gitLog    = execSync2('git log --oneline -10 2>/dev/null', opts).trim();
+    const gitStatus = execSync2('git status --short 2>/dev/null', opts).trim();
+    if (gitLog || gitStatus) {
+      taskPrompt += '\n## GIT CONTEXT (recent commits + working tree state)\n';
+      if (gitLog)    taskPrompt += '```\n' + gitLog + '\n```\n';
+      if (gitStatus) taskPrompt += '\nWorking tree changes:\n```\n' + gitStatus + '\n```\n';
+    }
+  } catch (e) {
+    // git not available - skip
+  }
+
+  // For the developer stage: require compilation gate before closing.
+  // Prevents QA from launching against code that does not compile.
+  if (agentId === 'developer-agent') {
+    taskPrompt += '\n## MANDATORY COMPILE GATE\n';
+    taskPrompt += 'Before marking your Kanban task done, you MUST verify the code compiles:\n';
+    taskPrompt += '- Java/Maven: run `mvn compile -q` (or `./mvnw compile -q`)\n';
+    taskPrompt += '- Java/Gradle: run `./gradlew compileJava -q`\n';
+    taskPrompt += '- TypeScript/Node: run `npm run build` or `tsc --noEmit`\n';
+    taskPrompt += 'If compilation fails, fix the errors before closing the task. Do NOT advance to QA with broken code.\n';
+  }
+
   const logPath   = stageLogPath(dataDir, run.runId, stageIndex);
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 
