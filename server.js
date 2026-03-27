@@ -1388,6 +1388,7 @@ const DEFAULT_SETTINGS = {
     autoAdvance:          true,
     confirmBetweenStages: true,
     stages: ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e'],
+    agentsDir:            '',
   },
   prompts: {
     includeKanbanBlock: true,
@@ -2332,6 +2333,14 @@ function startServer(options = {}) {
   // --- Step 2b: Initialize pipeline manager (startup recovery). ---
   // Marks any run with status='running' as 'interrupted' from a previous crash.
   pipelineManager.init(dataDir);
+  // Propagate pipeline.agentsDir from settings to env (if not already set via env var).
+  // This makes PIPELINE_AGENTS_DIR persistent across server restarts - Issue 4 fix.
+  if (!process.env.PIPELINE_AGENTS_DIR) {
+    const startupSettings = readSettings(dataDir);
+    if (startupSettings.pipeline && startupSettings.pipeline.agentsDir) {
+      process.env.PIPELINE_AGENTS_DIR = startupSettings.pipeline.agentsDir;
+    }
+  }
 
   // --- Step 3: Build a Map-based cache of createApp instances by spaceId. ---
   /** @type {Map<string, ReturnType<createApp>>} */
