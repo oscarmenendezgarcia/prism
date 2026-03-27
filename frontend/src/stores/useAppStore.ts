@@ -921,6 +921,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { pipelineState, showToast } = get();
     if (!pipelineState) return;
 
+    // If this is a server-side run, cancel via REST API - Issue 5 fix.
+    if (pipelineState.runId) {
+      api.deleteRun(pipelineState.runId).catch(() => {});
+    }
+
     const terminalSender = useTerminalSessionStore.getState().activeSendInput();
     if (terminalSender) {
       terminalSender('\x03'); // Ctrl+C
@@ -930,7 +935,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ pipelineState: null, activeRun: null });
     showToast(`Pipeline aborted at stage ${stage}.`);
   },
-
   clearPipeline: () => set({ pipelineState: null, activeRun: null }),
 
   /**
