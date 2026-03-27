@@ -1271,48 +1271,50 @@ function toDisplayName(stem) {
 }
 
 /**
- * GET /api/v1/agents
- * List all .md files in ~/.claude/agents/, returning agent metadata.
- * Returns [] if the directory does not exist.
+ * GET /api/v1/agents[?workingDirectory=<abs-path>]
+ * List all .md files in ~/.claude/agents/ plus <workingDirectory>/.claude/agents/ (if provided).
+ * Workspace agents override global agents with the same ID.
+ * Returns [] if no directories exist.
  */
 function handleListAgents(req, res) {
-  if (!fs.existsSync(AGENTS_DIR)) {
-    return sendJSON(res, 200, []);
-  }
+  const qs = new URL(req.url, 'http://x').searchParams;
+  const workingDirectory = qs.get('workingDirectory') || null;
 
-  let entries;
-  try {
-    entries = fs.readdirSync(AGENTS_DIR);
-  } catch (err) {
-    console.error('[agents] ERROR reading agents dir:', err.message);
-    return sendError(res, 500, 'AGENT_DIRECTORY_READ_ERROR', 'Could not read the agents directory.', {
-      suggestion: 'Check that ~/.claude/agents/ is accessible and has read permissions.',
-    });
-  }
-
-  const agents = [];
-  const mdFiles = entries.filter((f) => f.toLowerCase().endsWith('.md')).sort();
-
-  for (const filename of mdFiles) {
-    const absPath = path.join(AGENTS_DIR, filename);
-    let stat;
+  function scanDir(dir, source) {
+    if (!fs.existsSync(dir)) return [];
+    let entries;
     try {
-      stat = fs.statSync(absPath);
-    } catch {
-      continue; // file disappeared between readdir and stat — skip
+      entries = fs.readdirSync(dir);
+    } catch (err) {
+      console.error(`[agents] ERROR reading agents dir (${source}):`, err.message);
+      return [];
     }
-    const stem = filename.slice(0, -3);
-    const id   = stem.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    agents.push({
-      id,
-      name:        filename,
-      displayName: toDisplayName(stem),
-      path:        absPath,
-      sizeBytes:   stat.size,
-    });
+    const results = [];
+    for (const filename of entries.filter((f) => f.toLowerCase().endsWith('.md')).sort()) {
+      const absPath = path.join(dir, filename);
+      let stat;
+      try { stat = fs.statSync(absPath); } catch { continue; }
+      const stem = filename.slice(0, -3);
+      const id   = stem.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      results.push({ id, name: filename, displayName: toDisplayName(stem), path: absPath, sizeBytes: stat.size, source });
+    }
+    return results;
   }
 
-  console.log(`[agents] Listed ${agents.length} agents`);
+  const globalAgents = scanDir(AGENTS_DIR, 'global');
+
+  let workspaceAgents = [];
+  if (workingDirectory && path.isAbsolute(workingDirectory)) {
+    workspaceAgents = scanDir(path.join(workingDirectory, '.claude', 'agents'), 'workspace');
+  }
+
+  // Merge: workspace agents override global ones with the same ID.
+  const merged = new Map();
+  for (const a of globalAgents) merged.set(a.id, a);
+  for (const a of workspaceAgents) merged.set(a.id, a);
+
+  const agents = [...merged.values()];
+  console.log(`[agents] Listed ${agents.length} agents (global: ${globalAgents.length}, workspace: ${workspaceAgents.length})`);
   sendJSON(res, 200, agents);
 }
 

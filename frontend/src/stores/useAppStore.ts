@@ -131,7 +131,7 @@ interface AppState {
 
   /** Agents discovered from ~/.claude/agents/*.md */
   availableAgents: AgentInfo[];
-  loadAgents: () => Promise<void>;
+  loadAgents: (workingDirectory?: string) => Promise<void>;
 
   /** Non-null while an agent command is running in the PTY. */
   activeRun: AgentRun | null;
@@ -519,9 +519,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Agent launcher ────────────────────────────────────────────────────────
 
   availableAgents: [],
-  loadAgents: async () => {
+  loadAgents: async (workingDirectory?: string) => {
     try {
-      const agents = await api.getAgents();
+      const agents = await api.getAgents(workingDirectory);
       set({ availableAgents: agents });
     } catch (err) {
       get().showToast(`Failed to load agents: ${(err as Error).message}`, 'error');

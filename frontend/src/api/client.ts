@@ -192,8 +192,10 @@ export const saveConfigFile = (fileId: string, content: string, spaceId?: string
  * List all available agent definition files from ~/.claude/agents/.
  * Returns an empty array if the directory does not exist.
  */
-export const getAgents = (): Promise<AgentInfo[]> =>
-  apiFetch<AgentInfo[]>('/agents');
+export const getAgents = (workingDirectory?: string): Promise<AgentInfo[]> => {
+  const qs = workingDirectory ? `?workingDirectory=${encodeURIComponent(workingDirectory)}` : '';
+  return apiFetch<AgentInfo[]>(`/agents${qs}`);
+};
 
 /**
  * Read the full content of a specific agent definition file by its kebab-case ID.
