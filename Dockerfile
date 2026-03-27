@@ -20,6 +20,10 @@ RUN cd frontend && npm install
 COPY frontend/ ./frontend/
 RUN cd frontend && npm run build
 
+# Install MCP server dependencies (separate sub-package).
+COPY mcp/package.json mcp/package-lock.json* ./mcp/
+RUN cd mcp && npm install
+
 # Copy the rest of the source needed at runtime.
 COPY server.js terminal.js ./
 COPY src/ ./src/
@@ -44,6 +48,7 @@ COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/terminal.js ./terminal.js
 COPY --from=builder /app/src/ ./src/
 COPY --from=builder /app/mcp/ ./mcp/
+COPY --from=builder /app/mcp/node_modules ./mcp/node_modules
 COPY --from=builder /app/package.json ./package.json
 
 # Copy built frontend (served as static files in production).
