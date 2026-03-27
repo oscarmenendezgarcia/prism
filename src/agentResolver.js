@@ -9,7 +9,7 @@
  * stateless — safe to call from any context including test environments.
  *
  * Spawn modes (controlled by PIPELINE_AGENT_MODE env var):
- *   subagent (default): ['--agent', agentId, '--print', '--no-auto-approve']
+ *   subagent (default): ['--agent', agentId, '--print', '--enable-auto-mode', '--output-format', 'stream-json', '--verbose', '--allowedTools', '...']
  *   headless:           ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--verbose', '--enable-auto-mode']
  */
 
@@ -118,11 +118,18 @@ function resolveAgent(agentId, agentsDir) {
     spawnArgs = ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--verbose', '--enable-auto-mode'];
   } else {
     // Default subagent mode: invoke the named agent definition.
-    // stream-json emits tokens as they arrive so the log file is populated progressively
-    // (text mode buffers everything and only writes at the end — empty log on timeout/kill).
+    // --output-format stream-json emits tokens progressively (text mode buffers and
+    // only writes at the end — empty log on timeout/kill).
     // --verbose is required by --output-format=stream-json with --print.
     // --enable-auto-mode grants full tool access including MCP tools (mcp__prism__*, etc.)
-    spawnArgs = ['--agent', agentId, '--print', '--enable-auto-mode'];
+    spawnArgs = [
+      '--agent', agentId,
+      '--print',
+      '--enable-auto-mode',
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--allowedTools', 'Bash Edit Write Read Glob Grep mcp__prism__* mcp__stitch__* mcp__figma__* mcp__plugin_playwright_playwright__*',
+    ];
   }
 
   return { agentId, model, systemPrompt, spawnArgs };
