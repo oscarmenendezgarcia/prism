@@ -27,9 +27,6 @@ export function PipelineConfirmModal() {
   const closePipeline         = useAppStore((s) => s.closePipelineConfirm);
   const startPipeline         = useAppStore((s) => s.startPipeline);
   const executeOrchestratorRun = useAppStore((s) => s.executeOrchestratorRun);
-  const templates      = useAppStore((s) => s.templates);
-  const saveTemplate   = useAppStore((s) => s.saveTemplate);
-  const delTemplate    = useAppStore((s) => s.deleteTemplate);
   const spaces          = useAppStore((s) => s.spaces);
   const availableAgents = useAppStore((s) => s.availableAgents);
   const loadAgents      = useAppStore((s) => s.loadAgents);
@@ -39,10 +36,6 @@ export function PipelineConfirmModal() {
   const [checkpoints, setCheckpoints]     = useState<Set<number>>(new Set());
   /** T-4: When true, routes to executeOrchestratorRun instead of startPipeline. */
   const [useOrchestrator, setUseOrchestrator] = useState(false);
-  const [savingTemplate, setSavingTemplate] = useState(false);
-  const [templateName, setTemplateName]     = useState('');
-  const [showSaveForm, setShowSaveForm]     = useState(false);
-
   const isOpen = modal?.open ?? false;
 
   // Sync stages from modal when it opens; reset local state. Load agents if needed.
@@ -134,33 +127,6 @@ export function PipelineConfirmModal() {
       </ModalHeader>
 
       <ModalBody className="flex flex-col gap-3">
-        {templates.length > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-text-disabled flex-shrink-0">Load template:</span>
-            <select
-              className="flex-1 text-xs px-2 py-1 bg-surface-variant border border-border rounded text-text-primary focus:outline-none focus:border-primary"
-              defaultValue=""
-              onChange={(e) => {
-                const tmpl = templates.find((t) => t.id === e.target.value);
-                if (!tmpl) return;
-                setStages([...tmpl.stages] as PipelineStage[]);
-                setCheckpoints(new Set(
-                  tmpl.checkpoints
-                    .map((v, i) => (v ? i : -1))
-                    .filter((i) => i >= 0)
-                ));
-                setUseOrchestrator(tmpl.useOrchestratorMode);
-                e.target.value = '';
-              }}
-              aria-label="Load pipeline template"
-            >
-              <option value="" disabled>Select a template…</option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
         <p className="text-sm text-text-secondary">
           Review and adjust the stages before running. Use arrows to reorder, remove stages you don't need, or pause before any stage.
         </p>
@@ -282,60 +248,6 @@ export function PipelineConfirmModal() {
             {stages.map((s) => availableAgents.find((a) => a.id === s)?.displayName ?? s).join(' → ')}
           </p>
         )}
-
-        {/* Save as template */}
-        <div className="border-t border-border pt-3">
-          {!showSaveForm ? (
-            <button
-              type="button"
-              onClick={() => setShowSaveForm(true)}
-              className="text-xs text-primary hover:text-primary/80 transition-colors"
-            >
-              + Save as template
-            </button>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <span className="text-xs text-text-secondary font-medium">Save as template</span>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={templateName}
-                  onChange={(e) => setTemplateName(e.target.value)}
-                  placeholder="Template name…"
-                  maxLength={100}
-                  className="flex-1 text-xs px-2 py-1.5 bg-surface-variant border border-border rounded text-text-primary placeholder:text-text-disabled focus:outline-none focus:border-primary"
-                  aria-label="Template name"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={savingTemplate || !templateName.trim()}
-                  onClick={async () => {
-                    if (!templateName.trim()) return;
-                    setSavingTemplate(true);
-                    try {
-                      const cpArray = stages.map((_, i) => checkpoints.has(i));
-                      await saveTemplate(templateName.trim(), [...stages], cpArray, useOrchestrator);
-                      setTemplateName("");
-                      setShowSaveForm(false);
-                    } finally {
-                      setSavingTemplate(false);
-                    }
-                  }}
-                >
-                  {savingTemplate ? "Saving…" : "Save"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => { setShowSaveForm(false); setTemplateName(""); }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* T-4: Orchestrator mode toggle */}
         <div className="border-t border-border pt-3 mt-1">
