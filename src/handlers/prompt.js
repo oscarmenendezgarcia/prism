@@ -243,6 +243,7 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
   const cliCommand      = buildCliCommand(settings, promptPath);
   const promptPreview   = promptText.slice(0, 500);
   const estimatedTokens = Math.ceil(promptText.length / 4);
+  const promptSizeBytes = Buffer.byteLength(promptText, 'utf8');
 
   console.log(JSON.stringify({
     timestamp: new Date().toISOString(),
@@ -254,9 +255,10 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
     spaceId,
     promptPath,
     estimatedTokens,
+    promptSizeBytes,
   }));
 
-  sendJSON(res, 201, { promptPath, promptPreview, cliCommand, estimatedTokens });
+  sendJSON(res, 201, { promptPath, promptPreview, promptFull: promptText, cliCommand, estimatedTokens });
 }
 
 // ---------------------------------------------------------------------------
