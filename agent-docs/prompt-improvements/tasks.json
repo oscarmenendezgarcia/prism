@@ -1,0 +1,185 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "prompt-improvements",
+  "date": "2026-03-30",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Extract buildStagePrompt() from spawnStage() in pipelineManager.js",
+      "description": "Refactor the inline prompt-building logic in spawnStage() (lines 366-409) into a standalone exported function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages). The function reads the task from the space, appends artifact paths from previous stages, git context, and compile gate. Returns { promptText, estimatedTokens }. spawnStage() calls this function instead of building inline. No behavior change.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 SP",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "buildStagePrompt() is exported from pipelineManager.js",
+        "spawnStage() calls buildStagePrompt() and produces identical prompt text as before",
+        "Existing pipeline tests pass without modification",
+        "Function returns { promptText: string, estimatedTokens: number }"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Persist stage prompt to stage-N-prompt.md in spawnStage()",
+      "description": "After buildStagePrompt() returns, write the promptText to data/runs/<runId>/stage-<N>-prompt.md using the atomic .tmp + rename pattern. Add stagePromptPath() helper exported alongside stageLogPath(). Write happens before child.stdin.write(taskPrompt). Emit a structured log event 'stage_prompt_persisted' with runId, stageIndex, sizeBytes.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 SP",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "After spawnStage() runs, data/runs/<runId>/stage-<N>-prompt.md exists on disk",
+        "File content matches what was piped to child.stdin",
+        "stagePromptPath() is exported from pipelineManager.js",
+        "Structured log line '[PIPELINE] {\"event\":\"stage_prompt_persisted\",...}' is emitted to stderr"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Add GET /api/v1/runs/:runId/stages/:stageIndex/prompt endpoint",
+      "description": "Add handleGetStagePrompt to src/handlers/pipeline.js. Reads stagePromptPath() file and returns it as text/plain. Returns 404 PROMPT_NOT_AVAILABLE if the file does not exist. Wire the route in server.js using pattern PIPELINE_RUNS_PROMPT_ROUTE = /^\\/api\\/v1\\/runs\\/([^/]+)\\/stages\\/(\\d+)\\/prompt$/.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 SP",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "GET /api/v1/runs/:runId/stages/0/prompt returns 200 with text/plain content after a stage has started",
+        "Returns 404 with code PROMPT_NOT_AVAILABLE for stages that have not started",
+        "Returns 404 RUN_NOT_FOUND for invalid runId",
+        "Content-Type header is text/plain; charset=utf-8"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Add POST /api/v1/runs/preview-prompts endpoint",
+      "description": "Add handlePreviewPrompts to src/handlers/pipeline.js. Accepts { spaceId, taskId, stages[] }. For each stage, calls buildStagePrompt() to generate the prompt text without starting a run. Returns { prompts: [{ stageIndex, agentId, promptFull, estimatedTokens }] }. Validates spaceId, taskId, and all agent files exist. Wire the route in server.js. The route pattern must be checked BEFORE the :runId catch-all regex to avoid conflicts.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 SP",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "POST /api/v1/runs/preview-prompts returns 200 with prompts array",
+        "Each prompt entry contains stageIndex, agentId, promptFull (string), estimatedTokens (number)",
+        "Returns 404 if task or space not found",
+        "Returns 422 if any agent file is missing",
+        "Does NOT create a run directory or any files on disk",
+        "Route ordering in server.js places this before PIPELINE_RUNS_SINGLE_ROUTE"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Add promptFull to POST /api/v1/agent/prompt response",
+      "description": "In src/handlers/prompt.js handleGeneratePrompt(), add promptFull: promptText to the sendJSON response alongside the existing promptPreview (kept for backward compat). This is a one-line change in the sendJSON call.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 SP",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "POST /api/v1/agent/prompt response includes promptFull field with the complete prompt text",
+        "promptPreview field still contains the first 500 chars (unchanged)",
+        "estimatedTokens, promptPath, and cliCommand are unchanged"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Update frontend types and API client for prompt improvements",
+      "description": "In frontend/src/types/index.ts: add promptFull to PromptGenerationResponse and PreparedRun. Add PipelinePromptPreviewEntry and PipelinePromptPreview types. In frontend/src/api/client.ts: add getStagePrompt(runId, stageIndex) returning Promise<string> (text response) and previewPipelinePrompts(spaceId, taskId, stages) returning Promise<PipelinePromptPreview>. Update prepareAgentRun in useAppStore.ts to store result.promptFull in preparedRun.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 SP",
+      "dependencies": ["T-005"],
+      "acceptance_criteria": [
+        "PromptGenerationResponse has promptFull: string field",
+        "PreparedRun has promptFull: string field",
+        "PipelinePromptPreview type exists with prompts array",
+        "getStagePrompt() and previewPipelinePrompts() are exported from client.ts",
+        "prepareAgentRun stores promptFull from the API response",
+        "TypeScript compiles with no errors"
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Update AgentPromptPreview to show full prompt",
+      "description": "In AgentPromptPreview.tsx: replace preparedRun.promptPreview with preparedRun.promptFull in the MarkdownViewer. Add a collapse/expand toggle: collapsed shows first 500 chars (the old preview behavior), expanded shows the full text. Default to expanded. The edit mode textarea also uses promptFull. Update token badge to use the accurate estimatedTokens from the response.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 SP",
+      "dependencies": ["T-006"],
+      "acceptance_criteria": [
+        "AgentPromptPreview modal shows complete prompt text by default",
+        "A toggle allows switching between full prompt and 500-char preview",
+        "Edit mode textarea starts with full prompt text",
+        "Token badge displays correctly",
+        "No visual regressions in modal layout"
+      ]
+    },
+    {
+      "id": "T-008",
+      "title": "Add Prompt/Log toggle to PipelineLogPanel",
+      "description": "In PipelineLogPanel.tsx: add a two-option toggle (Prompt | Log) below the StageTabBar. Default to 'Log' (current behavior). When 'Prompt' is selected, call getStagePrompt(runId, stageIndex) and display the result in a read-only MarkdownViewer within the same flex container as LogViewer. Cache fetched prompts in usePipelineLogStore to avoid re-fetching on tab switches. Show a 404-friendly empty state if the prompt is not yet available.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "3 SP",
+      "dependencies": ["T-003", "T-006"],
+      "acceptance_criteria": [
+        "PipelineLogPanel shows a Prompt/Log toggle below the stage tabs",
+        "Selecting 'Prompt' fetches and displays the stage prompt via GET endpoint",
+        "Prompt text is rendered in MarkdownViewer",
+        "If prompt is not available (404), show a user-friendly empty state",
+        "Switching between Prompt and Log does not lose scroll position in Log",
+        "Fetched prompts are cached per (runId, stageIndex) in the store"
+      ]
+    },
+    {
+      "id": "T-009",
+      "title": "Add Preview Prompts button to PipelineConfirmModal",
+      "description": "In PipelineConfirmModal.tsx: add a 'Preview Prompts' button (secondary variant, positioned between the stage list and the orchestrator toggle). When clicked, call previewPipelinePrompts(spaceId, taskId, stages). Show a loading spinner while fetching. Once loaded, render a collapsible section under each stage row with the prompt text in a scrollable container (max-h-48, bg-surface-variant, monospace). Add a 'Hide Prompts' toggle to collapse all. If the user reorders/removes stages after previewing, clear the cached prompts and show the button again.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "3 SP",
+      "dependencies": ["T-004", "T-006"],
+      "acceptance_criteria": [
+        "PipelineConfirmModal has a 'Preview Prompts' button",
+        "Button triggers POST /api/v1/runs/preview-prompts with current spaceId, taskId, and stages",
+        "Loading spinner is visible during fetch",
+        "After fetch, each stage row expands to show the prompt text",
+        "Prompt sections are collapsible",
+        "Reordering or removing stages clears the preview cache",
+        "Errors are shown as a toast"
+      ]
+    },
+    {
+      "id": "T-010",
+      "title": "Backend tests for prompt persistence and new endpoints",
+      "description": "Write tests using node:test for: (1) buildStagePrompt() returns expected prompt structure; (2) spawnStage() creates stage-N-prompt.md; (3) GET /api/v1/runs/:runId/stages/:stageIndex/prompt returns correct content; (4) POST /api/v1/runs/preview-prompts returns prompts for all stages without creating a run. Tests go in tests/prompt-improvements.test.js.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "3 SP",
+      "dependencies": ["T-001", "T-002", "T-003", "T-004"],
+      "acceptance_criteria": [
+        "Test file tests/prompt-improvements.test.js exists",
+        "Tests cover buildStagePrompt output structure",
+        "Tests verify stage-N-prompt.md is created by spawnStage",
+        "Tests verify GET stage prompt endpoint returns text/plain",
+        "Tests verify POST preview-prompts returns array without side effects",
+        "All tests pass with node --test"
+      ]
+    },
+    {
+      "id": "T-011",
+      "title": "Frontend tests for prompt preview components",
+      "description": "Write Vitest + RTL tests for: (1) AgentPromptPreview shows full prompt text and toggle works; (2) PipelineLogPanel Prompt/Log toggle renders correctly; (3) PipelineConfirmModal Preview Prompts button triggers API call and shows results. Tests go alongside existing test files in frontend/__tests__/components/.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "3 SP",
+      "dependencies": ["T-007", "T-008", "T-009"],
+      "acceptance_criteria": [
+        "AgentPromptPreview test verifies full prompt is shown by default",
+        "AgentPromptPreview test verifies toggle between full and preview modes",
+        "PipelineLogPanel test verifies Prompt/Log toggle rendering",
+        "PipelineConfirmModal test verifies Preview Prompts button interaction",
+        "All tests pass with npm test in frontend/"
+      ]
+    }
+  ]
+}
