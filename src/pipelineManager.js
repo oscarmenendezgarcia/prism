@@ -132,6 +132,18 @@ function stageLogPath(dataDir, runId, stageIndex) {
   return path.join(runDir(dataDir, runId), `stage-${stageIndex}.log`);
 }
 
+/**
+ * Path to stage prompt file.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {number} stageIndex
+ * @returns {string}
+ */
+function stagePromptPath(dataDir, runId, stageIndex) {
+  return path.join(runDir(dataDir, runId), `stage-${stageIndex}-prompt.md`);
+}
+
 // ---------------------------------------------------------------------------
 // Atomic JSON I/O helpers
 // ---------------------------------------------------------------------------
@@ -297,6 +309,78 @@ async function moveKanbanTask(spaceId, taskId, column) {
 }
 
 // ---------------------------------------------------------------------------
+// Prompt building
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the prompt text that a pipeline stage agent receives via stdin.
+ *
+ * Reads the task from the space, appends artifact paths from previous stages,
+ * git context, and the compile gate block for developer-agent.
+ * Returns an object with the full prompt text and an estimated token count.
+ *
+ * This is the single source of truth used by both spawnStage() (actual
+ * execution) and handlePreviewPrompts() (dry-run preview endpoint).
+ *
+ * @param {string}   dataDir    - Root data directory.
+ * @param {string}   spaceId    - Kanban space containing the task.
+ * @param {string}   taskId     - Task ID to build the prompt for.
+ * @param {number}   stageIndex - Zero-based index of this stage in the run.
+ * @param {string}   agentId    - Agent ID for this stage.
+ * @param {string[]} stages     - Full ordered list of agent IDs in the pipeline.
+ * @returns {{ promptText: string, estimatedTokens: number }}
+ */
+function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages) {
+  const task = readTaskFromSpace(dataDir, spaceId, taskId);
+  let promptText = task
+    ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
+    : `TaskId: ${taskId}\nSpaceId: ${spaceId}\n`;
+
+  // Include artifact paths from previous stages (attached to the task by earlier agents).
+  // This gives each stage full context of what was produced before it.
+  if (task && Array.isArray(task.attachments) && task.attachments.length > 0) {
+    const fileArtifacts = task.attachments.filter((a) => a.type === 'file' && a.content);
+    if (fileArtifacts.length > 0) {
+      promptText += '\n## ARTIFACTS FROM PREVIOUS STAGES\n';
+      promptText += 'The following files were produced by earlier pipeline stages. Read them before starting your work:\n';
+      for (const att of fileArtifacts) {
+        promptText += `- ${att.name}: ${att.content}\n`;
+      }
+    }
+  }
+
+  // Include git context so agents can evaluate what work has already been done.
+  // This helps the developer-agent avoid re-implementing code from prior partial runs.
+  try {
+    const execSync2 = require('child_process').execSync;
+    const opts = { encoding: 'utf8', timeout: 5000 };
+    const gitLog    = execSync2('git log --oneline -10 2>/dev/null', opts).trim();
+    const gitStatus = execSync2('git status --short 2>/dev/null', opts).trim();
+    if (gitLog || gitStatus) {
+      promptText += '\n## GIT CONTEXT (recent commits + working tree state)\n';
+      if (gitLog)    promptText += '```\n' + gitLog + '\n```\n';
+      if (gitStatus) promptText += '\nWorking tree changes:\n```\n' + gitStatus + '\n```\n';
+    }
+  } catch (e) {
+    // git not available - skip
+  }
+
+  // For the developer stage: require compilation gate before closing.
+  // Prevents QA from launching against code that does not compile.
+  if (agentId === 'developer-agent') {
+    promptText += '\n## MANDATORY COMPILE GATE\n';
+    promptText += 'Before marking your Kanban task done, you MUST verify the code compiles:\n';
+    promptText += '- Java/Maven: run `mvn compile -q` (or `./mvnw compile -q`)\n';
+    promptText += '- Java/Gradle: run `./gradlew compileJava -q`\n';
+    promptText += '- TypeScript/Node: run `npm run build` or `tsc --noEmit`\n';
+    promptText += 'If compilation fails, fix the errors before closing the task. Do NOT advance to QA with broken code.\n';
+  }
+
+  const estimatedTokens = Math.ceil(promptText.length / 4);
+  return { promptText, estimatedTokens };
+}
+
+// ---------------------------------------------------------------------------
 // Stage execution
 // ---------------------------------------------------------------------------
 
@@ -363,49 +447,24 @@ async function spawnStage(dataDir, run, stageIndex) {
   pipelineLog('stage.started', { runId: run.runId, stageIndex, agentId });
 
   // Build the task prompt to pass via stdin.
-  const task = readTaskFromSpace(dataDir, run.spaceId, run.taskId);
-  let taskPrompt = task
-    ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${run.spaceId}\n`
-    : `TaskId: ${run.taskId}\nSpaceId: ${run.spaceId}\n`;
+  const { promptText: taskPrompt } = buildStagePrompt(
+    dataDir, run.spaceId, run.taskId, stageIndex, agentId, run.stages,
+  );
 
-  // Include artifact paths from previous stages (attached to the task by earlier agents).
-  // This gives each stage full context of what was produced before it.
-  if (task && Array.isArray(task.attachments) && task.attachments.length > 0) {
-    const fileArtifacts = task.attachments.filter((a) => a.type === 'file' && a.content);
-    if (fileArtifacts.length > 0) {
-      taskPrompt += '\n## ARTIFACTS FROM PREVIOUS STAGES\n';
-      taskPrompt += 'The following files were produced by earlier pipeline stages. Read them before starting your work:\n';
-      for (const att of fileArtifacts) {
-        taskPrompt += `- ${att.name}: ${att.content}\n`;
-      }
-    }
-  }
-
-  // Include git context so agents can evaluate what work has already been done.
-  // This helps the developer-agent avoid re-implementing code from prior partial runs.
+  // T-002: Persist the prompt to disk before piping it to the child process.
+  // Written atomically (.tmp + rename) so the file is available even if the child crashes.
+  const promptFilePath = stagePromptPath(dataDir, run.runId, stageIndex);
   try {
-    const execSync2 = require('child_process').execSync;
-    const opts = { encoding: 'utf8', timeout: 5000 };
-    const gitLog    = execSync2('git log --oneline -10 2>/dev/null', opts).trim();
-    const gitStatus = execSync2('git status --short 2>/dev/null', opts).trim();
-    if (gitLog || gitStatus) {
-      taskPrompt += '\n## GIT CONTEXT (recent commits + working tree state)\n';
-      if (gitLog)    taskPrompt += '```\n' + gitLog + '\n```\n';
-      if (gitStatus) taskPrompt += '\nWorking tree changes:\n```\n' + gitStatus + '\n```\n';
-    }
-  } catch (e) {
-    // git not available - skip
-  }
-
-  // For the developer stage: require compilation gate before closing.
-  // Prevents QA from launching against code that does not compile.
-  if (agentId === 'developer-agent') {
-    taskPrompt += '\n## MANDATORY COMPILE GATE\n';
-    taskPrompt += 'Before marking your Kanban task done, you MUST verify the code compiles:\n';
-    taskPrompt += '- Java/Maven: run `mvn compile -q` (or `./mvnw compile -q`)\n';
-    taskPrompt += '- Java/Gradle: run `./gradlew compileJava -q`\n';
-    taskPrompt += '- TypeScript/Node: run `npm run build` or `tsc --noEmit`\n';
-    taskPrompt += 'If compilation fails, fix the errors before closing the task. Do NOT advance to QA with broken code.\n';
+    const tmpPath = promptFilePath + '.tmp';
+    fs.writeFileSync(tmpPath, taskPrompt, 'utf8');
+    fs.renameSync(tmpPath, promptFilePath);
+    pipelineLog('stage_prompt_persisted', {
+      runId:      run.runId,
+      stageIndex,
+      sizeBytes:  Buffer.byteLength(taskPrompt, 'utf8'),
+    });
+  } catch (writeErr) {
+    console.warn(`[pipelineManager] WARN: could not persist prompt for stage ${stageIndex}:`, writeErr.message);
   }
 
   const logPath   = stageLogPath(dataDir, run.runId, stageIndex);
@@ -687,9 +746,11 @@ module.exports = {
   getRun,
   listRuns,
   deleteRun,
-  // Exported for testing:
+  // Exported for testing and preview endpoint:
   runsDir,
   runDir,
   stageLogPath,
+  stagePromptPath,
+  buildStagePrompt,
   DEFAULT_STAGES,
 };
