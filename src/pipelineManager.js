@@ -331,7 +331,10 @@ async function moveKanbanTask(spaceId, taskId, column) {
  * @returns {{ promptText: string, estimatedTokens: number }}
  */
 function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages) {
-  const task = readTaskFromSpace(dataDir, spaceId, taskId);
+  // readTaskFromSpace uses path.join(baseDataDir, spaceId) for legacy layout.
+  // The production data layout is data/spaces/<spaceId>/, so pass the spaces dir.
+  const spacesDir = path.join(dataDir, 'spaces');
+  const task = readTaskFromSpace(spacesDir, spaceId, taskId);
   let promptText = task
     ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
     : `TaskId: ${taskId}\nSpaceId: ${spaceId}\n`;
