@@ -1173,6 +1173,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
           if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
             clearInterval(pollId);
+            set({ _agentRunPollId: null });
+            const durationMs = Date.now() - Date.parse(startedAt);
+            useRunHistoryStore.getState().recordRunFinished(
+              historyRunId,
+              run.status === 'completed' ? 'completed' : 'failed',
+              durationMs,
+            );
             const finalPs = get().pipelineState;
             if (finalPs && finalPs.runId === runIdToWatch) {
               const terminalStatus = run.status === 'completed' ? 'completed' : 'aborted';
@@ -1189,6 +1196,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         } catch {
           clearInterval(pollId);
+          set({ _agentRunPollId: null });
           get().clearActiveRun();
           const ps = get().pipelineState;
           if (ps && ps.runId === runIdToWatch) {
@@ -1196,6 +1204,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         }
       }, POLL_MS);
+      set({ _agentRunPollId: pollId });
     }
   },
 

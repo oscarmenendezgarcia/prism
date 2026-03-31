@@ -272,20 +272,20 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — z-[105] to sit above the sticky header (z-[100]) */}
       <div
-        className="fixed inset-0 z-40 bg-black/35"
+        className="fixed inset-0 z-[105] bg-black/35"
         aria-hidden="true"
         onClick={closeDetailPanel}
       />
 
-      {/* Panel */}
+      {/* Panel — z-[110] to sit above the backdrop and header */}
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Task detail"
-        className="fixed inset-y-0 right-0 z-50 w-full sm:w-[380px] flex flex-col bg-surface border-l border-border shadow-xl animate-slide-in-right"
+        className="fixed inset-y-0 right-0 z-[110] w-full sm:w-[380px] flex flex-col bg-surface border-l border-border shadow-xl animate-slide-in-right"
       >
         {/* ── Header ──────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border flex-shrink-0">
