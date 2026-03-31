@@ -227,7 +227,21 @@ export interface PreparedRun {
   promptPath: string;
   cliCommand: string;
   promptPreview: string;
+  promptFull: string;      // complete prompt text (T-006)
   estimatedTokens: number;
+}
+
+/** One prompt entry in a pipeline prompt preview response. */
+export interface PipelinePromptPreviewEntry {
+  stageIndex: number;
+  agentId: string;
+  promptFull: string;
+  estimatedTokens: number;
+}
+
+/** Response from POST /api/v1/runs/preview-prompts. */
+export interface PipelinePromptPreview {
+  prompts: PipelinePromptPreviewEntry[];
 }
 
 /** CLI tool configuration. */
@@ -274,6 +288,7 @@ export interface PromptGenerationRequest {
 export interface PromptGenerationResponse {
   promptPath: string;
   promptPreview: string;
+  promptFull: string;      // complete prompt text (T-005)
   cliCommand: string;
   estimatedTokens: number;
 }

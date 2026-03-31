@@ -12,6 +12,12 @@
  *   - T-4: "Orchestrator mode" toggle
  *     - visible in the modal
  *     - calls executeOrchestratorRun instead of startPipeline when enabled
+ *   - T-9: "Preview Prompts" button
+ *     - calls previewPipelinePrompts with correct args
+ *     - shows collapsible accordion entries per stage
+ *     - auto-expands first entry
+ *     - clears cache on stage reorder/remove
+ *     - shows error toast on failure
  *   - Run button disabled when no stages
  *   - handleRun calls startPipeline with checkpoints array
  */
@@ -21,6 +27,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import { PipelineConfirmModal } from '../../src/components/modals/PipelineConfirmModal';
 import { useAppStore } from '../../src/stores/useAppStore';
 import type { PipelineStage } from '../../src/types';
+import * as apiClient from '../../src/api/client';
 
 // ---------------------------------------------------------------------------
 // Mock the API client
@@ -41,6 +48,7 @@ vi.mock('../../src/api/client', () => ({
     promptPath:      '/tmp/prompt.md',
     cliCommand:      'claude --agent senior-architect -p /tmp/prompt.md',
     promptPreview:   '# Preview',
+    promptFull:      '# Full Prompt\n\nThis is the complete prompt text.',
     estimatedTokens: 100,
   }),
   getSettings:          vi.fn(),
@@ -48,6 +56,14 @@ vi.mock('../../src/api/client', () => ({
   startRun:             vi.fn().mockResolvedValue({ runId: 'run-1', status: 'pending', stages: [], spaceId: 'space-1', taskId: 'task-1', createdAt: new Date().toISOString() }),
   getBackendRun:        vi.fn(),
   deleteRun:            vi.fn(),
+  previewPipelinePrompts: vi.fn().mockResolvedValue({
+    prompts: [
+      { stageIndex: 0, agentId: 'senior-architect',  promptFull: '# Stage 0 prompt', estimatedTokens: 200 },
+      { stageIndex: 1, agentId: 'ux-api-designer',   promptFull: '# Stage 1 prompt', estimatedTokens: 180 },
+      { stageIndex: 2, agentId: 'developer-agent',   promptFull: '# Stage 2 prompt', estimatedTokens: 220 },
+      { stageIndex: 3, agentId: 'qa-engineer-e2e',   promptFull: '# Stage 3 prompt', estimatedTokens: 160 },
+    ],
+  }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -324,5 +340,126 @@ describe('PipelineConfirmModal — T-4 orchestrator mode', () => {
     fireEvent.click(screen.getByRole('button', { name: /run 4 stages/i }));
     await vi.waitFor(() => expect(startPipelineFn).toHaveBeenCalledOnce());
     expect(executeOrchestratorFn).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-009: Preview Prompts button
+// ---------------------------------------------------------------------------
+
+describe('PipelineConfirmModal — T-009 preview prompts', () => {
+  it('renders a "Preview Prompts" button', () => {
+    resetStore();
+    render(<PipelineConfirmModal />);
+    expect(screen.getByRole('button', { name: /preview prompts/i })).toBeInTheDocument();
+  });
+
+  it('calls previewPipelinePrompts with correct args when button is clicked', async () => {
+    const mockPreview = vi.mocked(apiClient.previewPipelinePrompts);
+    resetStore();
+    render(<PipelineConfirmModal />);
+    fireEvent.click(screen.getByRole('button', { name: /preview prompts/i }));
+    await vi.waitFor(() => expect(mockPreview).toHaveBeenCalledOnce());
+    expect(mockPreview).toHaveBeenCalledWith('space-1', 'task-1', STAGES);
+  });
+
+  it('shows stage prompt sections after a successful fetch', async () => {
+    resetStore();
+    render(<PipelineConfirmModal />);
+    fireEvent.click(screen.getByRole('button', { name: /preview prompts/i }));
+    // Wait for the preview entries to appear (accordion headers).
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: /1\. senior architect/i })).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: /2\. ux \/ api designer/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /3\. developer agent/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /4\. qa engineer e2e/i })).toBeInTheDocument();
+  });
+
+  it('auto-expands the first stage prompt after fetch', async () => {
+    resetStore();
+    render(<PipelineConfirmModal />);
+    fireEvent.click(screen.getByRole('button', { name: /preview prompts/i }));
+    await vi.waitFor(() => {
+      // The first accordion entry should be expanded (aria-expanded=true).
+      const firstHeader = screen.getByRole('button', { name: /1\. senior architect/i });
+      expect(firstHeader).toHaveAttribute('aria-expanded', 'true');
+    });
+  });
+
+  it('shows prompt content for the expanded stage', async () => {
+    resetStore();
+    render(<PipelineConfirmModal />);
+    fireEvent.click(screen.getByRole('button', { name: /preview prompts/i }));
+    await vi.waitFor(() => {
+      expect(screen.getByText('# Stage 0 prompt')).toBeInTheDocument();
+    });
+  });
+
+  it('collapses an expanded section when its header is clicked again', async () => {
+    resetStore();
+    render(<PipelineConfirmModal />);
+    fireEvent.click(screen.getByRole('button', { name: /preview prompts/i }));
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: /1\. senior architect/i })).toHaveAttribute('aria-expanded', 'true');
+    });
+    // Click again to collapse.
+    fireEvent.click(screen.getByRole('button', { name: /1\. senior architect/i }));
+    expect(screen.getByRole('button', { name: /1\. senior architect/i })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('clears preview results when a stage is removed', async () => {
+    resetStore();
+    render(<PipelineConfirmModal />);
+    fireEvent.click(screen.getByRole('button', { name: /preview prompts/i }));
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: /1\. senior architect/i })).toBeInTheDocument();
+    });
+    // Remove the first stage.
+    const removeButtons = screen.getAllByRole('button', { name: /remove stage/i });
+    fireEvent.click(removeButtons[0]);
+    // Preview sections should be cleared.
+    expect(screen.queryByRole('button', { name: /1\. senior architect/i })).toBeNull();
+  });
+
+  it('clears preview results when a stage is moved up', async () => {
+    resetStore();
+    render(<PipelineConfirmModal />);
+    fireEvent.click(screen.getByRole('button', { name: /preview prompts/i }));
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: /1\. senior architect/i })).toBeInTheDocument();
+    });
+    // Move stage 1 (UX) up — the "Move up" button for index 1.
+    const moveUpButtons = screen.getAllByRole('button', { name: /move up/i });
+    fireEvent.click(moveUpButtons[1]); // index 1's move-up
+    expect(screen.queryByRole('button', { name: /1\. senior architect/i })).toBeNull();
+  });
+
+  it('shows a "Hide" button after prompts are fetched and hides sections on click', async () => {
+    resetStore();
+    render(<PipelineConfirmModal />);
+    fireEvent.click(screen.getByRole('button', { name: /preview prompts/i }));
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: /hide/i })).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /hide/i }));
+    expect(screen.queryByRole('button', { name: /1\. senior architect/i })).toBeNull();
+  });
+
+  it('shows an error toast when previewPipelinePrompts rejects', async () => {
+    const mockPreview = vi.mocked(apiClient.previewPipelinePrompts);
+    mockPreview.mockRejectedValueOnce(new Error('Network error'));
+    const showToastSpy = vi.fn();
+    resetStore();
+    // Patch showToast on the store.
+    useAppStore.setState({ showToast: showToastSpy } as any);
+    render(<PipelineConfirmModal />);
+    fireEvent.click(screen.getByRole('button', { name: /preview prompts/i }));
+    await vi.waitFor(() => {
+      expect(showToastSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Network error'),
+        'error',
+      );
+    });
   });
 });

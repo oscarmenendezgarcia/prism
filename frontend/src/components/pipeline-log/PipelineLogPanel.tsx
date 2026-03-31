@@ -6,6 +6,10 @@
  * - Reads runId from pipelineState in useAppStore.
  * - Mounts usePipelineLogPolling to fetch logs every 2 s while run is active.
  * - Fetches run status (stageStatuses) from the backend to drive StageTabBar icons.
+ *
+ * T-008: Prompt/Log toggle below the stage tab bar. Selecting "Prompt" fetches
+ *        GET /api/v1/runs/:runId/stages/:stageIndex/prompt and renders it in
+ *        MarkdownViewer. Prompts are cached per stageIndex in usePipelineLogStore.
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
@@ -13,9 +17,10 @@ import { useAppStore } from '@/stores/useAppStore';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
 import { usePipelineLogPolling } from '@/hooks/usePipelineLogPolling';
 import { usePanelResize } from '@/hooks/usePanelResize';
-import { getBackendRun } from '@/api/client';
+import { getBackendRun, getStagePrompt, PromptNotAvailableError } from '@/api/client';
 import { StageTabBar } from './StageTabBar';
 import { LogViewer } from './LogViewer';
+import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
 import type { BackendStageStatus } from '@/types';
 
 /** How often (ms) to refresh the run status (for stageStatuses icons). */
@@ -45,13 +50,19 @@ function deriveStageStatus(
  * Rendered conditionally from App.tsx when logPanelOpen is true and pipelineState is set.
  */
 export function PipelineLogPanel() {
-  const pipelineState       = useAppStore((s) => s.pipelineState);
-  const selectedStageIndex  = usePipelineLogStore((s) => s.selectedStageIndex);
+  const pipelineState         = useAppStore((s) => s.pipelineState);
+  const selectedStageIndex    = usePipelineLogStore((s) => s.selectedStageIndex);
   const setSelectedStageIndex = usePipelineLogStore((s) => s.setSelectedStageIndex);
-  const setLogPanelOpen     = usePipelineLogStore((s) => s.setLogPanelOpen);
-  const stageLogs           = usePipelineLogStore((s) => s.stageLogs);
-  const stageLoading        = usePipelineLogStore((s) => s.stageLoading);
-  const stageErrors         = usePipelineLogStore((s) => s.stageErrors);
+  const setLogPanelOpen       = usePipelineLogStore((s) => s.setLogPanelOpen);
+  const stageLogs             = usePipelineLogStore((s) => s.stageLogs);
+  const stageLoading          = usePipelineLogStore((s) => s.stageLoading);
+  const stageErrors           = usePipelineLogStore((s) => s.stageErrors);
+  const stageView             = usePipelineLogStore((s) => s.stageView);
+  const setStageView          = usePipelineLogStore((s) => s.setStageView);
+  const stagePrompts          = usePipelineLogStore((s) => s.stagePrompts);
+  const setStagePrompt        = usePipelineLogStore((s) => s.setStagePrompt);
+  const stagePromptLoading    = usePipelineLogStore((s) => s.stagePromptLoading);
+  const setStagePromptLoading = usePipelineLogStore((s) => s.setStagePromptLoading);
 
   const [backendStatuses, setBackendStatuses] = useState<BackendStageStatus[]>([]);
 
@@ -90,6 +101,39 @@ export function PipelineLogPanel() {
     stageIndex: selectedStageIndex,
     isRunActive,
   });
+
+  const currentView = stageView[selectedStageIndex] ?? 'log';
+
+  // Fetch prompt for current stage when the "Prompt" view is selected.
+  // Caches the result in the store so repeated tab switches don't re-fetch.
+  const fetchPromptForStage = useCallback(async (stageIdx: number) => {
+    if (!runId) return;
+    // Already cached or currently loading — skip.
+    if (stagePrompts[stageIdx] !== undefined) return;
+    if (stagePromptLoading[stageIdx]) return;
+
+    setStagePromptLoading(stageIdx, true);
+    try {
+      const text = await getStagePrompt(runId, stageIdx);
+      setStagePrompt(stageIdx, text);
+    } catch (err) {
+      if (err instanceof PromptNotAvailableError) {
+        // Stage hasn't started yet — store null to indicate "not available".
+        setStagePrompt(stageIdx, null);
+      } else {
+        console.error('[PipelineLogPanel] ERROR fetching stage prompt:', err);
+        setStagePrompt(stageIdx, null);
+      }
+    } finally {
+      setStagePromptLoading(stageIdx, false);
+    }
+  }, [runId, stagePrompts, stagePromptLoading, setStagePrompt, setStagePromptLoading]);
+
+  useEffect(() => {
+    if (currentView === 'prompt') {
+      fetchPromptForStage(selectedStageIndex);
+    }
+  }, [currentView, selectedStageIndex, fetchPromptForStage]);
 
   // Build stageStatuses array for StageTabBar.
   const stageStatusesForBar: BackendStageStatus[] = stages.map((_, index) => ({
@@ -177,20 +221,78 @@ export function PipelineLogPanel() {
         />
       )}
 
-      {/* Log content area */}
+      {/* T-008: Prompt / Log toggle — only shown when a run is active */}
+      {runId && (
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
+          <button
+            onClick={() => setStageView(selectedStageIndex, 'log')}
+            aria-pressed={currentView === 'log'}
+            className={`text-xs px-2.5 py-1 rounded transition-colors duration-150 ${
+              currentView === 'log'
+                ? 'bg-primary text-white'
+                : 'text-text-secondary hover:text-primary hover:bg-surface-variant'
+            }`}
+          >
+            Log
+          </button>
+          <button
+            onClick={() => setStageView(selectedStageIndex, 'prompt')}
+            aria-pressed={currentView === 'prompt'}
+            className={`text-xs px-2.5 py-1 rounded transition-colors duration-150 ${
+              currentView === 'prompt'
+                ? 'bg-primary text-white'
+                : 'text-text-secondary hover:text-primary hover:bg-surface-variant'
+            }`}
+          >
+            Prompt
+          </button>
+        </div>
+      )}
+
+      {/* Log / Prompt content area */}
       {runId ? (
         <div
           id={`log-panel-stage-${selectedStageIndex}`}
           role="tabpanel"
           className="flex flex-1 flex-col min-h-0"
         >
-          <LogViewer
-            content={currentLog}
-            isPending={isPending}
-            isRunning={isRunning}
-            isLoading={currentLoading}
-            error={currentError}
-          />
+          {currentView === 'log' ? (
+            <LogViewer
+              content={currentLog}
+              isPending={isPending}
+              isRunning={isRunning}
+              isLoading={currentLoading}
+              error={currentError}
+            />
+          ) : (
+            /* Prompt view */
+            <div className="flex flex-1 flex-col min-h-0 overflow-y-auto p-3">
+              {stagePromptLoading[selectedStageIndex] ? (
+                <div className="flex items-center gap-2 text-xs text-text-secondary">
+                  <span className="material-symbols-outlined text-sm animate-spin leading-none" aria-hidden="true">
+                    progress_activity
+                  </span>
+                  Loading prompt…
+                </div>
+              ) : stagePrompts[selectedStageIndex] != null ? (
+                <MarkdownViewer content={stagePrompts[selectedStageIndex] as string} />
+              ) : (
+                /* Prompt not yet available (stage hasn't started) */
+                <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                  <span
+                    className="material-symbols-outlined text-3xl text-text-disabled leading-none"
+                    aria-hidden="true"
+                  >
+                    description
+                  </span>
+                  <p className="text-sm text-text-secondary">Prompt not available yet.</p>
+                  <p className="text-xs text-text-disabled leading-relaxed max-w-[180px]">
+                    The prompt file is written when the stage starts.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         /* No runId available — panel opened but no run is tracked */
@@ -201,7 +303,7 @@ export function PipelineLogPanel() {
           >
             article
           </span>
-          <p className="text-sm text-text-secondary">No active pipeline run.</p>
+          <p className="text-sm text-text-secondary">No pipeline runs yet.</p>
           <p className="text-xs text-text-disabled leading-relaxed max-w-[200px]">
             Start a pipeline run to see stage logs here.
           </p>

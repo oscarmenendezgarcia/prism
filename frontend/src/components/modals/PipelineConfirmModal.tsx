@@ -5,13 +5,17 @@
  * T-2: Pipeline editable por card.
  * T-3: "Pause before this stage" checkbox per stage (manual checkpoints).
  * T-4: "Use orchestrator mode" toggle at the bottom — routes to executeOrchestratorRun.
+ * T-9: "Preview Prompts" button — calls POST /api/v1/runs/preview-prompts and shows
+ *       each stage's prompt in a collapsible section below the stage row.
  */
 
 import React, { useState, useEffect } from 'react';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
+import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
 import { useAppStore } from '@/stores/useAppStore';
-import type { PipelineStage } from '@/types';
+import { previewPipelinePrompts } from '@/api/client';
+import type { PipelineStage, PipelinePromptPreviewEntry } from '@/types';
 
 const TITLE_ID = 'pipeline-confirm-title';
 
@@ -36,6 +40,14 @@ export function PipelineConfirmModal() {
   const [checkpoints, setCheckpoints]     = useState<Set<number>>(new Set());
   /** T-4: When true, routes to executeOrchestratorRun instead of startPipeline. */
   const [useOrchestrator, setUseOrchestrator] = useState(false);
+
+  // T-9: Preview prompts state.
+  /** Null = not yet fetched, array = fetched prompts, 'loading' = in-flight. */
+  const [previewPrompts, setPreviewPrompts] = useState<PipelinePromptPreviewEntry[] | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  /** Index of the currently expanded prompt, or null if all collapsed. */
+  const [expandedPromptIndex, setExpandedPromptIndex] = useState<number | null>(null);
+
   const isOpen = modal?.open ?? false;
 
   // Sync stages from modal when it opens; reset local state. Load agents if needed.
@@ -44,10 +56,19 @@ export function PipelineConfirmModal() {
       setStages([...modal.stages]);
       setCheckpoints(new Set(modal.checkpoints ?? []));
       setUseOrchestrator(modal.useOrchestratorMode ?? false);
+      // Clear any previously fetched preview prompts when the modal re-opens.
+      setPreviewPrompts(null);
+      setExpandedPromptIndex(null);
       const space = spaces.find((s) => s.id === modal.spaceId);
       loadAgents(space?.workingDirectory);
     }
   }, [isOpen, modal]);
+
+  /** Clear preview prompt cache whenever stages change (reorder/remove). */
+  function invalidatePreviewCache() {
+    setPreviewPrompts(null);
+    setExpandedPromptIndex(null);
+  }
 
   function moveUp(i: number) {
     if (i === 0) return;
@@ -64,6 +85,7 @@ export function PipelineConfirmModal() {
       return next2;
     });
     setStages(next);
+    invalidatePreviewCache();
   }
 
   function moveDown(i: number) {
@@ -81,6 +103,7 @@ export function PipelineConfirmModal() {
       return next2;
     });
     setStages(next);
+    invalidatePreviewCache();
   }
 
   function remove(i: number) {
@@ -95,6 +118,27 @@ export function PipelineConfirmModal() {
       });
       return next2;
     });
+    invalidatePreviewCache();
+  }
+
+  async function handlePreviewPrompts() {
+    if (!modal || stages.length === 0) return;
+    setPreviewLoading(true);
+    setPreviewPrompts(null);
+    setExpandedPromptIndex(null);
+    try {
+      const result = await previewPipelinePrompts(modal.spaceId, modal.taskId, stages);
+      setPreviewPrompts(result.prompts);
+      // Auto-expand the first stage prompt.
+      setExpandedPromptIndex(0);
+    } catch (err) {
+      useAppStore.getState().showToast(
+        `Failed to preview prompts: ${(err as Error).message}`,
+        'error',
+      );
+    } finally {
+      setPreviewLoading(false);
+    }
   }
 
   function toggleCheckpoint(i: number) {
@@ -230,6 +274,7 @@ export function PipelineConfirmModal() {
                 const agentId = e.target.value;
                 if (!agentId) return;
                 setStages((prev) => [...prev, agentId as PipelineStage]);
+                invalidatePreviewCache();
                 e.target.value = '';
               }}
               aria-label="Add stage"
@@ -247,6 +292,77 @@ export function PipelineConfirmModal() {
           <p className="text-[11px] text-text-disabled text-center">
             {stages.map((s) => availableAgents.find((a) => a.id === s)?.displayName ?? s).join(' → ')}
           </p>
+        )}
+
+        {/* T-9: Preview Prompts button + collapsible prompt sections */}
+        {stages.length > 0 && (
+          <div className="border-t border-border pt-3 mt-1 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handlePreviewPrompts}
+                disabled={previewLoading}
+              >
+                {previewLoading ? (
+                  <>
+                    <span className="material-symbols-outlined text-sm leading-none animate-spin mr-1" aria-hidden="true">
+                      progress_activity
+                    </span>
+                    Loading…
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-sm leading-none mr-1" aria-hidden="true">
+                      visibility
+                    </span>
+                    Preview Prompts
+                  </>
+                )}
+              </Button>
+              {previewPrompts && (
+                <button
+                  type="button"
+                  onClick={() => { setPreviewPrompts(null); setExpandedPromptIndex(null); }}
+                  className="text-xs text-text-secondary hover:text-primary transition-colors"
+                >
+                  Hide
+                </button>
+              )}
+            </div>
+
+            {previewPrompts && previewPrompts.map((entry) => (
+              <div key={entry.stageIndex} className="border border-border rounded-md overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setExpandedPromptIndex(
+                    expandedPromptIndex === entry.stageIndex ? null : entry.stageIndex
+                  )}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs bg-surface-variant hover:bg-surface transition-colors"
+                  aria-expanded={expandedPromptIndex === entry.stageIndex}
+                >
+                  <span className="font-medium text-text-primary">
+                    {entry.stageIndex + 1}. {availableAgents.find((a) => a.id === entry.agentId)?.displayName ?? entry.agentId}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-text-disabled">
+                      ~{entry.estimatedTokens >= 1000
+                        ? `${(entry.estimatedTokens / 1000).toFixed(1)}k`
+                        : entry.estimatedTokens} tokens
+                    </span>
+                    <span className="material-symbols-outlined text-sm text-text-secondary leading-none" aria-hidden="true">
+                      {expandedPromptIndex === entry.stageIndex ? 'expand_less' : 'expand_more'}
+                    </span>
+                  </div>
+                </button>
+                {expandedPromptIndex === entry.stageIndex && (
+                  <div className="max-h-48 overflow-y-auto p-3 bg-surface text-xs font-mono text-text-primary border-t border-border whitespace-pre-wrap">
+                    {entry.promptFull}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
 
         {/* T-4: Orchestrator mode toggle */}

@@ -22,6 +22,7 @@ import type {
   PromptGenerationResponse,
   AgentSettings,
   BackendRun,
+  PipelinePromptPreview,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -325,6 +326,71 @@ export const getBackendRun = (runId: string): Promise<BackendRun> =>
 /** Cancel a backend pipeline run. */
 export const deleteRun = (runId: string): Promise<void> =>
   apiFetch<void>(`/runs/${runId}`, { method: 'DELETE' });
+
+/**
+ * Fetch the persisted prompt for a specific pipeline stage.
+ * Returns raw text/plain content.
+ * Throws PromptNotAvailableError when the stage has not started yet (404 PROMPT_NOT_AVAILABLE).
+ *
+ * @param runId       Pipeline run ID.
+ * @param stageIndex  Zero-based stage index.
+ */
+export async function getStagePrompt(runId: string, stageIndex: number): Promise<string> {
+  const url = `${API_BASE}/runs/${encodeURIComponent(runId)}/stages/${stageIndex}/prompt`;
+  const res = await fetch(url);
+
+  if (res.ok) {
+    return res.text();
+  }
+
+  let code: string | undefined;
+  try {
+    const body = await res.json() as { error?: { code?: string } };
+    code = body?.error?.code;
+  } catch {
+    // Non-JSON body — fall through to generic error.
+  }
+
+  if (res.status === 404 && code === 'PROMPT_NOT_AVAILABLE') {
+    throw new PromptNotAvailableError();
+  }
+
+  throw new Error(
+    code
+      ? `[PipelinePrompt] fetch error stage=${stageIndex} code=${code} status=${res.status}`
+      : `[PipelinePrompt] fetch error stage=${stageIndex} status=${res.status}`,
+  );
+}
+
+/**
+ * Sentinel error thrown when the backend returns 404 PROMPT_NOT_AVAILABLE.
+ * The prompt file is written before the stage starts; this error means
+ * the stage hasn't begun yet — callers should show a friendly empty state.
+ */
+export class PromptNotAvailableError extends Error {
+  constructor() {
+    super('PROMPT_NOT_AVAILABLE');
+    this.name = 'PromptNotAvailableError';
+  }
+}
+
+/**
+ * Generate prompts for all pipeline stages without starting a run.
+ * Useful for previewing what each agent will receive before confirming launch.
+ *
+ * @param spaceId  Target space ID.
+ * @param taskId   Task ID to build prompts for.
+ * @param stages   Ordered list of agent IDs.
+ */
+export const previewPipelinePrompts = (
+  spaceId: string,
+  taskId: string,
+  stages: string[],
+): Promise<PipelinePromptPreview> =>
+  apiFetch<PipelinePromptPreview>('/runs/preview-prompts', {
+    method: 'POST',
+    body: JSON.stringify({ spaceId, taskId, stages }),
+  });
 
 // ---------------------------------------------------------------------------
 // Pipeline log viewer API (ADR-1: log-viewer)

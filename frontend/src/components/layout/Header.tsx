@@ -22,8 +22,11 @@ import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
  * Follows the same structure as RunHistoryToggle and TerminalToggle.
  */
 function PipelineLogToggle() {
+  const pipelineState  = useAppStore((s) => s.pipelineState);
   const logPanelOpen   = usePipelineLogStore((s) => s.logPanelOpen);
   const setLogPanelOpen = usePipelineLogStore((s) => s.setLogPanelOpen);
+
+  if (!pipelineState) return null;
 
   return (
     <button

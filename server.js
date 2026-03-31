@@ -65,9 +65,13 @@ const {
   PIPELINE_RUNS_LIST_ROUTE,
   PIPELINE_RUNS_SINGLE_ROUTE,
   PIPELINE_RUNS_LOG_ROUTE,
+  PIPELINE_RUNS_PROMPT_ROUTE,
+  PIPELINE_RUNS_PREVIEW_ROUTE,
   handleCreateRun,
   handleGetRun,
   handleGetStageLog,
+  handleGetStagePrompt,
+  handlePreviewPrompts,
   handleDeleteRun,
 } = require('./src/handlers/pipeline');
 
@@ -325,13 +329,31 @@ function startServer(options = {}) {
 
     // -----------------------------------------------------------------------
     // Pipeline run routes
-    // Log route MUST be tested before the single-run route to avoid shadowing.
+    // Order matters:
+    //   1. PREVIEW_ROUTE  (/runs/preview-prompts)          — before LIST_ROUTE
+    //   2. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
+    //   3. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
+    //   4. LIST_ROUTE     (/runs)
+    //   5. SINGLE_ROUTE   (/runs/:id)
     // -----------------------------------------------------------------------
+    if (PIPELINE_RUNS_PREVIEW_ROUTE.test(urlPath)) {
+      if (method === 'POST') return handlePreviewPrompts(req, res, dataDir, spaceManager);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
     const pipelineLogMatch = PIPELINE_RUNS_LOG_ROUTE.exec(urlPath);
     if (pipelineLogMatch) {
       const runId      = pipelineLogMatch[1];
       const stageIndex = parseInt(pipelineLogMatch[2], 10);
       if (method === 'GET') return handleGetStageLog(req, res, runId, stageIndex, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const pipelinePromptMatch = PIPELINE_RUNS_PROMPT_ROUTE.exec(urlPath);
+    if (pipelinePromptMatch) {
+      const runId      = pipelinePromptMatch[1];
+      const stageIndex = parseInt(pipelinePromptMatch[2], 10);
+      if (method === 'GET') return handleGetStagePrompt(req, res, runId, stageIndex, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

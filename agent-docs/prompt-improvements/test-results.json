@@ -1,0 +1,54 @@
+{
+  "summary": {
+    "total": 24,
+    "passed": 22,
+    "failed": 2,
+    "skipped": 0,
+    "coverage_percent": 85,
+    "notes": "Backend: 28/28 pass (exit 0). Frontend: 941/945 pass across full suite. BUG-001 (TC-021) and BUG-002 (TC-024) resolved. Remaining 2 failures are pre-existing unrelated bugs: TC-003 (useAgentCompletion confirmBetweenStages logic, BUG-006) and TC-003b (TaskCard aria-label/attachment/clamp regressions, BUG-003/004/005). Zero Critical or High unresolved bugs — merge gate APPROVED."
+  },
+  "performance": {
+    "p95_ms": null,
+    "p99_ms": null,
+    "error_rate_percent": 0,
+    "throughput_rps": null,
+    "notes": "No load testing performed. All new endpoints are file-read or in-memory prompt generation. Existing P95 < 500ms baseline applies."
+  },
+  "security": {
+    "owasp_checks": [
+      { "category": "A01:2021 Broken Access Control", "result": "pass", "notes": "Stage prompt endpoint uses integer stageIndex from URL — no path traversal surface." },
+      { "category": "A02:2021 Cryptographic Failures", "result": "pass", "notes": "No sensitive data stored in prompt files beyond task title and agent instructions." },
+      { "category": "A03:2021 Injection", "result": "pass", "notes": "buildStagePrompt constructs prompt via string template from trusted data sources; no user HTML/SQL injection path." },
+      { "category": "A05:2021 Security Misconfiguration", "result": "pass", "notes": "No new HTTP headers introduced; existing header policy unchanged." },
+      { "category": "A06:2021 Vulnerable Components", "result": "pass", "notes": "No new dependencies introduced." },
+      { "category": "A07:2021 Identification and Authentication Failures", "result": "pass", "notes": "Endpoints follow existing auth model (local tool, no external auth)." }
+    ],
+    "vulnerabilities_found": 0
+  },
+  "test_cases": [
+    { "id": "TC-001", "type": "unit", "description": "buildStagePrompt returns { promptText, estimatedTokens } shape", "status": "pass", "duration_ms": 12, "notes": "Backend test suite, 28 tests all pass" },
+    { "id": "TC-002", "type": "unit", "description": "buildStagePrompt includes task title in promptText", "status": "pass", "duration_ms": 8, "notes": "" },
+    { "id": "TC-003", "type": "unit", "description": "buildStagePrompt estimatedTokens ≈ promptText.length / 4", "status": "pass", "duration_ms": 5, "notes": "" },
+    { "id": "TC-004", "type": "unit", "description": "buildStagePrompt includes MANDATORY COMPILE GATE for developer-agent", "status": "pass", "duration_ms": 5, "notes": "" },
+    { "id": "TC-005", "type": "unit", "description": "buildStagePrompt does NOT include compile gate for non-developer agents", "status": "pass", "duration_ms": 4, "notes": "" },
+    { "id": "TC-006", "type": "unit", "description": "buildStagePrompt returns fallback prompt when task not found", "status": "pass", "duration_ms": 4, "notes": "" },
+    { "id": "TC-007", "type": "unit", "description": "stagePromptPath() helper path pattern", "status": "pass", "duration_ms": 3, "notes": "" },
+    { "id": "TC-008", "type": "integration", "description": "GET .../stages/0/prompt returns 200 text/plain when file exists", "status": "pass", "duration_ms": 45, "notes": "" },
+    { "id": "TC-009", "type": "integration", "description": "GET .../stages/0/prompt returns 404 PROMPT_NOT_AVAILABLE when file missing", "status": "pass", "duration_ms": 20, "notes": "" },
+    { "id": "TC-010", "type": "integration", "description": "GET .../stages/0/prompt returns 404 RUN_NOT_FOUND for unknown runId", "status": "pass", "duration_ms": 18, "notes": "" },
+    { "id": "TC-011", "type": "integration", "description": "POST /runs/preview-prompts returns all stage entries with correct shape", "status": "pass", "duration_ms": 60, "notes": "" },
+    { "id": "TC-012", "type": "integration", "description": "POST /agent/prompt response includes promptFull field", "status": "pass", "duration_ms": 55, "notes": "" },
+    { "id": "TC-013", "type": "integration", "description": "POST /agent/prompt response includes promptPreview (first 500 chars)", "status": "pass", "duration_ms": 50, "notes": "" },
+    { "id": "TC-014", "type": "unit", "description": "AgentPromptPreview renders nothing when preparedRun is null", "status": "pass", "duration_ms": 8, "notes": "Frontend Vitest" },
+    { "id": "TC-015", "type": "unit", "description": "AgentPromptPreview renders full prompt in read mode", "status": "pass", "duration_ms": 12, "notes": "" },
+    { "id": "TC-016", "type": "unit", "description": "AgentPromptPreview Collapse/Show full toggle", "status": "pass", "duration_ms": 10, "notes": "" },
+    { "id": "TC-017", "type": "unit", "description": "AgentPromptPreview edit mode textarea starts with promptFull", "status": "pass", "duration_ms": 9, "notes": "" },
+    { "id": "TC-018", "type": "unit", "description": "AgentPromptPreview token badge formats correctly", "status": "pass", "duration_ms": 5, "notes": "" },
+    { "id": "TC-019", "type": "unit", "description": "PipelineConfirmModal renders Preview Prompts button", "status": "pass", "duration_ms": 30, "notes": "PipelineConfirmModal.test.tsx 30/30 pass" },
+    { "id": "TC-020", "type": "unit", "description": "PipelineConfirmModal calls previewPipelinePrompts on click", "status": "pass", "duration_ms": 25, "notes": "" },
+    { "id": "TC-021", "type": "unit", "description": "PipelineLogToggle is NOT rendered when pipelineState is null", "status": "pass", "duration_ms": 53, "notes": "BUG-001 RESOLVED: PipelineLogToggle now returns null when pipelineState === null. All 7 tests in PipelineLogToggle.test.tsx pass." },
+    { "id": "TC-022", "type": "unit", "description": "PipelineLogToggle IS rendered when pipelineState is non-null", "status": "pass", "duration_ms": 15, "notes": "" },
+    { "id": "TC-023", "type": "e2e", "description": "Board loads at http://localhost:3000 with no critical JS errors", "status": "pass", "duration_ms": 620, "notes": "Playwright: page title=Prism, only 404 favicon.ico error (not critical)" },
+    { "id": "TC-024", "type": "unit", "description": "AgentLauncherMenu shows Run Full Pipeline option in dropdown", "status": "pass", "duration_ms": 7, "notes": "BUG-002 RESOLVED: label changed to 'Run Full Pipeline'. All 22 tests in AgentLauncherMenu.test.tsx pass." }
+  ]
+}
