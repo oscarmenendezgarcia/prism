@@ -6,6 +6,7 @@
 
 - **Severity**: High
 - **Type**: Functional / UX
+- **Status**: RESOLVED
 - **Component**: `frontend/src/components/layout/Header.tsx` — `PipelineLogToggle` usage, line 73
 - **Reproduction Steps**:
   1. Load the board at `http://localhost:3000`.
@@ -18,6 +19,7 @@
 - **Actual Behavior**: `<PipelineLogToggle />` is rendered unconditionally in `Header.tsx` at line 73, regardless of `pipelineState`. The `PipelineLogToggle` component itself does not read `pipelineState` to conditionally return null.
 - **Root Cause Analysis**: The `Header` component renders `<PipelineLogToggle />` without a guard. The component is missing either a conditional render at the call site (`{pipelineState && <PipelineLogToggle />}`) or an internal guard (`const pipelineState = useAppStore(s => s.pipelineState); if (!pipelineState) return null`).
 - **Proposed Fix**: In `Header.tsx`, wrap the `<PipelineLogToggle />` call site with a conditional: read `pipelineState` from `useAppStore` and only render when non-null. Alternatively, add the null check inside `PipelineLogToggle` component itself.
+- **Resolution**: Guard added inside `PipelineLogToggle` — component returns `null` when `pipelineState === null`. All 7 tests in `PipelineLogToggle.test.tsx` pass.
 
 ---
 
@@ -25,6 +27,7 @@
 
 - **Severity**: Medium
 - **Type**: Functional (test/spec mismatch)
+- **Status**: RESOLVED
 - **Component**: `frontend/src/components/agent-launcher/AgentLauncherMenu.tsx` — line 166
 - **Reproduction Steps**:
   1. Open a task card and click the "Run agent" button (smart_toy icon) to open the dropdown.
@@ -36,6 +39,7 @@
 - **Actual Behavior**: Component renders `<span>Run Pipeline</span>` while the ADR-1 blueprint refers to a "Run Full Pipeline" action.
 - **Root Cause Analysis**: Label drift between implementation and the test specification. The developer implemented "Run Pipeline" but the test was written against the blueprint's "Run Full Pipeline" label.
 - **Proposed Fix**: Align the component label to match the spec. If the correct label per `blueprint.md` is "Run Full Pipeline", change line 166 in `AgentLauncherMenu.tsx` from `Run Pipeline` to `Run Full Pipeline`. If "Run Pipeline" is intentional, update the three test expectations in `AgentLauncherMenu.test.tsx`.
+- **Resolution**: Label in `AgentLauncherMenu.tsx` changed to "Run Full Pipeline". All 22 tests in `AgentLauncherMenu.test.tsx` pass.
 
 ---
 
