@@ -163,7 +163,7 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
                 >
                   play_arrow
                 </span>
-                <span>Run Pipeline</span>
+                <span>Run Full Pipeline</span>
               </div>
               {pipelineStages && (
                 <span className="text-[10px] text-text-disabled pl-6 leading-snug truncate max-w-[180px]">
