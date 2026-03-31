@@ -724,6 +724,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         clearInterval(pollId);
         set({ _agentRunPollId: null });
         get().clearActiveRun();
+        const ps = get().pipelineState;
+        if (ps && ps.stages.length === 1 && ps.runId === runIdToWatch) {
+          set({ pipelineState: null });
+        }
       }
     }, POLL_MS);
     set({ _agentRunPollId: pollId });
@@ -1186,6 +1190,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         } catch {
           clearInterval(pollId);
           get().clearActiveRun();
+          const ps = get().pipelineState;
+          if (ps && ps.runId === runIdToWatch) {
+            set({ pipelineState: null });
+          }
         }
       }, POLL_MS);
     }
