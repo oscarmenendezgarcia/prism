@@ -10,3 +10,12 @@ data/
 .claude/
 *.log
 agent-docs/
+
+# Playwright MCP browser session cache
+.playwright-mcp/
+
+# Screenshots dropped by review/QA agents in the project root
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
