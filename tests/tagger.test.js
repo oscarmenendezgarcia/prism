@@ -4,7 +4,7 @@
  * Backend unit tests for the tagger handler.
  *
  * Tests run against a real startServer() with a temp data directory.
- * The Anthropic SDK is mocked via module override — no real API calls.
+ * globalThis.fetch is mocked — no real API calls to Anthropic.
  *
  * Coverage targets: src/handlers/tagger.js >= 90%
  */
@@ -17,56 +17,42 @@ const path    = require('path');
 const http    = require('http');
 
 // ---------------------------------------------------------------------------
-// Anthropic SDK mock
+// fetch mock — intercepts native fetch calls made by tagger.js
 // ---------------------------------------------------------------------------
 
 /**
- * We intercept require('@anthropic-ai/sdk') at the Node.js module level
- * so that tagger.js gets our mock client instead of the real SDK.
- *
- * The mock is configured before the test server starts.
+ * mockFetchResponse: the JSON body the mock fetch will return (status 200).
+ * mockFetchStatus:   HTTP status code the mock will return (default 200).
+ * mockFetchShouldThrow: when true, fetch() rejects with an Error.
+ * mockFetchThrowMessage: error message when mockFetchShouldThrow is true.
+ * mockFetchBlockPromise: when set, fetch() awaits it before responding (concurrent test).
  */
+let mockFetchResponse     = null;
+let mockFetchStatus       = 200;
+let mockFetchShouldThrow  = false;
+let mockFetchThrowMessage = 'Anthropic API error';
+let mockFetchBlockPromise = null;
 
-let mockCreateResponse = null;
-let mockShouldThrow    = false;
-let mockThrowMessage   = 'Anthropic API error';
-// Block mechanism for concurrent test — when non-null, create() awaits it.
-let mockBlockPromise   = null;
+// Keep reference to the original fetch so we can restore it after tests.
+const _originalFetch = globalThis.fetch;
 
-class MockAnthropic {
-  get messages() {
+function installFetchMock() {
+  globalThis.fetch = async (_url, _opts) => {
+    if (mockFetchBlockPromise) await mockFetchBlockPromise;
+    if (mockFetchShouldThrow) throw new Error(mockFetchThrowMessage);
+    const status = mockFetchStatus;
+    const body   = JSON.stringify(mockFetchResponse);
     return {
-      create: async () => {
-        if (mockBlockPromise) await mockBlockPromise;
-        if (mockShouldThrow) {
-          throw new Error(mockThrowMessage);
-        }
-        return mockCreateResponse;
-      },
+      ok:     status >= 200 && status < 300,
+      status,
+      json:   async () => JSON.parse(body),
+      text:   async () => body,
     };
-  }
+  };
 }
 
-const FAKE_SDK = { default: MockAnthropic };
-
-// Resolve the real SDK's module cache key and inject our mock into the cache.
-// This makes tagger.js's lazy require('@anthropic-ai/sdk') return our fake.
-{
-  const sdkPath = require.resolve('@anthropic-ai/sdk');
-  if (require.cache[sdkPath]) {
-    require.cache[sdkPath].exports = FAKE_SDK;
-  } else {
-    // Pre-populate the cache entry so the first require() in tagger.js hits our mock
-    require.cache[sdkPath] = {
-      id:       sdkPath,
-      filename: sdkPath,
-      loaded:   true,
-      exports:  FAKE_SDK,
-      children: [],
-      paths:    [],
-      parent:   null,
-    };
-  }
+function restoreFetch() {
+  globalThis.fetch = _originalFetch;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +128,7 @@ async function runTests() {
   before(async () => {
     dataDir = tmpDir();
     initDataDir(dataDir);
+    installFetchMock();
     // Ensure ANTHROPIC_API_KEY is set so the handler passes the key-check.
     process.env.ANTHROPIC_API_KEY = 'test-key-not-real';
     server = startServer({ port: 0, dataDir, silent: true });
@@ -150,6 +137,7 @@ async function runTests() {
 
   after(() => {
     server.close();
+    restoreFetch();
     fs.rmSync(dataDir, { recursive: true, force: true });
     delete process.env.ANTHROPIC_API_KEY;
   });
@@ -206,11 +194,12 @@ async function runTests() {
         { id: 'card-1', title: 'Fix login', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       ]);
 
-      // Install a blocking mock: create() will wait until we release it
+      // Install a blocking mock: fetch() will wait until we release it
       let unblock;
-      mockBlockPromise = new Promise((resolve) => { unblock = resolve; });
-      mockShouldThrow  = false;
-      mockCreateResponse = {
+      mockFetchBlockPromise = new Promise((resolve) => { unblock = resolve; });
+      mockFetchShouldThrow  = false;
+      mockFetchStatus       = 200;
+      mockFetchResponse = {
         content: [{ type: 'text', text: JSON.stringify({ suggestions: [], skipped: [] }) }],
         usage:   { input_tokens: 0, output_tokens: 0 },
       };
@@ -229,7 +218,7 @@ async function runTests() {
       await first;
 
       // Reset block and seed data
-      mockBlockPromise = null;
+      mockFetchBlockPromise = null;
       seedTasks(dataDir, 'default', 'todo', []);
     });
   });
@@ -250,8 +239,9 @@ async function runTests() {
         },
       ]);
 
-      mockShouldThrow = false;
-      mockCreateResponse = {
+      mockFetchShouldThrow = false;
+      mockFetchStatus      = 200;
+      mockFetchResponse = {
         content: [
           {
             type: 'text',
@@ -297,8 +287,9 @@ async function runTests() {
         { id: 'task-x', title: 'Some task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       ]);
 
-      mockShouldThrow = false;
-      mockCreateResponse = {
+      mockFetchShouldThrow = false;
+      mockFetchStatus      = 200;
+      mockFetchResponse = {
         content: [{ type: 'text', text: 'This is not JSON at all.' }],
         usage:   { input_tokens: 10, output_tokens: 5 },
       };
@@ -315,8 +306,9 @@ async function runTests() {
         { id: 'task-y', title: 'Another task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       ]);
 
-      mockShouldThrow = false;
-      mockCreateResponse = {
+      mockFetchShouldThrow = false;
+      mockFetchStatus      = 200;
+      mockFetchResponse = {
         content: [{ type: 'text', text: JSON.stringify({ wrong: 'shape' }) }],
         usage:   { input_tokens: 10, output_tokens: 5 },
       };
@@ -360,22 +352,39 @@ async function runTests() {
   });
 
   // -------------------------------------------------------------------------
-  // Additional: Anthropic SDK throws → 502
+  // Additional: fetch throws (network error) → 502
   // -------------------------------------------------------------------------
-  describe('Anthropic SDK throws', () => {
-    test('returns 502 ANTHROPIC_API_ERROR when SDK throws', async () => {
+  describe('fetch throws (network error)', () => {
+    test('returns 502 ANTHROPIC_API_ERROR when fetch rejects', async () => {
       seedTasks(dataDir, 'default', 'todo', [
         { id: 'task-z', title: 'Some card', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       ]);
 
-      mockShouldThrow    = true;
-      mockThrowMessage   = 'Rate limit exceeded';
+      mockFetchShouldThrow  = true;
+      mockFetchThrowMessage = 'Rate limit exceeded';
 
       const res = await req(port, 'POST', '/api/v1/spaces/default/tagger/run', {});
       assert.equal(res.status, 502);
       assert.equal(res.body.error.code, 'ANTHROPIC_API_ERROR');
 
-      mockShouldThrow = false;
+      mockFetchShouldThrow = false;
+      seedTasks(dataDir, 'default', 'todo', []);
+    });
+
+    test('returns 502 ANTHROPIC_API_ERROR when Anthropic returns non-200 status', async () => {
+      seedTasks(dataDir, 'default', 'todo', [
+        { id: 'task-w', title: 'Some card', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      ]);
+
+      mockFetchShouldThrow = false;
+      mockFetchStatus      = 429;
+      mockFetchResponse    = { error: { type: 'rate_limit_error', message: 'Too many requests' } };
+
+      const res = await req(port, 'POST', '/api/v1/spaces/default/tagger/run', {});
+      assert.equal(res.status, 502);
+      assert.equal(res.body.error.code, 'ANTHROPIC_API_ERROR');
+
+      mockFetchStatus = 200;
       seedTasks(dataDir, 'default', 'todo', []);
     });
   });

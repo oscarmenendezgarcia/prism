@@ -3,7 +3,7 @@
 /**
  * Tagger handler — POST /api/v1/spaces/:spaceId/tagger/run
  *
- * ADR-1 (Tagger Agent): backend-triggered Claude API call via @anthropic-ai/sdk.
+ * ADR-1 (Tagger Agent): backend-triggered Claude API call via native fetch (no SDK).
  * Returns classification suggestions for user review before any mutation.
  *
  * Error codes:
@@ -102,35 +102,45 @@ function readSpaceTasks(spaceDataDir, column) {
 // ---------------------------------------------------------------------------
 
 /**
- * Call the Anthropic messages API and return parsed suggestion payload.
+ * Call the Anthropic messages API via native fetch (no SDK dependency).
  *
  * @param {Array<{ id: string, title: string, description: string }>} cards
  * @param {boolean} improveDescriptions
- * @returns {Promise<{ suggestions: object[], skipped: string[], usage: object }>}
+ * @returns {Promise<{ suggestions: object[], skipped: string[], model: string, usage: object }>}
  * @throws {Error} on API error or invalid JSON response
  */
 async function callClaude(cards, improveDescriptions) {
-  // Lazy-require so the import is deferred until the first real call.
-  // This avoids crashing the server if ANTHROPIC_API_KEY is absent at startup.
-  const Anthropic = require('@anthropic-ai/sdk');
-  const client    = new Anthropic.default();
+  const model = process.env.TAGGER_MODEL || 'claude-3-5-sonnet-20241022';
 
   const userMessage = JSON.stringify({
     improveDescriptions,
     cards: cards.map(({ id, title, description }) => ({ id, title, description })),
   });
 
-  const model = process.env.TAGGER_MODEL || 'claude-3-5-sonnet-20241022';
-
-  const response = await client.messages.create({
-    model,
-    max_tokens: 4096,
-    temperature: 0,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method:  'POST',
+    headers: {
+      'x-api-key':         process.env.ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type':      'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens:  4096,
+      temperature: 0,
+      system:      SYSTEM_PROMPT,
+      messages:    [{ role: 'user', content: userMessage }],
+    }),
   });
 
-  const rawText = response.content
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Anthropic API returned ${res.status}: ${errText.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+
+  const rawText = (data.content || [])
     .filter((b) => b.type === 'text')
     .map((b) => b.text)
     .join('');
@@ -150,7 +160,7 @@ async function callClaude(cards, improveDescriptions) {
     suggestions: parsed.suggestions,
     skipped:     parsed.skipped,
     model,
-    usage:       response.usage,
+    usage:       data.usage || { input_tokens: 0, output_tokens: 0 },
   };
 }
 
