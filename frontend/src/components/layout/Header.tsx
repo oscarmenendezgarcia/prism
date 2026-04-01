@@ -13,6 +13,7 @@ import { ConfigToggle } from '@/components/config/ConfigToggle';
 import { RunIndicator } from '@/components/agent-launcher/RunIndicator';
 import { AgentSettingsToggle } from '@/components/agent-launcher/AgentSettingsToggle';
 import { RunHistoryToggle } from '@/components/agent-run-history/RunHistoryToggle';
+import { TaggerButton } from '@/components/board/TaggerButton';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
 
@@ -77,6 +78,10 @@ export function Header() {
           <ConfigToggle />
           <TerminalToggle />
         </div>
+
+        <div className="w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
+
+        <TaggerButton />
 
         <div className="w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
 
