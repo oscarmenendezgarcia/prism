@@ -34,6 +34,8 @@ import type {
   PipelineStage,
   PreparedRun,
   AgentSettings,
+  TaggerSuggestion,
+  TaggerResult,
 } from '@/types';
 
 /** Keys used to persist state across page reloads. */
@@ -227,6 +229,26 @@ interface AppState {
    * @param patch  - Partial payload; only present keys are sent.
    */
   updateTask: (taskId: string, patch: UpdateTaskPayload) => Promise<void>;
+
+  // ── Tagger agent (ADR-1: Tagger Agent) ───────────────────────────────────
+
+  /** True while a tagger API call is in flight. Disables the TaggerButton. */
+  taggerLoading: boolean;
+  /** Suggestions returned by the tagger endpoint. */
+  taggerSuggestions: TaggerSuggestion[];
+  /** Whether the TaggerReviewModal is open. */
+  taggerModalOpen: boolean;
+  /** Non-null when the tagger call returned an error. */
+  taggerError: string | null;
+
+  /** Called immediately on button click — sets taggerLoading=true, clears previous state. */
+  startTagger: () => void;
+  /** Called when the API returns successfully — stores suggestions and opens modal. */
+  setSuggestions: (result: TaggerResult) => void;
+  /** Resets all tagger state and closes the modal. */
+  closeTagger: () => void;
+  /** Stores an error message and clears the loading flag. */
+  setTaggerError: (message: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -1303,6 +1325,39 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ isMutating: false });
     }
   },
+
+  // ── Tagger agent (ADR-1: Tagger Agent) ───────────────────────────────────
+
+  taggerLoading:     false,
+  taggerSuggestions: [],
+  taggerModalOpen:   false,
+  taggerError:       null,
+
+  startTagger: () => {
+    set({ taggerLoading: true, taggerSuggestions: [], taggerModalOpen: false, taggerError: null });
+  },
+
+  setSuggestions: (result: TaggerResult) => {
+    set({
+      taggerLoading:     false,
+      taggerSuggestions: result.suggestions,
+      taggerModalOpen:   true,
+      taggerError:       null,
+    });
+  },
+
+  closeTagger: () => {
+    set({
+      taggerLoading:     false,
+      taggerSuggestions: [],
+      taggerModalOpen:   false,
+      taggerError:       null,
+    });
+  },
+
+  setTaggerError: (message: string) => {
+    set({ taggerLoading: false, taggerError: message });
+  },
 }));
 
 // Convenience selector hooks for common slices
@@ -1338,3 +1393,9 @@ export const usePromptPreviewOpen = () => useAppStore((s) => s.promptPreviewOpen
 // Agent settings selectors
 export const useAgentSettings        = () => useAppStore((s) => s.agentSettings);
 export const useAgentSettingsPanelOpen = () => useAppStore((s) => s.agentSettingsPanelOpen);
+
+// Tagger selectors
+export const useTaggerLoading     = () => useAppStore((s) => s.taggerLoading);
+export const useTaggerSuggestions = () => useAppStore((s) => s.taggerSuggestions);
+export const useTaggerModalOpen   = () => useAppStore((s) => s.taggerModalOpen);
+export const useTaggerError       = () => useAppStore((s) => s.taggerError);
