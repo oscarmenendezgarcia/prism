@@ -23,6 +23,8 @@ import type {
   AgentSettings,
   BackendRun,
   PipelinePromptPreview,
+  TaggerOptions,
+  TaggerResult,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -390,6 +392,29 @@ export const previewPipelinePrompts = (
   apiFetch<PipelinePromptPreview>('/runs/preview-prompts', {
     method: 'POST',
     body: JSON.stringify({ spaceId, taskId, stages }),
+  });
+
+// ---------------------------------------------------------------------------
+// Tagger API (ADR-1: Tagger Agent)
+// ---------------------------------------------------------------------------
+
+/**
+ * Trigger the tagger for a space.
+ * The backend reads all cards, calls Claude, and returns classification suggestions.
+ * No mutations are applied — the user reviews suggestions in TaggerReviewModal before confirming.
+ *
+ * @param spaceId - The space to tag.
+ * @param opts    - Optional filters (column, improveDescriptions).
+ * @returns TaggerResult with suggestions and token usage.
+ * @throws Error with the server's error message on failure.
+ */
+export const runTagger = (spaceId: string, opts: TaggerOptions = {}): Promise<TaggerResult> =>
+  apiFetch<TaggerResult>(`/spaces/${encodeURIComponent(spaceId)}/tagger/run`, {
+    method: 'POST',
+    body: JSON.stringify({
+      improveDescriptions: opts.improveDescriptions ?? false,
+      ...(opts.column !== undefined ? { column: opts.column } : {}),
+    }),
   });
 
 // ---------------------------------------------------------------------------

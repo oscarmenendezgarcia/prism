@@ -281,6 +281,48 @@ export interface AgentSettings {
   prompts: PromptsSettings;
 }
 
+// ---------------------------------------------------------------------------
+// Tagger agent types (ADR-1: Tagger Agent)
+// ---------------------------------------------------------------------------
+
+/** Options for POST /api/v1/spaces/:spaceId/tagger/run */
+export interface TaggerOptions {
+  /** If true, Claude also returns rewritten card descriptions. Default false. */
+  improveDescriptions?: boolean;
+  /** Restrict tagging to a single column. Omit to process all columns. */
+  column?: 'todo' | 'in-progress' | 'done';
+}
+
+/** One classification suggestion returned by the tagger endpoint. */
+export interface TaggerSuggestion {
+  id: string;
+  title: string;
+  currentType: string;
+  inferredType: 'feature' | 'bug' | 'tech-debt' | 'chore';
+  confidence: 'high' | 'medium' | 'low';
+  /** Only present when improveDescriptions=true was requested. */
+  description?: string;
+}
+
+/** Response from POST /api/v1/spaces/:spaceId/tagger/run */
+export interface TaggerResult {
+  suggestions: TaggerSuggestion[];
+  /** Card IDs Claude could not classify. */
+  skipped: string[];
+  /** Model used for the inference (for observability). */
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** Tagger UI state stored in useAppStore. */
+export interface TaggerState {
+  taggerLoading: boolean;
+  taggerSuggestions: TaggerSuggestion[];
+  taggerModalOpen: boolean;
+  taggerError: string | null;
+}
+
 /** Request body for POST /api/v1/agent/prompt. */
 export interface PromptGenerationRequest {
   agentId: string;
