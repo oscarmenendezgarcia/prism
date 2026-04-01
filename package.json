@@ -1,0 +1,10 @@
+{
+  "scripts": {
+    "test": "node --test 'tests/*.test.js'"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "node-pty": "^1.1.0",
+    "ws": "^8.19.0"
+  }
+}
