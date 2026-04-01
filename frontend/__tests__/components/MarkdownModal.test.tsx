@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MarkdownModal } from '../../src/components/modals/MarkdownModal';
 import { useAppStore } from '../../src/stores/useAppStore';
 
@@ -154,6 +154,7 @@ describe('MarkdownModal — close interactions', () => {
   });
 
   it('× button in header calls closeMarkdownModal', () => {
+    vi.useFakeTimers();
     const mockClose = vi.fn();
     useAppStore.setState({
       markdownModal: BASE_MODAL,
@@ -162,11 +163,15 @@ describe('MarkdownModal — close interactions', () => {
 
     render(<MarkdownModal />);
     fireEvent.click(screen.getByRole('button', { name: 'Close modal' }));
+    // M-1: 180ms exit animation plays before onClose fires
+    act(() => { vi.advanceTimersByTime(200); });
 
     expect(mockClose).toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it('Escape key closes the modal', () => {
+    vi.useFakeTimers();
     const mockClose = vi.fn();
     useAppStore.setState({
       markdownModal: BASE_MODAL,
@@ -175,8 +180,10 @@ describe('MarkdownModal — close interactions', () => {
 
     render(<MarkdownModal />);
     fireEvent.keyDown(document, { key: 'Escape' });
+    act(() => { vi.advanceTimersByTime(200); });
 
     expect(mockClose).toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
 
