@@ -24,7 +24,7 @@ export function ColumnTabBar({ activeColumn, taskCounts, onSelect }: ColumnTabBa
     <div
       role="tablist"
       aria-label="Kanban columns"
-      className="flex overflow-x-auto scroll-snap-x-mandatory gap-1 px-4 py-2 bg-surface border-b border-border"
+      className="flex overflow-x-auto snap-x snap-mandatory gap-1 px-4 py-2 bg-surface border-b border-border"
     >
       {TABS.map(({ column, label }) => {
         const isActive = column === activeColumn;
@@ -36,14 +36,14 @@ export function ColumnTabBar({ activeColumn, taskCounts, onSelect }: ColumnTabBa
             aria-controls={`column-panel-${column}`}
             onClick={() => onSelect(column)}
             className={[
-              'flex-shrink-0 scroll-snap-align-start flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ease-apple',
+              'flex-shrink-0 snap-start flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ease-apple',
               isActive
-                ? 'bg-primary text-white shadow-sm'
+                ? 'bg-primary/15 text-primary font-semibold border-b-2 border-primary'
                 : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant',
             ].join(' ')}
           >
             {label}
-            <span className={`text-xs tabular-nums px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-surface-variant text-text-secondary'}`}>
+            <span className={`text-xs tabular-nums px-1.5 py-0.5 rounded-full ${isActive ? 'bg-primary/20 text-primary' : 'bg-surface-variant text-text-secondary'}`}>
               {taskCounts[column]}
             </span>
           </button>

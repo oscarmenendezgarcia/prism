@@ -57,7 +57,7 @@ export function Column({ column, tasks, onDragStart, onDragOver, onDragOverTask,
       data-drag-over={draggedTaskId !== null}
     >
       {/* S-1: sticky so the header stays visible when column content scrolls */}
-      <div className={`sticky top-0 z-10 flex items-center justify-between px-3 py-2.5 border-b-2 bg-background ${accentClass}`}>
+      <div className={`sticky top-0 z-10 flex items-center justify-between px-3 py-2.5 border-b-2 bg-background/80 backdrop-blur-md ${accentClass}`}>
         <h2 className="text-sm font-semibold text-text-primary tracking-tight">{label}</h2>
         {/* S-2: tabular-nums keeps the count width stable as it changes */}
         <span className="text-xs font-medium text-text-secondary bg-surface-variant px-2 py-0.5 rounded-full tabular-nums">
@@ -67,7 +67,7 @@ export function Column({ column, tasks, onDragStart, onDragOver, onDragOverTask,
 
       <div
         role="list"
-        className="flex flex-col gap-3 p-3 overflow-y-auto flex-1"
+        className="flex flex-col gap-3 p-3 overflow-y-auto flex-1 pb-20 sm:pb-3"
       >
         {tasks.length === 0 ? (
           <EmptyState column={column} />
