@@ -64,6 +64,12 @@ export function useAgentCompletion(): void {
 
       if (!autoAdvance) return;
 
+      if (confirmBetween) {
+        // Show a toast asking the user to confirm before advancing.
+        state.showToast('Advance to next pipeline stage?');
+        return;
+      }
+
       // advancePipeline checks the checkpoints array and pauses if needed,
       // or auto-advances if there is no checkpoint for the next stage.
       state.advancePipeline();
