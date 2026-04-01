@@ -25,6 +25,7 @@ import { MarkdownModal } from '@/components/modals/MarkdownModal';
 import { SpaceModal } from '@/components/modals/SpaceModal';
 import { DeleteSpaceDialog } from '@/components/modals/DeleteSpaceDialog';
 import { PipelineConfirmModal } from '@/components/modals/PipelineConfirmModal';
+import { TaggerReviewModal } from '@/components/modals/TaggerReviewModal';
 import { Toast } from '@/components/shared/Toast';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
@@ -126,6 +127,7 @@ function AppContent() {
       <SpaceModal />
       <DeleteSpaceDialog />
       <PipelineConfirmModal />
+      <TaggerReviewModal />
 
       <Toast />
     </div>
