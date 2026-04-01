@@ -131,9 +131,14 @@ function callClaude(cards, improveDescriptions) {
 
   return new Promise((resolve, reject) => {
     // Lazy require so child_process can be mocked in tests before server loads.
+    // Mirror the pipeline's headless spawn args:
+    //   --output-format stream-json  required for non-interactive mode
+    //   --verbose                    required by stream-json
+    //   --enable-auto-mode           prevents confirmation prompts (exit code 1 without it)
     const child = require('child_process').spawn(
       cli,
-      ['-p', SYSTEM_PROMPT, '--model', model],
+      ['-p', SYSTEM_PROMPT, '--model', model,
+        '--output-format', 'stream-json', '--verbose', '--enable-auto-mode'],
       { env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] },
     );
 
@@ -153,12 +158,26 @@ function callClaude(cards, improveDescriptions) {
         return;
       }
 
-      // The system prompt instructs the CLI to output only JSON.
-      // Extract the first top-level JSON object from stdout to handle any
-      // surrounding CLI metadata (model info, warnings, etc.).
-      const jsonMatch = stdout.match(/\{[\s\S]*\}/);
+      // stream-json emits one JSON object per line. Extract the assistant's text
+      // by concatenating all text_delta events, then parse our JSON payload from it.
+      let text = '';
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const event = JSON.parse(trimmed);
+          if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+            text += event.delta.text;
+          }
+        } catch { /* ignore non-JSON lines (e.g. verbose headers) */ }
+      }
+
+      // Fall back to raw stdout if no stream-json deltas found (e.g. opencode -p plain output).
+      const rawOutput = text || stdout;
+
+      const jsonMatch = rawOutput.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        reject(new Error(`No JSON found in CLI output: ${stdout.slice(0, 200)}`));
+        reject(new Error(`No JSON found in CLI output: ${rawOutput.slice(0, 200)}`));
         return;
       }
 
@@ -166,7 +185,7 @@ function callClaude(cards, improveDescriptions) {
       try {
         parsed = JSON.parse(jsonMatch[0]);
       } catch {
-        reject(new Error(`CLI returned non-JSON: ${stdout.slice(0, 200)}`));
+        reject(new Error(`CLI returned non-JSON: ${rawOutput.slice(0, 200)}`));
         return;
       }
 
