@@ -36,6 +36,9 @@ node server.js &
 cd frontend && npm run dev   # → http://localhost:5173
 ```
 
+> **Tagger feature**: requires `ANTHROPIC_API_KEY` to be set in the environment.
+> If absent, the server starts normally but `POST /api/v1/spaces/:id/tagger/run` returns 503.
+
 ---
 
 ## Git
