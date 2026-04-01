@@ -96,7 +96,7 @@ async function runTests() {
     suite('T-001: validateAttachments — optional field');
 
     await test('undefined attachments: task created without attachments field', async () => {
-      const res = await request('POST', '/api/v1/tasks', { title: 'No attachments', type: 'task' });
+      const res = await request('POST', '/api/v1/tasks', { title: 'No attachments', type: 'chore' });
       assert(res.status === 201, `Expected 201, got ${res.status}`);
       assert(!('attachments' in res.body), 'attachments field should be absent when not provided');
     });
@@ -104,7 +104,7 @@ async function runTests() {
     await test('empty array: treated as no attachments', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'Empty attachments',
-        type: 'task',
+        type: 'chore',
         attachments: [],
       });
       assert(res.status === 201, `Expected 201, got ${res.status}`);
@@ -120,7 +120,7 @@ async function runTests() {
     await test('invalid attachment type returns 400', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'T',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: 'f', type: 'pdf', content: 'x' }],
       });
       assert(res.status === 400, `Expected 400, got ${res.status}`);
@@ -131,7 +131,7 @@ async function runTests() {
     await test('text type with valid content accepted', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'Text attachment',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: 'notes.txt', type: 'text', content: 'Hello world' }],
       });
       assert(res.status === 201, `Expected 201, got ${res.status}`);
@@ -142,7 +142,7 @@ async function runTests() {
     await test('file type with absolute path accepted', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'File attachment',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: 'hosts', type: 'file', content: '/etc/hosts' }],
       });
       assert(res.status === 201, `Expected 201, got ${res.status}`);
@@ -151,7 +151,7 @@ async function runTests() {
     await test('file type with relative path rejected', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'T',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: 'f', type: 'file', content: 'relative/path' }],
       });
       assert(res.status === 400, `Expected 400, got ${res.status}`);
@@ -167,7 +167,7 @@ async function runTests() {
     await test('empty name rejected', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'T',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: '', type: 'text', content: 'x' }],
       });
       assert(res.status === 400, `Expected 400, got ${res.status}`);
@@ -176,7 +176,7 @@ async function runTests() {
     await test('whitespace-only name rejected', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'T',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: '   ', type: 'text', content: 'x' }],
       });
       assert(res.status === 400, `Expected 400, got ${res.status}`);
@@ -185,7 +185,7 @@ async function runTests() {
     await test('name exceeding 100 chars rejected', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'T',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: 'a'.repeat(101), type: 'text', content: 'x' }],
       });
       assert(res.status === 400, `Expected 400, got ${res.status}`);
@@ -195,7 +195,7 @@ async function runTests() {
     await test('name at exactly 100 chars accepted', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'T',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: 'a'.repeat(100), type: 'text', content: 'x' }],
       });
       assert(res.status === 201, `Expected 201, got ${res.status}`);
@@ -204,7 +204,7 @@ async function runTests() {
     await test('name is trimmed on save', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'T',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: '  trimmed  ', type: 'text', content: 'x' }],
       });
       assert(res.status === 201, `Expected 201, got ${res.status}`);
@@ -226,7 +226,7 @@ async function runTests() {
         type: 'text',
         content: 'x',
       }));
-      const res = await request('POST', '/api/v1/tasks', { title: 'T', type: 'task', attachments });
+      const res = await request('POST', '/api/v1/tasks', { title: 'T', type: 'chore', attachments });
       assert(res.status === 400, `Expected 400, got ${res.status}`);
       assert(res.body.error.message.includes('20'), 'Error should mention 20 item limit');
     });
@@ -237,7 +237,7 @@ async function runTests() {
         type: 'text',
         content: 'x',
       }));
-      const res = await request('POST', '/api/v1/tasks', { title: 'T', type: 'task', attachments });
+      const res = await request('POST', '/api/v1/tasks', { title: 'T', type: 'chore', attachments });
       assert(res.status === 201, `Expected 201, got ${res.status}`);
       assert(
         res.body.attachments.length === 20,
@@ -254,7 +254,7 @@ async function runTests() {
     await test('response strips content field from attachments', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'Stripped content',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: 'secret.txt', type: 'text', content: 'TOP SECRET' }],
       });
       assert(res.status === 201, `Expected 201, got ${res.status}`);
@@ -264,7 +264,7 @@ async function runTests() {
     await test('response includes name and type fields', async () => {
       const res = await request('POST', '/api/v1/tasks', {
         title: 'Fields check',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: 'report.txt', type: 'text', content: 'some text' }],
       });
       assert(res.status === 201, `Expected 201, got ${res.status}`);
@@ -280,7 +280,7 @@ async function runTests() {
 
     const setupTask = await request('POST', '/api/v1/tasks', {
       title: 'Update Attachments Base',
-      type: 'task',
+      type: 'chore',
       attachments: [{ name: 'original.txt', type: 'text', content: 'original' }],
     });
     const updateTaskId = setupTask.body.id;
@@ -343,7 +343,7 @@ async function runTests() {
 
     const contentTask = await request('POST', '/api/v1/tasks', {
       title: 'Content Test Task',
-      type: 'task',
+      type: 'chore',
       attachments: [
         { name: 'inline.txt', type: 'text', content: 'Hello from inline text' },
         { name: 'hosts', type: 'file', content: '/etc/hosts' },
@@ -431,7 +431,7 @@ async function runTests() {
     suite('T-007: Route registration');
 
     await test('PUT /api/v1/tasks/:id/attachments is routed correctly', async () => {
-      const task = await request('POST', '/api/v1/tasks', { title: 'Route test', type: 'task' });
+      const task = await request('POST', '/api/v1/tasks', { title: 'Route test', type: 'chore' });
       const res = await request('PUT', `/api/v1/tasks/${task.body.id}/attachments`, {
         attachments: [{ name: 'r.txt', type: 'text', content: 'routed' }],
       });
@@ -441,7 +441,7 @@ async function runTests() {
     await test('GET /api/v1/tasks/:id/attachments/:index is routed correctly', async () => {
       const task = await request('POST', '/api/v1/tasks', {
         title: 'Route test 2',
-        type: 'task',
+        type: 'chore',
         attachments: [{ name: 'r.txt', type: 'text', content: 'routed content' }],
       });
       const res = await request('GET', `/api/v1/tasks/${task.body.id}/attachments/0`);
@@ -450,7 +450,7 @@ async function runTests() {
     });
 
     await test('move route not shadowed by attachments route', async () => {
-      const task = await request('POST', '/api/v1/tasks', { title: 'Move test', type: 'task' });
+      const task = await request('POST', '/api/v1/tasks', { title: 'Move test', type: 'chore' });
       const res = await request('PUT', `/api/v1/tasks/${task.body.id}/move`, { to: 'done' });
       assert(res.status === 200, `Expected 200, got ${res.status}`);
       assert(res.body.task.id === task.body.id, 'Should return the moved task');
@@ -465,7 +465,7 @@ async function runTests() {
     await test('tasks without attachments are unaffected by feature', async () => {
       const created = await request('POST', '/api/v1/tasks', {
         title: 'Legacy task',
-        type: 'research',
+        type: 'chore',
         description: 'No attachments here',
         assigned: 'qa-engineer-e2e',
       });

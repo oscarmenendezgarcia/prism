@@ -66,7 +66,7 @@ function createSpaceWithTask(dataDir, taskOverrides = {}) {
   const task = {
     id: taskId,
     title: 'Implement feature X',
-    type: 'task',
+    type: 'chore',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...taskOverrides,
@@ -93,7 +93,7 @@ function setupSpaceViaManager(dataDir) {
   tasks.push({
     id: taskId,
     title: 'Prompt test task',
-    type: 'task',
+    type: 'chore',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });

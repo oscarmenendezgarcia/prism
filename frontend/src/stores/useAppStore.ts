@@ -824,7 +824,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       subTask = await api.createTask(spaceId, {
         title:       `${mainTitle} / Stage 1: ${agentDisplayName}`,
-        type:        'research',
+        type:        'chore',
         assigned:    firstStage,
         description: `Pipeline sub-task for stage 1. Parent task: ${taskId}`,
       });
@@ -892,7 +892,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       subTask = await api.createTask(pipelineState.spaceId, {
         title:       `${mainTitle} / Stage ${nextIndex + 1}: ${agentDisplayName}`,
-        type:        'research',
+        type:        'chore',
         assigned:    nextStage,
         description: `Pipeline sub-task for stage ${nextIndex + 1}. Parent task: ${pipelineState.taskId}`,
       });
@@ -985,7 +985,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       try {
         subTask = await api.createTask(pipelineState.spaceId, {
           title:       `${mainTitle} / Stage 1: ${agentDisplayName}`,
-          type:        'research',
+          type:        'chore',
           assigned:    firstStage,
           description: `Pipeline sub-task for stage 1. Parent task: ${pipelineState.taskId}`,
         });
@@ -1029,7 +1029,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       subTask = await api.createTask(pipelineState.spaceId, {
         title:       `${mainTitle} / Stage ${resumeIndex + 1}: ${agentDisplayName}`,
-        type:        'research',
+        type:        'chore',
         assigned:    nextStage,
         description: `Pipeline sub-task for stage ${resumeIndex + 1}. Parent task: ${pipelineState.taskId}`,
       });

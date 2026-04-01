@@ -73,7 +73,7 @@ function createSpaceWithTask(dataDir, spaceId = 'test-space-1') {
   const taskId  = crypto.randomUUID();
   const spaceDir = path.join(dataDir, 'spaces', spaceId);
   fs.mkdirSync(spaceDir, { recursive: true });
-  const task = { id: taskId, title: 'Test task', type: 'task', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  const task = { id: taskId, title: 'Test task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   fs.writeFileSync(path.join(spaceDir, 'todo.json'),        JSON.stringify([task]), 'utf8');
   fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]),     'utf8');
   fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([]),     'utf8');
@@ -253,7 +253,7 @@ describe('pipelineManager — createRun validations', () => {
     const spaceId = 'space-task-done';
     const spaceDir = path.join(dataDir, 'spaces', spaceId);
     fs.mkdirSync(spaceDir, { recursive: true });
-    const task = { id: taskId, title: 'Done task', type: 'task', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const task = { id: taskId, title: 'Done task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     fs.writeFileSync(path.join(spaceDir, 'todo.json'),        '[]', 'utf8');
     fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), '[]', 'utf8');
     fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([task]), 'utf8');
@@ -572,7 +572,7 @@ describe('REST integration — pipeline endpoints', () => {
     const taskId  = crypto.randomUUID();
     const todoPath = path.join(dataDir, 'spaces', spaceId, 'todo.json');
     const tasks    = JSON.parse(fs.readFileSync(todoPath, 'utf8'));
-    tasks.push({ id: taskId, title: 'Pipeline test task', type: 'task', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    tasks.push({ id: taskId, title: 'Pipeline test task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     fs.writeFileSync(todoPath, JSON.stringify(tasks), 'utf8');
 
     return { spaceId, taskId };
@@ -600,7 +600,7 @@ describe('REST integration — pipeline endpoints', () => {
     // Put task in in-progress column directly.
     const inProgressPath = path.join(dataDir, 'spaces', spaceId, 'in-progress.json');
     const tasks = JSON.parse(fs.readFileSync(inProgressPath, 'utf8'));
-    tasks.push({ id: taskId, title: 'Running task', type: 'task', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    tasks.push({ id: taskId, title: 'Running task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     fs.writeFileSync(inProgressPath, JSON.stringify(tasks), 'utf8');
 
     const res = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect'] });

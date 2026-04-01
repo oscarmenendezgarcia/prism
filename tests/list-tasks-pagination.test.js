@@ -72,7 +72,7 @@ async function clearBoard() { await request('DELETE', '/api/v1/tasks'); }
 async function createTask(title, assigned) {
   const res = await request('POST', '/api/v1/tasks', {
     title,
-    type: 'task',
+    type: 'chore',
     ...(assigned ? { assigned } : {}),
   });
   assert(res.status === 201, `createTask: expected 201, got ${res.status}`);

@@ -135,7 +135,7 @@ function removeAllTestAgents() {
 async function createTaskViaApi(request, port, spaceId = 'default') {
   const response = await request('POST', `/api/v1/spaces/${spaceId}/tasks`, {
     title: 'Test task for prompt generation',
-    type:  'task',
+    type:  'chore',
   });
   return response.body;
 }
