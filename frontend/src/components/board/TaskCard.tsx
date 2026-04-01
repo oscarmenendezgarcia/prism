@@ -63,13 +63,15 @@ interface TaskCardProps {
   onDragOver: (e: React.DragEvent, taskId: string) => void;
   onDragLeave: (e: React.DragEvent, taskId: string) => void;
   onDrop: (e: React.DragEvent, targetColumn: Column) => void;
+  /** A-1: stagger delay in ms for the entrance animation. EXCEPTION: only inline style allowed. */
+  staggerDelayMs?: number;
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, onDragOver, onDragLeave, onDrop }: TaskCardProps) {
+export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, onDragOver, onDragLeave, onDrop, staggerDelayMs = 0 }: TaskCardProps) {
   const moveTask          = useAppStore((s) => s.moveTask);
   const deleteTask        = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
@@ -100,12 +102,18 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
       data-testid="task-card"
       className={[
         'group relative bg-surface rounded-card border shadow-card hover:shadow-card-hover',
+        // A-1: entrance fade-in-up; A-2: hover lifts card via translateY
+        'animate-fade-in-up hover:-translate-y-0.5',
         'transition-all duration-200 ease-apple p-3 flex flex-col gap-2',
+        // MB-3: minimum 44px touch target + press scale feedback on coarse pointer
+        'min-h-[44px] [@media(pointer:coarse)]:active:scale-[0.98]',
         isDone ? 'opacity-50 grayscale-[30%]' : '',
         isDragging ? 'opacity-50' : '',
         isDragOver ? 'ring-2 ring-primary' : '',
         isActiveTask ? 'border-[#3b82f6]/40' : 'border-border',
       ].filter(Boolean).join(' ')}
+      // A-1: EXCEPTION — dynamic stagger delay requires inline style
+      style={staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms`, animationFillMode: 'both' } : { animationFillMode: 'both' }}
       aria-grabbed={isDragging}
       onDragStart={(e) => onDragStart(e, task.id, column)}
       onDragOver={(e) => onDragOver(e, task.id)}
@@ -144,6 +152,18 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
           </button>
         )}
 
+        {/* more_vert button — always visible, opens the card action context menu */}
+        <button
+          type="button"
+          aria-label="Task actions"
+          aria-haspopup="menu"
+          className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-sm text-text-secondary opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 hover:text-text-primary hover:bg-surface-variant transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-primary focus:opacity-100"
+        >
+          <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
+            more_vert
+          </span>
+        </button>
+
       </div>
 
       {/* ------------------------------------------------------------------ */}
@@ -170,7 +190,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
           {task.attachments && task.attachments.length > 0 && (
             <button
               type="button"
-              onClick={() => openAttachmentModal(activeSpaceId, task.id, 0, task.attachments!.map((a) => a.name))}
+              onClick={() => openAttachmentModal(activeSpaceId, task.id, 0, task.attachments![0].name)}
               aria-label={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
               title={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
               data-testid="attachment-pill"
@@ -184,7 +204,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
           )}
 
           {task.description && (
-            <p className="w-full text-[11px] text-text-secondary/70 line-clamp-3" data-testid="desc-preview">
+            <p className="w-full text-[11px] text-text-secondary/70 line-clamp-1" data-testid="desc-preview">
               {task.description}
             </p>
           )}
@@ -197,9 +217,10 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
       {/* Always visible on coarse-pointer (touch) devices.                   */}
       {/* ADR-1: absolute top-2 right-2 z-10, pure CSS group-hover approach.  */}
       {/* ------------------------------------------------------------------ */}
+      {/* A-2: overlay reveals with scale-in animation on group-hover */}
       <div
         data-testid="hover-overlay"
-        className="absolute top-2 right-2 z-10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto transition-opacity duration-150 ease-apple bg-surface-elevated border border-border rounded-md shadow-sm"
+        className="absolute top-2 right-2 z-10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-hover:animate-hover-overlay-in [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto transition-opacity duration-150 ease-apple bg-surface-elevated border border-border rounded-md shadow-sm"
         aria-hidden="true"
       >
         <CardActionMenu

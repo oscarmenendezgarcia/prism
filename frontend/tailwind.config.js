@@ -153,13 +153,39 @@ export default {
           '0%': { transform: 'translateX(100%)' },
           '100%': { transform: 'translateX(0)' },
         },
+        // M-1: modal spring close exit
+        'modal-out': {
+          '0%': { opacity: '1', transform: 'scale(1)' },
+          '100%': { opacity: '0', transform: 'scale(0.97)' },
+        },
+        // T-1: toast exit slide-down
+        'toast-out': {
+          '0%': { opacity: '1', transform: 'translateX(-50%) translateY(0)' },
+          '100%': { opacity: '0', transform: 'translateX(-50%) translateY(8px)' },
+        },
+        // A-2: hover overlay entrance
+        'hover-overlay-in': {
+          '0%': { opacity: '0', transform: 'scale(0.95)' },
+          '100%': { opacity: '1', transform: 'scale(1)' },
+        },
+        // S-3: empty state ambient pulse
+        'empty-pulse': {
+          '0%, 100%': { opacity: '0.4', transform: 'scale(1)' },
+          '50%': { opacity: '0.7', transform: 'scale(1.04)' },
+        },
       },
       animation: {
         'fade-in-up': 'fade-in-up 300ms cubic-bezier(0.4, 0, 0.2, 1)',
-        'scale-in': 'scale-in 250ms cubic-bezier(0.4, 0, 0.2, 1)',
+        'scale-in': 'scale-in 280ms cubic-bezier(0.34, 1.56, 0.64, 1)',
         'slide-in-bottom': 'slide-in-bottom 300ms cubic-bezier(0.34, 1.56, 0.64, 1)',
         // ADR-1 (task-detail-edit): NFR-1 — open/close ≤ 200 ms.
         'slide-in-right': 'slide-in-right 200ms cubic-bezier(0.4, 0, 0.2, 1)',
+        // M-1: modal close exit (180ms, apple ease-in)
+        'modal-out': 'modal-out 180ms cubic-bezier(0.4,0,0.2,1) forwards',
+        // T-1: toast exit (200ms)
+        'toast-out': 'toast-out 200ms cubic-bezier(0.4,0,0.2,1) forwards',
+        // S-3: empty state pulse (3s loop)
+        'empty-pulse': 'empty-pulse 3s ease-in-out infinite',
       },
     },
   },

@@ -273,6 +273,11 @@ html.dark {
 }
 
 @layer utilities {
+  /* MB-2: FAB bottom position respects iOS safe-area-inset-bottom */
+  .bottom-safe-6 {
+    bottom: max(1.5rem, env(safe-area-inset-bottom, 1.5rem));
+  }
+
   /* BUG-005: replaces style={{ fontVariationSettings: "'FILL' 1" }} inline styles */
   .icon-filled {
     font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -304,4 +309,15 @@ html.dark {
     -webkit-backdrop-filter: blur(40px) saturate(200%);
   }
 
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ACCESSIBILITY — reduce motion
+   Honoring prefers-reduced-motion: all animations collapsed to near-instant.
+───────────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

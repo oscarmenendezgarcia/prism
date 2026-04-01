@@ -103,6 +103,8 @@ interface AppState {
 
   // Toast
   toast: ToastState | null;
+  /** T-1: true during the 200ms exit animation window before toast is cleared */
+  toastLeaving: boolean;
   showToast: (message: string, type?: 'success' | 'error') => void;
 
   // Config editor (ADR-1: Config Editor Panel)
@@ -421,13 +423,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Toast ────────────────────────────────────────────────────────────────
 
   toast: null,
+  toastLeaving: false,
   showToast: (message, type = 'success') => {
     if (toastTimer) clearTimeout(toastTimer);
-    set({ toast: { message, type } });
+    set({ toast: { message, type }, toastLeaving: false });
+    // T-1: set leaving flag at 2800ms so the exit animation (200ms) can play
     toastTimer = setTimeout(() => {
-      set({ toast: null });
-      toastTimer = null;
-    }, 3000);
+      set({ toastLeaving: true });
+      setTimeout(() => {
+        set({ toast: null, toastLeaving: false });
+        toastTimer = null;
+      }, 200);
+    }, 2800);
   },
 
   // ── Config editor ─────────────────────────────────────────────────────────
@@ -1304,6 +1311,8 @@ export const useSpaces = () => useAppStore((s) => s.spaces);
 export const useTasks = () => useAppStore((s) => s.tasks);
 export const useIsMutating = () => useAppStore((s) => s.isMutating);
 export const useToast = () => useAppStore((s) => s.toast);
+/** T-1: true during the exit animation window (200ms before toast clears). */
+export const useToastLeaving = () => useAppStore((s) => s.toastLeaving);
 /** @deprecated Use useTerminalSessionStore(s => s.panelOpen) instead. */
 export const useTerminalOpen = () => useTerminalSessionStore((s) => s.panelOpen);
 
