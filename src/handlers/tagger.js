@@ -122,7 +122,7 @@ function readSpaceTasks(spaceDataDir, column) {
  */
 function callClaude(cards, improveDescriptions) {
   const cli   = process.env.TAGGER_CLI   || 'claude';
-  const model = process.env.TAGGER_MODEL || 'claude-3-5-sonnet-20241022';
+  const model = process.env.TAGGER_MODEL || 'sonnet';
 
   const userMessage = JSON.stringify({
     improveDescriptions,
@@ -132,20 +132,21 @@ function callClaude(cards, improveDescriptions) {
   return new Promise((resolve, reject) => {
     // Lazy require so child_process can be mocked in tests before server loads.
     //
-    // Correct claude CLI flags (verified against `claude --help`):
-    //   --print (-p)                  headless/pipe mode — user message comes from stdin
-    //   --system-prompt <text>        sets the system prompt
-    //   --output-format stream-json   non-interactive streaming JSON output
-    //   --dangerously-skip-permissions skip confirmation prompts (needed for server context)
-    //   --model <model>               model selection
+    // Flags (verified against `claude --help`):
+    //   --print                    headless/pipe mode; user message comes from stdin
+    //   --system-prompt <text>     classification instructions
+    //   --model <model>            model selection
+    //   --dangerously-skip-permissions  skip confirmation prompts in server context
+    //   --no-session-persistence   don't save this call to Claude's session history
+    //                              (keeps the tagger prompt isolated from other sessions)
+    // Output format defaults to "text" — no --output-format or --verbose needed.
     const child = require('child_process').spawn(
       cli,
       ['--print',
         '--system-prompt', SYSTEM_PROMPT,
         '--model', model,
-        '--output-format', 'stream-json',
-        '--verbose',
-        '--dangerously-skip-permissions'],
+        '--dangerously-skip-permissions',
+        '--no-session-persistence'],
       { env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] },
     );
 
