@@ -144,6 +144,7 @@ function callClaude(cards, improveDescriptions) {
         '--system-prompt', SYSTEM_PROMPT,
         '--model', model,
         '--output-format', 'stream-json',
+        '--verbose',
         '--dangerously-skip-permissions'],
       { env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] },
     );
