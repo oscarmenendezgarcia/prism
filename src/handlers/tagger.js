@@ -11,7 +11,7 @@
  *   TAGGER_CLI   — CLI binary to use (default: 'claude'). Any tool supporting
  *                  `<cmd> -p <systemPrompt>` with cards JSON on stdin works.
  *                  Examples: 'claude', 'opencode', 'aider'.
- *   TAGGER_MODEL — Model override (default: 'claude-3-5-sonnet-20241022').
+ *   TAGGER_MODEL — Model override (default: 'haiku').
  *
  * Error codes:
  *   404 SPACE_NOT_FOUND         — spaceId does not exist
@@ -122,7 +122,7 @@ function readSpaceTasks(spaceDataDir, column) {
  */
 function callClaude(cards, improveDescriptions) {
   const cli   = process.env.TAGGER_CLI   || 'claude';
-  const model = process.env.TAGGER_MODEL || 'sonnet';
+  const model = process.env.TAGGER_MODEL || 'haiku';
 
   const userMessage = JSON.stringify({
     improveDescriptions,
@@ -274,7 +274,7 @@ async function handleTaggerRun(req, res, spaceId, spaceDataDir) {
       console.log(JSON.stringify({
         event:               'tagger.run.complete',
         spaceId,
-        model:               process.env.TAGGER_MODEL || 'claude-3-5-sonnet-20241022',
+        model:               process.env.TAGGER_MODEL || 'haiku',
         cardsProcessed:      0,
         suggestionsCount:    0,
         skippedCount:        0,
@@ -286,7 +286,7 @@ async function handleTaggerRun(req, res, spaceId, spaceDataDir) {
       return sendJSON(res, 200, {
         suggestions:  [],
         skipped:      [],
-        model:        process.env.TAGGER_MODEL || 'claude-3-5-sonnet-20241022',
+        model:        process.env.TAGGER_MODEL || 'haiku',
         inputTokens:  0,
         outputTokens: 0,
       });
