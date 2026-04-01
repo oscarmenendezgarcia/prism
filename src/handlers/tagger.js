@@ -131,14 +131,20 @@ function callClaude(cards, improveDescriptions) {
 
   return new Promise((resolve, reject) => {
     // Lazy require so child_process can be mocked in tests before server loads.
-    // Mirror the pipeline's headless spawn args:
-    //   --output-format stream-json  required for non-interactive mode
-    //   --verbose                    required by stream-json
-    //   --enable-auto-mode           prevents confirmation prompts (exit code 1 without it)
+    //
+    // Correct claude CLI flags (verified against `claude --help`):
+    //   --print (-p)                  headless/pipe mode — user message comes from stdin
+    //   --system-prompt <text>        sets the system prompt
+    //   --output-format stream-json   non-interactive streaming JSON output
+    //   --dangerously-skip-permissions skip confirmation prompts (needed for server context)
+    //   --model <model>               model selection
     const child = require('child_process').spawn(
       cli,
-      ['-p', SYSTEM_PROMPT, '--model', model,
-        '--output-format', 'stream-json', '--verbose', '--enable-auto-mode'],
+      ['--print',
+        '--system-prompt', SYSTEM_PROMPT,
+        '--model', model,
+        '--output-format', 'stream-json',
+        '--dangerously-skip-permissions'],
       { env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] },
     );
 
