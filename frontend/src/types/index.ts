@@ -31,11 +31,17 @@ export interface AttachmentContent {
   source?: string;
 }
 
+/**
+ * Semantic task type — v1.2.0.
+ * Replaces the legacy 'task' | 'research' enum (see scripts/migrate-card-types.js).
+ */
+export type TaskType = 'feature' | 'bug' | 'tech-debt' | 'chore';
+
 /** A Kanban task. */
 export interface Task {
   id: string;
   title: string;
-  type: 'task' | 'research';
+  type: TaskType;
   description?: string;
   assigned?: string;
   attachments?: Attachment[];
@@ -49,7 +55,7 @@ export type BoardTasks = Record<Column, Task[]>;
 /** Payload for POST /spaces/:spaceId/tasks */
 export interface CreateTaskPayload {
   title: string;
-  type: 'task' | 'research';
+  type: TaskType;
   /** Omit from body when empty — never send null. */
   assigned?: string;
   description?: string;
@@ -63,7 +69,7 @@ export interface CreateTaskPayload {
  */
 export interface UpdateTaskPayload {
   title?: string;
-  type?: 'task' | 'research';
+  type?: TaskType;
   /** Empty string deletes the field on the server. */
   description?: string;
   /** Empty string deletes the field on the server. */

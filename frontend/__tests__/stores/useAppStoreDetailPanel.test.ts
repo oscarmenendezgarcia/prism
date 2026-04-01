@@ -40,7 +40,7 @@ import * as api from '../../src/api/client';
 const BASE_TASK: Task = {
   id: 'task-001',
   title: 'Implement auth',
-  type: 'task',
+  type: 'chore',
   description: 'JWT-based authentication',
   assigned: 'developer-agent',
   createdAt: '2026-03-09T14:00:00.000Z',

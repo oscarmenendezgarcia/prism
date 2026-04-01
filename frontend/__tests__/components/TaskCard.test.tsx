@@ -44,7 +44,7 @@ vi.mock('../../src/api/client', () => ({
 const BASE_TASK: Task = {
   id: 'task-1',
   title: 'Implement user auth flow',
-  type: 'task',
+  type: 'feature',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
@@ -111,16 +111,30 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('TaskCard — Zone A (identity)', () => {
-  it('renders the badge with the correct type', () => {
+  it('renders the badge with the correct type (feature)', () => {
     render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
-    expect(screen.getByText('task')).toBeInTheDocument();
+    expect(screen.getByText('feature')).toBeInTheDocument();
   });
 
-  it('renders a research badge when type is research', () => {
+  it('renders a bug badge when type is bug', () => {
     render(
-      <TaskCard task={{ ...BASE_TASK, type: 'research' }} column="todo" {...DRAG_HANDLERS} />
+      <TaskCard task={{ ...BASE_TASK, type: 'bug' }} column="todo" {...DRAG_HANDLERS} />
     );
-    expect(screen.getByText('research')).toBeInTheDocument();
+    expect(screen.getByText('bug')).toBeInTheDocument();
+  });
+
+  it('renders a tech-debt badge when type is tech-debt', () => {
+    render(
+      <TaskCard task={{ ...BASE_TASK, type: 'tech-debt' }} column="todo" {...DRAG_HANDLERS} />
+    );
+    expect(screen.getByText('tech-debt')).toBeInTheDocument();
+  });
+
+  it('renders a chore badge when type is chore', () => {
+    render(
+      <TaskCard task={{ ...BASE_TASK, type: 'chore' }} column="todo" {...DRAG_HANDLERS} />
+    );
+    expect(screen.getByText('chore')).toBeInTheDocument();
   });
 
   it('renders the title as a button', () => {
@@ -287,11 +301,11 @@ describe('TaskCard — Zone B (description preview)', () => {
     expect(screen.getByTestId('desc-preview')).toHaveTextContent('My description');
   });
 
-  it('description preview has line-clamp-1 class', () => {
+  it('description preview has line-clamp-3 class', () => {
     render(
       <TaskCard task={{ ...BASE_TASK, description: 'My description' }} column="todo" {...DRAG_HANDLERS} />
     );
-    expect(screen.getByTestId('desc-preview')).toHaveClass('line-clamp-1');
+    expect(screen.getByTestId('desc-preview')).toHaveClass('line-clamp-3');
   });
 });
 

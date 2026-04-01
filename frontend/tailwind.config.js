@@ -64,11 +64,13 @@ export default {
           'in-progress-pill': 'var(--color-col-in-progress-pill)',
           'done-pill': 'var(--color-col-done-pill)',
         },
-        // Badge colors — CSS vars so they switch with theme
+        // Badge colors — CSS vars so they switch with theme (v1.2.0)
         badge: {
-          'task-text': 'var(--color-badge-task-text)',
-          'research-text': 'var(--color-badge-research-text)',
-          'done-text': 'var(--color-badge-done-text)',
+          'feature-text':   'var(--color-badge-feature-text)',
+          'bug-text':       'var(--color-badge-bug-text)',
+          'tech-debt-text': 'var(--color-badge-tech-debt-text)',
+          'chore-text':     'var(--color-badge-chore-text)',
+          'done-text':      'var(--color-badge-done-text)',
         },
         // Terminal colors — always dark, NOT overridden in html.dark block
         terminal: {

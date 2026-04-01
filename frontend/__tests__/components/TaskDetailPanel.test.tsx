@@ -45,7 +45,7 @@ vi.mock('../../src/api/client', () => ({
 const TASK: Task = {
   id: 'task-abc-1234567',
   title: 'Build auth flow',
-  type: 'task',
+  type: 'feature',
   description: 'Implement JWT-based authentication',
   assigned: 'developer-agent',
   createdAt: '2026-03-09T14:32:00.000Z',
@@ -220,11 +220,11 @@ describe('TaskDetailPanel — auto-save on change: type', () => {
     useAppStore.setState({ detailTask: TASK, updateTask } as any);
     render(<TaskDetailPanel />);
 
-    // Task starts as 'task', click 'research' to change it
-    const researchButton = screen.getByRole('radio', { name: /research/i });
-    fireEvent.click(researchButton);
+    // Task starts as 'feature', click 'bug' to change it
+    const bugButton = screen.getByRole('radio', { name: /^bug$/i });
+    fireEvent.click(bugButton);
 
-    expect(updateTask).toHaveBeenCalledWith(TASK.id, { type: 'research' });
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { type: 'bug' });
   });
 
   it('does NOT call updateTask when same type is clicked again', () => {
@@ -232,9 +232,9 @@ describe('TaskDetailPanel — auto-save on change: type', () => {
     useAppStore.setState({ detailTask: TASK, updateTask } as any);
     render(<TaskDetailPanel />);
 
-    // Click the currently-active 'task' button — no change should occur
-    const taskButton = screen.getByRole('radio', { name: /^task$/i });
-    fireEvent.click(taskButton);
+    // Click the currently-active 'feature' button — no change should occur
+    const featureButton = screen.getByRole('radio', { name: /^feature$/i });
+    fireEvent.click(featureButton);
 
     expect(updateTask).not.toHaveBeenCalled();
   });

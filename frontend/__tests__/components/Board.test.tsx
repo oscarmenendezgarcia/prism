@@ -25,7 +25,7 @@ describe('Board', () => {
   it('renders tasks from the store', () => {
     useAppStore.setState({
       tasks: {
-        todo: [{ id: 't1', title: 'My Task', type: 'task', createdAt: '', updatedAt: '' }],
+        todo: [{ id: 't1', title: 'My Task', type: 'chore', createdAt: '', updatedAt: '' }],
         'in-progress': [],
         done: [],
       },

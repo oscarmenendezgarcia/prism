@@ -179,7 +179,7 @@ server.tool(
   "Create a new task in the 'todo' column. Returns the created task with its generated ID. Pass spaceId to create in a specific space.",
   {
     title: z.string().describe('Task title (max 200 chars).'),
-    type:  z.enum(['task', 'research']).describe('Task type.'),
+    type:  z.enum(['feature', 'bug', 'tech-debt', 'chore']).describe('Task type.'),
     description: z
       .string()
       .optional()
@@ -205,7 +205,7 @@ server.tool(
   {
     id:    z.string().describe('The task ID to update.'),
     title: z.string().optional().describe('New title.'),
-    type:  z.enum(['task', 'research']).optional().describe('New type.'),
+    type:  z.enum(['feature', 'bug', 'tech-debt', 'chore']).optional().describe('New type.'),
     description: z.string().optional().describe('New description.'),
     assigned:    z.string().optional().describe('New assigned agent.'),
     attachments: z

@@ -136,7 +136,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [localTitle, setLocalTitle]             = useState('');
   const [localAssigned, setLocalAssigned]       = useState('');
   const [localDescription, setLocalDescription] = useState('');
-  const [localType, setLocalType]               = useState<'task' | 'research'>('task');
+  const [localType, setLocalType]               = useState<'feature' | 'bug' | 'tech-debt' | 'chore'>('chore');
   const [isCopied, setIsCopied]                 = useState(false);
 
   // Track initial values to detect actual changes on blur.
@@ -232,7 +232,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   }, [detailTask, localAssigned, updateTask]);
 
   const handleTypeChange = useCallback(
-    (newType: 'task' | 'research') => {
+    (newType: 'feature' | 'bug' | 'tech-debt' | 'chore') => {
       if (!detailTask || newType === localType) return;
       setLocalType(newType);
       updateTask(detailTask.id, { type: newType });
@@ -385,7 +385,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               aria-label="Task type"
               className="flex rounded-md overflow-hidden border border-border"
             >
-              {(['task', 'research'] as const).map((t) => (
+              {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
                 <button
                   key={t}
                   type="button"

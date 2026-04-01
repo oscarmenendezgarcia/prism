@@ -138,7 +138,7 @@ describe('useAgentCompletion — no activeRun', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -163,7 +163,7 @@ describe('useAgentCompletion — task completes', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -184,7 +184,7 @@ describe('useAgentCompletion — task completes', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -206,7 +206,7 @@ describe('useAgentCompletion — task completes', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -223,7 +223,7 @@ describe('useAgentCompletion — task completes', () => {
       useAppStore.setState({
         tasks: {
           todo: [],
-          'in-progress': [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
+          'in-progress': [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER }],
           done: [],
         },
       } as any);
@@ -249,7 +249,7 @@ describe('useAgentCompletion — task completes', () => {
           todo: [],
           'in-progress': [],
           // updatedAt is BEFORE the run started — stale done entry
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_BEFORE }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_BEFORE }],
         },
       } as any);
     });
@@ -274,7 +274,7 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -297,7 +297,7 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -322,7 +322,7 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -347,7 +347,7 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -370,7 +370,7 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
         tasks: {
           todo: [],
           'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER }],
+          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER }],
         },
       } as any);
     });
@@ -413,7 +413,7 @@ describe('useAgentCompletion — sub-task vs main task discrimination (T-008)', 
           todo: [],
           'in-progress': [],
           done: [
-            { id: SUB_TASK_ID, title: 'Sub Task', type: 'research', createdAt: '', updatedAt: UPDATED_AFTER },
+            { id: SUB_TASK_ID, title: 'Sub Task', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER },
           ],
         },
       } as any);
@@ -447,7 +447,7 @@ describe('useAgentCompletion — sub-task vs main task discrimination (T-008)', 
           'in-progress': [],
           // Only the MAIN task is in done — sub-task is not yet
           done: [
-            { id: MAIN_TASK_ID, title: 'Main Task', type: 'task', createdAt: '', updatedAt: UPDATED_AFTER },
+            { id: MAIN_TASK_ID, title: 'Main Task', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER },
           ],
         },
       } as any);
@@ -479,7 +479,7 @@ describe('useAgentCompletion — sub-task vs main task discrimination (T-008)', 
           'in-progress': [],
           // sub-task in done but with stale updatedAt (before run started)
           done: [
-            { id: SUB_TASK_ID, title: 'Sub Task', type: 'research', createdAt: '', updatedAt: UPDATED_BEFORE },
+            { id: SUB_TASK_ID, title: 'Sub Task', type: 'chore', createdAt: '', updatedAt: UPDATED_BEFORE },
           ],
         },
       } as any);

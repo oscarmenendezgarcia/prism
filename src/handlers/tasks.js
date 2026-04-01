@@ -19,7 +19,7 @@ const { sendJSON, sendError, parseBody }   = require('../utils/http');
 // Validation constraints
 // ---------------------------------------------------------------------------
 
-const VALID_TYPES          = ['research', 'task'];
+const VALID_TYPES          = ['feature', 'bug', 'tech-debt', 'chore'];
 const TITLE_MAX_LEN        = 200;
 const DESCRIPTION_MAX_LEN  = 1000;
 const ASSIGNED_MAX_LEN     = 50;

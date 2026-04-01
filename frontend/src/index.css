@@ -65,10 +65,12 @@
   --color-col-in-progress-pill: rgba(10, 132, 255, 0.10);
   --color-col-done-pill: rgba(40, 205, 65, 0.10);
 
-  /* Badge text colors */
-  --color-badge-task-text: #E86800;
-  --color-badge-research-text: #0A84FF;
-  --color-badge-done-text: #248A3D;
+  /* Badge text colors — v1.2.0 */
+  --color-badge-feature-text:   #6C39C0;
+  --color-badge-bug-text:       #FF3B30;
+  --color-badge-tech-debt-text: #E65100;
+  --color-badge-chore-text:     #6E6E73;
+  --color-badge-done-text:      #248A3D;
 
   /* Shadows — light mode (lower opacity, no white inner rings) */
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
@@ -158,10 +160,12 @@ html.dark {
   --color-col-in-progress-pill: rgba(10, 132, 255, 0.16);
   --color-col-done-pill: rgba(48, 209, 88, 0.16);
 
-  /* Badge text colors */
-  --color-badge-task-text: #FF9F0A;
-  --color-badge-research-text: #0A84FF;
-  --color-badge-done-text: #30D158;
+  /* Badge text colors — v1.2.0 */
+  --color-badge-feature-text:   #BF5AF2;
+  --color-badge-bug-text:       #FF453A;
+  --color-badge-tech-debt-text: #FFD60A;
+  --color-badge-chore-text:     rgba(245, 245, 247, 0.55);
+  --color-badge-done-text:      #30D158;
 
   /* Shadows — dark mode (stronger opacity + white inner rings for depth) */
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.30), 0 0 0 1px rgba(255, 255, 255, 0.05);

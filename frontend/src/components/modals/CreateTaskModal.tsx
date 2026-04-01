@@ -33,7 +33,7 @@ export function CreateTaskModal() {
   const createTask = useAppStore((s) => s.createTask);
 
   const [title, setTitle] = useState('');
-  const [type, setType] = useState<'task' | 'research' | ''>('');
+  const [type, setType] = useState<'feature' | 'bug' | 'tech-debt' | 'chore' | ''>('');
   const [assigned, setAssigned] = useState('');
   const [description, setDescription] = useState('');
   const [titleError, setTitleError] = useState('');
@@ -87,7 +87,7 @@ export function CreateTaskModal() {
 
     const payload: CreateTaskPayload = {
       title: title.trim(),
-      type: type as 'task' | 'research',
+      type: type as 'feature' | 'bug' | 'tech-debt' | 'chore',
     };
     // Only include optional fields when non-empty (never send null)
     if (assigned) payload.assigned = assigned;
@@ -146,12 +146,14 @@ export function CreateTaskModal() {
               id="input-type"
               className={`${inputClass} ${typeError ? 'border-error ring-1 ring-error' : ''}`}
               value={type}
-              onChange={(e) => setType(e.target.value as 'task' | 'research' | '')}
+              onChange={(e) => setType(e.target.value as 'feature' | 'bug' | 'tech-debt' | 'chore' | '')}
               required
             >
               <option value="">-- Select type --</option>
-              <option value="task">Task</option>
-              <option value="research">Research</option>
+              <option value="feature">Feature</option>
+              <option value="bug">Bug</option>
+              <option value="tech-debt">Tech Debt</option>
+              <option value="chore">Chore</option>
             </select>
             {typeError && (
               <span className={errorClass} role="alert">{typeError}</span>
