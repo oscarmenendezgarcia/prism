@@ -105,8 +105,9 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
         // A-1: entrance fade-in-up; A-2: hover lifts card via translateY
         'animate-fade-in-up hover:-translate-y-0.5',
         'transition-all duration-200 ease-apple p-3 flex flex-col gap-2',
+        // shrink-0: prevent flex-shrink in overflow-y-auto column from collapsing card height
         // MB-3: minimum 44px touch target + press scale feedback on coarse pointer
-        'min-h-[44px] [@media(pointer:coarse)]:active:scale-[0.98]',
+        'shrink-0 min-h-[44px] [@media(pointer:coarse)]:active:scale-[0.98]',
         isDone ? 'opacity-50 grayscale-[30%]' : '',
         isDragging ? 'opacity-50' : '',
         isDragOver ? 'ring-2 ring-primary' : '',
@@ -204,7 +205,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
           )}
 
           {task.description && (
-            <p className="w-full text-[11px] text-text-secondary/70 line-clamp-1" data-testid="desc-preview">
+            <p className="w-full text-[11px] text-text-secondary/70 line-clamp-3" data-testid="desc-preview">
               {task.description}
             </p>
           )}
