@@ -72,6 +72,31 @@ describe('Modal', () => {
     fireEvent.click(screen.getByText('Inside button'));
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('BUG-001: unmounts after open transitions to false externally', async () => {
+    vi.useFakeTimers();
+    const { rerender } = render(
+      <Modal open={true} onClose={vi.fn()}>
+        <div>Visible Content</div>
+      </Modal>
+    );
+    expect(document.body.querySelector('[role="dialog"]')).toBeInTheDocument();
+
+    // Parent sets open=false (e.g. after task creation succeeds)
+    rerender(
+      <Modal open={false} onClose={vi.fn()}>
+        <div>Visible Content</div>
+      </Modal>
+    );
+
+    // Before animation completes, modal is still in DOM (isClosing=true)
+    expect(document.body.querySelector('[role="dialog"]')).toBeInTheDocument();
+
+    // After 180ms exit animation the modal unmounts
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
 });
 
 describe('ModalHeader', () => {

@@ -38,11 +38,20 @@ export function Modal({
   const [isClosing, setIsClosing] = useState(false);
   const [isVisible, setIsVisible] = useState(open);
 
-  // Sync visibility with open prop; entering resets closing state
+  // Sync visibility with open prop; entering resets closing state.
+  // BUG-001: when open transitions to false externally (e.g. after task creation),
+  // play the exit animation then unmount — otherwise isVisible stays true forever.
   useEffect(() => {
     if (open) {
       setIsVisible(true);
       setIsClosing(false);
+    } else {
+      setIsClosing(true);
+      const timer = setTimeout(() => {
+        setIsClosing(false);
+        setIsVisible(false);
+      }, 180);
+      return () => clearTimeout(timer);
     }
   }, [open]);
 
