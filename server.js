@@ -61,6 +61,8 @@ const {
   handleUpdateAgentRun,
   handleListAgentRuns,
 } = require('./src/handlers/agentRuns');
+const { handleTaggerRun } = require('./src/handlers/tagger');
+
 const {
   PIPELINE_RUNS_LIST_ROUTE,
   PIPELINE_RUNS_SINGLE_ROUTE,
@@ -90,6 +92,8 @@ const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
 const SPACES_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)$/;
 // Matches /api/v1/spaces/:spaceId/tasks and everything under it.
 const SPACES_TASKS_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)(\/tasks.*)$/;
+// Tagger route — must be registered BEFORE SPACES_TASKS_ROUTE to avoid regex swallowing.
+const TAGGER_RUN_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)\/tagger\/run$/;
 // Legacy: /api/v1/tasks and everything under it.
 const LEGACY_TASKS_ROUTE  = /^\/api\/v1(\/tasks.*)$/;
 // Settings route
@@ -158,6 +162,28 @@ function startServer(options = {}) {
   async function mainRouter(req, res) {
     const { method } = req;
     const urlPath    = req.url.split('?')[0];
+
+    // -----------------------------------------------------------------------
+    // Tagger route: POST /api/v1/spaces/:spaceId/tagger/run
+    // Must be before SPACES_TASKS_ROUTE to avoid regex swallowing.
+    // -----------------------------------------------------------------------
+    const taggerMatch = TAGGER_RUN_ROUTE.exec(urlPath);
+    if (taggerMatch) {
+      const spaceId = taggerMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'POST') {
+        const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
+        return handleTaggerRun(req, res, spaceId, spaceDataDir);
+      }
+
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
 
     // -----------------------------------------------------------------------
     // Space-scoped task routes: /api/v1/spaces/:spaceId/tasks/*
@@ -395,6 +421,12 @@ function startServer(options = {}) {
     }
 
     sendError(res, 404, 'NOT_FOUND', `Route '${method} ${urlPath}' not found`);
+  }
+
+  // Step 4b: Tagger startup check — warn if ANTHROPIC_API_KEY is absent.
+  // Server start is NOT blocked — tagger is not a core feature (ADR-1 §Consequences).
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.warn('[tagger] ANTHROPIC_API_KEY not set — tagger endpoint will return 503');
   }
 
   // Step 5: Run startup cleanup for old prompt files.
