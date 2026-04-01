@@ -36,8 +36,9 @@ node server.js &
 cd frontend && npm run dev   # → http://localhost:5173
 ```
 
-> **Tagger feature**: requires `ANTHROPIC_API_KEY` to be set in the environment.
-> If absent, the server starts normally but `POST /api/v1/spaces/:id/tagger/run` returns 503.
+> **Tagger feature**: uses `TAGGER_CLI` (default: `claude`) to classify cards. Any CLI
+> supporting `<cmd> -p <prompt>` works (e.g. `opencode`). No API key required in the server —
+> the CLI handles its own authentication.
 
 ---
 

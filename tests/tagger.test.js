@@ -4,56 +4,68 @@
  * Backend unit tests for the tagger handler.
  *
  * Tests run against a real startServer() with a temp data directory.
- * globalThis.fetch is mocked — no real API calls to Anthropic.
+ * child_process.spawn is mocked — no real CLI calls are made.
  *
  * Coverage targets: src/handlers/tagger.js >= 90%
  */
 
 const { test, describe, before, after } = require('node:test');
-const assert  = require('node:assert/strict');
-const fs      = require('fs');
-const os      = require('os');
-const path    = require('path');
-const http    = require('http');
+const assert       = require('node:assert/strict');
+const fs           = require('fs');
+const os           = require('os');
+const path         = require('path');
+const http         = require('http');
+const { EventEmitter } = require('events');
 
 // ---------------------------------------------------------------------------
-// fetch mock — intercepts native fetch calls made by tagger.js
+// child_process.spawn mock
+// ---------------------------------------------------------------------------
+// We replace require('child_process').spawn with a controllable fake BEFORE
+// server.js (and tagger.js) are loaded, so the lazy require() inside callClaude
+// picks up our mock from the module cache.
+//
+// mockSpawnStdout    — string emitted on stdout (the JSON response from the CLI)
+// mockSpawnExitCode  — exit code emitted on 'close' (default 0 = success)
+// mockSpawnEmitError — when true, child emits 'error' instead of closing
+// mockSpawnErrorMsg  — message for the error event
+// mockSpawnBlock     — Promise; when set, stdout/close are deferred until resolved
 // ---------------------------------------------------------------------------
 
-/**
- * mockFetchResponse: the JSON body the mock fetch will return (status 200).
- * mockFetchStatus:   HTTP status code the mock will return (default 200).
- * mockFetchShouldThrow: when true, fetch() rejects with an Error.
- * mockFetchThrowMessage: error message when mockFetchShouldThrow is true.
- * mockFetchBlockPromise: when set, fetch() awaits it before responding (concurrent test).
- */
-let mockFetchResponse     = null;
-let mockFetchStatus       = 200;
-let mockFetchShouldThrow  = false;
-let mockFetchThrowMessage = 'Anthropic API error';
-let mockFetchBlockPromise = null;
+let mockSpawnStdout    = '';
+let mockSpawnExitCode  = 0;
+let mockSpawnEmitError = false;
+let mockSpawnErrorMsg  = 'spawn error';
+let mockSpawnBlock     = null;
 
-// Keep reference to the original fetch so we can restore it after tests.
-const _originalFetch = globalThis.fetch;
+const _realSpawn = require('child_process').spawn;
 
-function installFetchMock() {
-  globalThis.fetch = async (_url, _opts) => {
-    if (mockFetchBlockPromise) await mockFetchBlockPromise;
-    if (mockFetchShouldThrow) throw new Error(mockFetchThrowMessage);
-    const status = mockFetchStatus;
-    const body   = JSON.stringify(mockFetchResponse);
-    return {
-      ok:     status >= 200 && status < 300,
-      status,
-      json:   async () => JSON.parse(body),
-      text:   async () => body,
-    };
+function installSpawnMock() {
+  require('child_process').spawn = function mockSpawn(_cmd, _args, _opts) {
+    const child  = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stdin  = { write: () => {}, end: () => {} };
+
+    setImmediate(async () => {
+      if (mockSpawnBlock) await mockSpawnBlock;
+      if (mockSpawnEmitError) {
+        child.emit('error', new Error(mockSpawnErrorMsg));
+        return;
+      }
+      if (mockSpawnStdout) child.stdout.emit('data', mockSpawnStdout);
+      child.emit('close', mockSpawnExitCode);
+    });
+
+    return child;
   };
 }
 
-function restoreFetch() {
-  globalThis.fetch = _originalFetch;
+function restoreSpawn() {
+  require('child_process').spawn = _realSpawn;
 }
+
+// Install mock BEFORE server is required so the lazy require() in callClaude sees it.
+installSpawnMock();
 
 // ---------------------------------------------------------------------------
 // Server / HTTP helpers
@@ -128,39 +140,18 @@ async function runTests() {
   before(async () => {
     dataDir = tmpDir();
     initDataDir(dataDir);
-    installFetchMock();
-    // Ensure ANTHROPIC_API_KEY is set so the handler passes the key-check.
-    process.env.ANTHROPIC_API_KEY = 'test-key-not-real';
     server = startServer({ port: 0, dataDir, silent: true });
     port   = await listenPort(server);
   });
 
   after(() => {
     server.close();
-    restoreFetch();
+    restoreSpawn();
     fs.rmSync(dataDir, { recursive: true, force: true });
-    delete process.env.ANTHROPIC_API_KEY;
   });
 
   // -------------------------------------------------------------------------
-  // T-010-1: missing API key → 503
-  // -------------------------------------------------------------------------
-  describe('missing API key', () => {
-    test('returns 503 ANTHROPIC_KEY_MISSING when ANTHROPIC_API_KEY is absent', async () => {
-      // Temporarily remove the key
-      const saved = process.env.ANTHROPIC_API_KEY;
-      delete process.env.ANTHROPIC_API_KEY;
-
-      const res = await req(port, 'POST', '/api/v1/spaces/default/tagger/run', {});
-      assert.equal(res.status, 503);
-      assert.equal(res.body.error.code, 'ANTHROPIC_KEY_MISSING');
-
-      process.env.ANTHROPIC_API_KEY = saved;
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // T-010-2: invalid column → 400
+  // T-010-1: invalid column → 400
   // -------------------------------------------------------------------------
   describe('invalid column', () => {
     test('returns 400 VALIDATION_ERROR for unknown column value', async () => {
@@ -174,7 +165,7 @@ async function runTests() {
   });
 
   // -------------------------------------------------------------------------
-  // T-010-3: space not found → 404
+  // T-010-2: space not found → 404
   // -------------------------------------------------------------------------
   describe('space not found', () => {
     test('returns 404 SPACE_NOT_FOUND for unknown spaceId', async () => {
@@ -185,27 +176,21 @@ async function runTests() {
   });
 
   // -------------------------------------------------------------------------
-  // T-010-4: concurrent runs → 409
+  // T-010-3: concurrent runs → 409
   // -------------------------------------------------------------------------
   describe('concurrent runs', () => {
     test('returns 409 TAGGER_ALREADY_RUNNING when a run is in progress', async () => {
-      // Seed a card so the handler doesn't short-circuit on empty board
       seedTasks(dataDir, 'default', 'todo', [
         { id: 'card-1', title: 'Fix login', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       ]);
 
-      // Install a blocking mock: fetch() will wait until we release it
+      // Block the spawn mock so the first request stays in-flight
       let unblock;
-      mockFetchBlockPromise = new Promise((resolve) => { unblock = resolve; });
-      mockFetchShouldThrow  = false;
-      mockFetchStatus       = 200;
-      mockFetchResponse = {
-        content: [{ type: 'text', text: JSON.stringify({ suggestions: [], skipped: [] }) }],
-        usage:   { input_tokens: 0, output_tokens: 0 },
-      };
+      mockSpawnBlock  = new Promise((resolve) => { unblock = resolve; });
+      mockSpawnStdout = JSON.stringify({ suggestions: [], skipped: [] });
+      mockSpawnExitCode = 0;
 
       const first = req(port, 'POST', '/api/v1/spaces/default/tagger/run', {});
-      // Give the first request a head-start to register in runningSpaces
       await new Promise((r) => setTimeout(r, 30));
       const second = req(port, 'POST', '/api/v1/spaces/default/tagger/run', {});
 
@@ -213,49 +198,33 @@ async function runTests() {
       assert.equal(secondRes.status, 409);
       assert.equal(secondRes.body.error.code, 'TAGGER_ALREADY_RUNNING');
 
-      // Unblock the first request and wait for it to complete
       unblock();
       await first;
 
-      // Reset block and seed data
-      mockFetchBlockPromise = null;
+      mockSpawnBlock = null;
       seedTasks(dataDir, 'default', 'todo', []);
     });
   });
 
   // -------------------------------------------------------------------------
-  // T-010-5: successful run → 200 with correct suggestion shape
+  // T-010-4: successful run → 200 with correct suggestion shape
   // -------------------------------------------------------------------------
   describe('successful run', () => {
     test('returns 200 with correct suggestion shape', async () => {
       seedTasks(dataDir, 'default', 'todo', [
-        {
-          id: 'task-a', title: 'Fix the redirect loop', type: 'chore',
-          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        },
-        {
-          id: 'task-b', title: 'Add dark mode', type: 'chore',
-          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        },
+        { id: 'task-a', title: 'Fix the redirect loop', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        { id: 'task-b', title: 'Add dark mode',         type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       ]);
 
-      mockFetchShouldThrow = false;
-      mockFetchStatus      = 200;
-      mockFetchResponse = {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify({
-              suggestions: [
-                { id: 'task-a', inferredType: 'bug',     confidence: 'high' },
-                { id: 'task-b', inferredType: 'feature', confidence: 'medium' },
-              ],
-              skipped: [],
-            }),
-          },
+      mockSpawnEmitError = false;
+      mockSpawnExitCode  = 0;
+      mockSpawnStdout    = JSON.stringify({
+        suggestions: [
+          { id: 'task-a', inferredType: 'bug',     confidence: 'high'   },
+          { id: 'task-b', inferredType: 'feature', confidence: 'medium' },
         ],
-        usage: { input_tokens: 100, output_tokens: 50 },
-      };
+        skipped: [],
+      });
 
       const res = await req(port, 'POST', '/api/v1/spaces/default/tagger/run', {});
       assert.equal(res.status, 200);
@@ -273,63 +242,55 @@ async function runTests() {
       assert.equal(typeof res.body.inputTokens, 'number');
       assert.equal(typeof res.body.outputTokens, 'number');
 
-      // Cleanup
       seedTasks(dataDir, 'default', 'todo', []);
     });
   });
 
   // -------------------------------------------------------------------------
-  // T-010-6: Claude returns invalid JSON → 502
+  // T-010-5: CLI returns invalid JSON → 502
   // -------------------------------------------------------------------------
-  describe('invalid JSON from Claude', () => {
-    test('returns 502 ANTHROPIC_API_ERROR when Claude response is not valid JSON', async () => {
+  describe('invalid JSON from CLI', () => {
+    test('returns 502 TAGGER_CLI_ERROR when CLI outputs no JSON', async () => {
       seedTasks(dataDir, 'default', 'todo', [
         { id: 'task-x', title: 'Some task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       ]);
 
-      mockFetchShouldThrow = false;
-      mockFetchStatus      = 200;
-      mockFetchResponse = {
-        content: [{ type: 'text', text: 'This is not JSON at all.' }],
-        usage:   { input_tokens: 10, output_tokens: 5 },
-      };
+      mockSpawnEmitError = false;
+      mockSpawnExitCode  = 0;
+      mockSpawnStdout    = 'This is not JSON at all.';
 
       const res = await req(port, 'POST', '/api/v1/spaces/default/tagger/run', {});
       assert.equal(res.status, 502);
-      assert.equal(res.body.error.code, 'ANTHROPIC_API_ERROR');
+      assert.equal(res.body.error.code, 'TAGGER_CLI_ERROR');
 
       seedTasks(dataDir, 'default', 'todo', []);
     });
 
-    test('returns 502 ANTHROPIC_API_ERROR when response JSON is missing required fields', async () => {
+    test('returns 502 TAGGER_CLI_ERROR when JSON is missing required fields', async () => {
       seedTasks(dataDir, 'default', 'todo', [
         { id: 'task-y', title: 'Another task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       ]);
 
-      mockFetchShouldThrow = false;
-      mockFetchStatus      = 200;
-      mockFetchResponse = {
-        content: [{ type: 'text', text: JSON.stringify({ wrong: 'shape' }) }],
-        usage:   { input_tokens: 10, output_tokens: 5 },
-      };
+      mockSpawnEmitError = false;
+      mockSpawnExitCode  = 0;
+      mockSpawnStdout    = JSON.stringify({ wrong: 'shape' });
 
       const res = await req(port, 'POST', '/api/v1/spaces/default/tagger/run', {});
       assert.equal(res.status, 502);
-      assert.equal(res.body.error.code, 'ANTHROPIC_API_ERROR');
+      assert.equal(res.body.error.code, 'TAGGER_CLI_ERROR');
 
       seedTasks(dataDir, 'default', 'todo', []);
     });
   });
 
   // -------------------------------------------------------------------------
-  // T-010-7: empty board → 200 with empty suggestions
+  // T-010-6: empty board → 200 with empty suggestions (no spawn)
   // -------------------------------------------------------------------------
   describe('empty board', () => {
     test('returns 200 with empty suggestions when board has no tasks', async () => {
-      // Ensure all columns are empty (default state after initDataDir)
-      seedTasks(dataDir, 'default', 'todo',         []);
-      seedTasks(dataDir, 'default', 'in-progress',  []);
-      seedTasks(dataDir, 'default', 'done',         []);
+      seedTasks(dataDir, 'default', 'todo',        []);
+      seedTasks(dataDir, 'default', 'in-progress', []);
+      seedTasks(dataDir, 'default', 'done',        []);
 
       const res = await req(port, 'POST', '/api/v1/spaces/default/tagger/run', {});
       assert.equal(res.status, 200);
@@ -341,7 +302,7 @@ async function runTests() {
   });
 
   // -------------------------------------------------------------------------
-  // Additional: GET on tagger route → 405
+  // T-010-7: GET on tagger route → 405
   // -------------------------------------------------------------------------
   describe('method not allowed', () => {
     test('returns 405 for GET on tagger route', async () => {
@@ -352,39 +313,39 @@ async function runTests() {
   });
 
   // -------------------------------------------------------------------------
-  // Additional: fetch throws (network error) → 502
+  // T-010-8: CLI spawn error → 502
   // -------------------------------------------------------------------------
-  describe('fetch throws (network error)', () => {
-    test('returns 502 ANTHROPIC_API_ERROR when fetch rejects', async () => {
+  describe('CLI spawn failure', () => {
+    test('returns 502 TAGGER_CLI_ERROR when CLI emits error event', async () => {
       seedTasks(dataDir, 'default', 'todo', [
         { id: 'task-z', title: 'Some card', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       ]);
 
-      mockFetchShouldThrow  = true;
-      mockFetchThrowMessage = 'Rate limit exceeded';
+      mockSpawnEmitError = true;
+      mockSpawnErrorMsg  = 'spawn ENOENT';
 
       const res = await req(port, 'POST', '/api/v1/spaces/default/tagger/run', {});
       assert.equal(res.status, 502);
-      assert.equal(res.body.error.code, 'ANTHROPIC_API_ERROR');
+      assert.equal(res.body.error.code, 'TAGGER_CLI_ERROR');
 
-      mockFetchShouldThrow = false;
+      mockSpawnEmitError = false;
       seedTasks(dataDir, 'default', 'todo', []);
     });
 
-    test('returns 502 ANTHROPIC_API_ERROR when Anthropic returns non-200 status', async () => {
+    test('returns 502 TAGGER_CLI_ERROR when CLI exits with non-zero code', async () => {
       seedTasks(dataDir, 'default', 'todo', [
         { id: 'task-w', title: 'Some card', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       ]);
 
-      mockFetchShouldThrow = false;
-      mockFetchStatus      = 429;
-      mockFetchResponse    = { error: { type: 'rate_limit_error', message: 'Too many requests' } };
+      mockSpawnEmitError = false;
+      mockSpawnExitCode  = 1;
+      mockSpawnStdout    = '';
 
       const res = await req(port, 'POST', '/api/v1/spaces/default/tagger/run', {});
       assert.equal(res.status, 502);
-      assert.equal(res.body.error.code, 'ANTHROPIC_API_ERROR');
+      assert.equal(res.body.error.code, 'TAGGER_CLI_ERROR');
 
-      mockFetchStatus = 200;
+      mockSpawnExitCode = 0;
       seedTasks(dataDir, 'default', 'todo', []);
     });
   });

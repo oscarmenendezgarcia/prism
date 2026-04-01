@@ -3,15 +3,21 @@
 /**
  * Tagger handler — POST /api/v1/spaces/:spaceId/tagger/run
  *
- * ADR-1 (Tagger Agent): backend-triggered Claude API call via native fetch (no SDK).
+ * ADR-1 (Tagger Agent): backend-triggered AI classification via configurable CLI
+ * (default: `claude`). No API key required — uses the CLI's own auth.
  * Returns classification suggestions for user review before any mutation.
  *
+ * Config env vars:
+ *   TAGGER_CLI   — CLI binary to use (default: 'claude'). Any tool supporting
+ *                  `<cmd> -p <systemPrompt>` with cards JSON on stdin works.
+ *                  Examples: 'claude', 'opencode', 'aider'.
+ *   TAGGER_MODEL — Model override (default: 'claude-3-5-sonnet-20241022').
+ *
  * Error codes:
- *   503 ANTHROPIC_KEY_MISSING   — ANTHROPIC_API_KEY env var not set
  *   404 SPACE_NOT_FOUND         — spaceId does not exist
  *   400 VALIDATION_ERROR        — invalid column or malformed body
  *   409 TAGGER_ALREADY_RUNNING  — concurrent run for same spaceId
- *   502 ANTHROPIC_API_ERROR     — upstream Claude API error or invalid JSON response
+ *   502 TAGGER_CLI_ERROR        — CLI spawn failed, non-zero exit, or invalid JSON response
  */
 
 const fs   = require('fs');
@@ -102,14 +108,20 @@ function readSpaceTasks(spaceDataDir, column) {
 // ---------------------------------------------------------------------------
 
 /**
- * Call the Anthropic messages API via native fetch (no SDK dependency).
+ * Call the configured AI CLI and return parsed suggestion payload.
+ *
+ * Uses `TAGGER_CLI` (default: 'claude') with:
+ *   -p <systemPrompt>   — classification instructions
+ *   --model <model>     — model selection
+ *   stdin               — cards JSON ({ improveDescriptions, cards: [...] })
  *
  * @param {Array<{ id: string, title: string, description: string }>} cards
  * @param {boolean} improveDescriptions
  * @returns {Promise<{ suggestions: object[], skipped: string[], model: string, usage: object }>}
- * @throws {Error} on API error or invalid JSON response
+ * @throws {Error} on spawn failure, non-zero exit, or invalid JSON response
  */
-async function callClaude(cards, improveDescriptions) {
+function callClaude(cards, improveDescriptions) {
+  const cli   = process.env.TAGGER_CLI   || 'claude';
   const model = process.env.TAGGER_MODEL || 'claude-3-5-sonnet-20241022';
 
   const userMessage = JSON.stringify({
@@ -117,51 +129,64 @@ async function callClaude(cards, improveDescriptions) {
     cards: cards.map(({ id, title, description }) => ({ id, title, description })),
   });
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method:  'POST',
-    headers: {
-      'x-api-key':         process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type':      'application/json',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens:  4096,
-      temperature: 0,
-      system:      SYSTEM_PROMPT,
-      messages:    [{ role: 'user', content: userMessage }],
-    }),
+  return new Promise((resolve, reject) => {
+    // Lazy require so child_process can be mocked in tests before server loads.
+    const child = require('child_process').spawn(
+      cli,
+      ['-p', SYSTEM_PROMPT, '--model', model],
+      { env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+
+    child.on('error', (err) => {
+      reject(new Error(`Failed to spawn '${cli}': ${err.message}`));
+    });
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`'${cli}' exited with code ${code}: ${stderr.slice(0, 300)}`));
+        return;
+      }
+
+      // The system prompt instructs the CLI to output only JSON.
+      // Extract the first top-level JSON object from stdout to handle any
+      // surrounding CLI metadata (model info, warnings, etc.).
+      const jsonMatch = stdout.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        reject(new Error(`No JSON found in CLI output: ${stdout.slice(0, 200)}`));
+        return;
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+      } catch {
+        reject(new Error(`CLI returned non-JSON: ${stdout.slice(0, 200)}`));
+        return;
+      }
+
+      if (!parsed || !Array.isArray(parsed.suggestions) || !Array.isArray(parsed.skipped)) {
+        reject(new Error(`CLI response missing required fields: ${stdout.slice(0, 200)}`));
+        return;
+      }
+
+      resolve({
+        suggestions: parsed.suggestions,
+        skipped:     parsed.skipped,
+        model,
+        // Token counts not available from CLI — set to 0.
+        usage: { input_tokens: 0, output_tokens: 0 },
+      });
+    });
+
+    child.stdin.write(userMessage);
+    child.stdin.end();
   });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Anthropic API returned ${res.status}: ${errText.slice(0, 200)}`);
-  }
-
-  const data = await res.json();
-
-  const rawText = (data.content || [])
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text)
-    .join('');
-
-  let parsed;
-  try {
-    parsed = JSON.parse(rawText);
-  } catch {
-    throw new Error(`Claude returned non-JSON response: ${rawText.slice(0, 200)}`);
-  }
-
-  if (!parsed || !Array.isArray(parsed.suggestions) || !Array.isArray(parsed.skipped)) {
-    throw new Error(`Claude response missing required fields: ${rawText.slice(0, 200)}`);
-  }
-
-  return {
-    suggestions: parsed.suggestions,
-    skipped:     parsed.skipped,
-    model,
-    usage:       data.usage || { input_tokens: 0, output_tokens: 0 },
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -179,13 +204,7 @@ async function callClaude(cards, improveDescriptions) {
 async function handleTaggerRun(req, res, spaceId, spaceDataDir) {
   const startMs = Date.now();
 
-  // 1. Check API key presence first (fast-fail before any disk I/O)
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return sendError(res, 503, 'ANTHROPIC_KEY_MISSING',
-      'ANTHROPIC_API_KEY environment variable is not set. The tagger feature is unavailable.');
-  }
-
-  // 2. Parse body
+  // 1. Parse body
   let body;
   try {
     body = await parseBody(req);
@@ -255,11 +274,11 @@ async function handleTaggerRun(req, res, spaceId, spaceDataDir) {
       console.error(JSON.stringify({
         event:      'tagger.run.error',
         spaceId,
-        errorCode:  'ANTHROPIC_API_ERROR',
+        errorCode:  'TAGGER_CLI_ERROR',
         message:    err.message,
         durationMs,
       }));
-      return sendError(res, 502, 'ANTHROPIC_API_ERROR',
+      return sendError(res, 502, 'TAGGER_CLI_ERROR',
         `Claude API error: ${err.message}`);
     }
 

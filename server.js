@@ -423,11 +423,10 @@ function startServer(options = {}) {
     sendError(res, 404, 'NOT_FOUND', `Route '${method} ${urlPath}' not found`);
   }
 
-  // Step 4b: Tagger startup check — warn if ANTHROPIC_API_KEY is absent.
+  // Step 4b: Tagger startup info — log the configured CLI.
   // Server start is NOT blocked — tagger is not a core feature (ADR-1 §Consequences).
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn('[tagger] ANTHROPIC_API_KEY not set — tagger endpoint will return 503');
-  }
+  const taggerCli = process.env.TAGGER_CLI || 'claude';
+  console.log(`[tagger] using CLI '${taggerCli}' (override with TAGGER_CLI env var)`);
 
   // Step 5: Run startup cleanup for old prompt files.
   cleanupOldPromptFiles(dataDir);
