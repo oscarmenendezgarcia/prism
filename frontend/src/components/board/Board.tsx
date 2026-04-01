@@ -146,7 +146,7 @@ export function Board() {
       <button
         type="button"
         onClick={openCreateModal}
-        aria-label="New task"
+        aria-label="Create new task"
         className="sm:hidden fixed bottom-safe-6 right-6 z-40 w-14 h-14 rounded-full bg-primary text-white shadow-lg hover:bg-primary-hover active:scale-95 transition-all duration-200 ease-spring flex items-center justify-center"
       >
         <span className="material-symbols-outlined text-2xl" aria-hidden="true">add</span>

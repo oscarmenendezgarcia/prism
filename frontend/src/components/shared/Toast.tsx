@@ -27,8 +27,8 @@ export function Toast() {
 
   return createPortal(
     <div
-      role="status"
-      aria-live="polite"
+      role={isError ? 'alert' : 'status'}
+      aria-live={isError ? 'assertive' : 'polite'}
       data-leaving={leaving}
       className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 rounded-lg text-white text-sm font-medium shadow-xl transition-all ${
         isError ? 'bg-error' : 'bg-success'
