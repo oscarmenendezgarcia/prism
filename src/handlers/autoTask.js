@@ -185,10 +185,14 @@ function appendTasksToColumn(spaceDataDir, column, newTasks) {
 /**
  * POST /api/v1/spaces/:spaceId/autotask/generate
  *
- * @param {import('http').IncomingMessage} req
- * @param {import('http').ServerResponse}  res
- * @param {string}                         spaceId
- * @param {string}                         spaceDataDir — absolute path to space data dir
+ * When `preview: true` — generates tasks via AI but does NOT persist them.
+ * When `preview` is absent or false — generates AND persists (legacy behaviour).
+ *
+ * Request body:
+ *   { prompt: string, column?: string, preview?: boolean }
+ *
+ * Response:
+ *   { tasksCreated: number, tasks: Task[], preview: boolean }
  */
 async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir) {
   const startMs = Date.now();
@@ -208,9 +212,10 @@ async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir) {
     return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
   }
 
-  const rawBody = body || {};
-  const prompt  = rawBody.prompt != null ? String(rawBody.prompt).trim() : null;
-  const column  = rawBody.column != null ? String(rawBody.column) : DEFAULT_COLUMN;
+  const rawBody  = body || {};
+  const prompt   = rawBody.prompt != null ? String(rawBody.prompt).trim() : null;
+  const column   = rawBody.column != null ? String(rawBody.column) : DEFAULT_COLUMN;
+  const preview  = rawBody.preview === true;
 
   // 2. Validate prompt
   if (!prompt || prompt.length === 0) {
@@ -271,23 +276,94 @@ async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir) {
       return sendError(res, 502, 'AUTOTASK_CLI_ERROR', 'AI returned no valid tasks');
     }
 
-    // 7. Persist to column file
-    appendTasksToColumn(spaceDataDir, column, tasks);
+    // 7. Persist only when not a preview
+    if (!preview) {
+      appendTasksToColumn(spaceDataDir, column, tasks);
+    }
 
     const durationMs = Date.now() - startMs;
     console.log(JSON.stringify({
-      event:        'autotask.generate.complete',
+      event:        preview ? 'autotask.preview.complete' : 'autotask.generate.complete',
       spaceId,
       column,
       tasksCreated: tasks.length,
+      preview,
       durationMs,
     }));
 
-    return sendJSON(res, 200, { tasksCreated: tasks.length, tasks });
+    return sendJSON(res, 200, { tasksCreated: tasks.length, tasks, preview });
 
   } finally {
     runningSpaces.delete(spaceId);
   }
 }
 
-module.exports = { handleAutoTaskGenerate };
+/**
+ * POST /api/v1/spaces/:spaceId/autotask/confirm
+ *
+ * Persists a user-reviewed subset of previously generated tasks.
+ *
+ * Request body:
+ *   { tasks: Task[], column?: string }
+ *
+ * Response:
+ *   { tasksCreated: number, tasks: Task[] }
+ */
+async function handleAutoTaskConfirm(req, res, spaceId, spaceDataDir) {
+  let body;
+  try {
+    body = await parseBody(req);
+  } catch (err) {
+    if (err.message === 'PAYLOAD_TOO_LARGE') {
+      return sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds 512 KB limit');
+    }
+    return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+  }
+
+  if (!body || typeof body !== 'object') {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
+  }
+
+  const tasks  = Array.isArray(body.tasks) ? body.tasks : null;
+  const column = body.column != null ? String(body.column) : DEFAULT_COLUMN;
+
+  if (!tasks || tasks.length === 0) {
+    return sendError(res, 400, 'VALIDATION_ERROR', '"tasks" must be a non-empty array');
+  }
+
+  if (!VALID_COLUMNS.has(column)) {
+    return sendError(res, 400, 'VALIDATION_ERROR',
+      `Invalid column '${column}'. Must be one of: ${COLUMNS.join(', ')}`);
+  }
+
+  // Re-validate each task to prevent arbitrary data injection
+  const VALID_TYPES = new Set(['feature', 'bug', 'tech-debt', 'chore']);
+  const now = new Date().toISOString();
+  const sanitized = tasks
+    .filter((t) => t && typeof t.title === 'string' && t.title.trim().length > 0)
+    .map((t) => ({
+      id:          t.id || generateId(),
+      title:       String(t.title).slice(0, 80).trim(),
+      type:        VALID_TYPES.has(t.type) ? t.type : 'chore',
+      description: t.description ? String(t.description).slice(0, 200).trim() : '',
+      createdAt:   t.createdAt || now,
+      updatedAt:   now,
+    }));
+
+  if (sanitized.length === 0) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'No valid tasks to create');
+  }
+
+  appendTasksToColumn(spaceDataDir, column, sanitized);
+
+  console.log(JSON.stringify({
+    event:        'autotask.confirm.complete',
+    spaceId,
+    column,
+    tasksCreated: sanitized.length,
+  }));
+
+  return sendJSON(res, 200, { tasksCreated: sanitized.length, tasks: sanitized });
+}
+
+module.exports = { handleAutoTaskGenerate, handleAutoTaskConfirm };

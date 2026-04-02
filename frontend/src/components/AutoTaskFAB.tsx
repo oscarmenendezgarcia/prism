@@ -27,7 +27,7 @@ export function AutoTaskFAB({ onClick }: AutoTaskFABProps) {
       type="button"
       className="autotask-fab"
       onClick={onClick}
-      aria-label="Auto-task: open AI task generator"
+      aria-label="AI Actions: generate tasks or auto-tag"
       data-autotask-fab
     >
       <span
@@ -37,7 +37,7 @@ export function AutoTaskFAB({ onClick }: AutoTaskFABProps) {
       >
         auto_awesome
       </span>
-      <span className="autotask-fab__label">Auto-task</span>
+      <span className="autotask-fab__label">AI Actions</span>
     </button>
   );
 }

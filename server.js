@@ -62,7 +62,7 @@ const {
   handleListAgentRuns,
 } = require('./src/handlers/agentRuns');
 const { handleTaggerRun }          = require('./src/handlers/tagger');
-const { handleAutoTaskGenerate }   = require('./src/handlers/autoTask');
+const { handleAutoTaskGenerate, handleAutoTaskConfirm } = require('./src/handlers/autoTask');
 
 const {
   PIPELINE_RUNS_LIST_ROUTE,
@@ -95,8 +95,9 @@ const SPACES_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)$/;
 const SPACES_TASKS_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)(\/tasks.*)$/;
 // Tagger route — must be registered BEFORE SPACES_TASKS_ROUTE to avoid regex swallowing.
 const TAGGER_RUN_ROUTE       = /^\/api\/v1\/spaces\/([^/]+)\/tagger\/run$/;
-// Auto-task route — also before SPACES_TASKS_ROUTE.
+// Auto-task routes — also before SPACES_TASKS_ROUTE.
 const AUTOTASK_GENERATE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/autotask\/generate$/;
+const AUTOTASK_CONFIRM_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/autotask\/confirm$/;
 // Legacy: /api/v1/tasks and everything under it.
 const LEGACY_TASKS_ROUTE  = /^\/api\/v1(\/tasks.*)$/;
 // Settings route
@@ -204,6 +205,27 @@ function startServer(options = {}) {
       if (method === 'POST') {
         const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
         return handleAutoTaskGenerate(req, res, spaceId, spaceDataDir);
+      }
+
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // -----------------------------------------------------------------------
+    // Auto-task confirm: POST /api/v1/spaces/:spaceId/autotask/confirm
+    // -----------------------------------------------------------------------
+    const autoTaskConfirmMatch = AUTOTASK_CONFIRM_ROUTE.exec(urlPath);
+    if (autoTaskConfirmMatch) {
+      const spaceId = autoTaskConfirmMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'POST') {
+        const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
+        return handleAutoTaskConfirm(req, res, spaceId, spaceDataDir);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',

@@ -176,10 +176,27 @@ export const generateAutoTasks = (
   spaceId: string,
   prompt: string,
   column?: string,
+  preview?: boolean,
 ): Promise<AutoTaskResponse> =>
   apiFetch<AutoTaskResponse>(`/spaces/${spaceId}/autotask/generate`, {
     method: 'POST',
-    body: JSON.stringify({ prompt, ...(column ? { column } : {}) }),
+    body: JSON.stringify({ prompt, ...(column ? { column } : {}), ...(preview ? { preview } : {}) }),
+  });
+
+/**
+ * Persist a user-reviewed subset of previously generated tasks.
+ * @param spaceId - Target space.
+ * @param tasks   - Tasks to create (as returned by generateAutoTasks with preview:true).
+ * @param column  - Target column (defaults to "todo" on the server).
+ */
+export const confirmAutoTasks = (
+  spaceId: string,
+  tasks: Task[],
+  column?: string,
+): Promise<AutoTaskResponse> =>
+  apiFetch<AutoTaskResponse>(`/spaces/${spaceId}/autotask/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ tasks, ...(column ? { column } : {}) }),
   });
 
 // ---------------------------------------------------------------------------
