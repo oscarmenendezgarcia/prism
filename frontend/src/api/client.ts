@@ -157,6 +157,32 @@ export const getAttachmentContent = (
   apiFetch<AttachmentContent>(`/spaces/${spaceId}/tasks/${taskId}/attachments/${index}`);
 
 // ---------------------------------------------------------------------------
+// Auto-task generation
+// ---------------------------------------------------------------------------
+
+/** Response from POST /spaces/:spaceId/autotask/generate */
+export interface AutoTaskResponse {
+  tasksCreated: number;
+  tasks: Task[];
+}
+
+/**
+ * Generate tasks from a natural-language prompt and persist them to a column.
+ * @param spaceId - Target space.
+ * @param prompt  - User's description of the work to break down.
+ * @param column  - Target column (defaults to "todo" on the server).
+ */
+export const generateAutoTasks = (
+  spaceId: string,
+  prompt: string,
+  column?: string,
+): Promise<AutoTaskResponse> =>
+  apiFetch<AutoTaskResponse>(`/spaces/${spaceId}/autotask/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt, ...(column ? { column } : {}) }),
+  });
+
+// ---------------------------------------------------------------------------
 // Config file operations (ADR-1: Config Editor Panel)
 // ---------------------------------------------------------------------------
 

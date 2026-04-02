@@ -26,6 +26,8 @@ import { SpaceModal } from '@/components/modals/SpaceModal';
 import { DeleteSpaceDialog } from '@/components/modals/DeleteSpaceDialog';
 import { PipelineConfirmModal } from '@/components/modals/PipelineConfirmModal';
 import { TaggerReviewModal } from '@/components/modals/TaggerReviewModal';
+import { AutoTaskFAB } from '@/components/AutoTaskFAB';
+import { AutoTaskModal } from '@/components/AutoTaskModal';
 import { Toast } from '@/components/shared/Toast';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
@@ -85,6 +87,8 @@ function AppContent() {
   const historyPanelOpen       = useRunHistoryStore((s) => s.historyPanelOpen);
   const logPanelOpen           = usePipelineLogStore((s) => s.logPanelOpen);
 
+  const [autoTaskModalOpen, setAutoTaskModalOpen] = React.useState(false);
+
   useEffect(() => {
     loadSpaces();
     loadSettings();
@@ -128,6 +132,19 @@ function AppContent() {
       <DeleteSpaceDialog />
       <PipelineConfirmModal />
       <TaggerReviewModal />
+      <AutoTaskModal
+        open={autoTaskModalOpen}
+        onClose={() => {
+          setAutoTaskModalOpen(false);
+          // Restore focus to FAB after modal closes (accessibility)
+          setTimeout(() => {
+            const fab = document.querySelector<HTMLElement>('[data-autotask-fab]');
+            fab?.focus();
+          }, 200);
+        }}
+      />
+
+      <AutoTaskFAB onClick={() => setAutoTaskModalOpen(true)} />
 
       <Toast />
     </div>

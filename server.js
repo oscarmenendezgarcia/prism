@@ -61,7 +61,8 @@ const {
   handleUpdateAgentRun,
   handleListAgentRuns,
 } = require('./src/handlers/agentRuns');
-const { handleTaggerRun } = require('./src/handlers/tagger');
+const { handleTaggerRun }          = require('./src/handlers/tagger');
+const { handleAutoTaskGenerate }   = require('./src/handlers/autoTask');
 
 const {
   PIPELINE_RUNS_LIST_ROUTE,
@@ -93,7 +94,9 @@ const SPACES_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)$/;
 // Matches /api/v1/spaces/:spaceId/tasks and everything under it.
 const SPACES_TASKS_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)(\/tasks.*)$/;
 // Tagger route — must be registered BEFORE SPACES_TASKS_ROUTE to avoid regex swallowing.
-const TAGGER_RUN_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)\/tagger\/run$/;
+const TAGGER_RUN_ROUTE       = /^\/api\/v1\/spaces\/([^/]+)\/tagger\/run$/;
+// Auto-task route — also before SPACES_TASKS_ROUTE.
+const AUTOTASK_GENERATE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/autotask\/generate$/;
 // Legacy: /api/v1/tasks and everything under it.
 const LEGACY_TASKS_ROUTE  = /^\/api\/v1(\/tasks.*)$/;
 // Settings route
@@ -179,6 +182,28 @@ function startServer(options = {}) {
       if (method === 'POST') {
         const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
         return handleTaggerRun(req, res, spaceId, spaceDataDir);
+      }
+
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // -----------------------------------------------------------------------
+    // Auto-task route: POST /api/v1/spaces/:spaceId/autotask/generate
+    // Must be before SPACES_TASKS_ROUTE to avoid regex swallowing.
+    // -----------------------------------------------------------------------
+    const autoTaskMatch = AUTOTASK_GENERATE_ROUTE.exec(urlPath);
+    if (autoTaskMatch) {
+      const spaceId = autoTaskMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'POST') {
+        const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
+        return handleAutoTaskGenerate(req, res, spaceId, spaceDataDir);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
