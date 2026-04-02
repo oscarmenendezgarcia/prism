@@ -36,6 +36,10 @@ node server.js &
 cd frontend && npm run dev   # → http://localhost:5173
 ```
 
+> **Tagger feature**: uses `TAGGER_CLI` (default: `claude`) to classify cards. Any CLI
+> supporting `<cmd> -p <prompt>` works (e.g. `opencode`). No API key required in the server —
+> the CLI handles its own authentication.
+
 ---
 
 ## Git

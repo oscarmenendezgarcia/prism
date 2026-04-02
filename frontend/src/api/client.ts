@@ -23,6 +23,8 @@ import type {
   AgentSettings,
   BackendRun,
   PipelinePromptPreview,
+  TaggerOptions,
+  TaggerResult,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -153,6 +155,49 @@ export const getAttachmentContent = (
   index: number
 ): Promise<AttachmentContent> =>
   apiFetch<AttachmentContent>(`/spaces/${spaceId}/tasks/${taskId}/attachments/${index}`);
+
+// ---------------------------------------------------------------------------
+// Auto-task generation
+// ---------------------------------------------------------------------------
+
+/** Response from POST /spaces/:spaceId/autotask/generate */
+export interface AutoTaskResponse {
+  tasksCreated: number;
+  tasks: Task[];
+}
+
+/**
+ * Generate tasks from a natural-language prompt and persist them to a column.
+ * @param spaceId - Target space.
+ * @param prompt  - User's description of the work to break down.
+ * @param column  - Target column (defaults to "todo" on the server).
+ */
+export const generateAutoTasks = (
+  spaceId: string,
+  prompt: string,
+  column?: string,
+  preview?: boolean,
+): Promise<AutoTaskResponse> =>
+  apiFetch<AutoTaskResponse>(`/spaces/${spaceId}/autotask/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt, ...(column ? { column } : {}), ...(preview ? { preview } : {}) }),
+  });
+
+/**
+ * Persist a user-reviewed subset of previously generated tasks.
+ * @param spaceId - Target space.
+ * @param tasks   - Tasks to create (as returned by generateAutoTasks with preview:true).
+ * @param column  - Target column (defaults to "todo" on the server).
+ */
+export const confirmAutoTasks = (
+  spaceId: string,
+  tasks: Task[],
+  column?: string,
+): Promise<AutoTaskResponse> =>
+  apiFetch<AutoTaskResponse>(`/spaces/${spaceId}/autotask/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ tasks, ...(column ? { column } : {}) }),
+  });
 
 // ---------------------------------------------------------------------------
 // Config file operations (ADR-1: Config Editor Panel)
@@ -390,6 +435,29 @@ export const previewPipelinePrompts = (
   apiFetch<PipelinePromptPreview>('/runs/preview-prompts', {
     method: 'POST',
     body: JSON.stringify({ spaceId, taskId, stages }),
+  });
+
+// ---------------------------------------------------------------------------
+// Tagger API (ADR-1: Tagger Agent)
+// ---------------------------------------------------------------------------
+
+/**
+ * Trigger the tagger for a space.
+ * The backend reads all cards, calls Claude, and returns classification suggestions.
+ * No mutations are applied — the user reviews suggestions in TaggerReviewModal before confirming.
+ *
+ * @param spaceId - The space to tag.
+ * @param opts    - Optional filters (column, improveDescriptions).
+ * @returns TaggerResult with suggestions and token usage.
+ * @throws Error with the server's error message on failure.
+ */
+export const runTagger = (spaceId: string, opts: TaggerOptions = {}): Promise<TaggerResult> =>
+  apiFetch<TaggerResult>(`/spaces/${encodeURIComponent(spaceId)}/tagger/run`, {
+    method: 'POST',
+    body: JSON.stringify({
+      improveDescriptions: opts.improveDescriptions ?? false,
+      ...(opts.column !== undefined ? { column: opts.column } : {}),
+    }),
   });
 
 // ---------------------------------------------------------------------------

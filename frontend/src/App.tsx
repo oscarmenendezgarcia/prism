@@ -25,6 +25,9 @@ import { MarkdownModal } from '@/components/modals/MarkdownModal';
 import { SpaceModal } from '@/components/modals/SpaceModal';
 import { DeleteSpaceDialog } from '@/components/modals/DeleteSpaceDialog';
 import { PipelineConfirmModal } from '@/components/modals/PipelineConfirmModal';
+import { TaggerReviewModal } from '@/components/modals/TaggerReviewModal';
+import { AutoTaskFAB } from '@/components/AutoTaskFAB';
+import { AutoTaskModal } from '@/components/AutoTaskModal';
 import { Toast } from '@/components/shared/Toast';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
@@ -84,6 +87,8 @@ function AppContent() {
   const historyPanelOpen       = useRunHistoryStore((s) => s.historyPanelOpen);
   const logPanelOpen           = usePipelineLogStore((s) => s.logPanelOpen);
 
+  const [autoTaskModalOpen, setAutoTaskModalOpen] = React.useState(false);
+
   useEffect(() => {
     loadSpaces();
     loadSettings();
@@ -103,8 +108,9 @@ function AppContent() {
             Board uses flex-1 so it shrinks gracefully when panels are open.
             Layout order: Board | TerminalPanel | ConfigPanel (ADR-1 §5.1). */}
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden relative">
             <Board />
+            <AutoTaskFAB onClick={() => setAutoTaskModalOpen(true)} />
           </div>
           <TerminalPanel />
           {historyPanelOpen && <RunHistoryPanel />}
@@ -126,6 +132,18 @@ function AppContent() {
       <SpaceModal />
       <DeleteSpaceDialog />
       <PipelineConfirmModal />
+      <TaggerReviewModal />
+      <AutoTaskModal
+        open={autoTaskModalOpen}
+        onClose={() => {
+          setAutoTaskModalOpen(false);
+          // Restore focus to FAB after modal closes (accessibility)
+          setTimeout(() => {
+            const fab = document.querySelector<HTMLElement>('[data-autotask-fab]');
+            fab?.focus();
+          }, 200);
+        }}
+      />
 
       <Toast />
     </div>
