@@ -52,13 +52,27 @@ const TASK: Task = {
   updatedAt: '2026-03-24T12:00:00.000Z',
 };
 
+const TASK_WITH_PIPELINE: Task = {
+  ...TASK,
+  id: 'task-pipeline-456',
+  pipeline: ['developer-agent', 'qa-engineer-e2e'],
+};
+
+const AVAILABLE_AGENTS = [
+  { id: 'senior-architect',   name: 'senior-architect.md',   displayName: 'Senior Architect',   path: '/tmp/senior-architect.md',   sizeBytes: 100 },
+  { id: 'developer-agent',    name: 'developer-agent.md',    displayName: 'Developer Agent',    path: '/tmp/developer-agent.md',    sizeBytes: 100 },
+  { id: 'qa-engineer-e2e',    name: 'qa-engineer-e2e.md',    displayName: 'QA Engineer E2E',    path: '/tmp/qa-engineer-e2e.md',    sizeBytes: 100 },
+  { id: 'ux-api-designer',    name: 'ux-api-designer.md',    displayName: 'UX API Designer',    path: '/tmp/ux-api-designer.md',    sizeBytes: 100 },
+];
+
 function resetStore(overrides: Partial<ReturnType<typeof useAppStore.getState>> = {}) {
   useAppStore.setState({
     detailTask: null,
     isMutating: false,
     activeRun: null,
-    tasks: { todo: [TASK], 'in-progress': [], done: [] },
+    tasks: { todo: [TASK, TASK_WITH_PIPELINE], 'in-progress': [], done: [] },
     activeSpaceId: 'space-1',
+    availableAgents: AVAILABLE_AGENTS,
     ...overrides,
   } as any);
 }
@@ -410,5 +424,167 @@ describe('TaskDetailPanel — ARIA accessibility', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
     expect(screen.getByRole('button', { name: /close task detail/i })).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-011: Pipeline field editor in TaskDetailPanel
+// ---------------------------------------------------------------------------
+
+describe('TaskDetailPanel — pipeline field: collapsed state (no pipeline)', () => {
+  it('shows Pipeline label and "(space default)" when task has no pipeline', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByText(/pipeline/i)).toBeInTheDocument();
+    expect(screen.getByText(/\(space default\)/i)).toBeInTheDocument();
+  });
+
+  it('shows a "Configure" button when task has no pipeline', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByRole('button', { name: /configure pipeline/i })).toBeInTheDocument();
+  });
+
+  it('does not show an agent chain when pipeline is absent', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+    // The arrow separator → only appears in the chip chain
+    expect(screen.queryByText(/→/)).not.toBeInTheDocument();
+  });
+});
+
+describe('TaskDetailPanel — pipeline field: collapsed state (pipeline set)', () => {
+  it('shows the agent chain as text with → separators', () => {
+    useAppStore.setState({ detailTask: TASK_WITH_PIPELINE } as any);
+    render(<TaskDetailPanel />);
+    // The component renders pipeline.join(' → ')
+    expect(screen.getByText(/developer-agent.*qa-engineer-e2e/)).toBeInTheDocument();
+  });
+
+  it('shows Edit and Clear buttons when pipeline is set', () => {
+    useAppStore.setState({ detailTask: TASK_WITH_PIPELINE } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByRole('button', { name: /edit pipeline/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /clear pipeline/i })).toBeInTheDocument();
+  });
+
+  it('Clear button calls updateTask with empty array (clear semantics)', () => {
+    const updateTask = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({ detailTask: TASK_WITH_PIPELINE, updateTask } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /clear pipeline/i }));
+    expect(updateTask).toHaveBeenCalledWith(TASK_WITH_PIPELINE.id, { pipeline: [] });
+  });
+});
+
+describe('TaskDetailPanel — pipeline field: edit mode', () => {
+  it('clicking Configure opens the edit mode with empty stage list', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /configure pipeline/i }));
+    // Edit mode shows the add-stage dropdown
+    expect(screen.getByRole('combobox', { name: /add a stage/i })).toBeInTheDocument();
+    // Save and Cancel buttons appear
+    expect(screen.getByRole('button', { name: /save pipeline/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
+  });
+
+  it('clicking Edit opens the edit mode with current stages pre-populated', () => {
+    useAppStore.setState({ detailTask: TASK_WITH_PIPELINE } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /edit pipeline/i }));
+    // Both pipeline stages should appear in the ordered list
+    const items = screen.getAllByRole('listitem');
+    expect(items.some((el) => el.textContent?.includes('developer-agent'))).toBe(true);
+    expect(items.some((el) => el.textContent?.includes('qa-engineer-e2e'))).toBe(true);
+  });
+
+  it('clicking Cancel in edit mode restores the collapsed view without saving', () => {
+    const updateTask = vi.fn();
+    useAppStore.setState({ detailTask: TASK, updateTask } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /configure pipeline/i }));
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+
+    // Collapsed state restored — Configure button visible again
+    expect(screen.getByRole('button', { name: /configure pipeline/i })).toBeInTheDocument();
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it('clicking Save calls updateTask with the current draft stages', async () => {
+    const updateTask = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({ detailTask: TASK_WITH_PIPELINE, updateTask } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /edit pipeline/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save pipeline/i }));
+
+    await waitFor(() => {
+      expect(updateTask).toHaveBeenCalledWith(
+        TASK_WITH_PIPELINE.id,
+        { pipeline: ['developer-agent', 'qa-engineer-e2e'] },
+      );
+    });
+  });
+
+  it('removing a stage in edit mode and saving calls updateTask with reduced array', async () => {
+    const updateTask = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({ detailTask: TASK_WITH_PIPELINE, updateTask } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /edit pipeline/i }));
+
+    // Remove the first stage (developer-agent)
+    const removeBtn = screen.getByRole('button', { name: /remove developer-agent from pipeline/i });
+    fireEvent.click(removeBtn);
+
+    fireEvent.click(screen.getByRole('button', { name: /save pipeline/i }));
+
+    await waitFor(() => {
+      expect(updateTask).toHaveBeenCalledWith(
+        TASK_WITH_PIPELINE.id,
+        { pipeline: ['qa-engineer-e2e'] },
+      );
+    });
+  });
+
+  it('Save with empty stage list calls updateTask with empty array', async () => {
+    const updateTask = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({ detailTask: TASK_WITH_PIPELINE, updateTask } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /edit pipeline/i }));
+
+    // Remove all stages
+    const removeBtns = screen.getAllByRole('button', { name: /remove .* from pipeline/i });
+    for (const btn of removeBtns) {
+      fireEvent.click(btn);
+    }
+
+    fireEvent.click(screen.getByRole('button', { name: /save pipeline/i }));
+
+    await waitFor(() => {
+      expect(updateTask).toHaveBeenCalledWith(
+        TASK_WITH_PIPELINE.id,
+        { pipeline: [] },
+      );
+    });
+  });
+
+  it('pipeline editor is disabled when fieldDisabled is true (isMutating)', () => {
+    useAppStore.setState({ detailTask: TASK_WITH_PIPELINE, isMutating: true } as any);
+    render(<TaskDetailPanel />);
+
+    const editBtn = screen.getByRole('button', { name: /edit pipeline/i });
+    expect(editBtn).toBeDisabled();
+
+    const clearBtn = screen.getByRole('button', { name: /clear pipeline/i });
+    expect(clearBtn).toBeDisabled();
   });
 });
