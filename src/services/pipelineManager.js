@@ -743,12 +743,26 @@ async function deleteRun(runId, dataDir) {
   removeRegistryEntry(dataDir, runId);
 }
 
+/**
+ * Kill all active pipeline processes. Intended for test teardown to prevent
+ * spawned claude subprocesses from outliving the test and contaminating the
+ * environment (e.g. starting a new node server.js with test env vars).
+ *
+ * @param {string} dataDir
+ * @returns {Promise<void>}
+ */
+async function abortAll(dataDir) {
+  const runIds = [...activeProcesses.keys()];
+  await Promise.all(runIds.map((runId) => deleteRun(runId, dataDir).catch(() => {})));
+}
+
 module.exports = {
   init,
   createRun,
   getRun,
   listRuns,
   deleteRun,
+  abortAll,
   // Exported for testing and preview endpoint:
   runsDir,
   runDir,

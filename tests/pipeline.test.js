@@ -340,35 +340,41 @@ describe('pipelineManager — createRun validations', () => {
     delete require.cache[require.resolve('../src/services/pipelineManager')];
     const pm = require('../src/services/pipelineManager');
 
-    const run = await pm.createRun({ spaceId, taskId, stages: ['senior-architect'], dataDir });
+    let run;
+    try {
+      run = await pm.createRun({ spaceId, taskId, stages: ['senior-architect'], dataDir });
 
-    assert.ok(typeof run.runId === 'string');
-    assert.equal(run.spaceId, spaceId);
-    assert.equal(run.taskId,  taskId);
-    assert.equal(run.status,  'pending');
-    assert.equal(run.stages.length, 1);
-    assert.equal(run.stages[0], 'senior-architect');
-    assert.equal(run.stageStatuses.length, 1);
-    assert.equal(run.stageStatuses[0].status, 'pending');
-    assert.ok(typeof run.createdAt === 'string');
+      assert.ok(typeof run.runId === 'string');
+      assert.equal(run.spaceId, spaceId);
+      assert.equal(run.taskId,  taskId);
+      assert.equal(run.status,  'pending');
+      assert.equal(run.stages.length, 1);
+      assert.equal(run.stages[0], 'senior-architect');
+      assert.equal(run.stageStatuses.length, 1);
+      assert.equal(run.stageStatuses[0].status, 'pending');
+      assert.ok(typeof run.createdAt === 'string');
 
-    // Verify run.json was persisted.
-    const runJsonFile = path.join(dataDir, 'runs', run.runId, 'run.json');
-    assert.ok(fs.existsSync(runJsonFile), 'run.json should exist on disk');
-    const persisted = JSON.parse(fs.readFileSync(runJsonFile, 'utf8'));
-    assert.equal(persisted.runId, run.runId);
+      // Verify run.json was persisted.
+      const runJsonFile = path.join(dataDir, 'runs', run.runId, 'run.json');
+      assert.ok(fs.existsSync(runJsonFile), 'run.json should exist on disk');
+      const persisted = JSON.parse(fs.readFileSync(runJsonFile, 'utf8'));
+      assert.equal(persisted.runId, run.runId);
 
-    // Verify registry entry.
-    const registryFile = path.join(dataDir, 'runs', 'runs.json');
-    assert.ok(fs.existsSync(registryFile), 'runs.json registry should exist');
-    const registry = JSON.parse(fs.readFileSync(registryFile, 'utf8'));
-    assert.ok(registry.some((r) => r.runId === run.runId));
-
-    delete process.env.PIPELINE_AGENTS_DIR;
-    delete process.env.PIPELINE_MAX_CONCURRENT;
-    delete process.env.KANBAN_API_URL;
-    fs.rmSync(dataDir,   { recursive: true, force: true });
-    fs.rmSync(agentsDir, { recursive: true, force: true });
+      // Verify registry entry.
+      const registryFile = path.join(dataDir, 'runs', 'runs.json');
+      assert.ok(fs.existsSync(registryFile), 'runs.json registry should exist');
+      const registry = JSON.parse(fs.readFileSync(registryFile, 'utf8'));
+      assert.ok(registry.some((r) => r.runId === run.runId));
+    } finally {
+      // Kill the spawned claude subprocess to prevent it from starting a
+      // node server.js that inherits the test PIPELINE_AGENTS_DIR env var.
+      if (run) await pm.abortAll(dataDir).catch(() => {});
+      delete process.env.PIPELINE_AGENTS_DIR;
+      delete process.env.PIPELINE_MAX_CONCURRENT;
+      delete process.env.KANBAN_API_URL;
+      fs.rmSync(dataDir,   { recursive: true, force: true });
+      fs.rmSync(agentsDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -398,24 +404,26 @@ describe('pipelineManager — getRun, deleteRun, listRuns', () => {
     delete require.cache[require.resolve('../src/services/pipelineManager')];
     const pm = require('../src/services/pipelineManager');
 
-    const run     = await pm.createRun({ spaceId, taskId, stages: ['senior-architect'], dataDir });
-    const runId   = run.runId;
-    const runDirPath = path.join(dataDir, 'runs', runId);
+    try {
+      const run     = await pm.createRun({ spaceId, taskId, stages: ['senior-architect'], dataDir });
+      const runId   = run.runId;
+      const runDirPath = path.join(dataDir, 'runs', runId);
 
-    assert.ok(fs.existsSync(runDirPath), 'run directory should exist before delete');
+      assert.ok(fs.existsSync(runDirPath), 'run directory should exist before delete');
 
-    await pm.deleteRun(runId, dataDir);
+      await pm.deleteRun(runId, dataDir);
 
-    assert.ok(!fs.existsSync(runDirPath), 'run directory should be removed after delete');
+      assert.ok(!fs.existsSync(runDirPath), 'run directory should be removed after delete');
 
-    const registry = JSON.parse(fs.readFileSync(path.join(dataDir, 'runs', 'runs.json'), 'utf8'));
-    assert.ok(!registry.some((r) => r.runId === runId), 'registry entry should be removed');
-
-    delete process.env.PIPELINE_AGENTS_DIR;
-    delete process.env.PIPELINE_MAX_CONCURRENT;
-    delete process.env.KANBAN_API_URL;
-    fs.rmSync(dataDir,   { recursive: true, force: true });
-    fs.rmSync(agentsDir, { recursive: true, force: true });
+      const registry = JSON.parse(fs.readFileSync(path.join(dataDir, 'runs', 'runs.json'), 'utf8'));
+      assert.ok(!registry.some((r) => r.runId === runId), 'registry entry should be removed');
+    } finally {
+      delete process.env.PIPELINE_AGENTS_DIR;
+      delete process.env.PIPELINE_MAX_CONCURRENT;
+      delete process.env.KANBAN_API_URL;
+      fs.rmSync(dataDir,   { recursive: true, force: true });
+      fs.rmSync(agentsDir, { recursive: true, force: true });
+    }
   });
 
   test('listRuns returns all registered runs', async () => {
@@ -560,6 +568,13 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   after(async () => {
+    // Kill all spawned claude processes before closing the server.
+    // Without this, those subprocesses inherit PIPELINE_AGENTS_DIR and may
+    // start a new node server.js with the test-temp agents dir in their env.
+    try {
+      const pm = require('../src/services/pipelineManager');
+      await pm.abortAll(dataDir);
+    } catch { /* best-effort */ }
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(dataDir,   { recursive: true, force: true });
     fs.rmSync(agentsDir, { recursive: true, force: true });
