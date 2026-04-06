@@ -31,6 +31,7 @@ export function RunHistoryToggle() {
       <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
         history
       </span>
+      <span className="hidden sm:block text-[10px] font-medium leading-none">History</span>
     </button>
   );
 }

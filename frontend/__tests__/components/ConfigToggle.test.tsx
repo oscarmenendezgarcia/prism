@@ -122,4 +122,30 @@ describe('ConfigToggle', () => {
     fireEvent.click(btn);
     expect(useAppStore.getState().configPanelOpen).toBe(true);
   });
+
+  // T-5: text label tests
+  it('renders "Config" text label (T-5)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label).toBeInTheDocument();
+    expect(label?.textContent).toBe('Config');
+  });
+
+  it('label has hidden sm:block classes for mobile-only visibility (T-5)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label?.className).toContain('hidden');
+    expect(label?.className).toContain('sm:block');
+  });
+
+  it('label has text-[10px] font-medium leading-none classes (T-5)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label?.className).toContain('text-[10px]');
+    expect(label?.className).toContain('font-medium');
+    expect(label?.className).toContain('leading-none');
+  });
 });

@@ -22,26 +22,37 @@ import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
  * Follows the same structure as RunHistoryToggle and TerminalToggle.
  */
 function PipelineLogToggle() {
-  const pipelineState  = useAppStore((s) => s.pipelineState);
-  const logPanelOpen   = usePipelineLogStore((s) => s.logPanelOpen);
+  const pipelineState   = useAppStore((s) => s.pipelineState);
+  const logPanelOpen    = usePipelineLogStore((s) => s.logPanelOpen);
   const setLogPanelOpen = usePipelineLogStore((s) => s.setLogPanelOpen);
+  const unseenCount     = usePipelineLogStore((s) => s.unseenCount);
 
   if (!pipelineState) return null;
+
+  const showDot = unseenCount > 0 && !logPanelOpen;
 
   return (
     <button
       onClick={() => setLogPanelOpen(!logPanelOpen)}
       aria-label="Toggle pipeline log panel"
       aria-pressed={logPanelOpen}
-      className={`h-10 min-w-[72px] px-3 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all duration-150 ease-apple ${
+      className={`relative h-10 min-w-[72px] px-3 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all duration-150 ease-apple ${
         logPanelOpen
           ? 'bg-primary/[0.15] text-primary'
           : 'text-text-secondary hover:bg-surface-variant hover:text-text-primary'
       }`}
     >
+      {showDot && (
+        <span
+          className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-red-500"
+          aria-hidden="true"
+          data-testid="logs-unseen-dot"
+        />
+      )}
       <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
         article
       </span>
+      <span className="hidden sm:block text-[10px] font-medium leading-none">Logs</span>
     </button>
   );
 }

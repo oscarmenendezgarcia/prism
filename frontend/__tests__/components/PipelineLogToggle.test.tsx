@@ -145,4 +145,69 @@ describe('PipelineLogToggle — click behaviour', () => {
     expect(btn.className).toContain('rounded-lg');
     expect(btn.className).not.toContain('rounded-xl');
   });
+
+  // T-5: text label tests
+  it('renders "Logs" text label (T-5)', () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    render(<Header />);
+    const btn = screen.getByRole('button', { name: /toggle pipeline log panel/i });
+    const spans = btn.querySelectorAll('span:not(.material-symbols-outlined):not([data-testid])');
+    const label = Array.from(spans).find((s) => s.textContent === 'Logs');
+    expect(label).toBeInTheDocument();
+  });
+
+  it('label has hidden sm:block classes for mobile-only visibility (T-5)', () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    render(<Header />);
+    const btn = screen.getByRole('button', { name: /toggle pipeline log panel/i });
+    const spans = btn.querySelectorAll('span:not(.material-symbols-outlined):not([data-testid])');
+    const label = Array.from(spans).find((s) => s.textContent === 'Logs');
+    expect(label?.className).toContain('hidden');
+    expect(label?.className).toContain('sm:block');
+  });
+});
+
+describe('PipelineLogToggle — notification dot (T-5)', () => {
+  it('does not show the dot when unseenCount is 0', () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    usePipelineLogStore.setState({ logPanelOpen: false, unseenCount: 0 });
+    render(<Header />);
+    expect(document.querySelector('[data-testid="logs-unseen-dot"]')).toBeNull();
+  });
+
+  it('shows the dot when unseenCount > 0 and panel is closed', () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    usePipelineLogStore.setState({ logPanelOpen: false, unseenCount: 3 });
+    render(<Header />);
+    expect(document.querySelector('[data-testid="logs-unseen-dot"]')).toBeInTheDocument();
+  });
+
+  it('does not show the dot when unseenCount > 0 but panel is open', () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    usePipelineLogStore.setState({ logPanelOpen: true, unseenCount: 5 });
+    render(<Header />);
+    expect(document.querySelector('[data-testid="logs-unseen-dot"]')).toBeNull();
+  });
+
+  it('dot disappears after clicking to open the panel (unseenCount reset to 0)', () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    usePipelineLogStore.setState({ logPanelOpen: false, unseenCount: 2 });
+    render(<Header />);
+    expect(document.querySelector('[data-testid="logs-unseen-dot"]')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /toggle pipeline log panel/i }));
+
+    expect(usePipelineLogStore.getState().unseenCount).toBe(0);
+    expect(usePipelineLogStore.getState().logPanelOpen).toBe(true);
+  });
+
+  it('dot has the correct styling classes (absolute, red, rounded-full)', () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    usePipelineLogStore.setState({ logPanelOpen: false, unseenCount: 1 });
+    render(<Header />);
+    const dot = document.querySelector('[data-testid="logs-unseen-dot"]');
+    expect(dot?.className).toContain('absolute');
+    expect(dot?.className).toContain('bg-red-500');
+    expect(dot?.className).toContain('rounded-full');
+  });
 });

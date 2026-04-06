@@ -26,6 +26,7 @@ export function TerminalToggle() {
       <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
         terminal
       </span>
+      <span className="hidden sm:block text-[10px] font-medium leading-none">Terminal</span>
     </button>
   );
 }

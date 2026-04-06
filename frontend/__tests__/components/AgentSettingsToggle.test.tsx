@@ -78,4 +78,30 @@ describe('AgentSettingsToggle', () => {
     expect(btn.className).toContain('rounded-lg');
     expect(btn.className).not.toContain('rounded-xl');
   });
+
+  // T-5: text label tests
+  it('renders "Settings" text label (T-5)', () => {
+    render(<AgentSettingsToggle />);
+    const btn = screen.getByRole('button');
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label).toBeInTheDocument();
+    expect(label?.textContent).toBe('Settings');
+  });
+
+  it('label has hidden sm:block classes for mobile-only visibility (T-5)', () => {
+    render(<AgentSettingsToggle />);
+    const btn = screen.getByRole('button');
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label?.className).toContain('hidden');
+    expect(label?.className).toContain('sm:block');
+  });
+
+  it('label has text-[10px] font-medium leading-none classes (T-5)', () => {
+    render(<AgentSettingsToggle />);
+    const btn = screen.getByRole('button');
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label?.className).toContain('text-[10px]');
+    expect(label?.className).toContain('font-medium');
+    expect(label?.className).toContain('leading-none');
+  });
 });
