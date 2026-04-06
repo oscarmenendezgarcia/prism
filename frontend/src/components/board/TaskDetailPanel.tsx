@@ -370,6 +370,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const isMutating       = useAppStore((s) => s.isMutating);
   const tasks            = useAppStore((s) => s.tasks);
   const showToast        = useAppStore((s) => s.showToast);
+  const loadAgents       = useAppStore((s) => s.loadAgents);
   const activeRun        = useActiveRun();
   const availableAgents  = useAvailableAgents();
 
@@ -415,6 +416,17 @@ export function TaskDetailPanel(): React.ReactElement | null {
     });
   }, [detailTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Only re-sync when a different task is opened, not on every field update.
+
+  // BUG-001: Ensure agents are loaded when the panel opens so the pipeline
+  // editor's "Add stage" dropdown is populated. Guard prevents redundant
+  // fetches if agents were already loaded by AgentLauncherMenu or the modal.
+  useEffect(() => {
+    if (!detailTask) return;
+    if (availableAgents.length === 0) {
+      loadAgents();
+    }
+  }, [detailTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Re-run only when a different task is opened, matching the sync effect above.
 
   // ── Return focus on close ────────────────────────────────────────────────
 

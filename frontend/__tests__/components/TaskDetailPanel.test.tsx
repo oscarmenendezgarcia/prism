@@ -478,6 +478,42 @@ describe('TaskDetailPanel — pipeline field: collapsed state (pipeline set)', (
   });
 });
 
+// BUG-001: loadAgents() called when panel opens and agents are not yet loaded
+describe('TaskDetailPanel — pipeline field: agent loading (BUG-001)', () => {
+  it('calls loadAgents when the panel opens and availableAgents is empty', () => {
+    const loadAgents = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({
+      detailTask: TASK,
+      availableAgents: [],
+      loadAgents,
+    } as any);
+    render(<TaskDetailPanel />);
+    expect(loadAgents).toHaveBeenCalled();
+  });
+
+  it('does NOT call loadAgents when availableAgents is already populated', () => {
+    const loadAgents = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({
+      detailTask: TASK,
+      availableAgents: AVAILABLE_AGENTS,
+      loadAgents,
+    } as any);
+    render(<TaskDetailPanel />);
+    expect(loadAgents).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call loadAgents when the panel is closed (detailTask is null)', () => {
+    const loadAgents = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({
+      detailTask: null,
+      availableAgents: [],
+      loadAgents,
+    } as any);
+    render(<TaskDetailPanel />);
+    expect(loadAgents).not.toHaveBeenCalled();
+  });
+});
+
 describe('TaskDetailPanel — pipeline field: edit mode', () => {
   it('clicking Configure opens the edit mode with empty stage list', () => {
     useAppStore.setState({ detailTask: TASK } as any);
