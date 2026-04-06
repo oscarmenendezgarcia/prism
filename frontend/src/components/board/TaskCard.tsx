@@ -191,7 +191,7 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
           {task.attachments && task.attachments.length > 0 && (
             <button
               type="button"
-              onClick={() => openAttachmentModal(activeSpaceId, task.id, 0, task.attachments![0].name)}
+              onClick={() => openAttachmentModal(activeSpaceId, task.id, 0, task.attachments![0].name, task.attachments!)}
               aria-label={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
               title={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
               data-testid="attachment-pill"

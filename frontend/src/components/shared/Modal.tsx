@@ -181,12 +181,17 @@ export function ModalHeader({
 export function ModalTitle({
   id,
   children,
+  className = '',
 }: {
   id?: string;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <h2 id={id} className="text-base font-semibold text-text-primary tracking-tight">
+    <h2
+      id={id}
+      className={`text-base font-semibold text-text-primary tracking-tight${className ? ` ${className}` : ''}`}
+    >
       {children}
     </h2>
   );

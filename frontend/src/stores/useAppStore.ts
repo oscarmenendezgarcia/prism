@@ -22,6 +22,7 @@ import type {
   Column,
   CreateTaskPayload,
   UpdateTaskPayload,
+  Attachment,
   AttachmentModalState,
   MarkdownModalState,
   SpaceModalState,
@@ -85,7 +86,7 @@ interface AppState {
 
   // Attachment modal
   attachmentModal: AttachmentModalState | null;
-  openAttachmentModal: (spaceId: string, taskId: string, index: number, name: string) => void;
+  openAttachmentModal: (spaceId: string, taskId: string, index: number, name: string, attachments: Attachment[]) => void;
   closeAttachmentModal: () => void;
 
   // Markdown modal (rendered .md viewer)
@@ -417,8 +418,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Attachment modal ─────────────────────────────────────────────────────
 
   attachmentModal: null,
-  openAttachmentModal: (spaceId, taskId, index, name) =>
-    set({ attachmentModal: { open: true, spaceId, taskId, index, name } }),
+  openAttachmentModal: (spaceId, taskId, index, name, attachments) =>
+    set({ attachmentModal: { open: true, spaceId, taskId, index, name, attachments } }),
   closeAttachmentModal: () => set({ attachmentModal: null }),
 
   // ── Markdown modal ───────────────────────────────────────────────────────

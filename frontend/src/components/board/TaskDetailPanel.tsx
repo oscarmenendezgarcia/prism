@@ -376,15 +376,17 @@ function PipelineFieldEditor({
  * Reads detailTask from the store; renders null when the panel is closed.
  */
 export function TaskDetailPanel(): React.ReactElement | null {
-  const detailTask       = useAppStore((s) => s.detailTask);
-  const closeDetailPanel = useAppStore((s) => s.closeDetailPanel);
-  const updateTask       = useAppStore((s) => s.updateTask);
-  const isMutating       = useAppStore((s) => s.isMutating);
-  const tasks            = useAppStore((s) => s.tasks);
-  const showToast        = useAppStore((s) => s.showToast);
-  const loadAgents       = useAppStore((s) => s.loadAgents);
-  const activeRun        = useActiveRun();
-  const availableAgents  = useAvailableAgents();
+  const detailTask           = useAppStore((s) => s.detailTask);
+  const closeDetailPanel     = useAppStore((s) => s.closeDetailPanel);
+  const updateTask           = useAppStore((s) => s.updateTask);
+  const isMutating           = useAppStore((s) => s.isMutating);
+  const tasks                = useAppStore((s) => s.tasks);
+  const showToast            = useAppStore((s) => s.showToast);
+  const loadAgents           = useAppStore((s) => s.loadAgents);
+  const openAttachmentModal  = useAppStore((s) => s.openAttachmentModal);
+  const activeSpaceId        = useAppStore((s) => s.activeSpaceId);
+  const activeRun            = useActiveRun();
+  const availableAgents      = useAvailableAgents();
 
   // ── Local field state ────────────────────────────────────────────────────
 
@@ -739,6 +741,44 @@ export function TaskDetailPanel(): React.ReactElement | null {
             onSave={handlePipelineSave}
             disabled={fieldDisabled}
           />
+
+          {/* ── Attachments ──────────────────────────────────────────── */}
+          {detailTask.attachments && detailTask.attachments.length > 0 && (
+            <div className="flex flex-col gap-1.5" data-testid="attachments-section">
+              <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+                Attachments
+              </span>
+              <ul className="flex flex-col gap-1" aria-label="Task attachments">
+                {detailTask.attachments.map((att, index) => (
+                  <li key={index}>
+                    <button
+                      type="button"
+                      data-testid="attachment-row"
+                      onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
+                      aria-label={`Open attachment ${att.name}`}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary transition-colors duration-150"
+                    >
+                      <span
+                        className="material-symbols-outlined text-base leading-none text-text-secondary flex-shrink-0"
+                        aria-hidden="true"
+                      >
+                        {att.type === 'file' ? 'folder' : 'attach_file'}
+                      </span>
+                      <span className="flex-1 truncate font-mono text-xs text-text-primary">
+                        {att.name}
+                      </span>
+                      <span
+                        className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0"
+                        aria-hidden="true"
+                      >
+                        open_in_new
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* ── Footer — read-only metadata ──────────────────────────────── */}

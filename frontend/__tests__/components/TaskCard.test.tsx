@@ -268,12 +268,18 @@ describe('TaskCard — Zone B (attachment count)', () => {
     expect(screen.getByTestId('attachment-pill')).toHaveAttribute('aria-label', '3 attachments');
   });
 
-  it('clicking the pill calls openAttachmentModal with the first attachment', () => {
+  it('clicking the pill calls openAttachmentModal with the first attachment and full list', () => {
     const openAttachmentModal = vi.fn();
     useAppStore.setState({ openAttachmentModal, activeSpaceId: 'space-1' } as never);
     render(<TaskCard task={TASK_WITH_ALL} column="todo" {...DRAG_HANDLERS} />);
     fireEvent.click(screen.getByTestId('attachment-pill'));
-    expect(openAttachmentModal).toHaveBeenCalledWith('space-1', 'task-1', 0, 'spec.md');
+    expect(openAttachmentModal).toHaveBeenCalledWith(
+      'space-1',
+      'task-1',
+      0,
+      'spec.md',
+      TASK_WITH_ALL.attachments,
+    );
   });
 
   it('does NOT show individual attachment chip filenames', () => {

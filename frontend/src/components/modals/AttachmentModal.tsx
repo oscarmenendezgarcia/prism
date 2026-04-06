@@ -2,9 +2,12 @@
  * Attachment viewer modal with 4 states: loading, text content, file content, error.
  * ADR-002: replaces openAttachmentModal() in legacy app.js.
  * Stitch screens S-02 (loading) / S-03 (text) / S-04 (file) / S-05 (error).
+ *
+ * Navigation: when the task has multiple attachments, prev/next buttons allow
+ * cycling through them without closing the modal.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Modal, ModalHeader, ModalTitle } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
@@ -40,13 +43,18 @@ function isMarkdownFile(name: string): boolean {
 export function AttachmentModal() {
   const modal = useAppStore((s) => s.attachmentModal);
   const closeModal = useAppStore((s) => s.closeAttachmentModal);
+  const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
   const openMarkdownModal = useAppStore((s) => s.openMarkdownModal);
 
   const [viewState, setViewState] = useState<ViewState>({ kind: 'loading' });
 
   const isOpen = modal?.open ?? false;
+  const attachments = modal?.attachments ?? [];
+  const total = attachments.length;
+  const currentIndex = modal?.index ?? 0;
+  const hasMultiple = total > 1;
 
-  // Load content whenever the modal opens
+  // Load content whenever the modal opens or the current index changes
   useEffect(() => {
     if (!isOpen || !modal) return;
     setViewState({ kind: 'loading' });
@@ -59,6 +67,16 @@ export function AttachmentModal() {
       });
   }, [isOpen, modal?.spaceId, modal?.taskId, modal?.index]);
 
+  const navigateTo = useCallback((nextIndex: number) => {
+    if (!modal) return;
+    const target = attachments[nextIndex];
+    if (!target) return;
+    openAttachmentModal(modal.spaceId, modal.taskId, nextIndex, target.name, attachments);
+  }, [modal, attachments, openAttachmentModal]);
+
+  const goToPrev = useCallback(() => navigateTo(currentIndex - 1), [navigateTo, currentIndex]);
+  const goToNext = useCallback(() => navigateTo(currentIndex + 1), [navigateTo, currentIndex]);
+
   if (!isOpen) return null;
 
   const isFileType = viewState.kind === 'content' && viewState.data.type === 'file';
@@ -67,14 +85,19 @@ export function AttachmentModal() {
   return (
     <Modal open={isOpen} onClose={closeModal} labelId={TITLE_ID} className="max-w-2xl">
       <ModalHeader onClose={closeModal}>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <span
-            className="material-symbols-outlined text-xl text-text-secondary"
+            className="material-symbols-outlined text-xl text-text-secondary shrink-0"
             aria-hidden="true"
           >
             {headerIcon}
           </span>
-          <ModalTitle id={TITLE_ID}>{modal?.name ?? 'Attachment'}</ModalTitle>
+          <ModalTitle id={TITLE_ID} className="truncate">{modal?.name ?? 'Attachment'}</ModalTitle>
+          {hasMultiple && (
+            <span className="ml-1 shrink-0 text-xs text-text-secondary tabular-nums">
+              {currentIndex + 1} / {total}
+            </span>
+          )}
         </div>
       </ModalHeader>
 
@@ -129,45 +152,77 @@ export function AttachmentModal() {
             )}
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-3 pt-2 border-t border-border">
-              <Button variant="ghost" onClick={closeModal}>
-                Close
-              </Button>
-              {/* Markdown: offer full-screen viewer; others: copy raw */}
-              {isMarkdownFile(modal?.name ?? '') ? (
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    if (viewState.kind === 'content') {
-                      openMarkdownModal(
-                        modal?.name ?? 'Document',
-                        viewState.data.content,
-                        viewState.data.source,
-                      );
-                      closeModal();
-                    }
-                  }}
-                >
-                  <span
-                    className="material-symbols-outlined text-base leading-none"
-                    aria-hidden="true"
+            <div className="flex items-center justify-between gap-3 pt-2 border-t border-border">
+              {/* Navigation controls — only rendered when the task has multiple attachments */}
+              {hasMultiple ? (
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="icon"
+                    onClick={goToPrev}
+                    disabled={currentIndex === 0}
+                    aria-label="Previous attachment"
+                    title="Previous attachment"
                   >
-                    open_in_full
-                  </span>
-                  View full
-                </Button>
+                    <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+                      chevron_left
+                    </span>
+                  </Button>
+                  <Button
+                    variant="icon"
+                    onClick={goToNext}
+                    disabled={currentIndex === total - 1}
+                    aria-label="Next attachment"
+                    title="Next attachment"
+                  >
+                    <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+                      chevron_right
+                    </span>
+                  </Button>
+                </div>
               ) : (
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    if (viewState.kind === 'content') {
-                      navigator.clipboard.writeText(viewState.data.content).catch(() => {});
-                    }
-                  }}
-                >
-                  Copy
-                </Button>
+                <div />
               )}
+
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" onClick={closeModal}>
+                  Close
+                </Button>
+                {/* Markdown: offer full-screen viewer; others: copy raw */}
+                {isMarkdownFile(modal?.name ?? '') ? (
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      if (viewState.kind === 'content') {
+                        openMarkdownModal(
+                          modal?.name ?? 'Document',
+                          viewState.data.content,
+                          viewState.data.source,
+                        );
+                        closeModal();
+                      }
+                    }}
+                  >
+                    <span
+                      className="material-symbols-outlined text-base leading-none"
+                      aria-hidden="true"
+                    >
+                      open_in_full
+                    </span>
+                    View full
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      if (viewState.kind === 'content') {
+                        navigator.clipboard.writeText(viewState.data.content).catch(() => {});
+                      }
+                    }}
+                  >
+                    Copy
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         )}

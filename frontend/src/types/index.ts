@@ -109,6 +109,8 @@ export interface AttachmentModalState {
   taskId: string;
   index: number;
   name: string;
+  /** Full attachment list for the task — enables prev/next navigation. */
+  attachments: Attachment[];
 }
 
 /** Space modal state. */
