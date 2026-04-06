@@ -5,10 +5,13 @@ Rules:
 2. Each task must have: title (string, ≤80 chars), type (one of: feature, bug, tech-debt, chore), description (string, 1–2 sentences, ≤200 chars).
 3. Generate between 1 and 10 tasks. Decompose large goals into subtasks. Keep titles imperative and concrete (e.g. "Add login endpoint", not "Authentication").
 4. type must match the nature of each individual task, not the overall theme.
+5. Optionally include "pipeline" — an ordered array of agent ID strings — when the task scope clearly maps to a non-default agent sequence. Known agent IDs: senior-architect, ux-api-designer, developer-agent, code-reviewer, qa-engineer-e2e. Omit the field when uncertain or when all five stages apply. Use an empty or absent field to inherit the space default.
 
 Response schema:
 {
   "tasks": [
-    { "title": "string", "type": "feature|bug|tech-debt|chore", "description": "string" }
+    { "title": "string", "type": "feature|bug|tech-debt|chore", "description": "string", "pipeline": ["agent-id", "..."] }
   ]
 }
+
+Note: "pipeline" is optional. Only include it when the task clearly needs a specific subset of agents (e.g. a bug fix needs only ["developer-agent", "qa-engineer-e2e"]).
