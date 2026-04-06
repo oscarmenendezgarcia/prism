@@ -52,6 +52,16 @@ const TASK: Task = {
   updatedAt: '2026-03-24T12:00:00.000Z',
 };
 
+const TASK_WITH_ATTACHMENTS: Task = {
+  ...TASK,
+  id: 'task-attach-789',
+  attachments: [
+    { name: 'ADR-1.md',    type: 'text' },
+    { name: 'diagram.png', type: 'file' },
+    { name: 'notes.txt',   type: 'text' },
+  ],
+};
+
 const TASK_WITH_PIPELINE: Task = {
   ...TASK,
   id: 'task-pipeline-456',
@@ -70,7 +80,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useAppStore.getState>> 
     detailTask: null,
     isMutating: false,
     activeRun: null,
-    tasks: { todo: [TASK, TASK_WITH_PIPELINE], 'in-progress': [], done: [] },
+    tasks: { todo: [TASK, TASK_WITH_PIPELINE, TASK_WITH_ATTACHMENTS], 'in-progress': [], done: [] },
     activeSpaceId: 'space-1',
     availableAgents: AVAILABLE_AGENTS,
     ...overrides,
@@ -622,5 +632,104 @@ describe('TaskDetailPanel — pipeline field: edit mode', () => {
 
     const clearBtn = screen.getByRole('button', { name: /clear pipeline/i });
     expect(clearBtn).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG FIX: Attachments section — all attachments must render in the panel
+// ---------------------------------------------------------------------------
+
+describe('TaskDetailPanel — attachments section', () => {
+  it('does not render the attachments section when task has no attachments', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    const { container } = render(<TaskDetailPanel />);
+    expect(container.querySelector('[data-testid="attachments-section"]')).not.toBeInTheDocument();
+  });
+
+  it('does not render the attachments section when attachments is an empty array', () => {
+    useAppStore.setState({ detailTask: { ...TASK, attachments: [] } } as any);
+    const { container } = render(<TaskDetailPanel />);
+    expect(container.querySelector('[data-testid="attachments-section"]')).not.toBeInTheDocument();
+  });
+
+  it('renders the Attachments heading when task has attachments', () => {
+    useAppStore.setState({ detailTask: TASK_WITH_ATTACHMENTS } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByText(/attachments/i)).toBeInTheDocument();
+  });
+
+  it('renders one row per attachment — all 3 attachments are visible', () => {
+    useAppStore.setState({ detailTask: TASK_WITH_ATTACHMENTS } as any);
+    const { container } = render(<TaskDetailPanel />);
+    const rows = container.querySelectorAll('[data-testid="attachment-row"]');
+    expect(rows).toHaveLength(3);
+  });
+
+  it('each attachment row shows the correct filename', () => {
+    useAppStore.setState({ detailTask: TASK_WITH_ATTACHMENTS } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByText('ADR-1.md')).toBeInTheDocument();
+    expect(screen.getByText('diagram.png')).toBeInTheDocument();
+    expect(screen.getByText('notes.txt')).toBeInTheDocument();
+  });
+
+  it('clicking the first attachment row calls openAttachmentModal with index 0 and full list', () => {
+    const openAttachmentModal = vi.fn();
+    useAppStore.setState({
+      detailTask: TASK_WITH_ATTACHMENTS,
+      activeSpaceId: 'space-1',
+      openAttachmentModal,
+    } as any);
+    const { container } = render(<TaskDetailPanel />);
+
+    const rows = container.querySelectorAll('[data-testid="attachment-row"]');
+    fireEvent.click(rows[0]);
+
+    expect(openAttachmentModal).toHaveBeenCalledWith(
+      'space-1', TASK_WITH_ATTACHMENTS.id, 0, 'ADR-1.md', TASK_WITH_ATTACHMENTS.attachments,
+    );
+  });
+
+  it('clicking the second attachment row calls openAttachmentModal with index 1 and full list', () => {
+    const openAttachmentModal = vi.fn();
+    useAppStore.setState({
+      detailTask: TASK_WITH_ATTACHMENTS,
+      activeSpaceId: 'space-1',
+      openAttachmentModal,
+    } as any);
+    const { container } = render(<TaskDetailPanel />);
+
+    const rows = container.querySelectorAll('[data-testid="attachment-row"]');
+    fireEvent.click(rows[1]);
+
+    expect(openAttachmentModal).toHaveBeenCalledWith(
+      'space-1', TASK_WITH_ATTACHMENTS.id, 1, 'diagram.png', TASK_WITH_ATTACHMENTS.attachments,
+    );
+  });
+
+  it('clicking the third attachment row calls openAttachmentModal with index 2 and full list', () => {
+    const openAttachmentModal = vi.fn();
+    useAppStore.setState({
+      detailTask: TASK_WITH_ATTACHMENTS,
+      activeSpaceId: 'space-1',
+      openAttachmentModal,
+    } as any);
+    const { container } = render(<TaskDetailPanel />);
+
+    const rows = container.querySelectorAll('[data-testid="attachment-row"]');
+    fireEvent.click(rows[2]);
+
+    expect(openAttachmentModal).toHaveBeenCalledWith(
+      'space-1', TASK_WITH_ATTACHMENTS.id, 2, 'notes.txt', TASK_WITH_ATTACHMENTS.attachments,
+    );
+  });
+
+  it('each attachment row has an accessible aria-label with the filename', () => {
+    useAppStore.setState({ detailTask: TASK_WITH_ATTACHMENTS } as any);
+    render(<TaskDetailPanel />);
+
+    expect(screen.getByRole('button', { name: 'Open attachment ADR-1.md' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open attachment diagram.png' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open attachment notes.txt' })).toBeInTheDocument();
   });
 });
