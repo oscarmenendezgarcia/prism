@@ -14,15 +14,15 @@ beforeEach(() => {
 });
 
 describe('AgentSettingsToggle', () => {
-  it('renders with correct aria-label when panel is closed', () => {
+  it('renders with static aria-label regardless of panel state', () => {
     render(<AgentSettingsToggle />);
-    expect(screen.getByRole('button', { name: /open agent settings/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /agent settings/i })).toBeInTheDocument();
   });
 
-  it('renders with correct aria-label when panel is open', () => {
+  it('static aria-label is preserved when panel is open', () => {
     useAppStore.setState({ agentSettingsPanelOpen: true });
     render(<AgentSettingsToggle />);
-    expect(screen.getByRole('button', { name: /close agent settings/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /agent settings/i })).toBeInTheDocument();
   });
 
   it('has aria-pressed=false when panel is closed', () => {

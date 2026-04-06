@@ -62,10 +62,14 @@ const BASE_PIPELINE_STATE = {
 };
 
 describe('PipelineLogToggle — visibility', () => {
-  it('is not rendered when pipelineState is null', () => {
+  it('is visible but disabled when pipelineState is null', () => {
     useAppStore.setState({ pipelineState: null } as any);
     render(<Header />);
-    expect(screen.queryByRole('button', { name: /toggle pipeline log panel/i })).toBeNull();
+    const btn = screen.queryByRole('button', { name: /toggle pipeline log panel/i });
+    expect(btn).not.toBeNull();
+    expect(btn?.className).toContain('opacity-40');
+    expect(btn?.className).toContain('pointer-events-none');
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('is rendered when pipelineState is non-null', () => {
@@ -207,7 +211,7 @@ describe('PipelineLogToggle — notification dot (T-5)', () => {
     render(<Header />);
     const dot = document.querySelector('[data-testid="logs-unseen-dot"]');
     expect(dot?.className).toContain('absolute');
-    expect(dot?.className).toContain('bg-red-500');
+    expect(dot?.className).toContain('bg-error');
     expect(dot?.className).toContain('rounded-full');
   });
 });

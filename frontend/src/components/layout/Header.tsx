@@ -27,24 +27,27 @@ function PipelineLogToggle() {
   const setLogPanelOpen = usePipelineLogStore((s) => s.setLogPanelOpen);
   const unseenCount     = usePipelineLogStore((s) => s.unseenCount);
 
-  if (!pipelineState) return null;
-
-  const showDot = unseenCount > 0 && !logPanelOpen;
+  const inactive = !pipelineState;
+  const showDot  = unseenCount > 0 && !logPanelOpen && !inactive;
 
   return (
     <button
-      onClick={() => setLogPanelOpen(!logPanelOpen)}
+      onClick={() => !inactive && setLogPanelOpen(!logPanelOpen)}
       aria-label="Toggle pipeline log panel"
       aria-pressed={logPanelOpen}
-      className={`relative h-10 min-w-[72px] px-3 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all duration-150 ease-apple ${
-        logPanelOpen
-          ? 'bg-primary/[0.15] text-primary'
-          : 'text-text-secondary hover:bg-surface-variant hover:text-text-primary'
+      aria-disabled={inactive}
+      tabIndex={inactive ? -1 : 0}
+      className={`relative h-10 min-w-[72px] px-3 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all duration-150 ease-apple focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+        inactive
+          ? 'opacity-40 pointer-events-none text-text-secondary bg-white/[0.04] border border-white/[0.08]'
+          : logPanelOpen
+            ? 'bg-primary/[0.15] text-primary border border-primary/30'
+            : 'text-text-secondary bg-white/[0.04] border border-white/[0.08] hover:bg-surface-variant hover:text-text-primary'
       }`}
     >
       {showDot && (
         <span
-          className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-red-500"
+          className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-error"
           aria-hidden="true"
           data-testid="logs-unseen-dot"
         />
@@ -81,7 +84,7 @@ export function Header() {
       {/* Actions: Panel Toggles | New Task | Utility Strip */}
       <div className="flex items-center">
         {/* Panel Toggles */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <TerminalToggle />
           <AgentSettingsToggle />
           <RunHistoryToggle />
