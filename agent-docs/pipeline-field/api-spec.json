@@ -1,0 +1,517 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Prism Kanban API — Pipeline Field per Card",
+    "version": "1.2.0",
+    "description": "Incremental spec covering the pipeline field added to task objects. Extends the base Prism API (v1.0.0). All pre-existing endpoints are backward-compatible — the pipeline field is optional everywhere."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000/api/v1",
+      "description": "Local development server"
+    }
+  ],
+  "paths": {
+    "/spaces/{spaceId}/tasks": {
+      "post": {
+        "operationId": "createTask",
+        "summary": "Create a task",
+        "description": "Creates a new task in the todo column of the specified space. The optional `pipeline` field sets a per-card agent sequence that overrides the space-level default when the pipeline is launched.",
+        "tags": ["Tasks"],
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The space UUID."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TaskCreatePayload" },
+              "examples": {
+                "withPipeline": {
+                  "summary": "Task with custom pipeline",
+                  "value": {
+                    "title": "Fix auth regression",
+                    "type": "bug",
+                    "description": "Login fails on mobile Safari.",
+                    "assigned": "developer-agent",
+                    "pipeline": ["developer-agent", "qa-engineer-e2e"]
+                  }
+                },
+                "withoutPipeline": {
+                  "summary": "Task using space default pipeline",
+                  "value": {
+                    "title": "Design onboarding flow",
+                    "type": "feature"
+                  }
+                },
+                "emptyPipelineCleared": {
+                  "summary": "Empty array is treated as absent — field not stored",
+                  "value": {
+                    "title": "Research caching options",
+                    "type": "tech-debt",
+                    "pipeline": []
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Task created successfully.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Task" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "examples": {
+                  "pipelineNotArray": {
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "The pipeline field must be an array of agent ID strings.",
+                        "suggestion": "Pass an array like [\"developer-agent\", \"qa-engineer-e2e\"], or omit the field to use the space default.",
+                        "field": "pipeline"
+                      }
+                    }
+                  },
+                  "pipelineTooLong": {
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "The pipeline may contain at most 20 stages.",
+                        "suggestion": "Remove stages that are not needed for this task.",
+                        "field": "pipeline"
+                      }
+                    }
+                  },
+                  "pipelineItemTooLong": {
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Each agent ID in the pipeline must be a non-empty string of at most 50 characters.",
+                        "suggestion": "Check that the agent IDs match the names of agent files in your agents directory.",
+                        "field": "pipeline"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Space not found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/spaces/{spaceId}/tasks/{taskId}": {
+      "put": {
+        "operationId": "updateTask",
+        "summary": "Update a task (partial)",
+        "description": "Updates one or more fields of an existing task. Only provided fields are changed. The `pipeline` field follows three-value semantics: absent = no change, non-empty array = replace, empty array = clear (reverts to space default).",
+        "tags": ["Tasks"],
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TaskUpdatePayload" },
+              "examples": {
+                "setPipeline": {
+                  "summary": "Set a custom pipeline",
+                  "value": {
+                    "pipeline": ["developer-agent", "qa-engineer-e2e"]
+                  }
+                },
+                "clearPipeline": {
+                  "summary": "Clear the pipeline — revert to space default",
+                  "value": {
+                    "pipeline": []
+                  }
+                },
+                "leaveUnchanged": {
+                  "summary": "Update title only — pipeline field untouched",
+                  "value": {
+                    "title": "Updated title"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Task updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Task" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Space or task not found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/runs": {
+      "post": {
+        "operationId": "createRun",
+        "summary": "Start a pipeline run",
+        "description": "Launches a pipeline for the given task. If `stages` is omitted, the backend resolves the stage list using the following priority chain:\n\n1. `task.pipeline` — custom pipeline stored on the card (if non-empty)\n2. `space.pipeline` — space-level default (if non-empty)\n3. `pipelineManager.DEFAULT_STAGES` — hardcoded fallback\n\nThe resolved chain is logged as `{ event: 'run.pipeline_resolved', resolvedFrom: 'task|space|default', stages }`.",
+        "tags": ["Runs"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/RunCreatePayload" },
+              "examples": {
+                "withoutStages": {
+                  "summary": "MCP path — backend resolves task.pipeline",
+                  "value": {
+                    "spaceId": "193f336c-1950-4a39-804e-5691be135ddc",
+                    "taskId": "0a1f6cc8-18f4-41c1-9024-db36c5d8b175"
+                  }
+                },
+                "withExplicitStages": {
+                  "summary": "UI path — user-confirmed stages from modal override everything",
+                  "value": {
+                    "spaceId": "193f336c-1950-4a39-804e-5691be135ddc",
+                    "taskId": "0a1f6cc8-18f4-41c1-9024-db36c5d8b175",
+                    "stages": ["developer-agent", "qa-engineer-e2e"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Run created.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RunCreated" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error (task not in todo, stages invalid, etc.).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          },
+          "404": {
+            "description": "Space or task not found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Task": {
+        "type": "object",
+        "description": "A Kanban task object. The `pipeline` field is omitted when not set (never null).",
+        "required": ["id", "title", "type", "createdAt", "updatedAt"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "0a1f6cc8-18f4-41c1-9024-db36c5d8b175"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "example": "Fix authentication flow"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["feature", "bug", "tech-debt", "chore"],
+            "example": "bug"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true,
+            "example": "Login fails on mobile Safari after the OAuth refactor."
+          },
+          "assigned": {
+            "type": "string",
+            "maxLength": 50,
+            "nullable": true,
+            "example": "developer-agent"
+          },
+          "pipeline": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "minItems": 1,
+            "maxItems": 20,
+            "description": "Ordered list of agent IDs that override the space-level pipeline default when this task's pipeline is launched. Omitted from the response when not set.",
+            "example": ["developer-agent", "qa-engineer-e2e"]
+          },
+          "attachments": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Attachment" },
+            "default": []
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-03T09:15:36.045Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-04-06T09:15:00.000Z"
+          }
+        }
+      },
+      "TaskCreatePayload": {
+        "type": "object",
+        "required": ["title", "type"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "example": "Fix auth regression"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["feature", "bug", "tech-debt", "chore"]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "assigned": {
+            "type": "string",
+            "maxLength": 50,
+            "description": "Agent ID or name to assign the task to."
+          },
+          "pipeline": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "maxItems": 20,
+            "description": "Optional per-card pipeline override. Empty array is treated as absent — field not stored."
+          }
+        }
+      },
+      "TaskUpdatePayload": {
+        "type": "object",
+        "description": "All fields are optional. Only provided fields are updated.",
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "type": {
+            "type": "string",
+            "enum": ["feature", "bug", "tech-debt", "chore"]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "assigned": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "pipeline": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50
+            },
+            "maxItems": 20,
+            "description": "Present + non-empty: replaces the pipeline. Present + empty array: clears the pipeline field (reverts to space default). Absent: leaves the pipeline unchanged."
+          },
+          "attachments": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Attachment" },
+            "description": "Replaces all attachments when provided."
+          }
+        }
+      },
+      "RunCreatePayload": {
+        "type": "object",
+        "required": ["spaceId", "taskId"],
+        "properties": {
+          "spaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "stages": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Explicit stage list that bypasses all resolution chain lookups. When omitted, stages are resolved from: task.pipeline → space.pipeline → DEFAULT_STAGES."
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "description": "Zero-based indices of stages where the pipeline should pause for user confirmation."
+          },
+          "useOrchestratorMode": {
+            "type": "boolean",
+            "default": false,
+            "description": "When true, all stages are run via an orchestrator meta-agent."
+          }
+        }
+      },
+      "RunCreated": {
+        "type": "object",
+        "required": ["runId"],
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "example": "d3a8f012-4c1e-4bbc-a91f-7f3a2e0b0d1c"
+          },
+          "resolvedFrom": {
+            "type": "string",
+            "enum": ["task", "space", "default"],
+            "description": "Indicates which level of the resolution chain supplied the stages. Absent when `stages` was explicitly provided by the caller.",
+            "example": "task"
+          },
+          "stages": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Final resolved stage list used for this run.",
+            "example": ["developer-agent", "qa-engineer-e2e"]
+          }
+        }
+      },
+      "Attachment": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "blueprint.md"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["text", "file"]
+          },
+          "content": {
+            "type": "string",
+            "description": "Inline text content (type=text) or absolute file path on disk (type=file)."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "SCREAMING_SNAKE_CASE error code.",
+                "example": "VALIDATION_ERROR"
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable description of what went wrong.",
+                "example": "The pipeline field must be an array of agent ID strings."
+              },
+              "suggestion": {
+                "type": "string",
+                "description": "Actionable guidance on how to fix the error.",
+                "example": "Pass an array like [\"developer-agent\", \"qa-engineer-e2e\"], or omit the field to use the space default."
+              },
+              "field": {
+                "type": "string",
+                "description": "Name of the field that caused the error. Only present for VALIDATION_ERROR.",
+                "example": "pipeline"
+              }
+            }
+          }
+        }
+      }
+    },
+    "x-mcp-tools": {
+      "kanban_update_task": {
+        "description": "MCP tool schema extension for kanban_update_task (Zod, ESM). Added pipeline parameter.",
+        "addedParameters": {
+          "pipeline": {
+            "zodType": "z.array(z.string()).optional()",
+            "description": "Ordered agent IDs for this task's pipeline. Overrides the space-level default when 'Run Pipeline' is invoked. Pass an empty array to clear the field and revert to the space default.",
+            "semantics": {
+              "defined_non_empty": "Replaces the pipeline field on the task.",
+              "defined_empty": "Clears the pipeline field — task reverts to space default.",
+              "undefined": "Pipeline field unchanged."
+            },
+            "example_set": ["developer-agent", "qa-engineer-e2e"],
+            "example_clear": []
+          }
+        }
+      }
+    }
+  }
+}
