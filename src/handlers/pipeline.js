@@ -16,8 +16,8 @@ const fs   = require('fs');
 const path = require('path');
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
-const pipelineManager                    = require('../pipelineManager');
-const { resolveAgent, AgentNotFoundError } = require('../agentResolver');
+const pipelineManager                    = require('../services/pipelineManager');
+const { resolveAgent, AgentNotFoundError } = require('../services/agentResolver');
 
 // ---------------------------------------------------------------------------
 // Route patterns (compiled once at module load)

@@ -19,6 +19,14 @@ const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 
+/** Expand a leading `~` to the user's home directory. */
+function expandTilde(p) {
+  if (!p) return p;
+  if (p === '~') return os.homedir();
+  if (p.startsWith('~/') || p.startsWith('~\\')) return os.homedir() + p.slice(1);
+  return p;
+}
+
 // ---------------------------------------------------------------------------
 // Error type
 // ---------------------------------------------------------------------------
@@ -100,7 +108,7 @@ function parseFrontmatter(content, defaultModel = 'sonnet') {
  * @throws {AgentNotFoundError} When the agent file does not exist.
  */
 function resolveAgent(agentId, agentsDir) {
-  const dir      = agentsDir || path.join(os.homedir(), '.claude', 'agents');
+  const dir      = expandTilde(agentsDir) || path.join(os.homedir(), '.claude', 'agents');
   const filePath = path.join(dir, `${agentId}.md`);
 
   if (!fs.existsSync(filePath)) {

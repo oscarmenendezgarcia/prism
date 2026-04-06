@@ -114,7 +114,7 @@ async function startServer(extraEnv = {}) {
   });
 
   const { createApp }          = require('../src/handlers/tasks');
-  const { createSpaceManager } = require('../src/spaceManager');
+  const { createSpaceManager } = require('../src/services/spaceManager');
   const pipelineHandlers       = require('../src/handlers/pipeline');
 
   const spaceId    = crypto.randomUUID();
@@ -503,7 +503,7 @@ describe('handleCreateRun — pipeline resolution (T-004)', () => {
     fs.writeFileSync(spacesFile, JSON.stringify([spaceRecord]), 'utf8');
 
     const pipelineHandlers                 = require('../src/handlers/pipeline');
-    const { createSpaceManager }           = require('../src/spaceManager');
+    const { createSpaceManager }           = require('../src/services/spaceManager');
     const spaceManager = createSpaceManager(dataDir);
 
     const server = http.createServer(async (req, res) => {

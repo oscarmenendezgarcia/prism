@@ -16,7 +16,7 @@
 const fs   = require('fs');
 const os   = require('os');
 const path = require('path');
-const { createSpaceManager } = require('../src/spaceManager');
+const { createSpaceManager } = require('../src/services/spaceManager');
 
 // ---------------------------------------------------------------------------
 // Minimal test runner

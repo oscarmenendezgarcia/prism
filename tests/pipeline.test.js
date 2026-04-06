@@ -124,14 +124,21 @@ describe('agentResolver', () => {
     writeAgentFile(agentsDir, 'senior-architect', 'opus', 'You are the senior architect.');
 
     delete process.env.PIPELINE_AGENT_MODE;
-    const { resolveAgent } = require('../src/agentResolver');
+    const { resolveAgent } = require('../src/services/agentResolver');
 
     const spec = resolveAgent('senior-architect', agentsDir);
 
     assert.equal(spec.agentId, 'senior-architect');
     assert.equal(spec.model, 'opus');
     assert.ok(spec.systemPrompt.includes('You are the senior architect.'));
-    assert.deepEqual(spec.spawnArgs, ['--agent', 'senior-architect', '--print', '--enable-auto-mode']);
+    assert.deepEqual(spec.spawnArgs, [
+      '--agent', 'senior-architect',
+      '--print',
+      '--enable-auto-mode',
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--allowedTools', 'Bash Edit Write Read Glob Grep mcp__prism__* mcp__stitch__* mcp__figma__* mcp__plugin_playwright_playwright__*',
+    ]);
 
     fs.rmSync(agentsDir, { recursive: true, force: true });
   });
@@ -142,8 +149,8 @@ describe('agentResolver', () => {
 
     process.env.PIPELINE_AGENT_MODE = 'headless';
     // Invalidate require cache to pick up env change.
-    delete require.cache[require.resolve('../src/agentResolver')];
-    const { resolveAgent } = require('../src/agentResolver');
+    delete require.cache[require.resolve('../src/services/agentResolver')];
+    const { resolveAgent } = require('../src/services/agentResolver');
 
     const spec = resolveAgent('ux-api-designer', agentsDir);
 
@@ -157,15 +164,15 @@ describe('agentResolver', () => {
     assert.equal(spec.spawnArgs[7], '--enable-auto-mode');
 
     delete process.env.PIPELINE_AGENT_MODE;
-    delete require.cache[require.resolve('../src/agentResolver')];
+    delete require.cache[require.resolve('../src/services/agentResolver')];
     fs.rmSync(agentsDir, { recursive: true, force: true });
   });
 
   test('resolveAgent throws AgentNotFoundError for missing agent file', () => {
     const agentsDir = tmpDir();
     delete process.env.PIPELINE_AGENT_MODE;
-    delete require.cache[require.resolve('../src/agentResolver')];
-    const { resolveAgent, AgentNotFoundError } = require('../src/agentResolver');
+    delete require.cache[require.resolve('../src/services/agentResolver')];
+    const { resolveAgent, AgentNotFoundError } = require('../src/services/agentResolver');
 
     assert.throws(
       () => resolveAgent('nonexistent-agent', agentsDir),
@@ -181,7 +188,7 @@ describe('agentResolver', () => {
   });
 
   test('parseFrontmatter extracts model and body correctly', () => {
-    const { parseFrontmatter } = require('../src/agentResolver');
+    const { parseFrontmatter } = require('../src/services/agentResolver');
 
     const content = `---\nmodel: opus\n---\n\nYou are an architect.\n`;
     const result  = parseFrontmatter(content);
@@ -191,7 +198,7 @@ describe('agentResolver', () => {
   });
 
   test('parseFrontmatter uses default model when none specified', () => {
-    const { parseFrontmatter } = require('../src/agentResolver');
+    const { parseFrontmatter } = require('../src/services/agentResolver');
 
     const content = `---\ntype: agent\n---\n\nAgent body.`;
     const result  = parseFrontmatter(content, 'claude-3');
@@ -200,7 +207,7 @@ describe('agentResolver', () => {
   });
 
   test('parseFrontmatter handles file with no frontmatter', () => {
-    const { parseFrontmatter } = require('../src/agentResolver');
+    const { parseFrontmatter } = require('../src/services/agentResolver');
 
     const content = `You are an agent without frontmatter.`;
     const result  = parseFrontmatter(content, 'sonnet');
@@ -229,8 +236,8 @@ describe('pipelineManager — createRun validations', () => {
     fs.mkdirSync(spaceDir, { recursive: true });
     fs.writeFileSync(path.join(spaceDir, 'todo.json'), '[]', 'utf8');
 
-    delete require.cache[require.resolve('../src/pipelineManager')];
-    const pm = require('../src/pipelineManager');
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
 
     await assert.rejects(
       () => pm.createRun({ spaceId, taskId: 'no-such-task', stages: ['senior-architect'], dataDir }),
@@ -258,8 +265,8 @@ describe('pipelineManager — createRun validations', () => {
     fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), '[]', 'utf8');
     fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([task]), 'utf8');
 
-    delete require.cache[require.resolve('../src/pipelineManager')];
-    const pm = require('../src/pipelineManager');
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
 
     await assert.rejects(
       () => pm.createRun({ spaceId, taskId, stages: ['developer-agent'], dataDir }),
@@ -280,8 +287,8 @@ describe('pipelineManager — createRun validations', () => {
 
     const { spaceId, taskId } = createSpaceWithTask(dataDir);
 
-    delete require.cache[require.resolve('../src/pipelineManager')];
-    const pm = require('../src/pipelineManager');
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
 
     await assert.rejects(
       () => pm.createRun({ spaceId, taskId, stages: ['senior-architect'], dataDir }),
@@ -304,9 +311,9 @@ describe('pipelineManager — createRun validations', () => {
 
     const { spaceId, taskId } = createSpaceWithTask(dataDir);
 
-    delete require.cache[require.resolve('../src/agentResolver')];
-    delete require.cache[require.resolve('../src/pipelineManager')];
-    const pm = require('../src/pipelineManager');
+    delete require.cache[require.resolve('../src/services/agentResolver')];
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
 
     await assert.rejects(
       () => pm.createRun({ spaceId, taskId, stages: ['ghost-agent'], dataDir }),
@@ -329,47 +336,53 @@ describe('pipelineManager — createRun validations', () => {
 
     const { spaceId, taskId } = createSpaceWithTask(dataDir);
 
-    delete require.cache[require.resolve('../src/agentResolver')];
-    delete require.cache[require.resolve('../src/pipelineManager')];
-    const pm = require('../src/pipelineManager');
+    delete require.cache[require.resolve('../src/services/agentResolver')];
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
 
-    const run = await pm.createRun({ spaceId, taskId, stages: ['senior-architect'], dataDir });
+    let run;
+    try {
+      run = await pm.createRun({ spaceId, taskId, stages: ['senior-architect'], dataDir });
 
-    assert.ok(typeof run.runId === 'string');
-    assert.equal(run.spaceId, spaceId);
-    assert.equal(run.taskId,  taskId);
-    assert.equal(run.status,  'pending');
-    assert.equal(run.stages.length, 1);
-    assert.equal(run.stages[0], 'senior-architect');
-    assert.equal(run.stageStatuses.length, 1);
-    assert.equal(run.stageStatuses[0].status, 'pending');
-    assert.ok(typeof run.createdAt === 'string');
+      assert.ok(typeof run.runId === 'string');
+      assert.equal(run.spaceId, spaceId);
+      assert.equal(run.taskId,  taskId);
+      assert.equal(run.status,  'pending');
+      assert.equal(run.stages.length, 1);
+      assert.equal(run.stages[0], 'senior-architect');
+      assert.equal(run.stageStatuses.length, 1);
+      assert.equal(run.stageStatuses[0].status, 'pending');
+      assert.ok(typeof run.createdAt === 'string');
 
-    // Verify run.json was persisted.
-    const runJsonFile = path.join(dataDir, 'runs', run.runId, 'run.json');
-    assert.ok(fs.existsSync(runJsonFile), 'run.json should exist on disk');
-    const persisted = JSON.parse(fs.readFileSync(runJsonFile, 'utf8'));
-    assert.equal(persisted.runId, run.runId);
+      // Verify run.json was persisted.
+      const runJsonFile = path.join(dataDir, 'runs', run.runId, 'run.json');
+      assert.ok(fs.existsSync(runJsonFile), 'run.json should exist on disk');
+      const persisted = JSON.parse(fs.readFileSync(runJsonFile, 'utf8'));
+      assert.equal(persisted.runId, run.runId);
 
-    // Verify registry entry.
-    const registryFile = path.join(dataDir, 'runs', 'runs.json');
-    assert.ok(fs.existsSync(registryFile), 'runs.json registry should exist');
-    const registry = JSON.parse(fs.readFileSync(registryFile, 'utf8'));
-    assert.ok(registry.some((r) => r.runId === run.runId));
-
-    delete process.env.PIPELINE_AGENTS_DIR;
-    delete process.env.PIPELINE_MAX_CONCURRENT;
-    delete process.env.KANBAN_API_URL;
-    fs.rmSync(dataDir,   { recursive: true, force: true });
-    fs.rmSync(agentsDir, { recursive: true, force: true });
+      // Verify registry entry.
+      const registryFile = path.join(dataDir, 'runs', 'runs.json');
+      assert.ok(fs.existsSync(registryFile), 'runs.json registry should exist');
+      const registry = JSON.parse(fs.readFileSync(registryFile, 'utf8'));
+      assert.ok(registry.some((r) => r.runId === run.runId));
+    } finally {
+      // Kill the spawned claude subprocess to prevent it from starting a
+      // node server.js that inherits the test PIPELINE_AGENTS_DIR env var.
+      if (run) await pm.abortAll(dataDir).catch(() => {});
+      delete process.env.PIPELINE_AGENTS_DIR;
+      delete process.env.PIPELINE_MAX_CONCURRENT;
+      delete process.env.KANBAN_API_URL;
+      fs.rmSync(dataDir,   { recursive: true, force: true });
+      fs.rmSync(agentsDir, { recursive: true, force: true });
+    }
   });
 });
 
 describe('pipelineManager — getRun, deleteRun, listRuns', () => {
   test('getRun returns null for unknown runId', async () => {
     const dataDir = tmpDir();
-    delete require.cache[require.resolve('../src/pipelineManager')];
-    const pm = require('../src/pipelineManager');
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
 
     const result = await pm.getRun('no-such-run', dataDir);
     assert.equal(result, null);
@@ -387,28 +400,30 @@ describe('pipelineManager — getRun, deleteRun, listRuns', () => {
 
     const { spaceId, taskId } = createSpaceWithTask(dataDir);
 
-    delete require.cache[require.resolve('../src/agentResolver')];
-    delete require.cache[require.resolve('../src/pipelineManager')];
-    const pm = require('../src/pipelineManager');
+    delete require.cache[require.resolve('../src/services/agentResolver')];
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
 
-    const run     = await pm.createRun({ spaceId, taskId, stages: ['senior-architect'], dataDir });
-    const runId   = run.runId;
-    const runDirPath = path.join(dataDir, 'runs', runId);
+    try {
+      const run     = await pm.createRun({ spaceId, taskId, stages: ['senior-architect'], dataDir });
+      const runId   = run.runId;
+      const runDirPath = path.join(dataDir, 'runs', runId);
 
-    assert.ok(fs.existsSync(runDirPath), 'run directory should exist before delete');
+      assert.ok(fs.existsSync(runDirPath), 'run directory should exist before delete');
 
-    await pm.deleteRun(runId, dataDir);
+      await pm.deleteRun(runId, dataDir);
 
-    assert.ok(!fs.existsSync(runDirPath), 'run directory should be removed after delete');
+      assert.ok(!fs.existsSync(runDirPath), 'run directory should be removed after delete');
 
-    const registry = JSON.parse(fs.readFileSync(path.join(dataDir, 'runs', 'runs.json'), 'utf8'));
-    assert.ok(!registry.some((r) => r.runId === runId), 'registry entry should be removed');
-
-    delete process.env.PIPELINE_AGENTS_DIR;
-    delete process.env.PIPELINE_MAX_CONCURRENT;
-    delete process.env.KANBAN_API_URL;
-    fs.rmSync(dataDir,   { recursive: true, force: true });
-    fs.rmSync(agentsDir, { recursive: true, force: true });
+      const registry = JSON.parse(fs.readFileSync(path.join(dataDir, 'runs', 'runs.json'), 'utf8'));
+      assert.ok(!registry.some((r) => r.runId === runId), 'registry entry should be removed');
+    } finally {
+      delete process.env.PIPELINE_AGENTS_DIR;
+      delete process.env.PIPELINE_MAX_CONCURRENT;
+      delete process.env.KANBAN_API_URL;
+      fs.rmSync(dataDir,   { recursive: true, force: true });
+      fs.rmSync(agentsDir, { recursive: true, force: true });
+    }
   });
 
   test('listRuns returns all registered runs', async () => {
@@ -422,8 +437,8 @@ describe('pipelineManager — getRun, deleteRun, listRuns', () => {
     ];
     fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify(registry), 'utf8');
 
-    delete require.cache[require.resolve('../src/pipelineManager')];
-    const pm = require('../src/pipelineManager');
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
 
     const list = await pm.listRuns(dataDir);
     assert.equal(list.length, 2);
@@ -459,8 +474,8 @@ describe('pipelineManager — init() startup recovery', () => {
     const registry = [{ runId, spaceId: 'space-1', taskId: 'task-1', status: 'running', createdAt: runState.createdAt }];
     fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify(registry), 'utf8');
 
-    delete require.cache[require.resolve('../src/pipelineManager')];
-    const pm = require('../src/pipelineManager');
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
     pm.init(dataDir);
 
     const recovered = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
@@ -489,8 +504,8 @@ describe('pipelineManager — init() startup recovery', () => {
     };
     fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(runState), 'utf8');
 
-    delete require.cache[require.resolve('../src/pipelineManager')];
-    const pm = require('../src/pipelineManager');
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
     pm.init(dataDir);
 
     const after = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
@@ -504,8 +519,8 @@ describe('pipelineManager — init() startup recovery', () => {
     const runsDir = path.join(dataDir, 'runs');
     assert.ok(!fs.existsSync(runsDir), 'runs dir should not exist before init');
 
-    delete require.cache[require.resolve('../src/pipelineManager')];
-    const pm = require('../src/pipelineManager');
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
     pm.init(dataDir);
 
     assert.ok(fs.existsSync(runsDir), 'runs dir should be created by init');
@@ -553,6 +568,13 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   after(async () => {
+    // Kill all spawned claude processes before closing the server.
+    // Without this, those subprocesses inherit PIPELINE_AGENTS_DIR and may
+    // start a new node server.js with the test-temp agents dir in their env.
+    try {
+      const pm = require('../src/services/pipelineManager');
+      await pm.abortAll(dataDir);
+    } catch { /* best-effort */ }
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(dataDir,   { recursive: true, force: true });
     fs.rmSync(agentsDir, { recursive: true, force: true });
@@ -563,7 +585,7 @@ describe('REST integration — pipeline endpoints', () => {
 
   // Helper: create a space with a task via spaceManager directly (bypasses HTTP).
   function setupSpace() {
-    const { createSpaceManager } = require('../src/spaceManager');
+    const { createSpaceManager } = require('../src/services/spaceManager');
     const sm      = createSpaceManager(dataDir);
     const result  = sm.createSpace(`test-space-${crypto.randomUUID().slice(0, 8)}`);
     const spaceId = result.space.id;
@@ -591,7 +613,7 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   test('POST /api/v1/runs returns 422 TASK_NOT_IN_TODO for task already in-progress', async () => {
-    const { createSpaceManager } = require('../src/spaceManager');
+    const { createSpaceManager } = require('../src/services/spaceManager');
     const sm       = createSpaceManager(dataDir);
     const result   = sm.createSpace(`space-inprog-${crypto.randomUUID().slice(0, 6)}`);
     const spaceId  = result.space.id;
@@ -610,7 +632,7 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   test('POST /api/v1/runs returns 404 for unknown taskId', async () => {
-    const { createSpaceManager } = require('../src/spaceManager');
+    const { createSpaceManager } = require('../src/services/spaceManager');
     const sm      = createSpaceManager(dataDir);
     const result  = sm.createSpace(`space-notask-${crypto.randomUUID().slice(0, 6)}`);
     const spaceId = result.space.id;
@@ -708,7 +730,7 @@ describe('REST integration — pipeline endpoints', () => {
     const runId = createRes.body.runId;
 
     // Manually write a log file so we can test the happy path.
-    const { runsDir: getRunsDir } = require('../src/pipelineManager');
+    const { runsDir: getRunsDir } = require('../src/services/pipelineManager');
     const logPath = path.join(getRunsDir(dataDir), runId, 'stage-0.log');
     fs.writeFileSync(logPath, 'Stage 0 output line 1\nStage 0 output line 2\n', 'utf8');
 
