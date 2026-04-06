@@ -42,7 +42,7 @@ export function ThemeToggle() {
       onClick={handleClick}
       aria-label={LABEL[theme]}
       title={LABEL[theme]}
-      className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-text-secondary hover:bg-surface-variant hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150 ease-apple leading-none"
+      className="inline-flex items-center justify-center w-9 h-10 rounded-xl text-text-secondary hover:bg-surface-variant hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150 ease-apple leading-none"
     >
       <span
         className="material-symbols-outlined text-lg leading-none transition-opacity duration-150"

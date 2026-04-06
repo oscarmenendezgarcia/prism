@@ -17,7 +17,7 @@ export function AgentSettingsToggle() {
       aria-label={agentSettingsPanelOpen ? 'Close agent settings' : 'Open agent settings'}
       aria-pressed={agentSettingsPanelOpen}
       title="Agent settings"
-      className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 ease-apple ${
+      className={`h-10 min-w-[72px] px-3 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all duration-150 ease-apple ${
         agentSettingsPanelOpen
           ? 'bg-primary/[0.15] text-primary'
           : 'text-text-secondary hover:bg-surface-variant hover:text-text-primary'

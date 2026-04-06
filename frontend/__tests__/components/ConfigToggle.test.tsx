@@ -86,6 +86,28 @@ describe('ConfigToggle', () => {
     expect(mockToggle).toHaveBeenCalledOnce();
   });
 
+  it('has h-10 min-w-[72px] px-3 size classes (T-4 redesign)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    expect(btn.className).toContain('h-10');
+    expect(btn.className).toContain('min-w-[72px]');
+    expect(btn.className).toContain('px-3');
+  });
+
+  it('has flex-col layout for icon+label column (T-4 redesign)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    expect(btn.className).toContain('flex-col');
+    expect(btn.className).toContain('gap-0.5');
+  });
+
+  it('uses rounded-lg instead of rounded-xl (T-4 wireframe spec)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    expect(btn.className).toContain('rounded-lg');
+    expect(btn.className).not.toContain('rounded-xl');
+  });
+
   it('toggles configPanelOpen state when clicked via real store', () => {
     // Reset the store fully, including the toggleConfigPanel action as the real impl.
     useAppStore.setState({

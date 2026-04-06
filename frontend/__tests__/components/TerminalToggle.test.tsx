@@ -48,4 +48,26 @@ describe('TerminalToggle', () => {
     render(<TerminalToggle />);
     expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true');
   });
+
+  it('has h-10 min-w-[72px] px-3 size classes (T-4 redesign)', () => {
+    render(<TerminalToggle />);
+    const btn = screen.getByRole('button');
+    expect(btn.className).toContain('h-10');
+    expect(btn.className).toContain('min-w-[72px]');
+    expect(btn.className).toContain('px-3');
+  });
+
+  it('has flex-col layout class for icon+label column (T-4 redesign)', () => {
+    render(<TerminalToggle />);
+    const btn = screen.getByRole('button');
+    expect(btn.className).toContain('flex-col');
+    expect(btn.className).toContain('gap-0.5');
+  });
+
+  it('uses rounded-lg instead of rounded-xl (T-4 wireframe spec)', () => {
+    render(<TerminalToggle />);
+    const btn = screen.getByRole('button');
+    expect(btn.className).toContain('rounded-lg');
+    expect(btn.className).not.toContain('rounded-xl');
+  });
 });

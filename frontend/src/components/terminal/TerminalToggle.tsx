@@ -17,7 +17,7 @@ export function TerminalToggle() {
       onClick={togglePanel}
       aria-label="Toggle terminal panel"
       aria-pressed={panelOpen}
-      className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 ease-apple ${
+      className={`h-10 min-w-[72px] px-3 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all duration-150 ease-apple ${
         panelOpen
           ? 'bg-primary/[0.15] text-primary'
           : 'text-text-secondary hover:bg-surface-variant hover:text-text-primary'

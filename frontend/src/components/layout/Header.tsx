@@ -33,7 +33,7 @@ function PipelineLogToggle() {
       onClick={() => setLogPanelOpen(!logPanelOpen)}
       aria-label="Toggle pipeline log panel"
       aria-pressed={logPanelOpen}
-      className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 ease-apple ${
+      className={`h-10 min-w-[72px] px-3 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all duration-150 ease-apple ${
         logPanelOpen
           ? 'bg-primary/[0.15] text-primary'
           : 'text-text-secondary hover:bg-surface-variant hover:text-text-primary'
@@ -71,11 +71,11 @@ export function Header() {
       <div className="flex items-center">
         {/* Panel Toggles */}
         <div className="flex items-center gap-1">
+          <TerminalToggle />
           <AgentSettingsToggle />
           <RunHistoryToggle />
           <PipelineLogToggle />
           <ConfigToggle />
-          <TerminalToggle />
         </div>
 
         <div className="w-px h-6 bg-border/60 mx-2" aria-hidden="true" />

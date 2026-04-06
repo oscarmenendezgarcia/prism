@@ -92,4 +92,14 @@ describe('Header', () => {
     expect(btn).toBeInTheDocument();
     expect(btn).toHaveAttribute('aria-pressed', 'true');
   });
+
+  it('Terminal toggle appears before AgentSettings toggle in DOM order (T-4 redesign)', () => {
+    renderHeader();
+    const buttons = screen.getAllByRole('button');
+    const terminalIdx = buttons.findIndex((b) => /toggle terminal panel/i.test(b.getAttribute('aria-label') ?? ''));
+    const agentIdx    = buttons.findIndex((b) => /agent settings/i.test(b.getAttribute('aria-label') ?? ''));
+    expect(terminalIdx).toBeGreaterThanOrEqual(0);
+    expect(agentIdx).toBeGreaterThanOrEqual(0);
+    expect(terminalIdx).toBeLessThan(agentIdx);
+  });
 });

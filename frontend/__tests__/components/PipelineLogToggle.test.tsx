@@ -120,4 +120,29 @@ describe('PipelineLogToggle — click behaviour', () => {
     const btn = screen.getByRole('button', { name: /toggle pipeline log panel/i });
     expect(btn.textContent).toContain('article');
   });
+
+  it('has h-10 min-w-[72px] px-3 size classes (T-4 redesign)', () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    render(<Header />);
+    const btn = screen.getByRole('button', { name: /toggle pipeline log panel/i });
+    expect(btn.className).toContain('h-10');
+    expect(btn.className).toContain('min-w-[72px]');
+    expect(btn.className).toContain('px-3');
+  });
+
+  it('has flex-col layout for icon+label column (T-4 redesign)', () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    render(<Header />);
+    const btn = screen.getByRole('button', { name: /toggle pipeline log panel/i });
+    expect(btn.className).toContain('flex-col');
+    expect(btn.className).toContain('gap-0.5');
+  });
+
+  it('uses rounded-lg instead of rounded-xl (T-4 wireframe spec)', () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    render(<Header />);
+    const btn = screen.getByRole('button', { name: /toggle pipeline log panel/i });
+    expect(btn.className).toContain('rounded-lg');
+    expect(btn.className).not.toContain('rounded-xl');
+  });
 });
