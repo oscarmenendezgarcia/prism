@@ -33,7 +33,7 @@ const { validatePipelineField }          = require('./tasks');
 // System prompt (loaded once at module init)
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = fs.readFileSync(
+const SYSTEM_PROMPT_TEMPLATE = fs.readFileSync(
   path.join(__dirname, '../prompts/autotask-system.txt'),
   'utf8'
 );
@@ -98,13 +98,27 @@ function resolveKnownAgentIds() {
 // ---------------------------------------------------------------------------
 
 /**
+ * Build the system prompt with known agent IDs injected.
+ *
+ * @param {Set<string>} knownAgents
+ * @returns {string}
+ */
+function buildSystemPrompt(knownAgents) {
+  const ids = knownAgents.size > 0
+    ? [...knownAgents].sort().join(', ')
+    : 'senior-architect, ux-api-designer, developer-agent, code-reviewer, qa-engineer-e2e';
+  return SYSTEM_PROMPT_TEMPLATE.replace('{{KNOWN_AGENT_IDS}}', ids);
+}
+
+/**
  * Call the configured AI CLI with the user's prompt and return parsed tasks.
  *
- * @param {string} prompt  — user's natural-language description
+ * @param {string} prompt       — user's natural-language description
+ * @param {string} systemPrompt — fully resolved system prompt
  * @returns {Promise<Array<{ title: string, type: string, description: string }>>}
  * @throws {Error} on spawn failure, non-zero exit, or invalid JSON response
  */
-function callCLI(prompt) {
+function callCLI(prompt, systemPrompt) {
   const cli   = process.env.TAGGER_CLI   || 'claude';
   const model = process.env.TAGGER_MODEL || 'haiku';
 
@@ -113,7 +127,7 @@ function callCLI(prompt) {
       cli,
       [
         '--print',
-        '--system-prompt', SYSTEM_PROMPT,
+        '--system-prompt', systemPrompt,
         '--model', model,
         '--dangerously-skip-permissions',
         '--no-session-persistence',
@@ -274,10 +288,12 @@ async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir) {
   runningSpaces.add(spaceId);
 
   try {
-    // 5. Call CLI
+    // 5. Call CLI (inject known agent IDs into system prompt)
+    const knownAgents  = resolveKnownAgentIds();
+    const systemPrompt = buildSystemPrompt(knownAgents);
     let rawTasks;
     try {
-      rawTasks = await callCLI(prompt);
+      rawTasks = await callCLI(prompt, systemPrompt);
     } catch (err) {
       const durationMs = Date.now() - startMs;
       console.error(JSON.stringify({
@@ -293,7 +309,6 @@ async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir) {
     // 6. Build full task objects (T-006: include optional pipeline field)
     const now          = new Date().toISOString();
     const VALID_TYPES  = new Set(['feature', 'bug', 'tech-debt', 'chore']);
-    const knownAgents  = resolveKnownAgentIds();
 
     const tasks = rawTasks
       .filter((t) => t && typeof t.title === 'string' && t.title.trim().length > 0)
