@@ -201,13 +201,22 @@ server.tool(
 
 server.tool(
   'kanban_update_task',
-  'Update fields of an existing task (title, description, assigned, type) and/or replace its attachments. Only provided fields are changed.',
+  'Update fields of an existing task (title, description, assigned, type, pipeline) and/or replace its attachments. Only provided fields are changed.',
   {
     id:    z.string().describe('The task ID to update.'),
     title: z.string().optional().describe('New title.'),
     type:  z.enum(['feature', 'bug', 'tech-debt', 'chore']).optional().describe('New type.'),
     description: z.string().optional().describe('New description.'),
     assigned:    z.string().optional().describe('New assigned agent.'),
+    // T-007: per-card pipeline override
+    pipeline: z
+      .array(z.string())
+      .optional()
+      .describe(
+        'Ordered agent IDs for this task\'s pipeline. ' +
+        'Overrides the space-level default when "Run Pipeline" is invoked. ' +
+        'Pass an empty array to clear the field and revert to the space default.',
+      ),
     attachments: z
       .array(
         z.object({
@@ -220,12 +229,14 @@ server.tool(
       .describe('Replace the task attachments. An empty array clears all attachments.'),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, attachments, spaceId }) => {
+  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, pipeline, attachments, spaceId }) => {
     const fields = {};
     if (title       !== undefined) fields.title       = title;
     if (type        !== undefined) fields.type        = type;
     if (description !== undefined) fields.description = description;
     if (assigned    !== undefined) fields.assigned    = assigned;
+    // T-007: forward pipeline (including empty array = clear semantics)
+    if (pipeline    !== undefined) fields.pipeline    = pipeline;
 
     let result;
     if (Object.keys(fields).length > 0) {
