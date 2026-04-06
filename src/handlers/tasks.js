@@ -23,6 +23,8 @@ const VALID_TYPES          = ['feature', 'bug', 'tech-debt', 'chore'];
 const TITLE_MAX_LEN        = 200;
 const DESCRIPTION_MAX_LEN  = 1000;
 const ASSIGNED_MAX_LEN     = 50;
+const PIPELINE_MAX_STAGES  = 20;
+const PIPELINE_STAGE_MAX_LEN = 50;
 
 const ATTACHMENT_MAX_COUNT         = 20;
 const ATTACHMENT_NAME_MAX_LEN      = 100;
@@ -38,6 +40,54 @@ const TASK_MOVE_ROUTE               = /^\/tasks\/([^/]+)\/move$/;
 const TASK_ATTACHMENTS_ROUTE        = /^\/tasks\/([^/]+)\/attachments$/;
 const TASK_ATTACHMENT_CONTENT_ROUTE = /^\/tasks\/([^/]+)\/attachments\/(\d+)$/;
 const TASK_SINGLE_ROUTE             = /^\/tasks\/([^/]+)$/;
+
+// ---------------------------------------------------------------------------
+// Pipeline field validation (T-001)
+//
+// Shared by handleCreateTask, handleUpdateTask, and handleAutoTaskGenerate.
+// Kept at module scope (not inside createApp) so autoTask.js can require it.
+//
+// Returns:
+//   { valid: true,  data: string[] }  — non-empty trimmed pipeline
+//   { valid: true,  data: undefined } — absent or empty ("clear" semantics)
+//   { valid: false, error: string }   — invalid type / length
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate the `pipeline` field from an incoming request body.
+ *
+ * @param {unknown} value
+ * @returns {{ valid: boolean, data: string[] | undefined, error?: string }}
+ */
+function validatePipelineField(value) {
+  if (value === undefined) {
+    return { valid: true, data: undefined };
+  }
+
+  if (!Array.isArray(value)) {
+    return { valid: false, error: 'pipeline must be an array of agent ID strings' };
+  }
+
+  if (value.length === 0) {
+    return { valid: true, data: undefined }; // empty = clear the field
+  }
+
+  if (value.length > PIPELINE_MAX_STAGES) {
+    return { valid: false, error: `pipeline must not exceed ${PIPELINE_MAX_STAGES} stages` };
+  }
+
+  for (let i = 0; i < value.length; i++) {
+    const element = value[i];
+    if (typeof element !== 'string' || element.trim().length === 0) {
+      return { valid: false, error: `pipeline[${i}] must be a non-empty string` };
+    }
+    if (element.trim().length > PIPELINE_STAGE_MAX_LEN) {
+      return { valid: false, error: `pipeline[${i}] must not exceed ${PIPELINE_STAGE_MAX_LEN} characters` };
+    }
+  }
+
+  return { valid: true, data: value.map((s) => s.trim()) };
+}
 
 // ---------------------------------------------------------------------------
 // App factory
@@ -193,6 +243,12 @@ function createApp(dataDir) {
       errors.push(`assigned must not exceed ${ASSIGNED_MAX_LEN} characters`);
     }
 
+    // T-002: validate optional pipeline field
+    const pipelineResult = validatePipelineField(body.pipeline);
+    if (!pipelineResult.valid) {
+      errors.push(pipelineResult.error);
+    }
+
     if (errors.length > 0) {
       return { valid: false, errors, data: null };
     }
@@ -207,6 +263,7 @@ function createApp(dataDir) {
         assigned:    typeof assigned === 'string' && assigned.trim().length > 0
                        ? assigned.trim()
                        : undefined,
+        pipeline:    pipelineResult.data, // undefined when absent or empty
       },
     };
   }
@@ -327,6 +384,8 @@ function createApp(dataDir) {
       type:  data.type,
       ...(data.description !== undefined && { description: data.description }),
       ...(data.assigned    !== undefined && { assigned:    data.assigned }),
+      // T-002: store pipeline only when non-empty (undefined = omit key)
+      ...(data.pipeline    !== undefined && { pipeline:    data.pipeline }),
       ...(attachmentResult.data.length > 0 && { attachments: attachmentResult.data }),
       createdAt: now,
       updatedAt: now,
@@ -336,6 +395,12 @@ function createApp(dataDir) {
       const tasks = readColumn('todo');
       tasks.push(task);
       writeColumn('todo', tasks);
+      if (task.pipeline) {
+        process.stderr.write(JSON.stringify({
+          event: 'task.pipeline_field_set', spaceId: 'unknown',
+          taskId: task.id, stages: task.pipeline, source: 'api',
+        }) + '\n');
+      }
       sendJSON(res, 201, stripAttachmentContent(task));
     } catch (err) {
       console.error('POST tasks error:', err);
@@ -422,7 +487,8 @@ function createApp(dataDir) {
       return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
     }
 
-    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned'];
+    // T-003: 'pipeline' added to updatable fields
+    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline'];
     const provided         = UPDATABLE_FIELDS.filter((f) => f in body);
 
     if (provided.length === 0) {
@@ -463,6 +529,15 @@ function createApp(dataDir) {
         errors.push('assigned must be a string when provided');
       } else if (body.assigned.trim().length > ASSIGNED_MAX_LEN) {
         errors.push(`assigned must not exceed ${ASSIGNED_MAX_LEN} characters`);
+      }
+    }
+
+    // T-003: validate pipeline when provided
+    let pipelineUpdateResult;
+    if ('pipeline' in body) {
+      pipelineUpdateResult = validatePipelineField(body.pipeline);
+      if (!pipelineUpdateResult.valid) {
+        errors.push(pipelineUpdateResult.error);
       }
     }
 
@@ -508,6 +583,20 @@ function createApp(dataDir) {
           updatedTask.assigned = trimmed;
         } else {
           delete updatedTask.assigned;
+        }
+      }
+
+      // T-003: apply pipeline update
+      // data: string[] → set; data: undefined (empty array input) → delete key
+      if ('pipeline' in body && pipelineUpdateResult) {
+        if (pipelineUpdateResult.data !== undefined) {
+          updatedTask.pipeline = pipelineUpdateResult.data;
+          process.stderr.write(JSON.stringify({
+            event: 'task.pipeline_field_set', taskId,
+            stages: pipelineUpdateResult.data, source: 'api',
+          }) + '\n');
+        } else {
+          delete updatedTask.pipeline;
         }
       }
 
@@ -747,4 +836,4 @@ function createApp(dataDir) {
   return { router, ensureDataFiles };
 }
 
-module.exports = { createApp };
+module.exports = { createApp, validatePipelineField };
