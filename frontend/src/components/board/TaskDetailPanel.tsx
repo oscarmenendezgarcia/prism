@@ -696,14 +696,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
             />
           </div>
 
-          {/* ── Pipeline (T-009) ────────────────────────────────────── */}
-          <PipelineFieldEditor
-            pipeline={detailTask.pipeline}
-            availableAgentIds={availableAgents.map((a) => a.id)}
-            onSave={handlePipelineSave}
-            disabled={fieldDisabled}
-          />
-
           {/* ── Description ─────────────────────────────────────────── */}
           <div className="flex flex-col gap-1.5">
             <label htmlFor="detail-description" className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
@@ -739,6 +731,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </Button>
             </div>
           </div>
+
+          {/* ── Pipeline (T-009) ────────────────────────────────────── */}
+          <PipelineFieldEditor
+            pipeline={detailTask.pipeline}
+            availableAgentIds={availableAgents.map((a) => a.id)}
+            onSave={handlePipelineSave}
+            disabled={fieldDisabled}
+          />
         </div>
 
         {/* ── Footer — read-only metadata ──────────────────────────────── */}
