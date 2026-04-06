@@ -85,7 +85,9 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
           resolvedFrom   = 'task';
         }
         if (found) break;
-      } catch { /* skip corrupt files — pipelineManager will report TASK_NOT_FOUND */ }
+      } catch (err) {
+        console.warn(JSON.stringify({ event: 'run.task_pipeline_read_error', spaceId, taskId, col, message: err.message }));
+      }
     }
   }
 

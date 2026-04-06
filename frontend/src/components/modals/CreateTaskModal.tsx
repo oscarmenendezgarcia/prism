@@ -3,7 +3,7 @@
  * ADR-002: replaces the #modal-overlay static HTML + form logic in legacy app.js.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { useAppStore } from '@/stores/useAppStore';
@@ -31,31 +31,57 @@ export function CreateTaskModal() {
   const open = useAppStore((s) => s.createModalOpen);
   const closeModal = useAppStore((s) => s.closeCreateModal);
   const createTask = useAppStore((s) => s.createTask);
+  const availableAgents = useAppStore((s) => s.availableAgents);
+  const loadAgents = useAppStore((s) => s.loadAgents);
 
   const [title, setTitle] = useState('');
   const [type, setType] = useState<'feature' | 'bug' | 'tech-debt' | 'chore' | ''>('');
   const [assigned, setAssigned] = useState('');
   const [description, setDescription] = useState('');
+  const [pipeline, setPipeline] = useState<string[]>([]);
+  const [pipelineOpen, setPipelineOpen] = useState(false);
   const [titleError, setTitleError] = useState('');
   const [typeError, setTypeError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const agentIds = availableAgents.map((a) => a.id);
+
+  const addStage = useCallback((id: string) => {
+    if (id && !pipeline.includes(id)) setPipeline((prev) => [...prev, id]);
+  }, [pipeline]);
+
+  const removeStage = useCallback((idx: number) => {
+    setPipeline((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  const moveStage = useCallback((idx: number, dir: -1 | 1) => {
+    const next = idx + dir;
+    if (next < 0 || next >= pipeline.length) return;
+    setPipeline((prev) => {
+      const arr = [...prev];
+      [arr[idx], arr[next]] = [arr[next], arr[idx]];
+      return arr;
+    });
+  }, [pipeline]);
+
   const titleRef = useRef<HTMLInputElement>(null);
 
-  // Reset form when modal reopens
+  // Reset form when modal reopens; load agents for pipeline dropdown
   useEffect(() => {
     if (open) {
       setTitle('');
       setType('');
       setAssigned('');
       setDescription('');
+      setPipeline([]);
+      setPipelineOpen(false);
       setTitleError('');
       setTypeError('');
       setSubmitting(false);
-      // Focus title input after paint
+      if (availableAgents.length === 0) loadAgents();
       setTimeout(() => titleRef.current?.focus(), 50);
     }
-  }, [open]);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function validate(): boolean {
     let valid = true;
@@ -93,6 +119,7 @@ export function CreateTaskModal() {
     if (assigned) payload.assigned = assigned;
     const desc = description.trim();
     if (desc) payload.description = desc;
+    if (pipeline.length > 0) payload.pipeline = pipeline;
 
     setSubmitting(true);
     try {
@@ -192,6 +219,79 @@ export function CreateTaskModal() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
+          </div>
+
+          {/* Pipeline (optional) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className={labelClass} style={{ marginBottom: 0 }}>Pipeline</span>
+              {!pipelineOpen && (
+                <button
+                  type="button"
+                  onClick={() => setPipelineOpen(true)}
+                  className="text-xs text-primary hover:text-primary/80 focus:outline-none focus:ring-2 focus:ring-primary rounded px-1.5 py-0.5 transition-colors duration-150"
+                >
+                  {pipeline.length > 0 ? 'Edit' : 'Configure'}
+                </button>
+              )}
+            </div>
+
+            {!pipelineOpen ? (
+              <p className="text-sm text-text-secondary italic">
+                {pipeline.length > 0
+                  ? pipeline.join(' → ')
+                  : '(space default)'}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2 border border-border rounded-md p-3 bg-surface-variant">
+                {pipeline.length === 0 ? (
+                  <p className="text-xs text-text-secondary italic">No stages — will use space default.</p>
+                ) : (
+                  <ol className="flex flex-col gap-1">
+                    {pipeline.map((id, idx) => (
+                      <li key={id} className="flex items-center gap-1.5">
+                        <span className="flex-1 text-xs font-medium text-text-primary bg-surface px-2 py-1 rounded border border-border">
+                          {id}
+                        </span>
+                        <button type="button" onClick={() => moveStage(idx, -1)} disabled={idx === 0}
+                          className="w-6 h-6 flex items-center justify-center text-text-secondary hover:text-primary disabled:opacity-30 transition-colors">
+                          <span className="material-symbols-outlined text-sm leading-none">arrow_upward</span>
+                        </button>
+                        <button type="button" onClick={() => moveStage(idx, 1)} disabled={idx === pipeline.length - 1}
+                          className="w-6 h-6 flex items-center justify-center text-text-secondary hover:text-primary disabled:opacity-30 transition-colors">
+                          <span className="material-symbols-outlined text-sm leading-none">arrow_downward</span>
+                        </button>
+                        <button type="button" onClick={() => removeStage(idx)}
+                          className="w-6 h-6 flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 rounded transition-colors">
+                          <span className="material-symbols-outlined text-sm leading-none">close</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                <select
+                  className={`${inputClass} h-9`}
+                  value=""
+                  onChange={(e) => { addStage(e.target.value); e.target.value = ''; }}
+                  aria-label="Add a stage to the pipeline"
+                >
+                  <option value="">+ Add stage…</option>
+                  {agentIds.filter((id) => !pipeline.includes(id)).map((id) => (
+                    <option key={id} value={id}>{id}</option>
+                  ))}
+                </select>
+                <div className="flex justify-end gap-2 pt-1">
+                  <button type="button" onClick={() => { setPipeline([]); setPipelineOpen(false); }}
+                    className="text-xs text-text-secondary hover:text-text-primary transition-colors px-2 py-1">
+                    Clear
+                  </button>
+                  <button type="button" onClick={() => setPipelineOpen(false)}
+                    className="text-xs text-primary hover:text-primary/80 transition-colors px-2 py-1">
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </ModalBody>
 

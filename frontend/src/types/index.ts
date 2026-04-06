@@ -65,6 +65,8 @@ export interface CreateTaskPayload {
   /** Omit from body when empty — never send null. */
   assigned?: string;
   description?: string;
+  /** Optional ordered list of agent IDs. Omit to inherit the space default. */
+  pipeline?: string[];
 }
 
 /**

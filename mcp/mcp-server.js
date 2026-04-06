@@ -188,10 +188,14 @@ server.tool(
       .string()
       .optional()
       .describe('Optional agent name to assign the task to.'),
+    pipeline: z
+      .array(z.string())
+      .optional()
+      .describe('Optional ordered list of agent IDs for this task\'s pipeline. Overrides the space default when set.'),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_create_task', async ({ title, type, description, assigned, spaceId }) => {
-    return createTask({ title, type, description, assigned }, spaceId);
+  withTiming('kanban_create_task', async ({ title, type, description, assigned, pipeline, spaceId }) => {
+    return createTask({ title, type, description, assigned, pipeline }, spaceId);
   })
 );
 

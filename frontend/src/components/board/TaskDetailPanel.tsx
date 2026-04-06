@@ -203,9 +203,21 @@ function PipelineFieldEditor({
         </span>
         {pipeline && pipeline.length > 0 ? (
           <div className="flex items-start justify-between gap-2">
-            <p className="text-sm text-text-primary leading-relaxed break-all">
-              {pipeline.join(' \u2192 ')}
-            </p>
+            <div className="flex flex-wrap items-center gap-1" role="list" aria-label="Pipeline stages">
+              {pipeline.map((stage, i) => (
+                <React.Fragment key={stage}>
+                  <span
+                    role="listitem"
+                    className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-surface-variant text-text-primary border border-border"
+                  >
+                    {stage}
+                  </span>
+                  {i < pipeline.length - 1 && (
+                    <span className="text-text-disabled text-xs" aria-hidden="true">→</span>
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
             <div className="flex items-center gap-1 flex-shrink-0">
               <button
                 type="button"
@@ -225,7 +237,7 @@ function PipelineFieldEditor({
                 disabled={disabled}
                 aria-label="Clear pipeline"
                 title="Clear pipeline (revert to space default)"
-                className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:text-error hover:bg-error/10 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
               >
                 <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
                   close
