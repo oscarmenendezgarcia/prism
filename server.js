@@ -204,7 +204,7 @@ function startServer(options = {}) {
 
       if (method === 'POST') {
         const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
-        return handleAutoTaskGenerate(req, res, spaceId, spaceDataDir);
+        return handleAutoTaskGenerate(req, res, spaceId, spaceDataDir, spaceResult.space.workingDirectory);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',

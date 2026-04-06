@@ -70,26 +70,38 @@ function generateId() {
 // ---------------------------------------------------------------------------
 
 /**
- * Return the set of known agent IDs from PIPELINE_AGENTS_DIR (or ~/.claude/agents/).
+ * Return the set of known agent IDs by scanning agent directories in order:
+ *   1. <workingDirectory>/.claude/agents/  (space-level, if workingDirectory is set)
+ *   2. PIPELINE_AGENTS_DIR or ~/.claude/agents/  (global)
+ *
  * Each file named <agentId>.md contributes agentId to the set.
  *
+ * @param {string} [workingDirectory]  — space's working directory (optional)
  * @returns {Set<string>}
  */
-function resolveKnownAgentIds() {
-  const rawDir    = process.env.PIPELINE_AGENTS_DIR;
-  const agentsDir = rawDir
-    ? (rawDir.startsWith('~') ? rawDir.replace('~', os.homedir()) : rawDir)
+function resolveKnownAgentIds(workingDirectory) {
+  const globalRaw = process.env.PIPELINE_AGENTS_DIR;
+  const globalDir = globalRaw
+    ? (globalRaw.startsWith('~') ? globalRaw.replace('~', os.homedir()) : globalRaw)
     : path.join(os.homedir(), '.claude', 'agents');
 
+  const dirs = [];
+  if (workingDirectory) {
+    dirs.push(path.join(workingDirectory, '.claude', 'agents'));
+  }
+  dirs.push(globalDir);
+
   const known = new Set();
-  try {
-    const entries = fs.readdirSync(agentsDir);
-    for (const entry of entries) {
-      if (entry.endsWith('.md')) {
-        known.add(entry.slice(0, -3));
+  for (const dir of dirs) {
+    try {
+      const entries = fs.readdirSync(dir);
+      for (const entry of entries) {
+        if (entry.endsWith('.md')) {
+          known.add(entry.slice(0, -3));
+        }
       }
-    }
-  } catch { /* directory missing — treat all IDs as unknown (safe: strips all) */ }
+    } catch { /* directory missing — skip */ }
+  }
   return known;
 }
 
@@ -241,7 +253,7 @@ function appendTasksToColumn(spaceDataDir, column, newTasks) {
  * Response:
  *   { tasksCreated: number, tasks: Task[], preview: boolean }
  */
-async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir) {
+async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir, workingDirectory) {
   const startMs = Date.now();
 
   // 1. Parse body
@@ -289,7 +301,7 @@ async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir) {
 
   try {
     // 5. Call CLI (inject known agent IDs into system prompt)
-    const knownAgents  = resolveKnownAgentIds();
+    const knownAgents  = resolveKnownAgentIds(workingDirectory);
     const systemPrompt = buildSystemPrompt(knownAgents);
     let rawTasks;
     try {
