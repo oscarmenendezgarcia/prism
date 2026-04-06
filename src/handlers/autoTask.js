@@ -23,9 +23,11 @@
 
 const fs   = require('fs');
 const path = require('path');
+const os   = require('os');
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { COLUMNS }                        = require('../constants');
+const { validatePipelineField }          = require('./tasks');
 
 // ---------------------------------------------------------------------------
 // System prompt (loaded once at module init)
@@ -58,6 +60,37 @@ const DEFAULT_COLUMN = 'todo';
  */
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Agent ID soft-validation helper (T-006)
+//
+// Reads the agents directory and returns the set of known agent IDs.
+// Falls back to an empty Set when the directory is missing (no-op strip).
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the set of known agent IDs from PIPELINE_AGENTS_DIR (or ~/.claude/agents/).
+ * Each file named <agentId>.md contributes agentId to the set.
+ *
+ * @returns {Set<string>}
+ */
+function resolveKnownAgentIds() {
+  const rawDir    = process.env.PIPELINE_AGENTS_DIR;
+  const agentsDir = rawDir
+    ? (rawDir.startsWith('~') ? rawDir.replace('~', os.homedir()) : rawDir)
+    : path.join(os.homedir(), '.claude', 'agents');
+
+  const known = new Set();
+  try {
+    const entries = fs.readdirSync(agentsDir);
+    for (const entry of entries) {
+      if (entry.endsWith('.md')) {
+        known.add(entry.slice(0, -3));
+      }
+    }
+  } catch { /* directory missing — treat all IDs as unknown (safe: strips all) */ }
+  return known;
 }
 
 // ---------------------------------------------------------------------------
@@ -257,20 +290,59 @@ async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir) {
       return sendError(res, 502, 'AUTOTASK_CLI_ERROR', `AI CLI error: ${err.message}`);
     }
 
-    // 6. Build full task objects
-    const now = new Date().toISOString();
-    const VALID_TYPES = new Set(['feature', 'bug', 'tech-debt', 'chore']);
+    // 6. Build full task objects (T-006: include optional pipeline field)
+    const now          = new Date().toISOString();
+    const VALID_TYPES  = new Set(['feature', 'bug', 'tech-debt', 'chore']);
+    const knownAgents  = resolveKnownAgentIds();
 
     const tasks = rawTasks
       .filter((t) => t && typeof t.title === 'string' && t.title.trim().length > 0)
-      .map((t) => ({
-        id:          generateId(),
-        title:       String(t.title).slice(0, 80).trim(),
-        type:        VALID_TYPES.has(t.type) ? t.type : 'chore',
-        description: t.description ? String(t.description).slice(0, 200).trim() : '',
-        createdAt:   now,
-        updatedAt:   now,
-      }));
+      .map((t) => {
+        const taskId = generateId();
+        const base = {
+          id:          taskId,
+          title:       String(t.title).slice(0, 80).trim(),
+          type:        VALID_TYPES.has(t.type) ? t.type : 'chore',
+          description: t.description ? String(t.description).slice(0, 200).trim() : '',
+          createdAt:   now,
+          updatedAt:   now,
+        };
+
+        // T-006: soft-validate and store pipeline when present
+        if (t.pipeline !== undefined) {
+          const pipelineResult = validatePipelineField(t.pipeline);
+          if (!pipelineResult.valid) {
+            console.warn(JSON.stringify({
+              event: 'autotask.pipeline_field_stripped',
+              taskId, reason: pipelineResult.error,
+            }));
+          } else if (pipelineResult.data !== undefined) {
+            // Strip elements whose agent file does not exist on disk
+            const filtered = knownAgents.size > 0
+              ? pipelineResult.data.filter((id) => knownAgents.has(id))
+              : pipelineResult.data;
+
+            if (filtered.length < pipelineResult.data.length) {
+              console.warn(JSON.stringify({
+                event: 'autotask.pipeline_unknown_agents_stripped',
+                taskId,
+                original: pipelineResult.data,
+                retained: filtered,
+              }));
+            }
+
+            if (filtered.length > 0) {
+              base.pipeline = filtered;
+              process.stderr.write(JSON.stringify({
+                event: 'autotask.pipeline_field_set',
+                taskId, stages: filtered,
+              }) + '\n');
+            }
+          }
+        }
+
+        return base;
+      });
 
     if (tasks.length === 0) {
       return sendError(res, 502, 'AUTOTASK_CLI_ERROR', 'AI returned no valid tasks');
@@ -341,14 +413,24 @@ async function handleAutoTaskConfirm(req, res, spaceId, spaceDataDir) {
   const now = new Date().toISOString();
   const sanitized = tasks
     .filter((t) => t && typeof t.title === 'string' && t.title.trim().length > 0)
-    .map((t) => ({
-      id:          t.id || generateId(),
-      title:       String(t.title).slice(0, 80).trim(),
-      type:        VALID_TYPES.has(t.type) ? t.type : 'chore',
-      description: t.description ? String(t.description).slice(0, 200).trim() : '',
-      createdAt:   t.createdAt || now,
-      updatedAt:   now,
-    }));
+    .map((t) => {
+      const base = {
+        id:          t.id || generateId(),
+        title:       String(t.title).slice(0, 80).trim(),
+        type:        VALID_TYPES.has(t.type) ? t.type : 'chore',
+        description: t.description ? String(t.description).slice(0, 200).trim() : '',
+        createdAt:   t.createdAt || now,
+        updatedAt:   now,
+      };
+      // T-006: preserve pipeline field if present and valid on confirmed tasks
+      if (t.pipeline !== undefined) {
+        const pipelineResult = validatePipelineField(t.pipeline);
+        if (pipelineResult.valid && pipelineResult.data !== undefined) {
+          base.pipeline = pipelineResult.data;
+        }
+      }
+      return base;
+    });
 
   if (sanitized.length === 0) {
     return sendError(res, 400, 'VALIDATION_ERROR', 'No valid tasks to create');
