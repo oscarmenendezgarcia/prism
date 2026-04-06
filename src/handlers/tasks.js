@@ -25,6 +25,9 @@ const DESCRIPTION_MAX_LEN  = 1000;
 const ASSIGNED_MAX_LEN     = 50;
 const PIPELINE_MAX_STAGES  = 20;
 const PIPELINE_STAGE_MAX_LEN = 50;
+// Agent IDs must be safe identifier strings — no path separators or traversal
+// segments. Allows lowercase letters, digits, and hyphens only.
+const PIPELINE_STAGE_ID_RE = /^[a-z0-9-]+$/;
 
 const ATTACHMENT_MAX_COUNT         = 20;
 const ATTACHMENT_NAME_MAX_LEN      = 100;
@@ -83,6 +86,11 @@ function validatePipelineField(value) {
     }
     if (element.trim().length > PIPELINE_STAGE_MAX_LEN) {
       return { valid: false, error: `pipeline[${i}] must not exceed ${PIPELINE_STAGE_MAX_LEN} characters` };
+    }
+    // BUG-002: Reject path-like characters to prevent path traversal.
+    // Agent IDs must be lowercase alphanumeric with hyphens only.
+    if (!PIPELINE_STAGE_ID_RE.test(element.trim())) {
+      return { valid: false, error: `pipeline[${i}] must contain only lowercase letters, digits, and hyphens` };
     }
   }
 

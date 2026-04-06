@@ -228,6 +228,43 @@ describe('validatePipelineField — unit', () => {
     assert.equal(result.valid, false);
     assert.match(result.error, /50/);
   });
+
+  // BUG-002: path traversal / path-like character rejection
+  test('element containing forward slash → invalid', () => {
+    const result = validatePipelineField(['../../.env']);
+    assert.equal(result.valid, false);
+    assert.match(result.error, /lowercase letters, digits, and hyphens/);
+  });
+
+  test('element containing backslash → invalid', () => {
+    const result = validatePipelineField(['..\\..\\etc\\passwd']);
+    assert.equal(result.valid, false);
+    assert.match(result.error, /lowercase letters, digits, and hyphens/);
+  });
+
+  test('element containing double-dot traversal segment → invalid', () => {
+    const result = validatePipelineField(['..']);
+    assert.equal(result.valid, false);
+    assert.match(result.error, /lowercase letters, digits, and hyphens/);
+  });
+
+  test('element with uppercase letters → invalid', () => {
+    const result = validatePipelineField(['Developer-Agent']);
+    assert.equal(result.valid, false);
+    assert.match(result.error, /lowercase letters, digits, and hyphens/);
+  });
+
+  test('element with spaces → invalid', () => {
+    const result = validatePipelineField(['agent name']);
+    assert.equal(result.valid, false);
+    assert.match(result.error, /lowercase letters, digits, and hyphens/);
+  });
+
+  test('valid agent IDs with hyphens and digits → valid', () => {
+    const result = validatePipelineField(['qa-engineer-e2e', 'developer-agent', 'agent-007']);
+    assert.equal(result.valid, true);
+    assert.deepEqual(result.data, ['qa-engineer-e2e', 'developer-agent', 'agent-007']);
+  });
 });
 
 // ---------------------------------------------------------------------------
