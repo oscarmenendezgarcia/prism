@@ -131,7 +131,14 @@ describe('agentResolver', () => {
     assert.equal(spec.agentId, 'senior-architect');
     assert.equal(spec.model, 'opus');
     assert.ok(spec.systemPrompt.includes('You are the senior architect.'));
-    assert.deepEqual(spec.spawnArgs, ['--agent', 'senior-architect', '--print', '--enable-auto-mode']);
+    assert.deepEqual(spec.spawnArgs, [
+      '--agent', 'senior-architect',
+      '--print',
+      '--enable-auto-mode',
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--allowedTools', 'Bash Edit Write Read Glob Grep mcp__prism__* mcp__stitch__* mcp__figma__* mcp__plugin_playwright_playwright__*',
+    ]);
 
     fs.rmSync(agentsDir, { recursive: true, force: true });
   });
