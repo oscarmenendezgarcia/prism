@@ -82,7 +82,7 @@ function createSpaceWithTask(dataDir, taskOverrides = {}) {
  * Returns { spaceId, taskId }.
  */
 function setupSpaceViaManager(dataDir) {
-  const { createSpaceManager } = require('../src/spaceManager');
+  const { createSpaceManager } = require('../src/services/spaceManager');
   const sm     = createSpaceManager(dataDir);
   const result = sm.createSpace(`prompt-test-${crypto.randomUUID().slice(0, 8)}`);
   const spaceId = result.space.id;
@@ -141,7 +141,7 @@ function request(port, method, urlPath, body) {
 // ---------------------------------------------------------------------------
 
 describe('buildStagePrompt() unit tests', () => {
-  const { buildStagePrompt } = require('../src/pipelineManager');
+  const { buildStagePrompt } = require('../src/services/pipelineManager');
 
   test('returns { promptText, estimatedTokens } shape', () => {
     const dataDir = tmpDir();
@@ -238,7 +238,7 @@ describe('buildStagePrompt() unit tests', () => {
 // ---------------------------------------------------------------------------
 
 describe('stagePromptPath() helper', () => {
-  const { stagePromptPath, runDir } = require('../src/pipelineManager');
+  const { stagePromptPath, runDir } = require('../src/services/pipelineManager');
 
   test('returns expected path pattern', () => {
     const dataDir = '/tmp/test-data';
@@ -325,7 +325,7 @@ describe('Pipeline prompt endpoints — REST integration', () => {
     });
 
     test('returns 200 text/plain when prompt file exists', async () => {
-      const { stagePromptPath, runDir } = require('../src/pipelineManager');
+      const { stagePromptPath, runDir } = require('../src/services/pipelineManager');
       const runId = crypto.randomUUID();
 
       // Manually create run.json and prompt file.
@@ -358,7 +358,7 @@ describe('Pipeline prompt endpoints — REST integration', () => {
     });
 
     test('returns 404 PROMPT_NOT_AVAILABLE when prompt file missing', async () => {
-      const { runDir } = require('../src/pipelineManager');
+      const { runDir } = require('../src/services/pipelineManager');
       const runId = crypto.randomUUID();
 
       const runDirectory = runDir(dataDir, runId);
