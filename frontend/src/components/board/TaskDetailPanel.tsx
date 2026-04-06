@@ -18,7 +18,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { useAppStore, useActiveRun } from '@/stores/useAppStore';
+import { useAppStore, useActiveRun, useAvailableAgents } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import type { Column } from '@/types';
@@ -115,6 +115,247 @@ function useFocusTrap(containerRef: React.RefObject<HTMLElement | null>, active:
 }
 
 // ---------------------------------------------------------------------------
+// Pipeline field editor (T-009)
+// ---------------------------------------------------------------------------
+
+interface PipelineFieldEditorProps {
+  /** Current pipeline value from the task (undefined = use space default). */
+  pipeline: string[] | undefined;
+  /** All known agent IDs (from availableAgents in store). */
+  availableAgentIds: string[];
+  /** Called with the new pipeline array on Save, or [] on Clear. */
+  onSave: (pipeline: string[]) => void;
+  /** Whether the panel is in read-only mode (isMutating / activeRun). */
+  disabled: boolean;
+}
+
+/**
+ * Inline pipeline field editor.
+ *
+ * Collapsed (no pipeline): "Pipeline: (space default)" label + Configure button.
+ * Collapsed (pipeline set): chip chain "a → b → c" + Edit + Clear buttons.
+ * Edit mode: ordered list with ↑/↓/✕ per stage, add-stage select, Save/Cancel.
+ */
+function PipelineFieldEditor({
+  pipeline,
+  availableAgentIds,
+  onSave,
+  disabled,
+}: PipelineFieldEditorProps): React.ReactElement {
+  const [isEditing, setIsEditing]     = useState(false);
+  const [draftStages, setDraftStages] = useState<string[]>([]);
+
+  const openEditor = useCallback(() => {
+    setDraftStages(pipeline ? [...pipeline] : []);
+    setIsEditing(true);
+  }, [pipeline]);
+
+  const handleCancel = useCallback(() => {
+    setIsEditing(false);
+  }, []);
+
+  const handleSave = useCallback(() => {
+    onSave(draftStages);
+    setIsEditing(false);
+  }, [draftStages, onSave]);
+
+  const handleClear = useCallback(() => {
+    onSave([]);
+  }, [onSave]);
+
+  const handleMoveUp = useCallback((index: number) => {
+    if (index === 0) return;
+    setDraftStages((prev) => {
+      const next = [...prev];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      return next;
+    });
+  }, []);
+
+  const handleMoveDown = useCallback((index: number) => {
+    setDraftStages((prev) => {
+      if (index >= prev.length - 1) return prev;
+      const next = [...prev];
+      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      return next;
+    });
+  }, []);
+
+  const handleRemove = useCallback((index: number) => {
+    setDraftStages((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handleAddStage = useCallback((agentId: string) => {
+    if (!agentId || draftStages.includes(agentId)) return;
+    setDraftStages((prev) => [...prev, agentId]);
+  }, [draftStages]);
+
+  // Agents not yet in the draft (for the add dropdown)
+  const addableAgents = availableAgentIds.filter((id) => !draftStages.includes(id));
+
+  // ── Collapsed read mode ────────────────────────────────────────────────────
+
+  if (!isEditing) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+          Pipeline
+        </span>
+        {pipeline && pipeline.length > 0 ? (
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm text-text-primary leading-relaxed break-all">
+              {pipeline.join(' \u2192 ')}
+            </p>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                type="button"
+                onClick={openEditor}
+                disabled={disabled}
+                aria-label="Edit pipeline"
+                title="Edit pipeline"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+              >
+                <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+                  edit
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={handleClear}
+                disabled={disabled}
+                aria-label="Clear pipeline"
+                title="Clear pipeline (revert to space default)"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+              >
+                <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+                  close
+                </span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm text-text-secondary italic">
+              (space default)
+            </span>
+            <button
+              type="button"
+              onClick={openEditor}
+              disabled={disabled}
+              aria-label="Configure pipeline"
+              title="Configure pipeline"
+              className="text-xs text-primary hover:text-primary/80 focus:outline-none focus:ring-2 focus:ring-primary rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150 px-1.5 py-0.5"
+            >
+              Configure
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ── Edit mode ──────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+        Pipeline
+      </span>
+
+      {/* Stage list */}
+      {draftStages.length === 0 ? (
+        <p className="text-sm text-text-secondary italic px-1">
+          No stages — will use space default on save.
+        </p>
+      ) : (
+        <ol className="flex flex-col gap-1" aria-label="Pipeline stage order">
+          {draftStages.map((agentId, index) => (
+            <li
+              key={agentId}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-surface-elevated border border-border"
+            >
+              <span className="text-xs font-mono text-text-secondary w-4 text-right flex-shrink-0">
+                {index + 1}
+              </span>
+              <span className="flex-1 text-sm text-text-primary font-mono truncate">
+                {agentId}
+              </span>
+              <div className="flex items-center gap-0.5 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleMoveUp(index)}
+                  disabled={index === 0}
+                  aria-label={`Move ${agentId} up`}
+                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-100"
+                >
+                  <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+                    arrow_upward
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMoveDown(index)}
+                  disabled={index === draftStages.length - 1}
+                  aria-label={`Move ${agentId} down`}
+                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-100"
+                >
+                  <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+                    arrow_downward
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRemove(index)}
+                  aria-label={`Remove ${agentId} from pipeline`}
+                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-error focus:outline-none focus:ring-1 focus:ring-primary transition-colors duration-100"
+                >
+                  <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+                    close
+                  </span>
+                </button>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {/* Add stage dropdown */}
+      {addableAgents.length > 0 && (
+        <select
+          aria-label="Add a stage to the pipeline"
+          defaultValue=""
+          onChange={(e) => { handleAddStage(e.target.value); e.currentTarget.value = ''; }}
+          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary transition-colors duration-150"
+        >
+          <option value="" disabled>Add stage...</option>
+          {addableAgents.map((id) => (
+            <option key={id} value={id}>{id}</option>
+          ))}
+        </select>
+      )}
+
+      {/* Save / Cancel */}
+      <div className="flex gap-2 justify-end">
+        <Button
+          variant="ghost"
+          onClick={handleCancel}
+          className="text-xs px-3 py-1.5"
+        >
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          onClick={handleSave}
+          className="text-xs px-3 py-1.5"
+        >
+          Save pipeline
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -130,6 +371,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const tasks            = useAppStore((s) => s.tasks);
   const showToast        = useAppStore((s) => s.showToast);
   const activeRun        = useActiveRun();
+  const availableAgents  = useAvailableAgents();
 
   // ── Local field state ────────────────────────────────────────────────────
 
@@ -244,6 +486,12 @@ export function TaskDetailPanel(): React.ReactElement | null {
     if (!detailTask) return;
     updateTask(detailTask.id, { description: localDescription.trim() });
   }, [detailTask, localDescription, updateTask]);
+
+  // T-009: pipeline save handler
+  const handlePipelineSave = useCallback((pipeline: string[]) => {
+    if (!detailTask) return;
+    updateTask(detailTask.id, { pipeline });
+  }, [detailTask, updateTask]);
 
   const handleCopyId = useCallback(async () => {
     if (!detailTask) return;
@@ -423,6 +671,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
               placeholder="Assign to someone..."
             />
           </div>
+
+          {/* ── Pipeline (T-009) ────────────────────────────────────── */}
+          <PipelineFieldEditor
+            pipeline={detailTask.pipeline}
+            availableAgentIds={availableAgents.map((a) => a.id)}
+            onSave={handlePipelineSave}
+            disabled={fieldDisabled}
+          />
 
           {/* ── Description ─────────────────────────────────────────── */}
           <div className="flex flex-col gap-1.5">
