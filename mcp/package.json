@@ -1,0 +1,14 @@
+{
+  "name": "prism-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "MCP server for Prism",
+  "main": "mcp-server.js",
+  "scripts": {
+    "start": "node mcp-server.js",
+    "test": "node --test tests/"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}
