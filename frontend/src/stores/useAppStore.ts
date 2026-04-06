@@ -768,9 +768,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   pipelineConfirmModal: null,
 
   openPipelineConfirm: (spaceId: string, taskId: string) => {
-    const { agentSettings, spaces } = get();
+    const { agentSettings, spaces, tasks, detailTask } = get();
     const space = spaces.find((s) => s.id === spaceId);
+
+    // T-008: resolution chain — task.pipeline > space.pipeline > agentSettings > DEFAULT_STAGES
+    // Search all board columns and the open detail panel for the task.
+    const allBoardTasks = [
+      ...tasks.todo,
+      ...tasks['in-progress'],
+      ...tasks.done,
+      ...(detailTask ? [detailTask] : []),
+    ];
+    const boardTask    = allBoardTasks.find((t) => t.id === taskId);
+    const taskPipeline = boardTask?.pipeline && boardTask.pipeline.length > 0
+      ? boardTask.pipeline
+      : null;
+
     const stages = (
+      taskPipeline ??
       (space?.pipeline && space.pipeline.length > 0 ? space.pipeline : null) ??
       agentSettings?.pipeline?.stages ??
       ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e']

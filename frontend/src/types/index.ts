@@ -44,6 +44,12 @@ export interface Task {
   type: TaskType;
   description?: string;
   assigned?: string;
+  /**
+   * Optional per-card pipeline override. When non-empty, takes precedence over
+   * the space-level pipeline default when "Run Pipeline" is invoked.
+   * ADR-1 (pipeline-field-per-card): resolution chain is task > space > DEFAULT_STAGES.
+   */
+  pipeline?: string[];
   attachments?: Attachment[];
   createdAt: string;
   updatedAt: string;
@@ -74,6 +80,11 @@ export interface UpdateTaskPayload {
   description?: string;
   /** Empty string deletes the field on the server. */
   assigned?: string;
+  /**
+   * Per-card pipeline override. Non-empty array = set; empty array = clear
+   * (reverts to space default). Omit to leave the field unchanged.
+   */
+  pipeline?: string[];
 }
 
 /** Response from PUT /spaces/:spaceId/tasks/:id/move */
