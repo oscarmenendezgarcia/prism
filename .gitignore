@@ -11,6 +11,9 @@ data/
 *.log
 agent-docs/
 
+# Test coverage output
+frontend/coverage/
+
 # Playwright MCP browser session cache
 .playwright-mcp/
 
