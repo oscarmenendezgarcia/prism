@@ -67,18 +67,56 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
     return sendError(res, 400, 'VALIDATION_ERROR', "The 'stages' field must be an array when provided.");
   }
 
-  // Resolve stages: explicit body > space.pipeline > pipelineManager default
-  let resolvedStages = stages;
-  if (!resolvedStages || resolvedStages.length === 0) {
-    const spaceResult = spaceManager.getSpace(spaceId);
-    if (spaceResult.ok && Array.isArray(spaceResult.space.pipeline) && spaceResult.space.pipeline.length > 0) {
-      resolvedStages = spaceResult.space.pipeline;
+  // T-004: Resolve stages — explicit body > task.pipeline > space.pipeline > DEFAULT_STAGES
+  let resolvedStages = stages && stages.length > 0 ? stages : undefined;
+  let resolvedFrom   = resolvedStages ? 'explicit' : undefined;
+
+  if (!resolvedStages) {
+    // Try task.pipeline — read the task from disk using the same path pipelineManager uses.
+    const spaceDir = path.join(dataDir, 'spaces', spaceId);
+    for (const col of ['todo', 'in-progress', 'done']) {
+      const filePath = path.join(spaceDir, `${col}.json`);
+      if (!fs.existsSync(filePath)) continue;
+      try {
+        const tasks   = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+        const found   = Array.isArray(tasks) ? tasks.find((t) => t.id === taskId) : null;
+        if (found && Array.isArray(found.pipeline) && found.pipeline.length > 0) {
+          resolvedStages = found.pipeline;
+          resolvedFrom   = 'task';
+        }
+        if (found) break;
+      } catch { /* skip corrupt files — pipelineManager will report TASK_NOT_FOUND */ }
     }
   }
 
+  if (!resolvedStages) {
+    // Try space.pipeline
+    const spaceResult = spaceManager.getSpace(spaceId);
+    if (spaceResult.ok && Array.isArray(spaceResult.space.pipeline) && spaceResult.space.pipeline.length > 0) {
+      resolvedStages = spaceResult.space.pipeline;
+      resolvedFrom   = 'space';
+    }
+  }
+
+  if (!resolvedStages) {
+    resolvedFrom = 'default';
+  }
+
+  process.stderr.write(JSON.stringify({
+    event: 'run.pipeline_resolved',
+    spaceId, taskId,
+    resolvedFrom: resolvedFrom ?? 'explicit',
+    stages: resolvedStages ?? pipelineManager.DEFAULT_STAGES,
+    ts: new Date().toISOString(),
+  }) + '\n');
+
   try {
     const run = await pipelineManager.createRun({ spaceId, taskId, stages: resolvedStages, dataDir });
-    return sendJSON(res, 201, run);
+    // Include resolvedFrom in the response when stages were not explicitly provided (MCP path).
+    const responseBody = resolvedFrom && resolvedFrom !== 'explicit'
+      ? { ...run, resolvedFrom, stages: run.stages }
+      : run;
+    return sendJSON(res, 201, responseBody);
   } catch (err) {
     if (err.code === 'TASK_NOT_FOUND')        return sendError(res, 404, err.code, err.message);
     if (err.code === 'TASK_NOT_IN_TODO')       return sendError(res, 422, err.code, err.message);
