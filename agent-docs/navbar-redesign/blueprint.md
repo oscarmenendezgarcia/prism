@@ -105,48 +105,55 @@ Cuando `pipelineState !== null`:
 
 ---
 
-## 4. ThemeToggle — Especificación (ADR-1 Accepted)
+## 4. ThemeToggle — Especificación (ADR-1 §T-6 Accepted)
 
 ### 4.1 Posición
 
-El ThemeToggle permanece en el extremo derecho del header, después del segundo divisor visual. Esta posición lo separa semánticamente del grupo de panel toggles.
+El ThemeToggle permanece en el extremo derecho del header, después del segundo divisor visual.
 
 ```
 [Panel Toggles] │ [New Task] │ [ThemeToggle]
                               ↑ divisor conservado
 ```
 
-### 4.2 Cambio único requerido
+### 4.2 className final (T-6)
 
-**Antes (estado actual):**
 ```tsx
-className="... w-9 h-9 ..."
+className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-text-secondary
+           hover:bg-surface-variant hover:text-text-primary
+           disabled:opacity-40 disabled:cursor-not-allowed
+           transition-all duration-150 ease-apple leading-none"
 ```
 
-**Después (post-rediseño):**
-```tsx
-className="... w-9 h-10 ..."
-```
+### 4.3 Tabla de decisiones de diseño
 
-Solo se iguala la altura de 36px → 40px para alineación vertical consistente con los panel toggles rediseñados. El ancho (36px) permanece igual — el ThemeToggle es más estrecho que los panel toggles (que son 72px mínimo) porque no tiene label de texto.
+| Pregunta | Decisión | Justificación |
+|----------|----------|---------------|
+| Label de texto | **Sin label** | Baja frecuencia de uso; iconos reconocibles; label crearía ambigüedad de "¿abre un panel?" |
+| Idle border | **Sin border** | El divisor ya comunica separación semántica; replicar el border del grupo debilitaría esa distinción |
+| Border radius | **`rounded-xl`** (12px) | Diferenciador visual intencional frente a `rounded-lg` de los panel toggles; forma "pastilla singular" |
+| Ancho | **`w-10`** (40px) | Botón cuadrado 40×40px; evita asimetría 36×40px y mejora el target de Fitts respecto a `w-9` |
 
-### 4.3 Decisión de no añadir label
+### 4.4 Comparativa con panel toggles
 
-El ThemeToggle no recibirá label de texto ("Theme") en esta fase por tres razones:
+| Propiedad | Panel Toggles | ThemeToggle |
+|-----------|---------------|-------------|
+| Tamaño | `h-10 min-w-[72px] px-3` | `w-10 h-10` |
+| Layout interno | `flex-col gap-0.5` (icono + label) | `inline-flex` (solo icono) |
+| Idle background | `bg-white/[0.04]` | ninguno |
+| Idle border | `border border-white/[0.08]` | ninguno |
+| Hover | `hover:bg-surface-variant hover:text-text-primary` | igual |
+| Active state | `bg-primary/[0.15] text-primary border-primary/30` | N/A (no tiene estado "abierto") |
+| Border radius | `rounded-lg` (8px) | `rounded-xl` (12px) |
+| Label | sí (10px font-medium) | no |
 
-1. **Frecuencia de uso**: el tema es una preferencia de configuración de baja frecuencia (se cambia raramente). Los panel toggles son de uso frecuente. Un label añadiría peso visual a un elemento secundario.
-2. **Reconocibilidad del icono**: los iconos `brightness_auto`, `light_mode`, `dark_mode` son suficientemente universales para el perfil del usuario (developer técnico).
-3. **Separación semántica**: el ThemeToggle no pertenece al grupo "panel toggles con label". Añadirle label crea ambigüedad sobre si también abre un panel.
-
-Si en el futuro se añaden más controles de preferencia junto al ThemeToggle (densidad, idioma), ese grupo podría recibir labels en ese momento como decisión cohesionada.
-
-### 4.4 Ciclo de estados (sin cambios)
+### 4.5 Ciclo de estados (sin cambios)
 
 ```
 system (brightness_auto) → light (light_mode) → dark (dark_mode) → system
 ```
 
-El aria-label sigue siendo descriptivo del siguiente estado (patrón existente).
+El `aria-label` describe la acción siguiente ("Switch to light mode", etc.). El `title` tooltip mantiene el mismo texto para consistencia con el patrón existente.
 
 ---
 
@@ -199,7 +206,7 @@ No se requieren cambios en stores para ninguna parte de este rediseño.
 - [ ] Reordenar panel toggles en `Header.tsx`: Terminal, Settings, History, Logs, Config
 - [ ] Actualizar cada toggle component para renderizar icono + label (h-10 min-w-[72px])
 - [ ] PipelineLogToggle: cambiar `if (!pipelineState) return null` por opacity/aria-disabled (ver §3.4)
-- [ ] ThemeToggle: cambiar `h-9` → `h-10` (única modificación requerida por ADR-1)
+- [ ] ThemeToggle: cambiar `w-9 h-10` → `w-10 h-10` (botón cuadrado; ADR-1 §T-6)
 - [ ] Responsive: ocultar labels con `hidden md:block` (breakpoint 900px ~ `md` en config actual)
 - [ ] Verificar que el header no hace overflow horizontal en 1280px con el nuevo layout
 - [ ] Tests: snapshot de cada toggle en estado idle/active/disabled
@@ -212,7 +219,7 @@ No se requieren cambios en stores para ninguna parte de este rediseño.
 | Archivo | Cambio |
 |---------|--------|
 | `frontend/src/components/layout/Header.tsx` | Reordenar toggles, refactorizar PipelineLogToggle |
-| `frontend/src/components/layout/ThemeToggle.tsx` | `h-9` → `h-10` |
+| `frontend/src/components/layout/ThemeToggle.tsx` | `w-9 h-10` → `w-10 h-10` (botón cuadrado; ver §4.2) |
 | `frontend/src/components/terminal/TerminalToggle.tsx` | Añadir label "Terminal" |
 | `frontend/src/components/agent-launcher/AgentSettingsToggle.tsx` | Añadir label "Settings" |
 | `frontend/src/components/agent-run-history/RunHistoryToggle.tsx` | Añadir label "History" |

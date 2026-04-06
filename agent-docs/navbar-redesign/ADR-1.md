@@ -136,3 +136,57 @@ Este ADR complementa el rediseño de panel toggles (navbar-redesign) sin modific
 Suggested review date: 2026-10-06
 
 Si para esa fecha el header ha crecido con nuevas preferencias de entorno (density, i18n, notifications), evaluar si una zona "Settings strip" o un dropdown de preferencias se justifica.
+
+---
+
+## §T-6 — Especificación de implementación del ThemeToggle
+
+> Añadido: 2026-04-06. Resuelve las 4 preguntas de diseño pendientes para la tarea T-6.
+
+### Pregunta 1 — ¿Label de texto?
+
+**Decisión: sin label.**
+
+El ADR original estableció esta posición con tres razones (baja frecuencia de uso, iconos universalmente reconocibles, separación semántica del grupo de panel toggles). La revisión de T-6 no altera esta decisión.
+
+La alternativa de label dinámico que muestra el estado actual ("Dark", "Light", "System") fue evaluada y descartada: introduce un elemento que cambia visualmente en cada click — comportamiento anómalo en un header que por lo demás es estático. El icono ya comunica el estado activo; el `aria-label` cubre la accesibilidad describiendo la acción siguiente.
+
+### Pregunta 2 — ¿Idle border `border border-white/[0.08]`?
+
+**Decisión: sin idle border.**
+
+Los panel toggles llevan idle border para reforzar que forman un grupo cohesivo de botones interactivos. El ThemeToggle ya está separado de ese grupo por un divisor (`w-px h-6 bg-border/60`) que comunica explícitamente "esto es diferente". Añadir el mismo idle border replicaría el lenguaje visual del grupo y debilitaría esa distinción semántica.
+
+El affordance de interactividad se cubre con el hover state (`hover:bg-surface-variant hover:text-text-primary`), que aparece inmediatamente al pasar el cursor.
+
+### Pregunta 3 — `rounded-xl` vs `rounded-lg`?
+
+**Decisión: mantener `rounded-xl` (12px).**
+
+El ADR §Consequences afirmó explícitamente "rounded-xl se conserva en ThemeToggle". Esta sección confirma esa decisión como deliberada, no como descuido.
+
+Justificación: `rounded-xl` en un botón de 40×40px produce una forma de "pastilla compacta" que diferencia visualmente al ThemeToggle de los panel toggles (que usan `rounded-lg` y son más anchos). El mayor radio relativo refuerza a nivel subconsciente que el elemento es singular y de naturaleza distinta. Uniformizar a `rounded-lg` eliminaría ese diferenciador sin ganancia funcional.
+
+### Pregunta 4 — ¿Ancho: `w-9`, `w-10`, o `min-w-[72px] px-3`?
+
+**Decisión: `w-10` (40px), botón cuadrado.**
+
+Sin label no hay justificación para `min-w-[72px]`. La elección entre `w-9` (36px) y `w-10` (40px) se resuelve a favor de `w-10` por dos razones:
+
+1. **Alineación visual**: con `h-10` ya definido, un botón cuadrado `w-10 h-10` evita la asimetría de un rectángulo 36×40px que no tiene razón de ser.
+2. **Target de Fitts**: 40×40px cumple holgadamente el mínimo de 44×44px recomendado por WCAG 2.5.5 en la dimensión vertical; la ligera diferencia en horizontal (40 vs 44px) es aceptable para un elemento de uso infrecuente. `w-9` en cambio produce 36×40px, un rectángulo sin cuadrado que resulta ligeramente menos cómodo de clickar.
+
+El `min-w-[72px] px-3` queda reservado exclusivamente para los panel toggles con label.
+
+### Especificación final del className
+
+```tsx
+className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-text-secondary
+           hover:bg-surface-variant hover:text-text-primary
+           disabled:opacity-40 disabled:cursor-not-allowed
+           transition-all duration-150 ease-apple leading-none"
+```
+
+Cambios respecto al estado actual de T-4 (`w-9 h-10 rounded-xl`):
+- `w-9` → `w-10` (botón cuadrado 40×40px)
+- Todo lo demás permanece igual.
