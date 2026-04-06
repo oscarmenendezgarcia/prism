@@ -36,16 +36,6 @@ node server.js &
 cd frontend && npm run dev   # → http://localhost:5173
 ```
 
-> **Tagger feature**: uses `TAGGER_CLI` (default: `claude`) to classify cards. Any CLI
-> supporting `<cmd> -p <prompt>` works (e.g. `opencode`). No API key required in the server —
-> the CLI handles its own authentication.
-
----
-
-## Git
-
-- **Never add `Co-Authored-By: Claude`** or any AI co-author line to commits.
-
 ---
 
 ## Stack
@@ -56,6 +46,3 @@ cd frontend && npm run dev   # → http://localhost:5173
 - **Build output:** `dist/` (served by backend in production)
 - **Frontend tests:** `cd frontend && npm test` (Vitest + React Testing Library)
 - **Backend tests:** `npm test` (Node.js `node:test` runner)
-- **Config API:** `GET|PUT /api/v1/config/files[/:fileId]` — reads/writes `~/.claude/*.md`, `~/.claude/agents/*.md`, `./CLAUDE.md`
-- **MCP server:** `mcp/mcp-server.js` — auto-configured via `.claude/settings.json` (requires `node server.js` running)
-- **Pipeline API:** `POST /api/v1/runs` · `GET /api/v1/runs/:runId` · `GET /api/v1/runs/:runId/stages/:N/log` · `DELETE /api/v1/runs/:runId`
