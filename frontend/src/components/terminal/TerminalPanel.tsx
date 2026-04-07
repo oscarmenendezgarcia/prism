@@ -95,7 +95,7 @@ export function TerminalPanel() {
   return (
     <aside
       ref={asideRef}
-      className={`relative flex flex-col bg-terminal-bg border-l border-[rgba(255,255,255,0.08)] h-full shrink-0 w-[var(--panel-w)]${panelOpen ? '' : ' hidden'}`}
+      className={`relative flex flex-col bg-terminal-bg border-l border-border h-full shrink-0 w-[var(--panel-w)]${panelOpen ? '' : ' hidden'}`}
       aria-label="Embedded terminal"
     >
       {/* Left-edge drag handle */}
@@ -111,12 +111,12 @@ export function TerminalPanel() {
       />
 
       {/* Terminal header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[rgba(255,255,255,0.08)] shrink-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
         <span className="text-sm font-medium text-terminal-text">Terminal</span>
         <button
           onClick={closePanel}
           aria-label="Close terminal panel"
-          className="w-7 h-7 flex items-center justify-center rounded text-terminal-text hover:bg-[rgba(255,255,255,0.08)] transition-colors duration-150"
+          className="w-7 h-7 flex items-center justify-center rounded text-terminal-text hover:bg-[var(--color-terminal-tab-hover)] transition-colors duration-150"
         >
           <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
             close
@@ -128,7 +128,7 @@ export function TerminalPanel() {
       <div
         role="tablist"
         aria-label="Terminal sessions"
-        className="flex items-center gap-1 px-2 py-1 border-b border-[rgba(255,255,255,0.08)] shrink-0 overflow-x-auto"
+        className="flex items-center gap-1 px-2 py-1 border-b border-border shrink-0 overflow-x-auto"
       >
         {sessions.map((session) => {
           const isActive = session.id === activeId;
@@ -140,8 +140,8 @@ export function TerminalPanel() {
               onClick={() => setActiveId(session.id)}
               className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs cursor-pointer select-none min-w-0 max-w-[160px] shrink-0 transition-colors duration-100 ${
                 isActive
-                  ? 'bg-[rgba(255,255,255,0.12)] text-terminal-text'
-                  : 'text-terminal-text/60 hover:bg-[rgba(255,255,255,0.06)] hover:text-terminal-text'
+                  ? 'bg-[var(--color-terminal-tab-active)] text-terminal-text'
+                  : 'text-terminal-text/60 hover:bg-[var(--color-terminal-tab-hover)] hover:text-terminal-text'
               }`}
             >
               {/* Status dot */}
@@ -181,7 +181,7 @@ export function TerminalPanel() {
                     removeSession(session.id);
                   }}
                   aria-label={`Close ${session.label}`}
-                  className="ml-auto shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-[rgba(255,255,255,0.15)] text-terminal-text/60 hover:text-terminal-text transition-colors duration-100"
+                  className="ml-auto shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-[var(--color-terminal-tab-close-hover)] text-terminal-text/60 hover:text-terminal-text transition-colors duration-100"
                 >
                   <span className="material-symbols-outlined text-[12px] leading-none" aria-hidden="true">
                     close
@@ -202,7 +202,7 @@ export function TerminalPanel() {
           className={`shrink-0 w-6 h-6 flex items-center justify-center rounded transition-colors duration-100 ${
             atCap
               ? 'text-terminal-text/20 cursor-not-allowed'
-              : 'text-terminal-text/60 hover:bg-[rgba(255,255,255,0.08)] hover:text-terminal-text cursor-pointer'
+              : 'text-terminal-text/60 hover:bg-[var(--color-terminal-tab-hover)] hover:text-terminal-text cursor-pointer'
           }`}
         >
           <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
@@ -213,7 +213,7 @@ export function TerminalPanel() {
 
       {/* Reconnect bar — shown when the active session is disconnected */}
       {reconnectAvailable && (
-        <div className="px-3 py-1.5 bg-[rgba(255,255,255,0.05)] border-b border-[rgba(255,255,255,0.08)] shrink-0">
+        <div className="px-3 py-1.5 bg-[var(--color-terminal-tab-hover)] border-b border-border shrink-0">
           <span className="text-xs text-warning">
             Session disconnected — reconnecting automatically...
           </span>
