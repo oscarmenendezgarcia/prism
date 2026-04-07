@@ -16,7 +16,7 @@ import React from 'react';
 export interface StageStatus {
   index: number;
   agentId: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout' | 'interrupted';
   startedAt: string | null;
   finishedAt: string | null;
   exitCode: number | null;
@@ -46,7 +46,7 @@ function getShortLabel(agentId: string): string {
 }
 
 interface StatusIconProps {
-  status: StageStatus['status'] | 'pending';
+  status: StageStatus['status'];
 }
 
 function StatusIcon({ status }: StatusIconProps) {
@@ -72,6 +72,17 @@ function StatusIcon({ status }: StatusIconProps) {
     );
   }
 
+  if (status === 'interrupted') {
+    return (
+      <span
+        className="material-symbols-outlined text-sm leading-none text-warning"
+        aria-hidden="true"
+      >
+        pause_circle
+      </span>
+    );
+  }
+
   if (status === 'failed') {
     return (
       <span
@@ -86,7 +97,7 @@ function StatusIcon({ status }: StatusIconProps) {
   if (status === 'timeout') {
     return (
       <span
-        className="material-symbols-outlined text-sm leading-none text-[#FF9500]"
+        className="material-symbols-outlined text-sm leading-none text-warning"
         aria-hidden="true"
       >
         timer_off

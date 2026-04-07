@@ -171,6 +171,8 @@ interface AppState {
    * advances to execute the paused stage.
    */
   resumePipeline: () => Promise<void>;
+  /** Resume a backend-interrupted run via POST /api/v1/runs/:runId/resume. */
+  resumeInterruptedRun: () => Promise<void>;
   abortPipeline: () => void;
   /** Silently dismiss the pipeline indicator without sending Ctrl+C or toasting. */
   clearPipeline: () => void;
@@ -998,9 +1000,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ pipelineState: null, activeRun: null });
     showToast(`Pipeline aborted at stage ${stage}.`);
   },
-  clearPipeline: () => set({ pipelineState: null, activeRun: null }),
+  clearPipeline: () => {
+    const { pipelineState } = get();
+    if (pipelineState?.runId && pipelineState.status !== 'completed') {
+      api.deleteRun(pipelineState.runId).catch(() => {});
+    }
+    set({ pipelineState: null, activeRun: null });
+  },
 
   attachRun: (state) => set({ pipelineState: state }),
+
+  /**
+   * Resume a backend-interrupted run via POST /api/v1/runs/:runId/resume.
+   * Updates pipelineState to 'running' so the indicator live-tracks again.
+   */
+  resumeInterruptedRun: async () => {
+    const { pipelineState, showToast } = get();
+    if (!pipelineState?.runId || pipelineState.status !== 'interrupted') return;
+    try {
+      await api.resumeRun(pipelineState.runId);
+      set({ pipelineState: { ...pipelineState, status: 'running', finishedAt: undefined } });
+    } catch {
+      showToast('Failed to resume run.', 'error');
+    }
+  },
 
   /**
    * T-3 (manual checkpoints): resume a paused pipeline.

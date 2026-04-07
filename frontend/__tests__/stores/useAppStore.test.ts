@@ -61,6 +61,7 @@ vi.mock('../../src/api/client', () => ({
   startRun:             vi.fn().mockResolvedValue({ runId: 'run-orch-1', status: 'pending', stages: ['orchestrator'], spaceId: 'space-1', taskId: 'task-1', createdAt: new Date().toISOString() }),
   getBackendRun:        vi.fn().mockResolvedValue({ runId: 'run-orch-1', status: 'completed', stages: ['orchestrator'], spaceId: 'space-1', taskId: 'task-1', createdAt: new Date().toISOString() }),
   deleteRun:            vi.fn().mockResolvedValue(undefined),
+  resumeRun:            vi.fn().mockResolvedValue({ runId: 'run-orch-1', status: 'running', stages: ['orchestrator'], spaceId: 'space-1', taskId: 'task-1', createdAt: new Date().toISOString() }),
 }));
 
 import { useAppStore } from '../../src/stores/useAppStore';
@@ -1562,5 +1563,182 @@ describe('resumePipeline', () => {
 
     expect(useAppStore.getState().pipelineState).toBeNull();
     expect(useAppStore.getState().toast?.type).toBe('error');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clearPipeline (updated: calls deleteRun for non-completed runs)
+// ---------------------------------------------------------------------------
+
+describe('clearPipeline', () => {
+  beforeEach(() => {
+    resetStore();
+    vi.clearAllMocks();
+  });
+
+  it('sets pipelineState to null', () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'running', checkpoints: [],
+        runId: 'run-abc',
+      } as any,
+    });
+    useAppStore.getState().clearPipeline();
+    expect(useAppStore.getState().pipelineState).toBeNull();
+  });
+
+  it('calls deleteRun when runId is present and status is running', () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'running', checkpoints: [],
+        runId: 'run-to-delete',
+      } as any,
+    });
+    useAppStore.getState().clearPipeline();
+    expect(api.deleteRun).toHaveBeenCalledWith('run-to-delete');
+  });
+
+  it('calls deleteRun when status is interrupted', () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'interrupted', checkpoints: [],
+        runId: 'run-interrupted',
+      } as any,
+    });
+    useAppStore.getState().clearPipeline();
+    expect(api.deleteRun).toHaveBeenCalledWith('run-interrupted');
+  });
+
+  it('does NOT call deleteRun when status is completed', () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'completed', checkpoints: [],
+        runId: 'run-done',
+      } as any,
+    });
+    useAppStore.getState().clearPipeline();
+    expect(api.deleteRun).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call deleteRun when runId is absent', () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'running', checkpoints: [],
+        // no runId
+      } as any,
+    });
+    useAppStore.getState().clearPipeline();
+    expect(api.deleteRun).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when pipelineState is null', () => {
+    useAppStore.setState({ pipelineState: null });
+    useAppStore.getState().clearPipeline();
+    expect(useAppStore.getState().pipelineState).toBeNull();
+    expect(api.deleteRun).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resumeInterruptedRun
+// ---------------------------------------------------------------------------
+
+describe('resumeInterruptedRun', () => {
+  beforeEach(() => {
+    resetStore();
+    vi.clearAllMocks();
+  });
+
+  it('does nothing when pipelineState is null', async () => {
+    useAppStore.setState({ pipelineState: null });
+    await useAppStore.getState().resumeInterruptedRun();
+    expect(api.resumeRun).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when status is not interrupted', async () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'running', checkpoints: [], runId: 'run-1',
+      } as any,
+    });
+    await useAppStore.getState().resumeInterruptedRun();
+    expect(api.resumeRun).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when runId is absent', async () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'interrupted', checkpoints: [],
+        // no runId
+      } as any,
+    });
+    await useAppStore.getState().resumeInterruptedRun();
+    expect(api.resumeRun).not.toHaveBeenCalled();
+  });
+
+  it('calls resumeRun with the correct runId', async () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'interrupted', checkpoints: [], runId: 'run-xyz',
+      } as any,
+    });
+    await useAppStore.getState().resumeInterruptedRun();
+    expect(api.resumeRun).toHaveBeenCalledWith('run-xyz');
+  });
+
+  it('sets pipelineState status to running and clears finishedAt on success', async () => {
+    const startedAt = new Date().toISOString();
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt,
+        status: 'interrupted', checkpoints: [], runId: 'run-xyz',
+        finishedAt: new Date().toISOString(),
+      } as any,
+    });
+    await useAppStore.getState().resumeInterruptedRun();
+    const ps = useAppStore.getState().pipelineState;
+    expect(ps?.status).toBe('running');
+    expect(ps?.finishedAt).toBeUndefined();
+  });
+
+  it('shows an error toast when resumeRun rejects', async () => {
+    vi.mocked(api.resumeRun).mockRejectedValueOnce(new Error('network error'));
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'interrupted', checkpoints: [], runId: 'run-fail',
+      } as any,
+    });
+    await useAppStore.getState().resumeInterruptedRun();
+    expect(useAppStore.getState().toast?.type).toBe('error');
+    expect(useAppStore.getState().toast?.message).toContain('resume');
   });
 });

@@ -376,6 +376,10 @@ export const getBackendRun = (runId: string): Promise<BackendRun> =>
 export const deleteRun = (runId: string): Promise<void> =>
   apiFetch<void>(`/runs/${runId}`, { method: 'DELETE' });
 
+/** Resume an interrupted or failed pipeline run from the first non-completed stage. */
+export const resumeRun = (runId: string): Promise<BackendRun> =>
+  apiFetch<BackendRun>(`/runs/${runId}/resume`, { method: 'POST' });
+
 /**
  * Fetch the persisted prompt for a specific pipeline stage.
  * Returns raw text/plain content.

@@ -616,6 +616,14 @@ function init(dataDir) {
       if (run && run.status === 'running') {
         run.status    = 'interrupted';
         run.updatedAt = new Date().toISOString();
+        if (Array.isArray(run.stageStatuses)) {
+          for (const s of run.stageStatuses) {
+            if (s.status === 'running') {
+              s.status     = 'interrupted';
+              s.finishedAt = run.updatedAt;
+            }
+          }
+        }
         writeJSON(runJsonFile, run);
         upsertRegistryEntry(dataDir, { runId: run.runId, spaceId: run.spaceId, taskId: run.taskId, status: 'interrupted', createdAt: run.createdAt, updatedAt: run.updatedAt });
         console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart)`);

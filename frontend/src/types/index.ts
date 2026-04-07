@@ -188,7 +188,7 @@ export interface BackendStageStatus {
 /** Run object returned by the backend pipeline API. */
 export interface BackendRun {
   runId: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   stages: string[];
   stageStatuses?: BackendStageStatus[];
   spaceId: string;
@@ -212,8 +212,10 @@ export interface PipelineState {
   taskId: string;
   stages: PipelineStage[];
   currentStageIndex: number;
-  startedAt: string; // ISO timestamp
-  status: 'running' | 'paused' | 'completed' | 'aborted';
+  startedAt: string;  // ISO timestamp
+  /** ISO timestamp when the run finished (completed, aborted, or interrupted). */
+  finishedAt?: string;
+  status: 'running' | 'paused' | 'completed' | 'aborted' | 'interrupted';
   /**
    * Backend run ID returned by POST /api/v1/runs when the pipeline is launched
    * via backend spawn. Used by PipelineLogPanel to fetch stage logs.

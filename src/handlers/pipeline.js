@@ -40,7 +40,7 @@ const PIPELINE_RUNS_RESUME_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/resume$/;
 /**
  * POST /api/v1/runs
  * Create and kick off a new pipeline run.
- * Body: { spaceId, taskId, stages? }
+ * Body: { spaceId, taskId, stages?, dangerouslySkipPermissions? }
  * When stages is omitted, falls back to the space's default pipeline, then
  * the pipelineManager default.
  */
@@ -56,7 +56,7 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
     return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
   }
 
-  const { spaceId, taskId, stages } = body;
+  const { spaceId, taskId, stages, dangerouslySkipPermissions } = body;
 
   if (!spaceId || typeof spaceId !== 'string') {
     return sendError(res, 400, 'VALIDATION_ERROR', "The 'spaceId' field is required.");

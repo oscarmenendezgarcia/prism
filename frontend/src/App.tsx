@@ -36,7 +36,7 @@ import { useRunHistoryPolling } from '@/hooks/useRunHistoryPolling';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
 import { listRuns, getBackendRun } from '@/api/client';
-import type { PipelineStage } from '@/types';
+import type { PipelineStage, PipelineState } from '@/types';
 
 /** React Error Boundary to prevent white-screen crashes. */
 class ErrorBoundary extends React.Component<
@@ -109,13 +109,18 @@ function AppContent() {
           .sort((a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime())[0];
         if (!active) return;
         const full = await getBackendRun(active.runId);
+        const psStatus: PipelineState['status'] =
+          full.status === 'interrupted' || full.status === 'failed' ? 'interrupted'
+          : full.status === 'completed'                             ? 'completed'
+          : 'running';
         attachRun({
           spaceId:           full.spaceId,
           taskId:            full.taskId,
           stages:            full.stages as PipelineStage[],
           currentStageIndex: full.currentStage ?? 0,
           startedAt:         full.createdAt,
-          status:            'running',
+          finishedAt:        psStatus !== 'running' ? full.updatedAt : undefined,
+          status:            psStatus,
           runId:             full.runId,
           subTaskIds:        [],
           checkpoints:       [],
