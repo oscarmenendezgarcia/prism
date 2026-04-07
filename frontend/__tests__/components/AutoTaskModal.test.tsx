@@ -16,6 +16,8 @@ vi.mock('../../src/api/client', () => ({
   deleteSpace: vi.fn(),
   getAttachmentContent: vi.fn(),
   generateAutoTasks: vi.fn(),
+  confirmAutoTasks: vi.fn(),
+  runTagger: vi.fn(),
 }));
 
 const mockSpace = { id: 'space-1', name: 'My Space', createdAt: '', updatedAt: '' };
@@ -68,9 +70,12 @@ describe('AutoTaskModal', () => {
     });
   });
 
-  it('calls generateAutoTasks and closes modal on success', async () => {
+  it('calls generateAutoTasks then confirmAutoTasks and closes modal on success', async () => {
     const generateAutoTasks = vi.mocked(client.generateAutoTasks);
-    generateAutoTasks.mockResolvedValue({ tasksCreated: 3, tasks: [] });
+    const confirmAutoTasks  = vi.mocked(client.confirmAutoTasks);
+    const pendingTask = { id: 't1', title: 'Task 1', type: 'feature' as const, description: '', createdAt: '', updatedAt: '' };
+    generateAutoTasks.mockResolvedValue({ tasksCreated: 1, tasks: [pendingTask] });
+    confirmAutoTasks.mockResolvedValue({ tasksCreated: 1, tasks: [pendingTask] });
 
     vi.spyOn(useAppStore.getState(), 'loadBoard').mockResolvedValue(undefined);
 
@@ -86,8 +91,19 @@ describe('AutoTaskModal', () => {
     fireEvent.submit(form);
 
     await waitFor(() => {
-      expect(generateAutoTasks).toHaveBeenCalledWith('space-1', 'Build authentication', 'todo');
+      expect(generateAutoTasks).toHaveBeenCalledWith('space-1', 'Build authentication', 'todo', true);
     });
+
+    // After generate, modal moves to review step — click confirm
+    await waitFor(() => {
+      const confirmBtn = Array.from(document.body.querySelectorAll('button'))
+        .find(b => /confirm|create|add/i.test(b.textContent ?? ''));
+      expect(confirmBtn).toBeTruthy();
+    });
+
+    const confirmBtn = Array.from(document.body.querySelectorAll('button'))
+      .find(b => /confirm|create|add/i.test(b.textContent ?? ''))!;
+    fireEvent.click(confirmBtn);
 
     await waitFor(() => {
       expect(onClose).toHaveBeenCalled();

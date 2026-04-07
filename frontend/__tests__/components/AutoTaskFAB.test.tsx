@@ -5,7 +5,7 @@ import { AutoTaskFAB } from '../../src/components/AutoTaskFAB';
 describe('AutoTaskFAB', () => {
   it('renders a button with correct aria-label', () => {
     render(<AutoTaskFAB onClick={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /auto-task: open ai task generator/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /AI Actions: generate tasks or auto-tag/i })).toBeInTheDocument();
   });
 
   it('renders the auto_awesome icon', () => {
@@ -15,7 +15,7 @@ describe('AutoTaskFAB', () => {
 
   it('renders the label text', () => {
     render(<AutoTaskFAB onClick={vi.fn()} />);
-    expect(screen.getByText('Auto-task')).toBeInTheDocument();
+    expect(screen.getByText('AI Actions')).toBeInTheDocument();
   });
 
   it('calls onClick when clicked', () => {

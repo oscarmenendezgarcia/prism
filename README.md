@@ -10,9 +10,12 @@ A local-first Kanban board with an integrated terminal, AI agent run history, an
 
 - Kanban board with spaces, columns (To Do / In Progress / Done), and task attachments
 - Integrated terminal panel (PTY-backed, full shell access)
-- Agent run history with live polling and status timeline
+- AI agent pipeline runner — launch multi-stage agent pipelines from any task
+- Live log viewer — stream stage output in real time
+- Agent run history with status timeline
+- Config editor — edit `~/.claude/*.md` files directly from the UI
 - Dark-first Material Design 3 UI
-- MCP server exposing all Kanban operations as tools callable by Claude
+- MCP server exposing all Kanban and pipeline operations as tools callable by Claude
 
 ---
 
@@ -114,7 +117,7 @@ Prism includes an MCP server (`mcp/mcp-server.js`) that exposes all Kanban opera
 }
 ```
 
-Available MCP tools: `kanban_list_tasks`, `kanban_get_task`, `kanban_create_task`, `kanban_update_task`, `kanban_move_task`, `kanban_delete_task`, `kanban_list_spaces`, `kanban_create_space`, `kanban_rename_space`, `kanban_delete_space`, `kanban_list_activity`.
+Available MCP tools: `kanban_list_tasks`, `kanban_get_task`, `kanban_create_task`, `kanban_update_task`, `kanban_move_task`, `kanban_delete_task`, `kanban_clear_board`, `kanban_list_spaces`, `kanban_create_space`, `kanban_rename_space`, `kanban_delete_space`, `kanban_list_activity`, `kanban_start_pipeline`, `kanban_get_run_status`.
 
 ---
 
@@ -137,8 +140,13 @@ Backend test suite: integration tests covering all API endpoints.
 
 ```
 prism/
-├── server.js          # HTTP server — all API routes
+├── server.js          # Entry point — wires services, handlers and router
 ├── terminal.js        # PTY-backed WebSocket terminal
+├── src/
+│   ├── routes/        # URL pattern matching and dispatch
+│   ├── handlers/      # Per-resource request handlers (tasks, spaces, pipeline…)
+│   ├── services/      # Business logic (spaceManager, pipelineManager, migrator…)
+│   └── utils/         # Shared HTTP helpers
 ├── mcp/               # MCP server (ESM sub-package)
 │   └── mcp-server.js
 ├── frontend/          # React 19 + TypeScript + Vite
@@ -155,9 +163,15 @@ The `docs/` directory contains ADRs, blueprints, and design artefacts for each f
 
 ---
 
+## Contributing
+
+See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for setup instructions, code conventions and how to submit a PR.
+
+---
+
 ## Changelog
 
-See [docs/agent-run-history/CHANGELOG.md](docs/agent-run-history/CHANGELOG.md) for the implementation history of the agent run history feature.
+See [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

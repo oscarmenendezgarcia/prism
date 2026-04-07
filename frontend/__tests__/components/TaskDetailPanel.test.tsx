@@ -468,7 +468,8 @@ describe('TaskDetailPanel — pipeline field: collapsed state (pipeline set)', (
     useAppStore.setState({ detailTask: TASK_WITH_PIPELINE } as any);
     render(<TaskDetailPanel />);
     // The component renders pipeline.join(' → ')
-    expect(screen.getByText(/developer-agent.*qa-engineer-e2e/)).toBeInTheDocument();
+    const pipelineSection = document.body.querySelector('[data-testid="pipeline-collapsed"]') ?? document.body;
+    expect(pipelineSection.textContent).toMatch(/developer-agent.*qa-engineer-e2e/);
   });
 
   it('shows Edit and Clear buttons when pipeline is set', () => {

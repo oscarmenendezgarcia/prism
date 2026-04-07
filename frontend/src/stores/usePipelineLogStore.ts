@@ -18,6 +18,14 @@ interface PipelineLogState {
   logPanelOpen: boolean;
   setLogPanelOpen: (open: boolean) => void;
 
+  /**
+   * Count of log lines appended since the panel was last opened.
+   * Drives the notification dot on the Logs toggle.
+   * Resets to 0 when the panel is opened.
+   */
+  unseenCount: number;
+  incrementUnseenCount: () => void;
+
   /** Stage index (0-based) currently shown in the panel. */
   selectedStageIndex: number;
   setSelectedStageIndex: (index: number) => void;
@@ -73,6 +81,7 @@ interface PipelineLogState {
 
 export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   logPanelOpen:       false,
+  unseenCount:        0,
   selectedStageIndex: 0,
   stageLogs:          {},
   stageLoading:       {},
@@ -81,7 +90,10 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   stagePrompts:       {},
   stagePromptLoading: {},
 
-  setLogPanelOpen: (open) => set({ logPanelOpen: open }),
+  setLogPanelOpen: (open) => set({ logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) }),
+
+  incrementUnseenCount: () =>
+    set((state) => ({ unseenCount: state.unseenCount + 1 })),
 
   setSelectedStageIndex: (index) => set({ selectedStageIndex: index }),
 

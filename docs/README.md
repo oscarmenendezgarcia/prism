@@ -15,8 +15,6 @@ Esta carpeta contiene dos tipos de contenido:
 | `endpoints.md` | Referencia completa de la REST API — rutas, parámetros y shapes de respuesta |
 | `mcp-server.md` | Referencia de las herramientas MCP — todos los `kanban_*` con parámetros y ejemplos |
 | `github-readiness.md` | Checklist para la publicación del repositorio en GitHub |
-| `pipeline-agent-permissions.md` | Permisos y restricciones por agente en el pipeline |
-| `pipeline-known-issues.md` | Problemas conocidos del pipeline y sus workarounds |
 
 ---
 
