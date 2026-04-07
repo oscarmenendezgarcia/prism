@@ -65,8 +65,11 @@ export function useAgentCompletion(): void {
       if (!autoAdvance) return;
 
       if (confirmBetween) {
-        // Show a toast asking the user to confirm before advancing.
-        state.showToast('Advance to next pipeline stage?');
+        state.showToast(
+          `Stage ${pipelineState.currentStageIndex + 1} complete. Advance to next stage?`,
+          'info',
+          { label: 'Continue', onClick: () => useAppStore.getState().advancePipeline() },
+        );
         return;
       }
 
