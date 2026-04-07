@@ -271,6 +271,7 @@ describe('PipelineConfirmModal — T-3 startPipeline call', () => {
       'task-1',
       STAGES,
       [],
+      false, // dangerouslySkipPermissions — backend always skips automatically
     );
     expect(closePipelineFn).toHaveBeenCalledOnce();
   });
@@ -289,6 +290,7 @@ describe('PipelineConfirmModal — T-3 startPipeline call', () => {
       'task-1',
       STAGES,
       [1, 3],
+      false, // dangerouslySkipPermissions — backend always skips automatically
     );
   });
 });
@@ -331,7 +333,7 @@ describe('PipelineConfirmModal — T-4 orchestrator mode', () => {
     fireEvent.click(screen.getByRole('button', { name: /run orchestrator/i }));
     await vi.waitFor(() => expect(executeOrchestratorFn).toHaveBeenCalledOnce());
     expect(startPipelineFn).not.toHaveBeenCalled();
-    expect(executeOrchestratorFn).toHaveBeenCalledWith('space-1', 'task-1', STAGES);
+    expect(executeOrchestratorFn).toHaveBeenCalledWith('space-1', 'task-1', STAGES, false); // false = dangerouslySkipPermissions (backend auto-sets it)
   });
 
   it('calls startPipeline (not executeOrchestratorRun) when orchestrator mode inactive', async () => {

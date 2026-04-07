@@ -793,12 +793,14 @@ describe('startPipeline', () => {
     );
   });
 
-  it('shows a "Pipeline started" toast', async () => {
+  it('opens the prompt preview after preparing the first stage run', async () => {
+    // "Pipeline started" toast is emitted in executeAgentRun (not startPipeline).
+    // startPipeline ends by calling prepareAgentRun which sets promptPreviewOpen=true.
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
 
     await useAppStore.getState().startPipeline('space-1', 'task-main');
 
-    expect(useAppStore.getState().toast?.message).toContain('Pipeline started');
+    expect(useAppStore.getState().promptPreviewOpen).toBe(true);
   });
 });
 
