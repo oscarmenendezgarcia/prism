@@ -6,8 +6,6 @@
    THEME — CSS Custom Properties
    :root        = light mode (default)
    html.dark    = dark mode overrides
-   Terminal tokens are defined ONLY in :root and NOT overridden in html.dark —
-   the terminal always renders in dark mode regardless of app theme.
 ───────────────────────────────────────────────────────────────────────────── */
 
 :root {
@@ -80,12 +78,15 @@
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.04);
   --shadow-modal: 0 24px 80px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
 
-  /* Terminal — always dark, NOT overridden in html.dark */
-  --color-terminal-bg: #0D0D0F;
-  --color-terminal-text: #E0E0E0;
-  --color-terminal-input-bg: rgba(255, 255, 255, 0.06);
-  --color-terminal-stderr: #FF6961;
-  --color-terminal-prompt: #0A84FF;
+  /* Terminal — light mode */
+  --color-terminal-bg: #FFFFFF;
+  --color-terminal-text: #1F1F1F;
+  --color-terminal-input-bg: rgba(0, 0, 0, 0.04);
+  --color-terminal-stderr: #C5221F;
+  --color-terminal-prompt: #1A73E8;
+  --color-terminal-tab-active: rgba(0, 0, 0, 0.08);
+  --color-terminal-tab-hover: rgba(0, 0, 0, 0.04);
+  --color-terminal-tab-close-hover: rgba(0, 0, 0, 0.10);
 
   /* OPTCG card search theme — T-007 (ADR-1 §3.7) */
   /* In light mode these map to the same vivid values; the OPTCG page is
@@ -175,7 +176,15 @@ html.dark {
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.50), 0 0 0 1px rgba(255, 255, 255, 0.06);
   --shadow-modal: 0 24px 80px rgba(0, 0, 0, 0.60), 0 0 0 1px rgba(255, 255, 255, 0.08);
 
-  /* Terminal tokens intentionally NOT overridden — terminal is always dark */
+  /* Terminal — dark mode overrides */
+  --color-terminal-bg: #0D0D0F;
+  --color-terminal-text: #E0E0E0;
+  --color-terminal-input-bg: rgba(255, 255, 255, 0.06);
+  --color-terminal-stderr: #FF6961;
+  --color-terminal-prompt: #0A84FF;
+  --color-terminal-tab-active: rgba(255, 255, 255, 0.12);
+  --color-terminal-tab-hover: rgba(255, 255, 255, 0.06);
+  --color-terminal-tab-close-hover: rgba(255, 255, 255, 0.15);
 
   /* OPTCG tokens — same vivid values in dark mode (the OPTCG page forces a
      dark-navy background regardless of the system theme preference). */
