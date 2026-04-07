@@ -87,23 +87,6 @@
   --color-terminal-tab-active: rgba(0, 0, 0, 0.08);
   --color-terminal-tab-hover: rgba(0, 0, 0, 0.04);
   --color-terminal-tab-close-hover: rgba(0, 0, 0, 0.10);
-
-  /* OPTCG card search theme — T-007 (ADR-1 §3.7) */
-  /* In light mode these map to the same vivid values; the OPTCG page is
-     intentionally always dark-navy regardless of the app's light/dark toggle. */
-  --color-optcg-red: #E5383B;
-  --color-optcg-blue: #3A86FF;
-  --color-optcg-green: #2DC653;
-  --color-optcg-yellow: #FFD166;
-  --color-optcg-purple: #9B5DE5;
-  --color-optcg-black: #2B2D42;
-  --color-optcg-gold: #D4A843;
-  --color-optcg-navy: #0B132B;
-  --color-optcg-navy-light: #1C2541;
-  --color-optcg-card-bg: rgba(28, 37, 65, 0.85);
-  --color-optcg-card-border: rgba(212, 168, 67, 0.2);
-  --shadow-optcg-card: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(212, 168, 67, 0.1);
-  --shadow-optcg-card-hover: 0 8px 32px rgba(212, 168, 67, 0.15), 0 0 0 1px rgba(212, 168, 67, 0.25);
 }
 
 html.dark {
@@ -185,22 +168,6 @@ html.dark {
   --color-terminal-tab-active: rgba(255, 255, 255, 0.12);
   --color-terminal-tab-hover: rgba(255, 255, 255, 0.06);
   --color-terminal-tab-close-hover: rgba(255, 255, 255, 0.15);
-
-  /* OPTCG tokens — same vivid values in dark mode (the OPTCG page forces a
-     dark-navy background regardless of the system theme preference). */
-  --color-optcg-red: #E5383B;
-  --color-optcg-blue: #3A86FF;
-  --color-optcg-green: #2DC653;
-  --color-optcg-yellow: #FFD166;
-  --color-optcg-purple: #9B5DE5;
-  --color-optcg-black: #2B2D42;
-  --color-optcg-gold: #D4A843;
-  --color-optcg-navy: #0B132B;
-  --color-optcg-navy-light: #1C2541;
-  --color-optcg-card-bg: rgba(28, 37, 65, 0.85);
-  --color-optcg-card-border: rgba(212, 168, 67, 0.2);
-  --shadow-optcg-card: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(212, 168, 67, 0.1);
-  --shadow-optcg-card-hover: 0 8px 32px rgba(212, 168, 67, 0.15), 0 0 0 1px rgba(212, 168, 67, 0.25);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -417,6 +384,18 @@ html.dark {
   outline-offset: 3px;
 }
 
+/* Light mode overrides */
+html:not(.dark) .autotask-fab {
+  background: rgba(255, 255, 255, 0.88);
+  color: #1F1F1F;
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+html:not(.dark) .autotask-fab:hover {
+  background: rgba(245, 245, 247, 0.96);
+  box-shadow: 0 0 28px rgba(124, 58, 237, 0.22), 0 4px 12px rgba(0, 0, 0, 0.10);
+}
+
 /* Mobile: icon-only circle */
 @media (max-width: 599px) {
   .autotask-fab {
@@ -429,6 +408,19 @@ html.dark {
   .autotask-fab__label {
     display: none;
   }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   XTERM.JS — override hardcoded #000 backgrounds so the terminal adapts to
+   both light and dark themes via the --color-terminal-bg token.
+───────────────────────────────────────────────────────────────────────────── */
+
+.xterm .xterm-viewport {
+  background-color: var(--color-terminal-bg) !important;
+}
+
+.xterm .composition-view {
+  background: var(--color-terminal-bg) !important;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
