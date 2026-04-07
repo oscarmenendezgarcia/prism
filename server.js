@@ -145,6 +145,42 @@ module.exports = { startServer };
 
 if (require.main === module) {
   const { setupTerminalWebSocket } = require('./terminal');
+  const { getActiveProcessCount } = require('./src/services/pipelineManager');
   const server = startServer();
   setupTerminalWebSocket(server);
+
+  // Graceful shutdown: wait up to 30s for active pipeline runs to finish
+  // before closing the server. This prevents SIGPIPE killing child processes.
+  function gracefulShutdown(signal) {
+    console.log(`\n[server] ${signal} received — starting graceful shutdown...`);
+    server.close(() => {
+      console.log('[server] HTTP server closed.');
+    });
+
+    const active = typeof getActiveProcessCount === 'function' ? getActiveProcessCount() : 0;
+    if (active === 0) {
+      console.log('[server] No active pipeline runs. Exiting.');
+      process.exit(0);
+      return;
+    }
+
+    console.log(`[server] Waiting for ${active} active pipeline run(s) to finish (max 30s)...`);
+    const deadline = setTimeout(() => {
+      console.warn('[server] Deadline reached — forcing exit.');
+      process.exit(1);
+    }, 30_000);
+    deadline.unref();
+
+    const poll = setInterval(() => {
+      const remaining = typeof getActiveProcessCount === 'function' ? getActiveProcessCount() : 0;
+      if (remaining === 0) {
+        clearInterval(poll);
+        console.log('[server] All pipeline runs finished. Exiting.');
+        process.exit(0);
+      }
+    }, 500);
+  }
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 }

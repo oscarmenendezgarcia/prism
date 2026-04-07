@@ -5,15 +5,16 @@
     "branch": "feature/tailwind-v4-migration",
     "tester": "qa-engineer-e2e",
     "status": "BLOCKED",
-    "block_reason": "Implementation not present on branch. Tailwind v4 migration commits not found. Pre-migration baseline recorded; E2E visual tests pending implementation.",
+    "block_reason": "T-001 (codemod) and T-002 (vite plugin) partially done; T-003 (index.css @theme) and T-004 (@custom-variant) not yet implemented. CSS bundle analysis reveals 2 Critical regressions in partial-migration state.",
+    "implementation_state_at_qa": "partial — tailwind.config.js deleted, @tailwindcss/vite registered, index.css not yet updated to v4 @import/@theme",
     "baseline_recorded": true
   },
   "summary": {
     "total": 35,
     "passed": 2,
-    "failed": 3,
-    "skipped": 30,
-    "skip_reason": "Awaiting implementation (Tasks T-001 through T-006 not completed)",
+    "failed": 5,
+    "skipped": 28,
+    "skip_reason": "Awaiting T-003/T-004 completion; Playwright browser locked for E2E tests",
     "coverage_percent": null,
     "vitest_total": 1093,
     "vitest_passed": 1092,
@@ -21,9 +22,13 @@
   },
   "performance": {
     "baseline_build_time_s": 1.42,
+    "partial_migration_build_time_s": 1.32,
     "post_migration_build_time_s": null,
     "baseline_css_bytes": 51249,
     "baseline_css_gzip_bytes": 11039,
+    "partial_migration_css_bytes": 30450,
+    "partial_migration_css_gzip_bytes": 7322,
+    "partial_migration_note": "CSS shrinkage is due to custom token utilities being ABSENT, not legitimate compression. Do not use as final metric.",
     "post_migration_css_bytes": null,
     "post_migration_css_gzip_bytes": null,
     "p95_ms": null,
@@ -82,65 +87,81 @@
       "id": "TC-003",
       "type": "unit",
       "description": "postcss.config.js deleted after T-002",
-      "status": "fail",
+      "status": "pass",
       "duration_ms": 0,
-      "notes": "BLOCKED: postcss.config.js still exists at frontend/postcss.config.js. Migration not implemented."
+      "notes": "CONFIRMED: postcss.config.js deleted by developer agent. ls frontend/postcss.config.js → No such file."
     },
     {
       "id": "TC-004",
       "type": "unit",
       "description": "tailwind.config.js deleted after T-003",
-      "status": "fail",
+      "status": "pass",
       "duration_ms": 0,
-      "notes": "BLOCKED: tailwind.config.js still exists at frontend/tailwind.config.js. Migration not implemented."
+      "notes": "CONFIRMED: tailwind.config.js deleted by developer agent. ls frontend/tailwind.config.js → No such file."
     },
     {
       "id": "TC-005",
       "type": "unit",
       "description": "autoprefixer removed from devDependencies",
-      "status": "fail",
+      "status": "pass",
       "duration_ms": 0,
-      "notes": "BLOCKED: autoprefixer ^10.4.20 still present in frontend/package.json."
+      "notes": "CONFIRMED: autoprefixer not present in frontend/package.json after developer changes."
     },
     {
       "id": "TC-006",
       "type": "unit",
       "description": "@tailwindcss/vite plugin registered in vite.config.ts",
-      "status": "skip",
-      "duration_ms": null,
-      "notes": "BLOCKED: vite.config.ts has no @tailwindcss/vite import. Migration not implemented."
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": "CONFIRMED: vite.config.ts imports tailwindcss from @tailwindcss/vite and registers tailwindcss() in plugins array."
     },
     {
       "id": "TC-007",
       "type": "unit",
       "description": "@import 'tailwindcss' present as first directive in index.css",
-      "status": "skip",
-      "duration_ms": null,
-      "notes": "BLOCKED: index.css still uses @tailwind base/components/utilities (v3 directives)."
+      "status": "fail",
+      "duration_ms": 0,
+      "notes": "FAIL: index.css still uses @tailwind base/components/utilities (v3 directives). T-003 not yet complete."
+    },
+    {
+      "id": "TC-007A",
+      "type": "integration",
+      "description": "Custom token utilities present in compiled CSS bundle (BUG-001)",
+      "status": "fail",
+      "duration_ms": 1320,
+      "notes": "CRITICAL FAIL: Build produces 30.45KB CSS (was 51.25KB). Zero occurrences of bg-surface, bg-primary, text-primary, shadow-card, rounded-card, ease-apple, h-header, w-column in dist/assets/index-*.css. All 160+ custom token utilities absent. UI is visually broken."
+    },
+    {
+      "id": "TC-007B",
+      "type": "integration",
+      "description": "dark: variant compiles to html.dark selector (not prefers-color-scheme) (BUG-002)",
+      "status": "fail",
+      "duration_ms": 0,
+      "notes": "CRITICAL FAIL: CSS bundle contains @media (prefers-color-scheme:dark){.dark\\:...} — dark: variant mapped to OS preference, NOT html.dark class. @custom-variant dark (T-004) missing."
     },
     {
       "id": "TC-008",
       "type": "unit",
       "description": "@theme inline block contains all color tokens",
-      "status": "skip",
-      "duration_ms": null,
-      "notes": "BLOCKED: No @theme block in index.css."
+      "status": "fail",
+      "duration_ms": 0,
+      "notes": "FAIL: No @theme block in index.css. T-003 not yet complete."
     },
     {
       "id": "TC-009",
       "type": "unit",
       "description": "@theme block contains layout/radius/shadow/animation tokens",
-      "status": "skip",
-      "duration_ms": null,
-      "notes": "BLOCKED: No @theme block in index.css."
+      "status": "fail",
+      "duration_ms": 0,
+      "notes": "FAIL: No @theme block in index.css. T-003 not yet complete."
     },
     {
       "id": "TC-010",
       "type": "unit",
       "description": "@custom-variant dark present before @theme in index.css",
-      "status": "skip",
-      "duration_ms": null,
-      "notes": "BLOCKED: Not present. This is the highest-risk omission — dark mode will break without it."
+      "status": "fail",
+      "duration_ms": 0,
+      "notes": "CRITICAL FAIL: Not present. dark: variant confirmed broken via CSS bundle analysis."
     },
     {
       "id": "TC-011",

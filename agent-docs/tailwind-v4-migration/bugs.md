@@ -3,10 +3,52 @@
 **Feature:** tailwind-v4-migration  
 **QA Date:** 2026-04-07  
 **Branch:** feature/tailwind-v4-migration  
+**Implementation status at QA time:** T-001 (codemod) + T-002 (vite plugin) partially done; T-003 (index.css @theme) + T-004 (@custom-variant) NOT done.
 
 ---
 
-## BUG-001: Migration not implemented on feature branch
+## BUG-001: All custom token utilities absent from compiled CSS (regression in partial state)
+
+- **Severity:** Critical
+- **Type:** Functional / Visual
+- **Component:** `frontend/src/index.css`, `frontend/vite.config.ts`
+- **Discovered:** CSS bundle analysis — post-partial-migration build output `dist/assets/index-8rnxgIuL.css`
+- **Reproduction Steps:**
+  1. Current branch state: `@tailwindcss/vite` registered in vite.config.ts, `tailwind.config.js` DELETED, `index.css` still has `@tailwind base/components/utilities` (v3 directives), no `@theme` block
+  2. `cd frontend && npm run build`
+  3. Inspect `dist/assets/*.css` — search for `bg-surface`, `bg-primary`, `text-primary`, `shadow-card`, `rounded-card`, `ease-apple`, `h-header`, `w-column`
+  4. Result: **zero matches** for all custom token utilities
+- **Expected Behavior:** CSS bundle contains `bg-surface { background-color: var(--color-surface) }`, `shadow-card { box-shadow: var(--shadow-card) }`, etc. and all 160+ custom token utilities generated from the theme definition.
+- **Actual Behavior:** The CSS bundle is 30.45 KB (down from 51.25 KB baseline) — custom token utilities not generated because `tailwind.config.js` was deleted but `@theme` block has NOT yet been added to `index.css`. The app renders with no colors, wrong shadows, wrong typography, wrong spacing, wrong border-radius on all custom-styled elements.
+- **Root Cause Analysis:** The migration is incomplete. T-002 deleted the JS config source of truth, but T-003 (which re-declares tokens in `@theme`) has not been executed. This creates a broken intermediate state where Tailwind v4 runs with zero custom tokens.
+- **Proposed Fix:** Complete T-003 immediately: add `@import "tailwindcss";` replacing `@tailwind base/components/utilities`, then add `@theme inline { ... }` with all color tokens, and `@theme { ... }` with layout/radius/shadow/animation tokens. Until T-003 is complete, the app is functionally broken.
+
+---
+
+## BUG-002: `dark:` variant compiles to `prefers-color-scheme` — class-based toggle broken
+
+- **Severity:** Critical
+- **Type:** Functional
+- **Component:** `frontend/src/index.css` — missing `@custom-variant dark` declaration
+- **Discovered:** CSS bundle analysis — `dist/assets/index-8rnxgIuL.css`
+- **Reproduction Steps:**
+  1. Current partial-migration state (as per BUG-001)
+  2. Load app, click the light/dark theme toggle button
+  3. `html.dark` class is added to `<html>` element correctly
+  4. Observe: theme does NOT change — no visual effect from toggle
+  5. In CSS: `@media (prefers-color-scheme:dark){ .dark\:bg-\[rgba(...)]{...} }` — `dark:` variants respond to OS setting only
+- **Expected Behavior:** `dark:` prefixed utilities respond to `html.dark` class. Toggle button immediately switches all dark-prefixed colors.
+- **Actual Behavior:** Compiled CSS: `@media (prefers-color-scheme:dark){.dark\:bg-\[rgba\(10\,132\,255\,0\.14\)\]{...}}`. The dark: variant is mapped to the OS `prefers-color-scheme` media query instead of the `html.dark` class selector. Manual theme toggle has no effect.
+- **Root Cause Analysis:** Tailwind v4's default `dark:` variant is `prefers-color-scheme: dark`. To restore class-based dark mode, `@custom-variant dark (&:where(.dark, .dark *));` must be declared in `index.css` BEFORE any `@theme` blocks. This is T-004.
+- **Proposed Fix:** Add to `frontend/src/index.css` (before @theme):
+  ```css
+  @custom-variant dark (&:where(.dark, .dark *));
+  ```
+  This is documented in the blueprint and ADR as a high-risk item that must not be omitted.
+
+---
+
+## BUG-003: Pre-existing test failure in useAgentCompletion.test.ts
 
 - **Severity:** Critical
 - **Type:** Functional / Process
@@ -46,21 +88,7 @@
 
 ---
 
-## BUG-003: 42 occurrences of `outline-none` will break in Tailwind v4
-
-- **Severity:** High
-- **Type:** Functional / Visual
-- **Component:** `frontend/src/` — 42 files/locations using `focus:outline-none` and `focus-visible:outline-none`
-- **Key files affected:** `AgentSettingsPanel.tsx`, `AutoTaskModal.tsx`, `TaskCard.tsx`, `TaskDetailPanel.tsx`, `AgentPromptPreview.tsx`, `AgentSettingsToggle.tsx` and more
-- **Reproduction Steps:**
-  1. After v4 migration, load any interactive element (input, button, select)
-  2. Tab to focus the element
-  3. Observe visible focus ring where none was expected — `outline-none` in v4 generates `outline: 2px solid transparent; outline-offset: 2px` instead of `outline: none`
-- **Expected Behavior:** No visible focus ring for elements that use `outline-none` (intentionally suppressed, replaced by custom ring-* styling).
-- **Actual Behavior (post-migration without fix):** Ghost 2px transparent outline box appears; in some edge cases semi-transparent backgrounds reveal outline artifacts.
-- **Root Cause Analysis:** In Tailwind v4, `outline-none` was intentionally changed: it no longer sets `outline: none` but instead `outline: 2px solid transparent`. The utility that preserves the old behavior is now named `outline-hidden`. The codemod (`@tailwindcss/upgrade`) should handle this automatically, but all 42 occurrences must be verified post-codemod.
-- **Proposed Fix:** Ensure the codemod renames all 42 occurrences to `outline-hidden`. Post-codemod verification: `grep -rn "outline-none" frontend/src --include="*.tsx"` must return zero matches. **Note:** `outline-hidden` is semantically identical to the old `outline-none` behavior.
-- **Verification TC:** TC-012
+## BUG-003: Pre-existing test failure in useAgentCompletion.test.ts (was BUG-002)
 
 ---
 
@@ -129,15 +157,21 @@
 
 ---
 
+## Advisory: `outline-none` in v4.2.2 generates `outline-style: none`
+
+**Note:** The ADR referenced `outline-none` → `outline-hidden` as a v4 breaking change. Static analysis found 42 occurrences. However, CSS bundle analysis confirms that Tailwind v4.2.2 generates `.outline-none { --tw-outline-style: none; outline-style: none }` — functionally identical to the v3 behavior (`outline: none`). The rename is NOT required in v4.2.2, and BUG-003 in the original assessment was incorrect. No action needed for `outline-none`.
+
+---
+
 ## Summary Table
 
 | Bug | Severity | Blocks Merge? | Owner |
 |---|---|---|---|
-| BUG-001: Migration not implemented | Critical | YES | developer-agent |
-| BUG-002: useAgentCompletion test failure | High | YES | developer-agent |
-| BUG-003: 42 `outline-none` occurrences | High | YES (post-migration) | developer-agent |
-| BUG-004: `@custom-variant dark` missing | High | YES (post-migration) | developer-agent |
-| BUG-005: border-color override absent | Medium | NO (but causes visual regression) | developer-agent |
+| BUG-001: Custom token utilities absent (partial migration) | Critical | YES | developer-agent |
+| BUG-002: dark: variant → prefers-color-scheme (T-004 missing) | Critical | YES | developer-agent |
+| BUG-003: useAgentCompletion test failure | High | YES | developer-agent |
+| BUG-004: `@custom-variant dark` missing | High | YES (T-004) | developer-agent |
+| BUG-005: border-color override absent | Medium | NO (visual regression) | developer-agent |
 | BUG-006: E2E tests not executed (browser lock) | Medium | YES (TC-026/TC-029 required) | qa-engineer-e2e |
 
-**Merge gate: 2 Critical + 3 High bugs unresolved. NOT ready for merge.**
+**Merge gate: 2 Critical + 2 High bugs unresolved. NOT ready for merge.**
