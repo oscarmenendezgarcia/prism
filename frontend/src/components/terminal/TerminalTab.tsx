@@ -25,7 +25,7 @@ interface TerminalTabProps {
   isActive: boolean;
 }
 
-const WS_BASE = 'ws://localhost:3000/ws/terminal';
+const WS_BASE = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/terminal`;
 
 export function TerminalTab({ sessionId, panelOpen, isActive }: TerminalTabProps) {
   const { resolvedTheme } = useTheme();

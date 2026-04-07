@@ -24,17 +24,26 @@ export function Toast() {
   if (!toast) return null;
 
   const isError = toast.type === 'error';
+  const isInfo  = toast.type === 'info';
 
   return createPortal(
     <div
       role={isError ? 'alert' : 'status'}
       aria-live={isError ? 'assertive' : 'polite'}
       data-leaving={leaving}
-      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 rounded-lg text-white text-sm font-medium shadow-xl transition-all ${
-        isError ? 'bg-error' : 'bg-success'
+      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] px-5 py-3 rounded-lg text-white text-sm font-medium shadow-xl transition-all flex items-center gap-3 ${
+        isError ? 'bg-error' : isInfo ? 'bg-primary' : 'bg-success'
       } ${leaving ? 'animate-toast-out' : 'animate-slide-in-bottom'}`}
     >
-      {toast.message}
+      <span>{toast.message}</span>
+      {toast.action && (
+        <button
+          onClick={toast.action.onClick}
+          className="shrink-0 px-2.5 py-1 rounded bg-white/20 hover:bg-white/30 transition-colors text-xs font-semibold"
+        >
+          {toast.action.label}
+        </button>
+      )}
     </div>,
     document.body
   );
