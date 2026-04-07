@@ -105,7 +105,7 @@ function AppContent() {
     listRuns()
       .then(async (runs) => {
         const active = runs
-          .filter((r) => r.status === 'running')
+          .filter((r) => ['running', 'interrupted', 'failed'].includes(r.status))
           .sort((a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime())[0];
         if (!active) return;
         const full = await getBackendRun(active.runId);
