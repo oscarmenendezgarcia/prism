@@ -152,7 +152,7 @@ interface AppState {
 
   /** Prepared run waiting in the prompt preview modal. */
   preparedRun: PreparedRun | null;
-  prepareAgentRun: (taskId: string, agentId: string) => Promise<void>;
+  prepareAgentRun: (taskId: string, agentId: string, dangerouslySkipPermissions?: boolean) => Promise<void>;
   clearPreparedRun: () => void;
 
   /** Execute the prepared run — injects command into the terminal PTY. */
@@ -163,7 +163,7 @@ interface AppState {
 
   /** Active pipeline state — null when no pipeline is running. */
   pipelineState: PipelineState | null;
-  startPipeline: (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints?: number[]) => Promise<void>;
+  startPipeline: (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints?: number[], dangerouslySkipPermissions?: boolean) => Promise<void>;
   advancePipeline: () => Promise<void>;
   /**
    * T-3 (manual checkpoints): resume a paused pipeline.
@@ -180,7 +180,7 @@ interface AppState {
    * Does not use the per-stage PipelineState — shows a simplified "Orchestrator
    * running" indicator via activeRun only.
    */
-  executeOrchestratorRun: (spaceId: string, taskId: string, stages: PipelineStage[]) => Promise<void>;
+  executeOrchestratorRun: (spaceId: string, taskId: string, stages: PipelineStage[], dangerouslySkipPermissions?: boolean) => Promise<void>;
 
   /** Pipeline confirm modal — shown when user clicks "Run Pipeline" on a card. */
   pipelineConfirmModal: {
@@ -610,7 +610,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   preparedRun:      null,
   promptPreviewOpen: false,
 
-  prepareAgentRun: async (taskId: string, agentId: string) => {
+  prepareAgentRun: async (taskId: string, agentId: string, dangerouslySkipPermissions = false) => {
     const { activeSpaceId, agentSettings, showToast } = get();
     try {
       const result = await api.generatePrompt({
@@ -618,6 +618,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         taskId,
         spaceId:          activeSpaceId,
         workingDirectory: agentSettings?.prompts.workingDirectory,
+        dangerouslySkipPermissions,
       });
       set({
         preparedRun: {
@@ -807,7 +808,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ pipelineConfirmModal: null });
   },
 
-  startPipeline: async (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints: number[] = []) => {
+  startPipeline: async (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints: number[] = [], dangerouslySkipPermissions = false) => {
     const { agentSettings, availableAgents, showToast, spaces } = get();
     const space = spaces.find((s) => s.id === spaceId);
     const resolvedStages: PipelineStage[] = stages && stages.length > 0
@@ -831,6 +832,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           subTaskIds: [],
           checkpoints,
           pausedBeforeStage: 0,
+          dangerouslySkipPermissions,
         },
       });
       showToast(`Pipeline paused before stage 1: ${resolvedStages[0]}. Click Continue to proceed.`);
@@ -850,6 +852,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         taskId,
         subTaskIds: [],
         checkpoints,
+        dangerouslySkipPermissions,
       },
     });
 
@@ -889,7 +892,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       agentId:    firstStage,
     }));
 
-    await get().prepareAgentRun(subTask.id, firstStage);
+    await get().prepareAgentRun(subTask.id, firstStage, dangerouslySkipPermissions);
     showToast(`Pipeline started — Stage 1: ${agentDisplayName}`);
   },
 
@@ -964,7 +967,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
 
     showToast(`Stage ${nextIndex + 1}: ${agentDisplayName}`);
-    await get().prepareAgentRun(subTask.id, nextStage);
+    await get().prepareAgentRun(subTask.id, nextStage, pipelineState.dangerouslySkipPermissions);
   },
 
   abortPipeline: () => {
@@ -1050,7 +1053,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
 
       showToast(`Pipeline resumed — Stage 1: ${agentDisplayName}`);
-      await get().prepareAgentRun(subTask.id, firstStage);
+      await get().prepareAgentRun(subTask.id, firstStage, pipelineState.dangerouslySkipPermissions);
       return;
     }
 
@@ -1099,7 +1102,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
 
     showToast(`Pipeline resumed — Stage ${resumeIndex + 1}: ${agentDisplayName}`);
-    await get().prepareAgentRun(subTask.id, nextStage);
+    await get().prepareAgentRun(subTask.id, nextStage, pipelineState.dangerouslySkipPermissions);
   },
 
   /**
@@ -1109,7 +1112,7 @@ export const useAppStore = create<AppState>((set, get) => ({
    * simplified "Orchestrator running" state via activeRun (no per-stage
    * PipelineState).
    */
-  executeOrchestratorRun: async (spaceId: string, taskId: string, stages: PipelineStage[]) => {
+  executeOrchestratorRun: async (spaceId: string, taskId: string, stages: PipelineStage[], dangerouslySkipPermissions = false) => {
     const { showToast, tasks, spaces, availableAgents } = get();
     const terminalSender = useTerminalSessionStore.getState().activeSendInput();
     const startedAt = new Date().toISOString();
@@ -1127,6 +1130,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           taskId,
           spaceId,
           customInstructions: `Pipeline stages to execute in order: ${stages.join(' → ')}`,
+          dangerouslySkipPermissions,
         });
       } catch (err) {
         showToast(`Failed to prepare orchestrator prompt: ${(err as Error).message}`, 'error');
@@ -1144,7 +1148,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       promptPath = '~/.claude/agents/orchestrator.md';
       cliCommand = `orchestrator (${stages.join(' → ')})`;
       try {
-        const run = await api.startRun(spaceId, taskId, ['orchestrator'], { stages });
+        const run = await api.startRun(spaceId, taskId, ['orchestrator'], { stages, dangerouslySkipPermissions });
         backendRunId = run.runId;
       } catch (err) {
         showToast(`Failed to start orchestrator run: ${(err as Error).message}`, 'error');

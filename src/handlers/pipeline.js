@@ -113,7 +113,7 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
   }) + '\n');
 
   try {
-    const run = await pipelineManager.createRun({ spaceId, taskId, stages: resolvedStages, dataDir });
+    const run = await pipelineManager.createRun({ spaceId, taskId, stages: resolvedStages, dataDir, dangerouslySkipPermissions: dangerouslySkipPermissions === true });
     // Include resolvedFrom in the response when stages were not explicitly provided (MCP path).
     const responseBody = resolvedFrom && resolvedFrom !== 'explicit'
       ? { ...run, resolvedFrom, stages: run.stages }

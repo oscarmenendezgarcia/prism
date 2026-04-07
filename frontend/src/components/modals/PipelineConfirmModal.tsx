@@ -40,6 +40,7 @@ export function PipelineConfirmModal() {
   const [checkpoints, setCheckpoints]     = useState<Set<number>>(new Set());
   /** T-4: When true, routes to executeOrchestratorRun instead of startPipeline. */
   const [useOrchestrator, setUseOrchestrator] = useState(false);
+  const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
 
   // T-9: Preview prompts state.
   /** Null = not yet fetched, array = fetched prompts, 'loading' = in-flight. */
@@ -56,6 +57,7 @@ export function PipelineConfirmModal() {
       setStages([...modal.stages]);
       setCheckpoints(new Set(modal.checkpoints ?? []));
       setUseOrchestrator(modal.useOrchestratorMode ?? false);
+      setDangerouslySkipPermissions(false);
       // Clear any previously fetched preview prompts when the modal re-opens.
       setPreviewPrompts(null);
       setExpandedPromptIndex(null);
@@ -158,9 +160,9 @@ export function PipelineConfirmModal() {
     closePipeline();
 
     if (useOrchestrator) {
-      await executeOrchestratorRun(modal.spaceId, modal.taskId, stages);
+      await executeOrchestratorRun(modal.spaceId, modal.taskId, stages, dangerouslySkipPermissions);
     } else {
-      await startPipeline(modal.spaceId, modal.taskId, stages, Array.from(checkpoints).sort((a, b) => a - b));
+      await startPipeline(modal.spaceId, modal.taskId, stages, Array.from(checkpoints).sort((a, b) => a - b), dangerouslySkipPermissions);
     }
   }
 
@@ -366,7 +368,7 @@ export function PipelineConfirmModal() {
         )}
 
         {/* T-4: Orchestrator mode toggle */}
-        <div className="border-t border-border pt-3 mt-1">
+        <div className="border-t border-border pt-3 mt-1 flex flex-col gap-3">
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -381,6 +383,25 @@ export function PipelineConfirmModal() {
               </span>
               <span className="text-[11px] text-text-secondary select-none">
                 Launch all stages via a meta-agent that manages sub-agents with shared context. Checkpoints are handled internally by the orchestrator.
+              </span>
+            </div>
+          </label>
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={dangerouslySkipPermissions}
+              onChange={(e) => setDangerouslySkipPermissions(e.target.checked)}
+              aria-label="Skip permission prompts"
+              className="mt-0.5 w-4 h-4 rounded border-border accent-warning cursor-pointer flex-shrink-0"
+            />
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm text-text-primary font-medium select-none flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-sm text-warning leading-none" aria-hidden="true">warning</span>
+                Skip permission prompts
+              </span>
+              <span className="text-[11px] text-text-secondary select-none">
+                Passes <code className="font-mono bg-surface-variant px-0.5 rounded">--dangerously-skip-permissions</code> to all stages. Use only in trusted environments.
               </span>
             </div>
           </label>

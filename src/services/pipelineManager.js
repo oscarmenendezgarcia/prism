@@ -473,7 +473,11 @@ async function spawnStage(dataDir, run, stageIndex) {
   const logPath   = stageLogPath(dataDir, run.runId, stageIndex);
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 
-  const child = spawn('claude', agentSpec.spawnArgs, {
+  const spawnArgs = run.dangerouslySkipPermissions
+    ? [...agentSpec.spawnArgs, '--dangerously-skip-permissions']
+    : agentSpec.spawnArgs;
+
+  const child = spawn('claude', spawnArgs, {
     stdio:    ['pipe', 'pipe', 'pipe'],
     detached: true,
     env:      { ...process.env },
@@ -599,7 +603,7 @@ function init(dataDir) {
  * @returns {Promise<object>} Initial run state.
  * @throws On validation failure (TASK_NOT_FOUND, TASK_NOT_IN_TODO, MAX_CONCURRENT_REACHED, AGENT_NOT_FOUND).
  */
-async function createRun({ spaceId, taskId, stages, dataDir }) {
+async function createRun({ spaceId, taskId, stages, dataDir, dangerouslySkipPermissions = false }) {
   const stageList = stages && stages.length > 0 ? stages : DEFAULT_STAGES;
 
   // --- Validate task exists and is in 'todo'. ---
@@ -654,6 +658,7 @@ async function createRun({ spaceId, taskId, stages, dataDir }) {
     })),
     createdAt: now,
     updatedAt: now,
+    dangerouslySkipPermissions,
   };
 
   // --- Ensure runs directory exists. ---
