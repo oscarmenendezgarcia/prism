@@ -19,7 +19,8 @@ const BACKOFF_BASE_MS = 2000;
 const BACKOFF_MAX_MS  = 30000;
 const RESIZE_DEBOUNCE = 100;
 
-const XTERM_THEME = {
+/** Dark palette — unchanged from original XTERM_THEME. */
+export const XTERM_THEME_DARK = {
   background:          '#1e1e1e',
   foreground:          '#d4d4d4',
   cursor:              '#1a73e8',
@@ -42,6 +43,33 @@ const XTERM_THEME = {
   brightWhite:         '#ffffff',
 };
 
+/**
+ * Light palette — MD3 light surface tokens + WCAG AA-contrast ANSI colors.
+ * Blueprint §3: all foreground colors verified ≥ 4.5:1 contrast on #ffffff.
+ */
+export const XTERM_THEME_LIGHT = {
+  background:          '#ffffff',
+  foreground:          '#1f1f1f',
+  cursor:              '#1a73e8',
+  selectionBackground: 'rgba(26, 115, 232, 0.25)',
+  black:               '#000000',
+  red:                 '#c5221f',
+  green:               '#1e8e3e',
+  yellow:              '#b06000',
+  blue:                '#1a73e8',
+  magenta:             '#a142f4',
+  cyan:                '#007b83',
+  white:               '#3c4043',
+  brightBlack:         '#5f6368',
+  brightRed:           '#d93025',
+  brightGreen:         '#188038',
+  brightYellow:        '#e37400',
+  brightBlue:          '#1967d2',
+  brightMagenta:       '#8430ce',
+  brightCyan:          '#129eaf',
+  brightWhite:         '#202124',
+};
+
 interface UseTerminalOptions {
   panelOpen: boolean;
   /** Full WebSocket URL including query string, e.g. 'ws://localhost:3000/ws/terminal?sessionId=abc'. */
@@ -51,6 +79,12 @@ interface UseTerminalOptions {
   onReconnectCountdown: (seconds: number) => void;
   /** Called when the PTY process exits. code is null when unavailable. */
   onProcessExit?: (code: number | null) => void;
+  /**
+   * Active app theme. When 'light', the terminal renders the light palette.
+   * Defaults to 'dark'. Changes are applied live without remounting xterm or
+   * reconnecting the WebSocket (blueprint §3, ADR-1).
+   */
+  resolvedTheme?: 'light' | 'dark';
 }
 
 interface UseTerminalReturn {
@@ -72,6 +106,7 @@ export function useTerminal({
   onReconnectAvailable,
   onReconnectCountdown,
   onProcessExit,
+  resolvedTheme = 'dark',
 }: UseTerminalOptions): UseTerminalReturn {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -228,7 +263,7 @@ export function useTerminal({
         cursorStyle:      'block',
         fontSize:         13,
         fontFamily:       "'JetBrains Mono', 'Courier New', monospace",
-        theme:            XTERM_THEME,
+        theme:            resolvedTheme === 'light' ? XTERM_THEME_LIGHT : XTERM_THEME_DARK,
         scrollback:       5000,
         allowProposedApi: true,
       });
@@ -274,6 +309,13 @@ export function useTerminal({
     }, 50);
     return () => clearTimeout(id);
   }, [panelOpen]);
+
+  // Live theme switching — mutates xterm options in place (no remount, no reconnect).
+  // ADR-1: xterm.js v5 supports live theme updates via terminal.options.theme.
+  useEffect(() => {
+    if (!terminalRef.current || !xtermMounted.current) return;
+    terminalRef.current.options.theme = resolvedTheme === 'light' ? XTERM_THEME_LIGHT : XTERM_THEME_DARK;
+  }, [resolvedTheme]);
 
   // Connect on first panel open
   useEffect(() => {

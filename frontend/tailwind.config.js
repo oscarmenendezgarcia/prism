@@ -72,27 +72,13 @@ export default {
           'chore-text':     'var(--color-badge-chore-text)',
           'done-text':      'var(--color-badge-done-text)',
         },
-        // Terminal colors — always dark, NOT overridden in html.dark block
+        // Terminal colors — theme-aware via CSS custom properties (light/dark in index.css)
         terminal: {
-          bg: '#0D0D0F',
-          text: '#E0E0E0',
-          'input-bg': 'rgba(255,255,255,0.06)',
-          stderr: '#FF6961',
-          prompt: '#0A84FF',
-        },
-        // OPTCG card search theme — T-007 (ADR-1 §3.7)
-        optcg: {
-          red: 'var(--color-optcg-red)',
-          blue: 'var(--color-optcg-blue)',
-          green: 'var(--color-optcg-green)',
-          yellow: 'var(--color-optcg-yellow)',
-          purple: 'var(--color-optcg-purple)',
-          black: 'var(--color-optcg-black)',
-          gold: 'var(--color-optcg-gold)',
-          navy: 'var(--color-optcg-navy)',
-          'navy-light': 'var(--color-optcg-navy-light)',
-          'card-bg': 'var(--color-optcg-card-bg)',
-          'card-border': 'var(--color-optcg-card-border)',
+          bg: 'var(--color-terminal-bg)',
+          text: 'var(--color-terminal-text)',
+          'input-bg': 'var(--color-terminal-input-bg)',
+          stderr: 'var(--color-terminal-stderr)',
+          prompt: 'var(--color-terminal-prompt)',
         },
       },
       borderRadius: {

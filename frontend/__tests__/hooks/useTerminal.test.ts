@@ -4,8 +4,9 @@
  * xterm.js dynamic import is intercepted by vi.mock.
  */
 
+import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, render, act } from '@testing-library/react';
 import type { TerminalStatus } from '../../src/types';
 
 // ── Mock xterm.js dynamic imports ──────────────────────────────────────────
@@ -25,8 +26,11 @@ const mockTerminalInstance = {
   onResize: mockTerminalOnResize,
   write: mockTerminalWrite,
   focus: vi.fn(),
+  scrollToBottom: vi.fn(),
   cols: 80,
   rows: 24,
+  // options is a mutable object that xterm exposes for live theme updates (v5 API).
+  options: {} as Record<string, unknown>,
 };
 
 vi.mock('@xterm/xterm', () => ({
@@ -97,7 +101,7 @@ afterEach(() => {
 });
 
 // ── Import hook after mocks are in place ────────────────────────────────────
-import { useTerminal } from '../../src/hooks/useTerminal';
+import { useTerminal, XTERM_THEME_DARK, XTERM_THEME_LIGHT } from '../../src/hooks/useTerminal';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -375,5 +379,122 @@ describe('useTerminal — console.debug on disconnect (not console.log)', () => 
 
     debugSpy.mockRestore();
     logSpy.mockRestore();
+  });
+});
+
+// ── Theme palette tests ──────────────────────────────────────────────────────
+
+// Helper: renders a real DOM div so containerRef gets attached and xterm can init.
+// renderHook leaves containerRef.current === null (no DOM commit), which causes the
+// xterm init effect to bail early — this wrapper avoids that.
+function makeThemeWrapper(initialTheme: 'light' | 'dark') {
+  const onStatusChange    = vi.fn<[TerminalStatus], void>();
+  const onReconnectAvailable = vi.fn<[boolean], void>();
+  const onReconnectCountdown = vi.fn<[number], void>();
+
+  function Wrapper({ theme }: { theme: 'light' | 'dark' }) {
+    const { containerRef } = useTerminal({
+      panelOpen: true,
+      wsUrl: DEFAULT_WS_URL,
+      onStatusChange,
+      onReconnectAvailable,
+      onReconnectCountdown,
+      resolvedTheme: theme,
+    });
+    return React.createElement('div', { ref: containerRef });
+  }
+
+  const utils = render(React.createElement(Wrapper, { theme: initialTheme }));
+  return {
+    rerender: (theme: 'light' | 'dark') =>
+      utils.rerender(React.createElement(Wrapper, { theme })),
+    onStatusChange,
+  };
+}
+
+describe('useTerminal — resolvedTheme palette switching', () => {
+  it('should_update_xterm_options_theme_without_calling_dispose_when_resolvedTheme_changes', async () => {
+    mockTerminalInstance.options = {};
+
+    const { rerender } = makeThemeWrapper('dark');
+
+    // Flush the Promise.all dynamic import microtask so xterm initialises
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // Sanity: xterm was opened with the dark palette
+    expect(mockTerminalOpen).toHaveBeenCalled();
+
+    // Switch theme to light
+    act(() => {
+      rerender('light');
+    });
+
+    // options.theme must be the light palette object
+    expect(mockTerminalInstance.options.theme).toEqual(XTERM_THEME_LIGHT);
+
+    // Switching theme must NOT dispose the terminal (no remount)
+    expect(mockTerminalDispose).not.toHaveBeenCalled();
+  });
+
+  it('should_revert_to_dark_palette_when_resolvedTheme_changes_back_to_dark', async () => {
+    mockTerminalInstance.options = {};
+
+    const { rerender } = makeThemeWrapper('light');
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockTerminalOpen).toHaveBeenCalled();
+
+    // Switch to dark
+    act(() => {
+      rerender('dark');
+    });
+
+    expect(mockTerminalInstance.options.theme).toEqual(XTERM_THEME_DARK);
+    expect(mockTerminalDispose).not.toHaveBeenCalled();
+  });
+
+  it('should_not_throw_when_resolvedTheme_changes_before_xterm_is_mounted', () => {
+    // Panel is closed → xterm never mounts → theme effect should be a no-op
+    mockTerminalInstance.options = {};
+
+    const onStatusChange = vi.fn<[TerminalStatus], void>();
+    const onReconnectAvailable = vi.fn<[boolean], void>();
+    const onReconnectCountdown = vi.fn<[number], void>();
+
+    const { rerender } = renderHook(
+      ({ open, theme }: { open: boolean; theme: 'light' | 'dark' }) =>
+        useTerminal({
+          panelOpen: open,
+          wsUrl: DEFAULT_WS_URL,
+          onStatusChange,
+          onReconnectAvailable,
+          onReconnectCountdown,
+          resolvedTheme: theme,
+        }),
+      { initialProps: { open: false, theme: 'dark' as const } },
+    );
+
+    // Toggle theme while panel is still closed
+    expect(() => {
+      act(() => {
+        rerender({ open: false, theme: 'light' });
+      });
+    }).not.toThrow();
+
+    // options.theme must remain unset (effect was guarded by xtermMounted)
+    expect(mockTerminalInstance.options.theme).toBeUndefined();
+  });
+
+  it('should_export_XTERM_THEME_DARK_with_correct_background', () => {
+    expect(XTERM_THEME_DARK.background).toBe('#1e1e1e');
+  });
+
+  it('should_export_XTERM_THEME_LIGHT_with_correct_background', () => {
+    expect(XTERM_THEME_LIGHT.background).toBe('#ffffff');
   });
 });
