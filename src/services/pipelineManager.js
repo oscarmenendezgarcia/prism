@@ -520,7 +520,59 @@ async function spawnStage(dataDir, run, stageIndex) {
     });
   }
 
-  child.stdout.pipe(makeStallTracker()).pipe(logStream, { end: false });
+  // Filter stream-json stdout: only write assistant text content to the log.
+  // Each line from --output-format=stream-json is a JSON object; we extract
+  // the text from assistant messages and discard system/tool/result events.
+  let lineBuffer = '';
+  function makeAssistantFilter() {
+    return new Transform({
+      transform(chunk, _enc, cb) {
+        lastOutputAt = Date.now();
+        lineBuffer += chunk.toString();
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop(); // keep incomplete last line
+        let out = '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+            if (event.type === 'assistant') {
+              const content = event.message?.content ?? [];
+              for (const block of content) {
+                if (block.type === 'text' && block.text) {
+                  out += block.text;
+                }
+              }
+            }
+          } catch {
+            // Non-JSON line (e.g. stderr) — pass through as-is
+            out += line + '\n';
+          }
+        }
+        cb(null, out);
+      },
+      flush(cb) {
+        // Handle any remaining buffered line
+        if (lineBuffer.trim()) {
+          try {
+            const event = JSON.parse(lineBuffer);
+            if (event.type === 'assistant') {
+              const content = event.message?.content ?? [];
+              let out = '';
+              for (const block of content) {
+                if (block.type === 'text' && block.text) out += block.text;
+              }
+              cb(null, out);
+              return;
+            }
+          } catch { /* ignore */ }
+        }
+        cb();
+      },
+    });
+  }
+
+  child.stdout.pipe(makeAssistantFilter()).pipe(logStream, { end: false });
   child.stderr.pipe(makeStallTracker()).pipe(logStream, { end: false });
 
   // Stall watchdog: kill the stage if it produces no output for PIPELINE_STALL_TIMEOUT_MS.
@@ -892,6 +944,16 @@ async function abortAll(dataDir) {
   await Promise.all(runIds.map((runId) => deleteRun(runId, dataDir).catch(() => {})));
 }
 
+/**
+ * Returns the number of currently active (running) pipeline processes.
+ * Used by the graceful shutdown handler in server.js.
+ *
+ * @returns {number}
+ */
+function getActiveProcessCount() {
+  return activeProcesses.size;
+}
+
 module.exports = {
   init,
   createRun,
@@ -900,6 +962,7 @@ module.exports = {
   listRuns,
   deleteRun,
   abortAll,
+  getActiveProcessCount,
   // Exported for testing and preview endpoint:
   runsDir,
   runDir,
