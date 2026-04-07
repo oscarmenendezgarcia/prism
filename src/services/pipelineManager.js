@@ -742,6 +742,77 @@ function findTaskInDataDir(spaceId, taskId, dataDir) {
 }
 
 /**
+ * Resume an interrupted or failed pipeline run from a given stage.
+ *
+ * Marks any stale 'running' stages before fromStage as 'completed', resets
+ * stages at and after fromStage to 'pending', then kicks off execution.
+ *
+ * @param {string} runId
+ * @param {string} dataDir
+ * @param {object} [opts]
+ * @param {number} [opts.fromStage] - Zero-based stage index to resume from.
+ *   Defaults to the first stage whose status is not 'completed'.
+ * @returns {Promise<object>} Updated run state.
+ * @throws On validation failure (RUN_NOT_FOUND, RUN_NOT_RESUMABLE).
+ */
+async function resumeRun(runId, dataDir, { fromStage } = {}) {
+  const run = readRun(dataDir, runId);
+  if (!run) {
+    const err = new Error(`Run '${runId}' not found.`);
+    err.code = 'RUN_NOT_FOUND';
+    throw err;
+  }
+
+  if (!['interrupted', 'failed'].includes(run.status)) {
+    const err = new Error(`Run '${runId}' has status '${run.status}' and cannot be resumed. Only interrupted or failed runs can be resumed.`);
+    err.code = 'RUN_NOT_RESUMABLE';
+    throw err;
+  }
+
+  // Determine resume index.
+  let resumeIndex;
+  if (fromStage !== undefined) {
+    if (!Number.isInteger(fromStage) || fromStage < 0 || fromStage >= run.stages.length) {
+      const err = new Error(`fromStage must be an integer between 0 and ${run.stages.length - 1}.`);
+      err.code = 'INVALID_FROM_STAGE';
+      throw err;
+    }
+    resumeIndex = fromStage;
+  } else {
+    // Default: first stage that is not 'completed'.
+    resumeIndex = run.stageStatuses.findIndex((s) => s.status !== 'completed');
+    if (resumeIndex === -1) resumeIndex = run.stages.length; // all done — will complete immediately
+  }
+
+  // Fix any stale 'running' stages before the resume point — assume they completed.
+  for (let i = 0; i < resumeIndex; i++) {
+    if (run.stageStatuses[i].status === 'running') {
+      run.stageStatuses[i].status     = 'completed';
+      run.stageStatuses[i].exitCode   = 0;
+      run.stageStatuses[i].finishedAt = new Date().toISOString();
+    }
+  }
+
+  // Reset stages from resumeIndex onwards to pending.
+  for (let i = resumeIndex; i < run.stages.length; i++) {
+    run.stageStatuses[i].status     = 'pending';
+    run.stageStatuses[i].exitCode   = null;
+    run.stageStatuses[i].startedAt  = null;
+    run.stageStatuses[i].finishedAt = null;
+  }
+
+  run.currentStage = resumeIndex;
+  run.status       = 'running';
+  writeRun(dataDir, run);
+
+  pipelineLog('run.resumed', { runId, resumeIndex, agentId: run.stages[resumeIndex] });
+
+  setImmediate(() => executeNextStage(dataDir, runId));
+
+  return run;
+}
+
+/**
  * Get the full run state for a given runId.
  *
  * @param {string} runId
@@ -805,6 +876,7 @@ async function abortAll(dataDir) {
 module.exports = {
   init,
   createRun,
+  resumeRun,
   getRun,
   listRuns,
   deleteRun,

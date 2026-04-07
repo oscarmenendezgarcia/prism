@@ -327,6 +327,19 @@ export async function getRunStatus(runId) {
   return request('GET', `/runs/${runId}`);
 }
 
+/**
+ * Resume an interrupted or failed pipeline run.
+ *
+ * @param {string} runId - The runId of the interrupted/failed run.
+ * @param {number} [fromStage] - Zero-based stage index to resume from.
+ *   Omit to resume from the first non-completed stage.
+ * @returns {Promise<object|{ error: true, code: string, message: string }>}
+ */
+export async function resumePipeline({ runId, fromStage }) {
+  const body = fromStage !== undefined ? { fromStage } : {};
+  return request('POST', `/runs/${runId}/resume`, body);
+}
+
 // ---------------------------------------------------------------------------
 // Activity feed — ADR-1 (Activity Feed) §T-008
 // ---------------------------------------------------------------------------

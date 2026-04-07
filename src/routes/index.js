@@ -49,12 +49,14 @@ const {
   PIPELINE_RUNS_LOG_ROUTE,
   PIPELINE_RUNS_PROMPT_ROUTE,
   PIPELINE_RUNS_PREVIEW_ROUTE,
+  PIPELINE_RUNS_RESUME_ROUTE,
   handleCreateRun,
   handleGetRun,
   handleGetStageLog,
   handleGetStagePrompt,
   handlePreviewPrompts,
   handleDeleteRun,
+  handleResumeRun,
 } = require('../handlers/pipeline');
 
 // ---------------------------------------------------------------------------
@@ -334,13 +336,21 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
     // Pipeline run routes
     // Order matters:
     //   1. PREVIEW_ROUTE  (/runs/preview-prompts)          — before LIST_ROUTE
-    //   2. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
-    //   3. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
-    //   4. LIST_ROUTE     (/runs)
-    //   5. SINGLE_ROUTE   (/runs/:id)
+    //   2. RESUME_ROUTE   (/runs/:id/resume)               — before SINGLE_ROUTE
+    //   3. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
+    //   4. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
+    //   5. LIST_ROUTE     (/runs)
+    //   6. SINGLE_ROUTE   (/runs/:id)
     // -------------------------------------------------------------------------
     if (PIPELINE_RUNS_PREVIEW_ROUTE.test(urlPath)) {
       if (method === 'POST') return handlePreviewPrompts(req, res, dataDir, spaceManager);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const pipelineResumeMatch = PIPELINE_RUNS_RESUME_ROUTE.exec(urlPath);
+    if (pipelineResumeMatch) {
+      const runId = pipelineResumeMatch[1];
+      if (method === 'POST') return handleResumeRun(req, res, runId, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

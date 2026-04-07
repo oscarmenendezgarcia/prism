@@ -31,6 +31,7 @@ const PIPELINE_RUNS_SINGLE_ROUTE  = /^\/api\/v1\/runs\/([^/]+)$/;
 const PIPELINE_RUNS_LOG_ROUTE     = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/log$/;
 const PIPELINE_RUNS_PROMPT_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/prompt$/;
 const PIPELINE_RUNS_PREVIEW_ROUTE = /^\/api\/v1\/runs\/preview-prompts$/;
+const PIPELINE_RUNS_RESUME_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/resume$/;
 
 // ---------------------------------------------------------------------------
 // Route handlers
@@ -186,6 +187,38 @@ async function handleGetStageLog(req, res, runId, stageIndex, dataDir) {
 }
 
 /**
+ * POST /api/v1/runs/:runId/resume
+ * Resume an interrupted or failed run from a given stage.
+ * Body (optional): { fromStage?: number }
+ * When fromStage is omitted, resumes from the first non-completed stage.
+ */
+async function handleResumeRun(req, res, runId, dataDir) {
+  let body = {};
+  try {
+    body = await parseBody(req) || {};
+  } catch (err) {
+    return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+  }
+
+  const { fromStage } = body;
+
+  if (fromStage !== undefined && !Number.isInteger(fromStage)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', "'fromStage' must be an integer when provided.");
+  }
+
+  try {
+    const run = await pipelineManager.resumeRun(runId, dataDir, { fromStage });
+    return sendJSON(res, 200, run);
+  } catch (err) {
+    if (err.code === 'RUN_NOT_FOUND')      return sendError(res, 404, err.code, err.message);
+    if (err.code === 'RUN_NOT_RESUMABLE')  return sendError(res, 422, err.code, err.message);
+    if (err.code === 'INVALID_FROM_STAGE') return sendError(res, 400, err.code, err.message);
+    console.error(`[pipeline] ERROR resuming run ${runId}:`, err);
+    return sendError(res, 500, 'INTERNAL_ERROR', err.message);
+  }
+}
+
+/**
  * DELETE /api/v1/runs/:runId
  * Cancel and remove a run. Sends SIGTERM to any active stage process.
  */
@@ -321,10 +354,12 @@ module.exports = {
   PIPELINE_RUNS_LOG_ROUTE,
   PIPELINE_RUNS_PROMPT_ROUTE,
   PIPELINE_RUNS_PREVIEW_ROUTE,
+  PIPELINE_RUNS_RESUME_ROUTE,
   handleCreateRun,
   handleGetRun,
   handleGetStageLog,
   handleGetStagePrompt,
   handlePreviewPrompts,
   handleDeleteRun,
+  handleResumeRun,
 };
