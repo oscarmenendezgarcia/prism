@@ -238,7 +238,6 @@ export interface PipelineState {
    * on.  Cleared when resumePipeline() is called.
    */
   pausedBeforeStage?: number;
-  dangerouslySkipPermissions?: boolean;
 }
 
 /** A prepared (but not yet executed) agent run — shown in the preview modal. */
@@ -346,7 +345,6 @@ export interface PromptGenerationRequest {
   spaceId: string;
   customInstructions?: string;
   workingDirectory?: string;
-  dangerouslySkipPermissions?: boolean;
 }
 
 /** Response from POST /api/v1/agent/prompt. */

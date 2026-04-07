@@ -133,6 +133,7 @@ function resolveAgent(agentId, agentsDir) {
     spawnArgs = [
       '--agent', agentId,
       '--print',
+      '--enable-auto-mode',
       '--output-format', 'stream-json',
       '--verbose',
       '--allowedTools', 'Bash Edit Write Read Glob Grep mcp__prism__* mcp__stitch__* mcp__figma__* mcp__plugin_playwright_playwright__*',
