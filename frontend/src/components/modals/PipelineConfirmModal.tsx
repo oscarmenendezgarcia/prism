@@ -403,9 +403,9 @@ export function PipelineConfirmModal() {
             <div className="flex items-start gap-2 rounded-md bg-surface-variant border border-border px-3 py-2">
               <span className="material-symbols-outlined text-sm text-text-secondary leading-tight mt-0.5 flex-shrink-0" aria-hidden="true">info</span>
               <span className="text-[11px] text-text-secondary select-none">
-                El pipeline se ejecuta en background.{' '}
+                The pipeline runs in the background.{' '}
                 <code className="font-mono bg-surface px-0.5 rounded">--dangerously-skip-permissions</code>{' '}
-                se aplica automáticamente — sin terminal activa no hay nadie que pueda responder a los prompts de permiso.
+                is applied automatically — with no active terminal there is no one to respond to permission prompts.
               </span>
             </div>
           ) : (
