@@ -129,7 +129,9 @@ export interface DeleteSpaceDialogState {
 /** Toast notification state. */
 export interface ToastState {
   message: string;
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'info';
+  /** Optional action button rendered inside the toast. */
+  action?: { label: string; onClick: () => void };
 }
 
 /** Markdown viewer modal state — used to show .md attachments rendered. */
