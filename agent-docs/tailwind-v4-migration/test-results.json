@@ -1,0 +1,346 @@
+{
+  "meta": {
+    "feature": "tailwind-v4-migration",
+    "qa_date": "2026-04-07",
+    "branch": "feature/tailwind-v4-migration",
+    "tester": "qa-engineer-e2e",
+    "status": "BLOCKED",
+    "block_reason": "Implementation not present on branch. Tailwind v4 migration commits not found. Pre-migration baseline recorded; E2E visual tests pending implementation.",
+    "baseline_recorded": true
+  },
+  "summary": {
+    "total": 35,
+    "passed": 2,
+    "failed": 3,
+    "skipped": 30,
+    "skip_reason": "Awaiting implementation (Tasks T-001 through T-006 not completed)",
+    "coverage_percent": null,
+    "vitest_total": 1093,
+    "vitest_passed": 1092,
+    "vitest_failed": 1
+  },
+  "performance": {
+    "baseline_build_time_s": 1.42,
+    "post_migration_build_time_s": null,
+    "baseline_css_bytes": 51249,
+    "baseline_css_gzip_bytes": 11039,
+    "post_migration_css_bytes": null,
+    "post_migration_css_gzip_bytes": null,
+    "p95_ms": null,
+    "p99_ms": null,
+    "error_rate_percent": null,
+    "throughput_rps": null
+  },
+  "security": {
+    "owasp_checks": [
+      {
+        "category": "A05:2021 Security Misconfiguration",
+        "check": "CSS toolchain config files expose no sensitive data",
+        "status": "pass",
+        "notes": "tailwind.config.js and postcss.config.js are dev-only, not included in dist/"
+      }
+    ],
+    "vulnerabilities_found": 0
+  },
+  "static_analysis": {
+    "deprecated_utility_occurrences": {
+      "outline-none": 42,
+      "bg-opacity": 0,
+      "text-opacity": 0,
+      "shadow-sm_builtin": "N/A — overridden by custom token",
+      "rounded-sm_builtin": "N/A — overridden by custom token",
+      "ring_bare": 0
+    },
+    "custom_tokens_in_use": {
+      "color_utilities": 160,
+      "shadow_card_modal": 3,
+      "rounded_card_modal": 3,
+      "ease_apple_spring": 20,
+      "animate_custom": 9,
+      "font_mono": 22,
+      "h_header_w_terminal_w_column": 1
+    }
+  },
+  "test_cases": [
+    {
+      "id": "TC-001",
+      "type": "integration",
+      "description": "Build succeeds with v3 (pre-migration baseline)",
+      "status": "pass",
+      "duration_ms": 1420,
+      "notes": "vite build completes in 1.42s. CSS chunk: 51.25KB / 10.78KB gzip. TypeScript: no errors."
+    },
+    {
+      "id": "TC-002",
+      "type": "integration",
+      "description": "Dev server HMR works (v3 baseline)",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "Not executed in this pass — dev server test requires interactive observation."
+    },
+    {
+      "id": "TC-003",
+      "type": "unit",
+      "description": "postcss.config.js deleted after T-002",
+      "status": "fail",
+      "duration_ms": 0,
+      "notes": "BLOCKED: postcss.config.js still exists at frontend/postcss.config.js. Migration not implemented."
+    },
+    {
+      "id": "TC-004",
+      "type": "unit",
+      "description": "tailwind.config.js deleted after T-003",
+      "status": "fail",
+      "duration_ms": 0,
+      "notes": "BLOCKED: tailwind.config.js still exists at frontend/tailwind.config.js. Migration not implemented."
+    },
+    {
+      "id": "TC-005",
+      "type": "unit",
+      "description": "autoprefixer removed from devDependencies",
+      "status": "fail",
+      "duration_ms": 0,
+      "notes": "BLOCKED: autoprefixer ^10.4.20 still present in frontend/package.json."
+    },
+    {
+      "id": "TC-006",
+      "type": "unit",
+      "description": "@tailwindcss/vite plugin registered in vite.config.ts",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "BLOCKED: vite.config.ts has no @tailwindcss/vite import. Migration not implemented."
+    },
+    {
+      "id": "TC-007",
+      "type": "unit",
+      "description": "@import 'tailwindcss' present as first directive in index.css",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "BLOCKED: index.css still uses @tailwind base/components/utilities (v3 directives)."
+    },
+    {
+      "id": "TC-008",
+      "type": "unit",
+      "description": "@theme inline block contains all color tokens",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "BLOCKED: No @theme block in index.css."
+    },
+    {
+      "id": "TC-009",
+      "type": "unit",
+      "description": "@theme block contains layout/radius/shadow/animation tokens",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "BLOCKED: No @theme block in index.css."
+    },
+    {
+      "id": "TC-010",
+      "type": "unit",
+      "description": "@custom-variant dark present before @theme in index.css",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "BLOCKED: Not present. This is the highest-risk omission — dark mode will break without it."
+    },
+    {
+      "id": "TC-011",
+      "type": "unit",
+      "description": "@layer base border-color override present",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "BLOCKED: Not present in index.css."
+    },
+    {
+      "id": "TC-012",
+      "type": "unit",
+      "description": "outline-none eliminated (42 occurrences → outline-hidden)",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "BLOCKED: 42 occurrences still present. To verify post-migration: grep -rn 'outline-none' frontend/src --include='*.tsx' → must return 0."
+    },
+    {
+      "id": "TC-013",
+      "type": "unit",
+      "description": "bg-opacity-* / text-opacity-* absent",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": "Pre-migration audit: 0 occurrences. Codebase already uses modern slash syntax (e.g. bg-primary/50)."
+    },
+    {
+      "id": "TC-014",
+      "type": "unit",
+      "description": "Custom shadow tokens preserved post-migration",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: 3 occurrences of shadow-sm (custom token, not built-in). Must verify @theme declaration post-migration."
+    },
+    {
+      "id": "TC-015",
+      "type": "unit",
+      "description": "Custom rounded tokens preserved post-migration",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: 14 occurrences of rounded-sm (custom 8px token). Must declare in @theme with explicit value."
+    },
+    {
+      "id": "TC-016",
+      "type": "unit",
+      "description": "ring-0 in TaggerReviewModal renders correctly",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: 1 occurrence. Low risk — ring-0 resets ring width to 0 in both v3 and v4."
+    },
+    {
+      "id": "TC-017",
+      "type": "unit",
+      "description": "ease-apple and ease-spring tokens functional (20 usages)",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Must verify @theme declares transitionTimingFunction tokens post-migration."
+    },
+    {
+      "id": "TC-018",
+      "type": "unit",
+      "description": "Vitest: all 1,093 tests pass",
+      "status": "fail",
+      "duration_ms": 14610,
+      "notes": "Pre-migration baseline: 1 test failing (useAgentCompletion.test.ts:332). This is a pre-existing regression from pipeline feature work, unrelated to Tailwind. Must be fixed before QA sign-off. See BUG-002."
+    },
+    {
+      "id": "TC-019",
+      "type": "e2e",
+      "description": "Board view — columns and cards render in dark/light mode",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked by concurrent process during QA pass."
+    },
+    {
+      "id": "TC-020",
+      "type": "e2e",
+      "description": "Create task modal — dark/light",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-021",
+      "type": "e2e",
+      "description": "Move task todo → in-progress → done",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-022",
+      "type": "e2e",
+      "description": "TaskDetailPanel open/edit/close",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-023",
+      "type": "e2e",
+      "description": "Terminal panel — open, command, close",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-024",
+      "type": "e2e",
+      "description": "AI Actions FAB — visible and hover",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-025",
+      "type": "e2e",
+      "description": "AI Actions FAB — mobile 375px viewport",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-026",
+      "type": "e2e",
+      "description": "Dark/light toggle — immediate transition in all components",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked. This is the highest-risk E2E test post-migration."
+    },
+    {
+      "id": "TC-027",
+      "type": "e2e",
+      "description": "Spaces switcher — create, rename, select, delete",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-028",
+      "type": "e2e",
+      "description": "Config panel — open, edit, discard",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-029",
+      "type": "e2e",
+      "description": "Badge colors in both themes",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Critical for dark: variant validation. Playwright browser locked."
+    },
+    {
+      "id": "TC-030",
+      "type": "e2e",
+      "description": "Border visibility — no invisible borders after currentColor change",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-031",
+      "type": "e2e",
+      "description": "Focus rings — outline-hidden produces invisible default ring",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-032",
+      "type": "e2e",
+      "description": "Animations — scale-in, fade-in-up, slide-in-right, toast-out",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-033",
+      "type": "e2e",
+      "description": "prefers-reduced-motion — animations collapse to 0.01ms",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Playwright browser locked."
+    },
+    {
+      "id": "TC-034",
+      "type": "perf",
+      "description": "Build time delta — v4 must not regress vs v3 baseline",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Baseline 1.42s recorded. Post-migration measurement pending."
+    },
+    {
+      "id": "TC-035",
+      "type": "perf",
+      "description": "CSS bundle size delta — max +5% tolerance",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "PENDING: Baseline 51,249 bytes recorded. Max allowed post-migration: 53,811 bytes."
+    }
+  ]
+}
