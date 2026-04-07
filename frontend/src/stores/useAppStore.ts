@@ -712,6 +712,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       availableAgents.find((a) => a.id === preparedRun.agentId)?.displayName ??
       preparedRun.agentId;
 
+    // Show "Pipeline started" toast only when the user clicks Execute in the preview modal,
+    // and only on stage 0 (not on subsequent stage advances).
+    if (existingPs && existingPs.currentStageIndex === 0) {
+      showToast(`Pipeline started — Stage 1: ${agentDisplayName}`);
+    }
+
     useRunHistoryStore.getState().recordRunStarted({
       id:               historyRunId,
       taskId:           preparedRun.taskId,
@@ -893,7 +899,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
 
     await get().prepareAgentRun(subTask.id, firstStage, dangerouslySkipPermissions);
-    showToast(`Pipeline started — Stage 1: ${agentDisplayName}`);
   },
 
   advancePipeline: async () => {
