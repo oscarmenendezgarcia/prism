@@ -35,6 +35,8 @@ import { useAgentCompletion } from '@/hooks/useAgentCompletion';
 import { useRunHistoryPolling } from '@/hooks/useRunHistoryPolling';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
+import { listRuns, getBackendRun } from '@/api/client';
+import type { PipelineStage } from '@/types';
 
 /** React Error Boundary to prevent white-screen crashes. */
 class ErrorBoundary extends React.Component<
@@ -84,6 +86,7 @@ function AppContent() {
   const configPanelOpen        = useAppStore((s) => s.configPanelOpen);
   const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
   const pipelineState          = useAppStore((s) => s.pipelineState);
+  const attachRun              = useAppStore((s) => s.attachRun);
   const historyPanelOpen       = useRunHistoryStore((s) => s.historyPanelOpen);
   const logPanelOpen           = usePipelineLogStore((s) => s.logPanelOpen);
 
@@ -93,6 +96,33 @@ function AppContent() {
     loadSpaces();
     loadSettings();
   }, [loadSpaces, loadSettings]);
+
+  // On mount: if no pipelineState is set, check for any active backend run
+  // and restore it so the log panel becomes accessible (e.g. after a page
+  // refresh or a backend resume).
+  useEffect(() => {
+    if (pipelineState !== null) return;
+    listRuns()
+      .then(async (runs) => {
+        const active = runs
+          .filter((r) => r.status === 'running')
+          .sort((a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime())[0];
+        if (!active) return;
+        const full = await getBackendRun(active.runId);
+        attachRun({
+          spaceId:           full.spaceId,
+          taskId:            full.taskId,
+          stages:            full.stages as PipelineStage[],
+          currentStageIndex: full.currentStage ?? 0,
+          startedAt:         full.createdAt,
+          status:            'running',
+          runId:             full.runId,
+          subTaskIds:        [],
+          checkpoints:       [],
+        });
+      })
+      .catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   usePolling();
   useAgentCompletion();

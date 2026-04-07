@@ -51,6 +51,7 @@ const {
   PIPELINE_RUNS_PREVIEW_ROUTE,
   PIPELINE_RUNS_RESUME_ROUTE,
   handleCreateRun,
+  handleListRuns,
   handleGetRun,
   handleGetStageLog,
   handleGetStagePrompt,
@@ -372,6 +373,7 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
 
     if (PIPELINE_RUNS_LIST_ROUTE.test(urlPath)) {
       if (method === 'POST') return handleCreateRun(req, res, dataDir, spaceManager);
+      if (method === 'GET')  return handleListRuns(req, res, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

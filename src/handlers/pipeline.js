@@ -131,6 +131,15 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
 }
 
 /**
+ * GET /api/v1/runs
+ * Return summary list of all runs from the registry.
+ */
+async function handleListRuns(req, res, dataDir) {
+  const runs = await pipelineManager.listRuns(dataDir);
+  return sendJSON(res, 200, runs);
+}
+
+/**
  * GET /api/v1/runs/:runId
  * Return the full run state, or 404 if not found.
  */
@@ -356,6 +365,7 @@ module.exports = {
   PIPELINE_RUNS_PREVIEW_ROUTE,
   PIPELINE_RUNS_RESUME_ROUTE,
   handleCreateRun,
+  handleListRuns,
   handleGetRun,
   handleGetStageLog,
   handleGetStagePrompt,

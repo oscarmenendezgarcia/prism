@@ -364,6 +364,10 @@ export const startRun = (
     }),
   });
 
+/** List all pipeline run summaries. */
+export const listRuns = (): Promise<BackendRun[]> =>
+  apiFetch<BackendRun[]>('/runs');
+
 /** Fetch the current status of a backend pipeline run. */
 export const getBackendRun = (runId: string): Promise<BackendRun> =>
   apiFetch<BackendRun>(`/runs/${runId}`);

@@ -175,6 +175,11 @@ interface AppState {
   /** Silently dismiss the pipeline indicator without sending Ctrl+C or toasting. */
   clearPipeline: () => void;
   /**
+   * Attach to a backend run that is already executing (e.g. after a page
+   * refresh or a backend resume). Sets pipelineState so the log panel opens.
+   */
+  attachRun: (state: PipelineState) => void;
+  /**
    * T-4 (orchestrator mode): dispatch a single-stage run using the
    * `orchestrator` agent, which sub-launches the full pipeline internally.
    * Does not use the per-stage PipelineState — shows a simplified "Orchestrator
@@ -994,6 +999,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     showToast(`Pipeline aborted at stage ${stage}.`);
   },
   clearPipeline: () => set({ pipelineState: null, activeRun: null }),
+
+  attachRun: (state) => set({ pipelineState: state }),
 
   /**
    * T-3 (manual checkpoints): resume a paused pipeline.
