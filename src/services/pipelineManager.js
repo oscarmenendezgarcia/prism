@@ -12,7 +12,8 @@
  * listing without reading individual run directories.
  *
  * Environment variables:
- *   PIPELINE_STAGE_TIMEOUT_MS  - Kill timeout per stage (default: 600000)
+ *   PIPELINE_STAGE_TIMEOUT_MS  - Kill timeout per stage (default: 3600000)
+ *   PIPELINE_STALL_TIMEOUT_MS  - Kill if no output for this long (default: 90000)
  *   PIPELINE_MAX_CONCURRENT    - Max active runs (default: 5)
  *   PIPELINE_RUNS_DIR          - Override runs directory
  *   PIPELINE_AGENT_MODE        - 'subagent' (default) or 'headless'
@@ -21,10 +22,11 @@
 
 'use strict';
 
-const fs           = require('fs');
-const path         = require('path');
-const crypto       = require('crypto');
-const { spawn }    = require('child_process');
+const fs                        = require('fs');
+const path                      = require('path');
+const crypto                    = require('crypto');
+const { spawn }                 = require('child_process');
+const { Transform }             = require('stream');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 
@@ -66,6 +68,10 @@ const DEFAULT_STAGES = [
 
 const DEFAULT_STAGE_TIMEOUT_MS = 3_600_000; // 1 hour
 const DEFAULT_MAX_CONCURRENT   = 5;
+// Stall watchdog: kill if no output for this long.  5 min is conservative —
+// tool calls (Bash builds, WebSearch) can be silent for a while, but AskUserQuestion
+// and permission prompts produce no output forever, so we still need a ceiling.
+const DEFAULT_STALL_TIMEOUT_MS = 300_000;   // 5 min without any output → kill
 
 // ---------------------------------------------------------------------------
 // Module-level state (in-process registry of active child processes)
@@ -473,9 +479,13 @@ async function spawnStage(dataDir, run, stageIndex) {
   const logPath   = stageLogPath(dataDir, run.runId, stageIndex);
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 
-  const spawnArgs = run.dangerouslySkipPermissions
-    ? [...agentSpec.spawnArgs, '--dangerously-skip-permissions']
-    : agentSpec.spawnArgs;
+  // Backend spawns always get --dangerously-skip-permissions: there is no user
+  // present to respond to permission prompts, so any interactive pause would
+  // hang the stage until the stall watchdog kills it.
+  const SKIP_FLAG = '--dangerously-skip-permissions';
+  const spawnArgs = agentSpec.spawnArgs.includes(SKIP_FLAG)
+    ? agentSpec.spawnArgs
+    : [...agentSpec.spawnArgs, SKIP_FLAG];
 
   const child = spawn('claude', spawnArgs, {
     stdio:    ['pipe', 'pipe', 'pipe'],
@@ -489,14 +499,44 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   activeProcesses.set(run.runId, { process: child, stageIndex });
 
-  // Pipe stdout and stderr to log file.
-  child.stdout.pipe(logStream, { end: false });
-  child.stderr.pipe(logStream, { end: false });
-
+  // Pipe stdout and stderr into the log file via a timestamp-tracking Transform.
+  // Using pipe() preserves backpressure semantics; the Transform only updates
+  // lastOutputAt and passes chunks through unchanged.
   const stageStartMs = Date.now();
+  let   lastOutputAt = Date.now();
+
+  function makeStallTracker() {
+    return new Transform({
+      transform(chunk, _enc, cb) { lastOutputAt = Date.now(); cb(null, chunk); },
+    });
+  }
+
+  child.stdout.pipe(makeStallTracker()).pipe(logStream, { end: false });
+  child.stderr.pipe(makeStallTracker()).pipe(logStream, { end: false });
+
+  // Stall watchdog: kill the stage if it produces no output for PIPELINE_STALL_TIMEOUT_MS.
+  // This catches AskUserQuestion hangs and any other interactive prompts that slip through.
+  const stallMs      = Number(process.env.PIPELINE_STALL_TIMEOUT_MS) || DEFAULT_STALL_TIMEOUT_MS;
+  const stallWatcher = setInterval(() => {
+    if (Date.now() - lastOutputAt >= stallMs) {
+      clearInterval(stallWatcher);
+      pipelineLog('stage.kill', { runId: run.runId, stageIndex, agentId, pid: child.pid, reason: 'stall', stallMs });
+      try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already gone */ }
+      const stalledRun = readRun(dataDir, run.runId);
+      if (stalledRun && stalledRun.stageStatuses[stageIndex].status === 'running') {
+        stalledRun.stageStatuses[stageIndex].status     = 'stalled';
+        stalledRun.stageStatuses[stageIndex].exitCode   = null;
+        stalledRun.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
+        stalledRun.status = 'failed';
+        writeRun(dataDir, stalledRun);
+      }
+      pipelineLog('stage.stalled', { runId: run.runId, stageIndex, agentId, stallMs });
+    }
+  }, 15_000);
 
   // Enforce stage timeout.
   const timer = setTimeout(() => {
+    clearInterval(stallWatcher);
     pipelineLog('stage.kill', { runId: run.runId, stageIndex, agentId, pid: child.pid, pgid: child.pid, reason: 'timeout' });
     try { process.kill(-child.pid, 'SIGTERM'); } catch { /* process group may already be gone */ }
     const currentRun = readRun(dataDir, run.runId);
@@ -512,6 +552,7 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   child.on('close', async (code) => {
     clearTimeout(timer);
+    clearInterval(stallWatcher);
     logStream.end();
     activeProcesses.delete(run.runId);
 

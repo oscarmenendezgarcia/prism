@@ -14,6 +14,7 @@ import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/compon
 import { Button } from '@/components/shared/Button';
 import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
 import { useAppStore } from '@/stores/useAppStore';
+import { useTerminalSessionStore } from '@/stores/useTerminalSessionStore';
 import { previewPipelinePrompts } from '@/api/client';
 import type { PipelineStage, PipelinePromptPreviewEntry } from '@/types';
 
@@ -41,6 +42,17 @@ export function PipelineConfirmModal() {
   /** T-4: When true, routes to executeOrchestratorRun instead of startPipeline. */
   const [useOrchestrator, setUseOrchestrator] = useState(false);
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
+
+  // True when the active terminal tab has an established PTY connection.
+  // Orchestrator mode injects the command into the PTY when one is available;
+  // otherwise the run spawns headlessly in the backend, where
+  // --dangerously-skip-permissions is always applied automatically.
+  const hasActiveTerminal = useTerminalSessionStore((s) => {
+    const active = s.sessions.find((sess) => sess.id === s.activeId);
+    return active?.sendInput != null;
+  });
+  // Backend spawn path: native pipeline always; orchestrator only when no terminal.
+  const runsInBackend = !useOrchestrator || !hasActiveTerminal;
 
   // T-9: Preview prompts state.
   /** Null = not yet fetched, array = fetched prompts, 'loading' = in-flight. */
@@ -387,24 +399,35 @@ export function PipelineConfirmModal() {
             </div>
           </label>
 
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={dangerouslySkipPermissions}
-              onChange={(e) => setDangerouslySkipPermissions(e.target.checked)}
-              aria-label="Skip permission prompts"
-              className="mt-0.5 w-4 h-4 rounded border-border accent-warning cursor-pointer flex-shrink-0"
-            />
-            <div className="flex flex-col gap-0.5">
-              <span className="text-sm text-text-primary font-medium select-none flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-sm text-warning leading-none" aria-hidden="true">warning</span>
-                Skip permission prompts
-              </span>
+          {runsInBackend ? (
+            <div className="flex items-start gap-2 rounded-md bg-surface-variant border border-border px-3 py-2">
+              <span className="material-symbols-outlined text-sm text-text-secondary leading-tight mt-0.5 flex-shrink-0" aria-hidden="true">info</span>
               <span className="text-[11px] text-text-secondary select-none">
-                Passes <code className="font-mono bg-surface-variant px-0.5 rounded">--dangerously-skip-permissions</code> to all stages. Use only in trusted environments.
+                El pipeline se ejecuta en background.{' '}
+                <code className="font-mono bg-surface px-0.5 rounded">--dangerously-skip-permissions</code>{' '}
+                se aplica automáticamente — sin terminal activa no hay nadie que pueda responder a los prompts de permiso.
               </span>
             </div>
-          </label>
+          ) : (
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={dangerouslySkipPermissions}
+                onChange={(e) => setDangerouslySkipPermissions(e.target.checked)}
+                aria-label="Skip permission prompts"
+                className="mt-0.5 w-4 h-4 rounded border-border accent-warning cursor-pointer flex-shrink-0"
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm text-text-primary font-medium select-none flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-sm text-warning leading-none" aria-hidden="true">warning</span>
+                  Skip permission prompts
+                </span>
+                <span className="text-[11px] text-text-secondary select-none">
+                  Passes <code className="font-mono bg-surface-variant px-0.5 rounded">--dangerously-skip-permissions</code> to all stages. Use only in trusted environments.
+                </span>
+              </div>
+            </label>
+          )}
         </div>
       </ModalBody>
 
