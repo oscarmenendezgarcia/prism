@@ -139,7 +139,7 @@ export const TaskCard = memo(function TaskCard({ task, column, isDragging = fals
         <button
           type="button"
           onClick={() => openDetailPanel(task)}
-          className="flex-1 min-w-0 text-sm font-medium text-text-primary leading-snug line-clamp-2 text-left cursor-pointer hover:text-primary transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary rounded-sm"
+          className="flex-1 min-w-0 text-sm font-medium text-text-primary leading-snug line-clamp-2 text-left cursor-pointer hover:text-primary transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
         >
           {task.title}
         </button>
@@ -151,7 +151,7 @@ export const TaskCard = memo(function TaskCard({ task, column, isDragging = fals
             onClick={() => openPanelForTask(task.id)}
             aria-label="Agent running — view run history"
             title="Agent running — click to view run history"
-            className="flex-shrink-0 flex items-center justify-center w-4 h-4 focus:outline-none focus:ring-2 focus:ring-primary rounded-full"
+            className="flex-shrink-0 flex items-center justify-center w-4 h-4 focus:outline-hidden focus:ring-2 focus:ring-primary rounded-full"
           >
             <span className="relative flex h-1.5 w-1.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3b82f6] opacity-75" aria-hidden="true" />
@@ -165,7 +165,7 @@ export const TaskCard = memo(function TaskCard({ task, column, isDragging = fals
           type="button"
           aria-label="Task actions"
           aria-haspopup="menu"
-          className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-sm text-text-secondary opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 hover:text-text-primary hover:bg-surface-variant transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-primary focus:opacity-100"
+          className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-sm text-text-secondary opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 hover:text-text-primary hover:bg-surface-variant transition-all duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary focus:opacity-100"
         >
           <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
             more_vert
@@ -202,7 +202,7 @@ export const TaskCard = memo(function TaskCard({ task, column, isDragging = fals
               aria-label={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
               title={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
               data-testid="attachment-pill"
-              className="ml-auto inline-flex items-center gap-0.5 text-[11px] text-text-secondary hover:text-primary transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary rounded-sm"
+              className="ml-auto inline-flex items-center gap-0.5 text-[11px] text-text-secondary hover:text-primary transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
             >
               <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
                 attachment

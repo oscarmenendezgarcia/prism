@@ -185,7 +185,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
               onClick={() => { setMode(m); setError(null); }}
               className={[
                 'flex-1 flex items-center justify-center gap-1.5 h-8 rounded-md text-[13px] font-medium transition-colors',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                'focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/50',
                 'disabled:opacity-50 disabled:cursor-not-allowed',
                 mode === m
                   ? 'bg-surface text-text-primary shadow-sm'
@@ -226,7 +226,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                   className={[
                     'w-full resize-y rounded-lg px-3 py-3 text-sm text-text-primary',
                     'bg-surface-variant border placeholder:text-text-disabled',
-                    'focus:outline-none focus:ring-[3px]',
+                    'focus:outline-hidden focus:ring-[3px]',
                     'disabled:opacity-50 disabled:cursor-not-allowed',
                     'min-h-[100px]',
                     error
@@ -256,7 +256,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                     className={[
                       'appearance-none h-7 pl-3 pr-7 rounded-full text-[12px] font-medium',
                       'bg-surface-variant border border-border text-text-primary',
-                      'focus:outline-none focus:ring-[2px] focus:ring-primary/[0.20]',
+                      'focus:outline-hidden focus:ring-[2px] focus:ring-primary/[0.20]',
                       'disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer',
                     ].join(' ')}
                   >
@@ -277,7 +277,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                     className={[
                       'appearance-none h-7 pl-3 pr-7 rounded-full text-[12px] font-medium',
                       'bg-surface-variant border border-border text-text-primary',
-                      'focus:outline-none focus:ring-[2px] focus:ring-primary/[0.20]',
+                      'focus:outline-hidden focus:ring-[2px] focus:ring-primary/[0.20]',
                       'disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer',
                     ].join(' ')}
                   >
@@ -357,7 +357,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                   className={[
                     'appearance-none h-7 pl-3 pr-7 rounded-full text-[12px] font-medium',
                     'bg-surface-variant border border-border text-text-primary',
-                    'focus:outline-none focus:ring-[2px] focus:ring-primary/[0.20]',
+                    'focus:outline-hidden focus:ring-[2px] focus:ring-primary/[0.20]',
                     'disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer',
                   ].join(' ')}
                 >

@@ -22,7 +22,7 @@ const ASSIGNED_OPTIONS = [
 ];
 
 const inputClass =
-  'w-full px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/40 transition-colors duration-150 h-12';
+  'w-full px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled focus:outline-hidden focus:border-primary focus:ring-2 focus:ring-primary/40 transition-colors duration-150 h-12';
 const errorClass = 'text-xs text-error mt-1';
 const hintClass = 'text-xs text-text-secondary mt-1';
 const labelClass = 'block text-sm font-medium text-text-primary mb-1.5';
@@ -213,7 +213,7 @@ export function CreateTaskModal() {
             </label>
             <textarea
               id="input-description"
-              className="w-full px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/40 transition-colors duration-150 resize-none"
+              className="w-full px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled focus:outline-hidden focus:border-primary focus:ring-2 focus:ring-primary/40 transition-colors duration-150 resize-none"
               rows={3}
               placeholder="Optional details..."
               value={description}
@@ -229,7 +229,7 @@ export function CreateTaskModal() {
                 <button
                   type="button"
                   onClick={() => setPipelineOpen(true)}
-                  className="text-xs text-primary hover:text-primary/80 focus:outline-none focus:ring-2 focus:ring-primary rounded px-1.5 py-0.5 transition-colors duration-150"
+                  className="text-xs text-primary hover:text-primary/80 focus:outline-hidden focus:ring-2 focus:ring-primary rounded px-1.5 py-0.5 transition-colors duration-150"
                 >
                   {pipeline.length > 0 ? 'Edit' : 'Configure'}
                 </button>

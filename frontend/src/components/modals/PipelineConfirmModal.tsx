@@ -282,7 +282,7 @@ export function PipelineConfirmModal() {
         {availableAgents.length > 0 && (
           <div className="flex items-center gap-2">
             <select
-              className="flex-1 text-xs px-2 py-1.5 bg-surface-variant border border-border rounded text-text-primary focus:outline-none focus:border-primary"
+              className="flex-1 text-xs px-2 py-1.5 bg-surface-variant border border-border rounded text-text-primary focus:outline-hidden focus:border-primary"
               value=""
               onChange={(e) => {
                 const agentId = e.target.value;
