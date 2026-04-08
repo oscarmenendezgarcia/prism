@@ -654,21 +654,32 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const startedAt = new Date().toISOString();
     const cmd       = preparedRun.cliCommand;
+    const terminalSender = useTerminalSessionStore.getState().activeSendInput();
 
-    // Always dispatch to the pipeline backend (POST /api/v1/runs).
-    // A single-agent run is a pipeline run with one stage — this gives it
-    // full log capture via the stage log API.
-    let backendRunId: string;
-    try {
-      const run = await api.startRun(
-        preparedRun.spaceId,
-        preparedRun.taskId,
-        [preparedRun.agentId],
-      );
-      backendRunId = run.runId;
-    } catch (err) {
-      showToast(`Failed to start agent run: ${(err as Error).message}`, 'error');
-      return;
+    let backendRunId: string | undefined;
+
+    if (terminalSender) {
+      // Terminal is open — inject the command into PTY instead of backend spawn.
+      const sent = terminalSender(cmd + '\r');
+      if (!sent) {
+        showToast('Could not send to terminal. Please try again.', 'error');
+        return;
+      }
+    } else {
+      // No terminal — dispatch to the pipeline backend (POST /api/v1/runs).
+      // A single-agent run is a pipeline run with one stage — this gives it
+      // full log capture via the stage log API.
+      try {
+        const run = await api.startRun(
+          preparedRun.spaceId,
+          preparedRun.taskId,
+          [preparedRun.agentId],
+        );
+        backendRunId = run.runId;
+      } catch (err) {
+        showToast(`Failed to start agent run: ${(err as Error).message}`, 'error');
+        return;
+      }
     }
 
     set({
@@ -679,7 +690,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         startedAt,
         cliCommand:  cmd,
         promptPath:  preparedRun.promptPath,
-        backendRunId,
+        ...(backendRunId ? { backendRunId } : {}),
       },
       preparedRun:       null,
       promptPreviewOpen: false,
@@ -740,43 +751,44 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     // Poll for completion and clear activeRun + pipelineState when done.
-    // BUG-001: store the interval handle in state so cancelAgentRun can clear it.
-    const runIdToWatch = backendRunId;
-    const POLL_MS = 5000;
-    const pollId = setInterval(async () => {
-      try {
-        const run = await api.getBackendRun(runIdToWatch);
-        if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+    // Only poll if backend run (no PTY injection).
+    if (backendRunId) {
+      const POLL_MS = 5000;
+      const pollId = setInterval(async () => {
+        try {
+          const run = await api.getBackendRun(backendRunId);
+          if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+            clearInterval(pollId);
+            set({ _agentRunPollId: null });
+            const durationMs = Date.now() - Date.parse(startedAt);
+            useRunHistoryStore.getState().recordRunFinished(
+              historyRunId,
+              run.status === 'completed' ? 'completed' : 'failed',
+              durationMs,
+            );
+            get().clearActiveRun();
+            const ps = get().pipelineState;
+            if (ps && ps.stages.length > 1 && ps.status === 'running' && run.status === 'completed') {
+              // Multi-stage pipeline: advance to the next stage automatically.
+              get().advancePipeline();
+            } else if (ps && ps.stages.length === 1 && ps.runId === backendRunId) {
+              // Single-stage run — clear pipelineState.
+              set({ pipelineState: null });
+            }
+            get().loadBoard();
+          }
+        } catch {
           clearInterval(pollId);
           set({ _agentRunPollId: null });
-          const durationMs = Date.now() - Date.parse(startedAt);
-          useRunHistoryStore.getState().recordRunFinished(
-            historyRunId,
-            run.status === 'completed' ? 'completed' : 'failed',
-            durationMs,
-          );
           get().clearActiveRun();
           const ps = get().pipelineState;
-          if (ps && ps.stages.length > 1 && ps.status === 'running' && run.status === 'completed') {
-            // Multi-stage pipeline: advance to the next stage automatically.
-            get().advancePipeline();
-          } else if (ps && ps.stages.length === 1 && ps.runId === runIdToWatch) {
-            // Single-stage run — clear pipelineState.
+          if (ps && ps.stages.length === 1 && ps.runId === backendRunId) {
             set({ pipelineState: null });
           }
-          get().loadBoard();
         }
-      } catch {
-        clearInterval(pollId);
-        set({ _agentRunPollId: null });
-        get().clearActiveRun();
-        const ps = get().pipelineState;
-        if (ps && ps.stages.length === 1 && ps.runId === runIdToWatch) {
-          set({ pipelineState: null });
-        }
-      }
-    }, POLL_MS);
-    set({ _agentRunPollId: pollId });
+      }, POLL_MS);
+      set({ _agentRunPollId: pollId });
+    }
   },
 
   // ── Pipeline ──────────────────────────────────────────────────────────────
