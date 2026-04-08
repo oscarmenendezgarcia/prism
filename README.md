@@ -6,16 +6,36 @@ A local-first Kanban board with an integrated terminal, AI agent run history, an
 
 ---
 
+## What Makes Prism Different
+
+**Prism is not another Kanban + terminal.** It's a **design-to-code workflow orchestrator** that eliminates the gap between planning and shipping:
+
+- **Multi-stage agent pipeline built into your board** — Create a task, hit "Run Pipeline", and watch `architect → UX/API → developer → code-review → QA` execute automatically. Each stage is a gated gate; no hand-offs between tools.
+
+- **All design decisions persist as artifacts** — Not just code commits. ADRs, blueprints, wireframes, OpenAPI specs, test results, and bug reports live alongside your task. When you ship, you ship the *why*, not just the *what*.
+
+- **Automated quality loop** — QA finds a critical bug? Prism re-invokes the developer with the bug report, auto-reruns tests, and blocks merge until green. Zero manual choreography.
+
+- **Real-time agent log streaming** — Watch each agent's reasoning unfold in a live terminal. See what decisions it made, what it generated, and catch issues mid-run.
+
+---
+
 ## Features
 
-- Kanban board with spaces, columns (To Do / In Progress / Done), and task attachments
-- Integrated terminal panel (PTY-backed, full shell access)
-- AI agent pipeline runner — launch multi-stage agent pipelines from any task
-- Live log viewer — stream stage output in real time
-- Agent run history with status timeline
-- Config editor — edit `~/.claude/*.md` files directly from the UI
-- Dark-first Material Design 3 UI
-- MCP server exposing all Kanban and pipeline operations as tools callable by Claude
+**Core**
+- **Kanban board** — Spaces, columns (To Do / In Progress / Done), task attachments, activity log
+- **Multi-stage pipeline runner** — Orchestrate architect → UX/API → dev → code-review → QA in one click; stages are gated (can't proceed without required artifacts)
+- **Live agent output** — Real-time log viewer streams each stage's reasoning and generated artifacts
+
+**Developer Experience**
+- **Integrated terminal** — Full shell access (PTY-backed WebSocket), no leaving the browser
+- **Artifact management** — Attach ADRs, specs, wireframes, and test results directly to tasks
+- **Config editor** — Edit `~/.claude/*.md` files (CLAUDE.md, project rules, agent definitions) directly from the UI
+- **Agent run history** — Status timeline, logs, and stage outputs for debugging
+
+**Integration**
+- **MCP server** — Expose all Kanban and pipeline operations as Claude tools (works with Claude Code + Claude Desktop)
+- **Dark-first Material Design 3** — Built for focused, long-session work
 
 ---
 
