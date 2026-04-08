@@ -59,7 +59,7 @@ const MAX_CONNECTIONS = 5;
  */
 const LOCALHOST_ORIGINS = process.env.ALLOWED_ORIGINS
   ? new Set(process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean))
-  : new Set(['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173', 'http://localhost:5174']);
+  : new Set(['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173']);
 
 /** Default PTY dimensions used until the client sends a resize message. */
 const DEFAULT_COLS = 80;
