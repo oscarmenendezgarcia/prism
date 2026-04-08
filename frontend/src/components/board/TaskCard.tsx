@@ -125,7 +125,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         isDone ? 'opacity-50 grayscale-[30%]' : '',
         isDragging ? 'opacity-50' : '',
         isDragOver ? 'ring-2 ring-primary' : '',
-        isActiveTask ? 'border-[#3b82f6]/40' : 'border-border',
+        isActiveTask ? 'border-primary/40' : 'border-border',
       ].filter(Boolean).join(' ')}
       // A-1: EXCEPTION — dynamic stagger delay requires inline style
       style={staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms`, animationFillMode: 'both' } : { animationFillMode: 'both' }}
@@ -162,8 +162,8 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
             className="flex-shrink-0 flex items-center justify-center w-4 h-4 focus:outline-hidden focus:ring-2 focus:ring-primary rounded-full"
           >
             <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3b82f6] opacity-75" aria-hidden="true" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#3b82f6]" aria-hidden="true" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" aria-hidden="true" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" aria-hidden="true" />
             </span>
           </button>
         )}
