@@ -44,6 +44,15 @@ const {
 const { handleTaggerRun }          = require('../handlers/tagger');
 const { handleAutoTaskGenerate, handleAutoTaskConfirm } = require('../handlers/autoTask');
 const {
+  TEMPLATES_LIST_ROUTE,
+  TEMPLATES_SINGLE_ROUTE,
+  handleListTemplates,
+  handleCreateTemplate,
+  handleGetTemplate,
+  handleUpdateTemplate,
+  handleDeleteTemplate,
+} = require('../handlers/templates');
+const {
   PIPELINE_RUNS_LIST_ROUTE,
   PIPELINE_RUNS_SINGLE_ROUTE,
   PIPELINE_RUNS_LOG_ROUTE,
@@ -382,6 +391,25 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
       const runId = pipelineSingleMatch[1];
       if (method === 'GET')    return handleGetRun(req, res, runId, dataDir);
       if (method === 'DELETE') return handleDeleteRun(req, res, runId, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Pipeline template routes
+    // List route MUST be tested before single-template route to avoid regex match.
+    // -------------------------------------------------------------------------
+    if (TEMPLATES_LIST_ROUTE.test(urlPath)) {
+      if (method === 'GET')  return handleListTemplates(req, res, dataDir);
+      if (method === 'POST') return handleCreateTemplate(req, res, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const templateSingleMatch = TEMPLATES_SINGLE_ROUTE.exec(urlPath);
+    if (templateSingleMatch) {
+      const templateId = templateSingleMatch[1];
+      if (method === 'GET')    return handleGetTemplate(req, res, templateId, dataDir);
+      if (method === 'PUT')    return handleUpdateTemplate(req, res, templateId, dataDir);
+      if (method === 'DELETE') return handleDeleteTemplate(req, res, templateId, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 
