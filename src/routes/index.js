@@ -43,6 +43,7 @@ const {
 } = require('../handlers/agentRuns');
 const { handleTaggerRun }          = require('../handlers/tagger');
 const { handleAutoTaskGenerate, handleAutoTaskConfirm } = require('../handlers/autoTask');
+const { getCounters: getInksmithCounters } = require('../services/promptRefiner');
 const {
   TEMPLATES_LIST_ROUTE,
   TEMPLATES_SINGLE_ROUTE,
@@ -86,6 +87,8 @@ const AUTOTASK_CONFIRM_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/autotask\/confirm$
 const LEGACY_TASKS_ROUTE  = /^\/api\/v1(\/tasks.*)$/;
 // Settings route
 const SETTINGS_ROUTE      = /^\/api\/v1\/settings$/;
+// Inksmith health route (T-007)
+const INKSMITH_HEALTH_ROUTE = /^\/api\/v1\/inksmith\/health$/;
 
 // ---------------------------------------------------------------------------
 // Router factory
@@ -297,6 +300,15 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
 
     if (AGENT_PROMPT_ROUTE.test(urlPath)) {
       if (method === 'POST') return handleGeneratePrompt(req, res, dataDir, spaceManager);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Inksmith health route (T-007) — before Settings to avoid catch-all conflict
+    // GET /api/v1/inksmith/health
+    // -------------------------------------------------------------------------
+    if (INKSMITH_HEALTH_ROUTE.test(urlPath)) {
+      if (method === 'GET') return sendJSON(res, 200, getInksmithCounters());
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 
