@@ -704,3 +704,109 @@ describe('GET /api/v1/inksmith/health — REST integration', () => {
     assert.strictEqual(res.status, 405);
   });
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/agent/prompt — source + refinementId fields (T-006)
+// ---------------------------------------------------------------------------
+
+describe('POST /api/v1/agent/prompt — source field integration (T-006)', () => {
+  let server;
+  let port;
+  let dataDir;
+  let agentsDir;
+
+  before(async () => {
+    dataDir   = tmpDir();
+    agentsDir = tmpDir();
+
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(agentsDir, 'senior-architect.md'),
+      '---\nmodel: sonnet\n---\nYou are a test agent.',
+      'utf8',
+    );
+
+    process.env.PIPELINE_AGENTS_DIR     = agentsDir;
+    process.env.PIPELINE_MAX_CONCURRENT = '5';
+    process.env.KANBAN_API_URL          = 'http://localhost:19999/api/v1';
+
+    // Clear enough of the module cache to get a fresh promptRefiner for this suite
+    for (const key of Object.keys(require.cache)) {
+      if (
+        key.includes('/src/services/promptRefiner') ||
+        key.includes('/src/routes') ||
+        key.includes('/src/handlers/prompt') ||
+        key.includes('/src/handlers/settings')
+      ) {
+        delete require.cache[key];
+      }
+    }
+
+    const { startServer } = require('../server');
+
+    await new Promise((resolve, reject) => {
+      server = startServer({ port: 0, dataDir, silent: true });
+      server.once('listening', () => { port = server.address().port; resolve(); });
+      server.once('error', reject);
+    });
+  });
+
+  after(async () => {
+    delete process.env.PIPELINE_AGENTS_DIR;
+    delete process.env.PIPELINE_MAX_CONCURRENT;
+    delete process.env.KANBAN_API_URL;
+    delete process.env.INKSMITH_API_KEY;
+    await new Promise((r) => server.close(r));
+    fs.rmSync(dataDir,   { recursive: true, force: true });
+    fs.rmSync(agentsDir, { recursive: true, force: true });
+  });
+
+  function createSpace() {
+    const { createSpaceManager } = require('../src/services/spaceManager');
+    const sm     = createSpaceManager(dataDir);
+    const result = sm.createSpace(`t006-${crypto.randomUUID().slice(0, 8)}`);
+    const spaceId = result.space.id;
+    const taskId  = crypto.randomUUID();
+    const todoPath = path.join(dataDir, 'spaces', spaceId, 'todo.json');
+    const tasks   = JSON.parse(fs.readFileSync(todoPath, 'utf8'));
+    tasks.push({ id: taskId, title: 'T-006 test', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    fs.writeFileSync(todoPath, JSON.stringify(tasks), 'utf8');
+    return { spaceId, taskId };
+  }
+
+  test('response includes source:"local-fallback" when inksmith disabled (default)', async () => {
+    const { spaceId, taskId } = createSpace();
+    const res = await request(port, 'POST', '/api/v1/agent/prompt', {
+      agentId: 'senior-architect', taskId, spaceId,
+    });
+    assert.strictEqual(res.status, 201, `Expected 201: ${JSON.stringify(res.body)}`);
+    assert.strictEqual(res.body.source,       'local-fallback');
+    assert.strictEqual(res.body.refinementId, null);
+  });
+
+  test('response source and refinementId are present alongside existing fields', async () => {
+    const { spaceId, taskId } = createSpace();
+    const res = await request(port, 'POST', '/api/v1/agent/prompt', {
+      agentId: 'senior-architect', taskId, spaceId,
+    });
+    assert.strictEqual(res.status, 201);
+    // New fields
+    assert.ok('source'       in res.body, 'source must be present');
+    assert.ok('refinementId' in res.body, 'refinementId must be present');
+    // Existing fields preserved (backward compat)
+    for (const field of ['promptPath', 'promptPreview', 'promptFull', 'cliCommand', 'estimatedTokens']) {
+      assert.ok(field in res.body, `existing field ${field} must still be present`);
+    }
+  });
+
+  test('written file content matches promptFull (refined or raw)', async () => {
+    const { spaceId, taskId } = createSpace();
+    const res = await request(port, 'POST', '/api/v1/agent/prompt', {
+      agentId: 'senior-architect', taskId, spaceId,
+    });
+    assert.strictEqual(res.status, 201);
+    const { promptPath, promptFull } = res.body;
+    assert.ok(fs.existsSync(promptPath), 'prompt file must exist on disk');
+    assert.strictEqual(fs.readFileSync(promptPath, 'utf8'), promptFull, 'file must match promptFull');
+  });
+});
