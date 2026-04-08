@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Board } from '../../src/components/board/Board';
 import { useAppStore } from '../../src/stores/useAppStore';
+import { useDragStore } from '../../src/stores/useDragStore';
 
 vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(), getTasks: vi.fn(), createTask: vi.fn(), moveTask: vi.fn(),
@@ -31,6 +32,7 @@ beforeEach(() => {
     tasks: { todo: [], 'in-progress': [], done: [] },
     moveTask: vi.fn(),
   });
+  useDragStore.getState().resetDrag();
 });
 
 describe('Board — rendering', () => {

@@ -4,9 +4,10 @@
  * ADR-002: replaces renderBoard() + static .board section in legacy app.js.
  */
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import type { Column as ColumnType } from '@/types';
 import { useTasks, useAppStore } from '@/stores/useAppStore';
+import { useDragStore } from '@/stores/useDragStore';
 import { Column } from './Column';
 import { ColumnTabBar } from './ColumnTabBar';
 
@@ -18,111 +19,80 @@ export function Board() {
   const openCreateModal = useAppStore((s) => s.openCreateModal);
   // MB-1: active column for mobile single-column view
   const [activeColumn, setActiveColumn] = useState<ColumnType>('todo');
-  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
-  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
 
-  // Refs mirror the state values so stable useCallback closures can read the
-  // latest value without being listed as deps (avoids recreating callbacks on
-  // every drag event, which would force all Column/TaskCard children to re-render).
-  const draggedTaskIdRef = useRef<string | null>(null);
-  const dragSourceColumnRef = useRef<ColumnType | null>(null);
-  const dragOverTaskIdRef = useRef<string | null>(null);
-
-  /** Clears all drag state atomically — called on drop and on drag-cancel. */
-  const resetDragState = useCallback(() => {
-    draggedTaskIdRef.current = null;
-    dragSourceColumnRef.current = null;
-    dragOverTaskIdRef.current = null;
-    setDraggedTaskId(null);
-    setDragOverTaskId(null);
-  }, []);
+  // PERF: All drag handlers read/write via useDragStore.getState() — no
+  // subscription, so Board never re-renders from drag events. Only the two
+  // TaskCards whose per-card boolean selector changes will re-render.
 
   const handleDragStart = useCallback((e: React.DragEvent, taskId: string, sourceColumn: ColumnType) => {
     e.stopPropagation();
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', taskId);
-    draggedTaskIdRef.current = taskId;
-    dragSourceColumnRef.current = sourceColumn;
-    setDraggedTaskId(taskId);
-  }, []);
+    useDragStore.getState().startDrag(taskId, sourceColumn);
+  }, []); // stable — getState() never changes
 
-  // PERF: reads draggedTaskId via ref so dep array is stable ([] instead of
-  // [draggedTaskId]). Without this, handleDragOver was recreated each time
-  // drag started, cascading re-renders into all Column children.
   const handleDragOver = useCallback((e: React.DragEvent, _targetColumn: ColumnType) => {
     e.preventDefault();
     e.stopPropagation();
+    const { draggedTaskId, dragOverTaskId } = useDragStore.getState();
     // Guard: only accept events while a drag is active.
-    if (!draggedTaskIdRef.current) return;
+    if (!draggedTaskId) return;
     // Clear per-card highlight when hovering the column container directly.
-    if (dragOverTaskIdRef.current !== null) {
-      dragOverTaskIdRef.current = null;
-      setDragOverTaskId(null);
+    if (dragOverTaskId !== null) {
+      useDragStore.getState().setDragOver(null);
     }
   }, []); // stable — no closure deps
 
-  // PERF: same stabilisation pattern as handleDragOver.
   const handleDragOverTask = useCallback((e: React.DragEvent, taskId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (draggedTaskIdRef.current && draggedTaskIdRef.current !== taskId) {
-      if (dragOverTaskIdRef.current !== taskId) {
-        dragOverTaskIdRef.current = taskId;
-        setDragOverTaskId(taskId);
-      }
+    const { draggedTaskId, dragOverTaskId } = useDragStore.getState();
+    if (draggedTaskId && draggedTaskId !== taskId && dragOverTaskId !== taskId) {
+      useDragStore.getState().setDragOver(taskId);
     }
   }, []); // stable — no closure deps
 
-  // PERF: use relatedTarget to detect genuine column-exit vs child-to-child
-  // movement. No closure over mutable state → stable dep array.
+  // Use relatedTarget to detect genuine column-exit vs child-to-child movement.
   const handleDragLeave = useCallback((e: React.DragEvent, _targetColumn: ColumnType) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      dragOverTaskIdRef.current = null;
-      setDragOverTaskId(null);
+      useDragStore.getState().setDragOver(null);
     }
   }, []); // stable — no closure deps
 
-  // PERF: reads dragOverTaskId via ref — was previously [dragOverTaskId] which
-  // caused handleDragLeaveTask to be recreated on every card-hover change.
   const handleDragLeaveTask = useCallback((e: React.DragEvent, taskId: string) => {
     e.stopPropagation();
-    if (dragOverTaskIdRef.current === taskId) {
-      dragOverTaskIdRef.current = null;
-      setDragOverTaskId(null);
+    if (useDragStore.getState().dragOverTaskId === taskId) {
+      useDragStore.getState().setDragOver(null);
     }
   }, []); // stable — no closure deps
 
-  // PERF: `tasks` removed from dep array — it was never read inside this
-  // handler, causing an unnecessary recreation on every board poll cycle.
-  // `dragSourceColumn` moved to ref so this is now stable for the session.
   const handleDrop = useCallback((e: React.DragEvent, targetColumn: ColumnType) => {
     e.preventDefault();
     e.stopPropagation();
 
     const taskId = e.dataTransfer.getData('text/plain');
-    const sourceColumn = dragSourceColumnRef.current;
+    const { dragSourceColumn } = useDragStore.getState();
 
-    if (!taskId || !sourceColumn) {
-      resetDragState();
+    if (!taskId || !dragSourceColumn) {
+      useDragStore.getState().resetDrag();
       return;
     }
 
-    if (sourceColumn === targetColumn) {
-      resetDragState();
+    if (dragSourceColumn === targetColumn) {
+      useDragStore.getState().resetDrag();
       return;
     }
 
-    const direction = COLUMNS.indexOf(targetColumn) > COLUMNS.indexOf(sourceColumn) ? 'right' : 'left';
-    moveTask(taskId, direction, sourceColumn);
-    resetDragState();
-  }, [moveTask, resetDragState]); // stable — moveTask is a Zustand action (never changes)
+    const direction = COLUMNS.indexOf(targetColumn) > COLUMNS.indexOf(dragSourceColumn) ? 'right' : 'left';
+    moveTask(taskId, direction, dragSourceColumn);
+    useDragStore.getState().resetDrag();
+  }, [moveTask]); // stable — moveTask is a Zustand action (never changes)
 
   // Safety: if the drag is cancelled (dropped outside any valid target), the
-  // browser fires dragend on the source element. Reset state to avoid a ghost
-  // "dragging" card being stuck in the UI.
+  // browser fires dragend on the source element. Reset to avoid a ghost card.
   const handleDragEnd = useCallback(() => {
-    resetDragState();
-  }, [resetDragState]);
+    useDragStore.getState().resetDrag();
+  }, []); // stable — no closure deps
 
   const taskCounts = {
     todo: (tasks.todo || []).length,
@@ -164,8 +134,6 @@ export function Board() {
               onDragLeaveTask={handleDragLeaveTask}
               onDragEnd={handleDragEnd}
               onDrop={handleDrop}
-              draggedTaskId={draggedTaskId}
-              dragOverTaskId={dragOverTaskId}
             />
           </div>
         ))}
