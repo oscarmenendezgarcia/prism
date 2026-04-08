@@ -92,9 +92,12 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
     }
   }
 
+  // Get space to resolve stages and extract workingDirectory
+  const spaceResult = spaceManager.getSpace(spaceId);
+  const workingDirectory = spaceResult.ok ? spaceResult.space.workingDirectory : undefined;
+
   if (!resolvedStages) {
     // Try space.pipeline
-    const spaceResult = spaceManager.getSpace(spaceId);
     if (spaceResult.ok && Array.isArray(spaceResult.space.pipeline) && spaceResult.space.pipeline.length > 0) {
       resolvedStages = spaceResult.space.pipeline;
       resolvedFrom   = 'space';
@@ -110,11 +113,12 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
     spaceId, taskId,
     resolvedFrom: resolvedFrom ?? 'explicit',
     stages: resolvedStages ?? pipelineManager.DEFAULT_STAGES,
+    workingDirectory,
     ts: new Date().toISOString(),
   }) + '\n');
 
   try {
-    const run = await pipelineManager.createRun({ spaceId, taskId, stages: resolvedStages, dataDir, dangerouslySkipPermissions: dangerouslySkipPermissions === true });
+    const run = await pipelineManager.createRun({ spaceId, taskId, stages: resolvedStages, dataDir, workingDirectory, dangerouslySkipPermissions: dangerouslySkipPermissions === true });
     // Include resolvedFrom in the response when stages were not explicitly provided (MCP path).
     const responseBody = resolvedFrom && resolvedFrom !== 'explicit'
       ? { ...run, resolvedFrom, stages: run.stages }

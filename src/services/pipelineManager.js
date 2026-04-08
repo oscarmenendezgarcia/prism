@@ -336,7 +336,7 @@ async function moveKanbanTask(spaceId, taskId, column) {
  * @param {string[]} stages     - Full ordered list of agent IDs in the pipeline.
  * @returns {{ promptText: string, estimatedTokens: number }}
  */
-function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages) {
+function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages, workingDirectory) {
   // readTaskFromSpace uses path.join(baseDataDir, spaceId) for legacy layout.
   // The production data layout is data/spaces/<spaceId>/, so pass the spaces dir.
   const spacesDir = path.join(dataDir, 'spaces');
@@ -344,6 +344,12 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages)
   let promptText = task
     ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
     : `TaskId: ${taskId}\nSpaceId: ${spaceId}\n`;
+
+  // Include working directory if set — tells the agent where to cd into.
+  if (workingDirectory) {
+    promptText += `\nWorking Directory: ${workingDirectory}\n`;
+    promptText += '⚠️ You MUST cd into this directory before starting work. All file paths should be relative to this directory.\n';
+  }
 
   // Include artifact paths from previous stages (attached to the task by earlier agents).
   // This gives each stage full context of what was produced before it.
@@ -457,7 +463,7 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   // Build the task prompt to pass via stdin.
   const { promptText: taskPrompt } = buildStagePrompt(
-    dataDir, run.spaceId, run.taskId, stageIndex, agentId, run.stages,
+    dataDir, run.spaceId, run.taskId, stageIndex, agentId, run.stages, run.workingDirectory,
   );
 
   // T-002: Persist the prompt to disk before piping it to the child process.
@@ -652,7 +658,7 @@ function init(dataDir) {
  * @returns {Promise<object>} Initial run state.
  * @throws On validation failure (TASK_NOT_FOUND, TASK_NOT_IN_TODO, MAX_CONCURRENT_REACHED, AGENT_NOT_FOUND).
  */
-async function createRun({ spaceId, taskId, stages, dataDir, dangerouslySkipPermissions = false }) {
+async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, dangerouslySkipPermissions = false }) {
   const stageList = stages && stages.length > 0 ? stages : DEFAULT_STAGES;
 
   // --- Validate task exists and is in 'todo'. ---
@@ -708,6 +714,7 @@ async function createRun({ spaceId, taskId, stages, dataDir, dangerouslySkipPerm
     createdAt: now,
     updatedAt: now,
     dangerouslySkipPermissions,
+    ...(workingDirectory ? { workingDirectory } : {}),
   };
 
   // --- Ensure runs directory exists. ---
