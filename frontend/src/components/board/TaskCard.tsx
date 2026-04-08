@@ -16,6 +16,7 @@ import { Badge } from '@/components/shared/Badge';
 import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore, useActiveRun } from '@/stores/useAppStore';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
+import { useDragStore } from '@/stores/useDragStore';
 
 // ---------------------------------------------------------------------------
 // Avatar helpers — deterministic gradient + initials from an assigned name
@@ -57,8 +58,10 @@ const COLUMNS: Column[] = ['todo', 'in-progress', 'done'];
 interface TaskCardProps {
   task: Task;
   column: Column;
-  isDragging?: boolean;
-  isDragOver?: boolean;
+  // PERF: isDragging and isDragOver removed from props. The component now
+  // subscribes to useDragStore directly with per-card boolean selectors so
+  // that only this card re-renders when its own drag state changes — not all
+  // cards in the column.
   onDragStart?: (e: React.DragEvent, taskId: string, sourceColumn: Column) => void;
   onDragOver?: (e: React.DragEvent, taskId: string) => void;
   onDragLeave?: (e: React.DragEvent, taskId: string) => void;
@@ -73,11 +76,11 @@ interface TaskCardProps {
 // Component
 // ---------------------------------------------------------------------------
 
-// PERF: memo prevents re-renders when sibling cards' drag state changes.
-// Since all callbacks are now stable (useCallback with [] deps in Board), and
-// isDragging/isDragOver only change for the specific card involved, React.memo
-// cuts per-drag-event renders from O(n_all_cards) to O(1).
-export const TaskCard = memo(function TaskCard({ task, column, isDragging = false, isDragOver = false, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, staggerDelayMs = 0 }: TaskCardProps) {
+// PERF: memo prevents re-renders when the parent Column re-renders (e.g. on
+// task list changes). Drag state is now read directly from useDragStore with
+// per-card boolean selectors — only this specific card re-renders when its own
+// drag state changes, giving O(1) re-renders per drag event.
+export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, staggerDelayMs = 0 }: TaskCardProps) {
   const moveTask          = useAppStore((s) => s.moveTask);
   const deleteTask        = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
@@ -86,6 +89,11 @@ export const TaskCard = memo(function TaskCard({ task, column, isDragging = fals
   const activeRun         = useActiveRun();
   const openDetailPanel   = useAppStore((s) => s.openDetailPanel);
   const openPanelForTask  = useRunHistoryStore((s) => s.openPanelForTask);
+
+  // Per-card drag state — Zustand only re-renders this component when the
+  // boolean result of the selector changes (false→true or true→false).
+  const isDragging = useDragStore((s) => s.draggedTaskId === task.id);
+  const isDragOver = useDragStore((s) => s.dragOverTaskId === task.id);
 
   const isActiveTask = activeRun?.taskId === task.id;
   const isDone = column === 'done';

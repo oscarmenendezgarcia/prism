@@ -27,14 +27,14 @@ interface ColumnProps {
   /** Forwarded to TaskCard; allows Board to reset drag state on cancelled drag. */
   onDragEnd?: () => void;
   onDrop?: (e: React.DragEvent, targetColumn: ColumnType) => void;
-  draggedTaskId?: string | null;
-  dragOverTaskId?: string | null;
+  // PERF: draggedTaskId and dragOverTaskId removed — TaskCard now reads drag state
+  // directly from useDragStore with per-card boolean selectors. Column no longer
+  // re-renders on drag events.
 }
 
-// PERF: memo prevents re-renders when parent Board state changes (e.g.
-// dragOverTaskId for a task in a different column) don't affect this column's
-// props. Stable callback refs from Board complete the optimisation.
-export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragOverTask, onDragLeave, onDragLeaveTask, onDragEnd, onDrop, draggedTaskId, dragOverTaskId }: ColumnProps) {
+// PERF: memo + no drag-ID props means this component never re-renders during
+// drag events. Only re-renders when its task list or stable callbacks change.
+export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragOverTask, onDragLeave, onDragLeaveTask, onDragEnd, onDrop }: ColumnProps) {
   const { label, accentClass } = COLUMN_META[column];
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -59,7 +59,6 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       data-column={column}
-      data-drag-over={draggedTaskId != null}
     >
       {/* S-1: sticky so the header stays visible when column content scrolls */}
       <div className={`sticky top-0 z-10 flex items-center justify-between px-3 py-2.5 border-b-2 bg-background/80 backdrop-blur-md ${accentClass}`}>
@@ -88,8 +87,6 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
                 key={task.id}
                 task={task}
                 column={column}
-                isDragging={task.id === draggedTaskId}
-                isDragOver={task.id === dragOverTaskId}
                 onDragStart={onDragStart}
                 onDragOver={onDragOverTask}
                 onDragLeave={onDragLeaveTask}
