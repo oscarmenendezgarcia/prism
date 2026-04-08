@@ -239,3 +239,38 @@ Save all screenshots to `agent-docs/tailwind-v4-migration/screenshots/`.
 | Test suite regresses | Low (Vitest doesn't process CSS) | Medium — indicates behavioural change | TC-018 |
 | Build time regression | Low | Low | TC-034 |
 | `@custom-variant dark` variant added but *after* @theme | Low | Medium — selector specificity issue | Review index.css ordering |
+
+---
+
+## T-006 Addendum: Board Components + Drag Store (QA Date: 2026-04-08)
+
+### Scope
+
+Covers the specific changes introduced in commit range T-003→T-007 for Board.tsx, Column.tsx, TaskCard.tsx, and the new `useDragStore.ts` Zustand store.
+
+### Additional Test Cases (T-006)
+
+| ID | Type | Description | Input | Expected | Priority |
+|---|---|---|---|---|---|
+| TC-036 | unit | useDragStore initial state | Fresh store | All three fields null | High |
+| TC-037 | unit | startDrag sets draggedTaskId + dragSourceColumn | startDrag('t1','todo') | Fields updated; dragOverTaskId untouched | High |
+| TC-038 | unit | setDragOver(null) clears dragOverTaskId | setState then setDragOver(null) | null | High |
+| TC-039 | unit | resetDrag clears all fields | Populated state | All null | High |
+| TC-040 | unit | Board drag lifecycle aria-grabbed | dragStart + dragEnd | true → false | High |
+| TC-041 | unit | Drop same column → moveTask not called | Drop todo→todo | moveTask never invoked | High |
+| TC-042 | unit | Drop cross-column direction=right | Drop todo→in-progress | moveTask('t1','right','todo') | High |
+| TC-043 | unit | TaskCard isDragOver ring via store state | useDragStore.setState({dragOverTaskId}) | ring-2 ring-primary present | High |
+| TC-044 | unit | Column memo: no drag-state props passed | Render Column | No draggedTaskId/dragOverTaskId props | Medium |
+| TC-045 | static | No inline styles except staggerDelayMs exception | Source review | Zero style={{}} other than animationDelay | Medium |
+| TC-046 | static | outline-hidden present in board components | Grep | outline-hidden in TaskCard; no outline-none | Medium |
+| TC-047 | static | Hardcoded #3b82f6 hex in TaskCard | Source review | 3 occurrences: active border + dot colors | Low |
+| TC-048 | perf | Re-render budget: O(1) cards per drag-over | Code analysis | Board/Column use getState(); no subscriptions | High |
+
+### T-006 Risk Assessment
+
+| Risk | Severity | Finding |
+|---|---|---|
+| CSS token drift (ease-apple, animate-fade-in-up) | Medium | Confirmed present in @theme block; build produces correct CSS (72KB chunk) |
+| Inline style CLAUDE.md violation | Low | Only animationDelay/animationFillMode present; approved exception per ADR comment |
+| Hardcoded #3b82f6 hex colors | Low | Advisory: 3 occurrences in TaskCard (active run border + dot). Should use --color-primary token |
+| useDragStore not shared across tabs/windows | Info | Expected: Zustand store is per-page-instance; no cross-tab drag intent |
