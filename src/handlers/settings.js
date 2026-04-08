@@ -37,6 +37,13 @@ const DEFAULT_SETTINGS = {
     includeKanbanBlock: true,
     includeGitBlock:    true,
     workingDirectory:   '',
+    inksmith: {
+      enabled:        false,
+      endpoint:       'https://api.inksmith.example/v1/refine',
+      timeoutMs:      1500,
+      retry:          { attempts: 1, backoffMs: 200 },
+      circuitBreaker: { failureThreshold: 5, openMs: 30000 },
+    },
   },
 };
 
@@ -48,7 +55,14 @@ const VALID_FILE_METHODS = ['cat-subshell', 'stdin-redirect', 'flag-file'];
 // ---------------------------------------------------------------------------
 
 /**
- * Deep-merge two plain objects (one level deep for known setting groups).
+ * Deep-merge two plain objects (two levels deep for known setting groups).
+ * The first level merges top-level keys (e.g. `cli`, `prompts`, `pipeline`).
+ * The second level merges nested sub-objects within those groups (e.g. `prompts.inksmith`)
+ * so that a partial update like `{ prompts: { inksmith: { enabled: true } } }` preserves
+ * the sibling fields `endpoint`, `timeoutMs`, `retry`, and `circuitBreaker`.
+ *
+ * BUG-001 fix: was one-level only, causing partial inksmith updates to silently drop sub-fields.
+ *
  * Immutable — returns a new object.
  */
 function deepMergeSettings(base, partial) {
@@ -58,10 +72,29 @@ function deepMergeSettings(base, partial) {
       partial[key] !== null &&
       typeof partial[key] === 'object' &&
       !Array.isArray(partial[key]) &&
+      base[key] !== null &&
       typeof base[key] === 'object' &&
       !Array.isArray(base[key])
     ) {
-      result[key] = { ...base[key], ...partial[key] };
+      // First-level merge
+      const merged = { ...base[key], ...partial[key] };
+
+      // Second-level merge: for each sub-key that both base and partial have as plain objects,
+      // spread base's sub-object under the partial's override so non-updated fields are preserved.
+      for (const subKey of Object.keys(partial[key])) {
+        if (
+          partial[key][subKey] !== null &&
+          typeof partial[key][subKey] === 'object' &&
+          !Array.isArray(partial[key][subKey]) &&
+          base[key][subKey] != null &&
+          typeof base[key][subKey] === 'object' &&
+          !Array.isArray(base[key][subKey])
+        ) {
+          merged[subKey] = { ...base[key][subKey], ...partial[key][subKey] };
+        }
+      }
+
+      result[key] = merged;
     } else {
       result[key] = partial[key];
     }
