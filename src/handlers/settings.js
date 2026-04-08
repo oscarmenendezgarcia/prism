@@ -37,6 +37,13 @@ const DEFAULT_SETTINGS = {
     includeKanbanBlock: true,
     includeGitBlock:    true,
     workingDirectory:   '',
+    inksmith: {
+      enabled:        false,
+      endpoint:       'https://api.inksmith.example/v1/refine',
+      timeoutMs:      1500,
+      retry:          { attempts: 1, backoffMs: 200 },
+      circuitBreaker: { failureThreshold: 5, openMs: 30000 },
+    },
   },
 };
 
