@@ -19,6 +19,7 @@ const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { COLUMNS }                        = require('../constants');
 const { AGENTS_DIR, AGENT_ID_RE }        = require('./agents');
 const { readSettings }                   = require('./settings');
+const promptRefiner                      = require('../services/promptRefiner');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -211,7 +212,7 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
   const settings   = readSettings(dataDir);
   const promptsDir = path.join(dataDir, '.prompts');
 
-  const promptText = buildPromptText({
+  const rawPromptText = buildPromptText({
     task:             taskResult.task,
     taskColumn:       taskResult.column,
     space:            spaceResult.space,
@@ -220,6 +221,14 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
     customInstructions,
     workingDirectory: workingDirectory || settings.prompts.workingDirectory,
   });
+
+  // ── Optional Inksmith refinement (fail-open) ─────────────────────────────
+  const refineResult = await promptRefiner.refine(
+    rawPromptText,
+    { agentId, taskId, spaceId },
+    settings,
+  );
+  const promptText = refineResult.prompt;
 
   if (!fs.existsSync(promptsDir)) {
     fs.mkdirSync(promptsDir, { recursive: true });
@@ -257,9 +266,19 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
     promptPath,
     estimatedTokens,
     promptSizeBytes,
+    source:       refineResult.source,
+    refinementId: refineResult.refinementId || null,
   }));
 
-  sendJSON(res, 201, { promptPath, promptPreview, promptFull: promptText, cliCommand, estimatedTokens });
+  sendJSON(res, 201, {
+    promptPath,
+    promptPreview,
+    promptFull:     promptText,
+    cliCommand,
+    estimatedTokens,
+    source:         refineResult.source,
+    refinementId:   refineResult.refinementId || null,
+  });
 }
 
 // ---------------------------------------------------------------------------
