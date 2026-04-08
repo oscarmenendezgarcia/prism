@@ -16,6 +16,7 @@ import { Badge } from '@/components/shared/Badge';
 import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore, useActiveRun } from '@/stores/useAppStore';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
+import { useDragStore } from '@/stores/useDragStore';
 
 // ---------------------------------------------------------------------------
 // Avatar helpers — deterministic gradient + initials from an assigned name
@@ -57,8 +58,10 @@ const COLUMNS: Column[] = ['todo', 'in-progress', 'done'];
 interface TaskCardProps {
   task: Task;
   column: Column;
-  isDragging?: boolean;
-  isDragOver?: boolean;
+  // PERF: isDragging and isDragOver removed from props. The component now
+  // subscribes to useDragStore directly with per-card boolean selectors so
+  // that only this card re-renders when its own drag state changes — not all
+  // cards in the column.
   onDragStart?: (e: React.DragEvent, taskId: string, sourceColumn: Column) => void;
   onDragOver?: (e: React.DragEvent, taskId: string) => void;
   onDragLeave?: (e: React.DragEvent, taskId: string) => void;
@@ -73,11 +76,11 @@ interface TaskCardProps {
 // Component
 // ---------------------------------------------------------------------------
 
-// PERF: memo prevents re-renders when sibling cards' drag state changes.
-// Since all callbacks are now stable (useCallback with [] deps in Board), and
-// isDragging/isDragOver only change for the specific card involved, React.memo
-// cuts per-drag-event renders from O(n_all_cards) to O(1).
-export const TaskCard = memo(function TaskCard({ task, column, isDragging = false, isDragOver = false, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, staggerDelayMs = 0 }: TaskCardProps) {
+// PERF: memo prevents re-renders when the parent Column re-renders (e.g. on
+// task list changes). Drag state is now read directly from useDragStore with
+// per-card boolean selectors — only this specific card re-renders when its own
+// drag state changes, giving O(1) re-renders per drag event.
+export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, staggerDelayMs = 0 }: TaskCardProps) {
   const moveTask          = useAppStore((s) => s.moveTask);
   const deleteTask        = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
@@ -86,6 +89,11 @@ export const TaskCard = memo(function TaskCard({ task, column, isDragging = fals
   const activeRun         = useActiveRun();
   const openDetailPanel   = useAppStore((s) => s.openDetailPanel);
   const openPanelForTask  = useRunHistoryStore((s) => s.openPanelForTask);
+
+  // Per-card drag state — Zustand only re-renders this component when the
+  // boolean result of the selector changes (false→true or true→false).
+  const isDragging = useDragStore((s) => s.draggedTaskId === task.id);
+  const isDragOver = useDragStore((s) => s.dragOverTaskId === task.id);
 
   const isActiveTask = activeRun?.taskId === task.id;
   const isDone = column === 'done';
@@ -117,7 +125,7 @@ export const TaskCard = memo(function TaskCard({ task, column, isDragging = fals
         isDone ? 'opacity-50 grayscale-[30%]' : '',
         isDragging ? 'opacity-50' : '',
         isDragOver ? 'ring-2 ring-primary' : '',
-        isActiveTask ? 'border-[#3b82f6]/40' : 'border-border',
+        isActiveTask ? 'border-primary/40' : 'border-border',
       ].filter(Boolean).join(' ')}
       // A-1: EXCEPTION — dynamic stagger delay requires inline style
       style={staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms`, animationFillMode: 'both' } : { animationFillMode: 'both' }}
@@ -139,7 +147,7 @@ export const TaskCard = memo(function TaskCard({ task, column, isDragging = fals
         <button
           type="button"
           onClick={() => openDetailPanel(task)}
-          className="flex-1 min-w-0 text-sm font-medium text-text-primary leading-snug line-clamp-2 text-left cursor-pointer hover:text-primary transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary rounded-sm"
+          className="flex-1 min-w-0 text-sm font-medium text-text-primary leading-snug line-clamp-2 text-left cursor-pointer hover:text-primary transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
         >
           {task.title}
         </button>
@@ -151,11 +159,11 @@ export const TaskCard = memo(function TaskCard({ task, column, isDragging = fals
             onClick={() => openPanelForTask(task.id)}
             aria-label="Agent running — view run history"
             title="Agent running — click to view run history"
-            className="flex-shrink-0 flex items-center justify-center w-4 h-4 focus:outline-none focus:ring-2 focus:ring-primary rounded-full"
+            className="flex-shrink-0 flex items-center justify-center w-4 h-4 focus:outline-hidden focus:ring-2 focus:ring-primary rounded-full"
           >
             <span className="relative flex h-1.5 w-1.5">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3b82f6] opacity-75" aria-hidden="true" />
-              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#3b82f6]" aria-hidden="true" />
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" aria-hidden="true" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" aria-hidden="true" />
             </span>
           </button>
         )}
@@ -165,7 +173,7 @@ export const TaskCard = memo(function TaskCard({ task, column, isDragging = fals
           type="button"
           aria-label="Task actions"
           aria-haspopup="menu"
-          className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-sm text-text-secondary opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 hover:text-text-primary hover:bg-surface-variant transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-primary focus:opacity-100"
+          className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-sm text-text-secondary opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 hover:text-text-primary hover:bg-surface-variant transition-all duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary focus:opacity-100"
         >
           <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
             more_vert
@@ -202,7 +210,7 @@ export const TaskCard = memo(function TaskCard({ task, column, isDragging = fals
               aria-label={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
               title={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
               data-testid="attachment-pill"
-              className="ml-auto inline-flex items-center gap-0.5 text-[11px] text-text-secondary hover:text-primary transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary rounded-sm"
+              className="ml-auto inline-flex items-center gap-0.5 text-[11px] text-text-secondary hover:text-primary transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
             >
               <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
                 attachment

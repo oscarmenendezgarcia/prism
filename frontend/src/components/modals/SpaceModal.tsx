@@ -15,7 +15,7 @@ const DEFAULT_STAGES = ['senior-architect', 'ux-api-designer', 'developer-agent'
 const STAGE_OPTIONS  = DEFAULT_STAGES;
 
 const inputClass =
-  'w-full px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/40 transition-colors duration-150 h-12';
+  'w-full px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled focus:outline-hidden focus:border-primary focus:ring-2 focus:ring-primary/40 transition-colors duration-150 h-12';
 
 export function SpaceModal() {
   const spaceModal = useAppStore((s) => s.spaceModal);

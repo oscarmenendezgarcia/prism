@@ -155,7 +155,7 @@ export function TerminalPanel() {
                   onChange={(e) => setRenameValue(e.target.value)}
                   onBlur={commitRename}
                   onKeyDown={handleRenameKeyDown}
-                  className="bg-transparent border-b border-primary outline-none text-xs text-terminal-text w-20 min-w-0"
+                  className="bg-transparent border-b border-primary outline-hidden text-xs text-terminal-text w-20 min-w-0"
                   maxLength={24}
                   aria-label="Rename session"
                   onClick={(e) => e.stopPropagation()}

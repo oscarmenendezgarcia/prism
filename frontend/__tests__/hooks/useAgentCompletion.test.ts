@@ -328,8 +328,12 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
     });
 
     expect(advanceFn).not.toHaveBeenCalled();
-    // Toast should mention stage progression
-    expect(toastFn).toHaveBeenCalledWith(expect.stringContaining('Advance'));
+    // First toast: agent completion message.
+    expect(toastFn.mock.calls[0][0]).toContain('Agent run completed');
+    // Second toast: pipeline-advance confirmation with action button (3 args).
+    expect(toastFn.mock.calls[1][0]).toContain('Advance');
+    expect(toastFn.mock.calls[1][1]).toBe('info');
+    expect(toastFn.mock.calls[1][2]).toEqual(expect.objectContaining({ label: 'Continue' }));
   });
 
   it('does NOT call advancePipeline when pipelineState is null', () => {

@@ -9,6 +9,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { TaskCard } from '../../src/components/board/TaskCard';
 import { useAppStore } from '../../src/stores/useAppStore';
 import { useRunHistoryStore } from '../../src/stores/useRunHistoryStore';
+import { useDragStore } from '../../src/stores/useDragStore';
 import type { Task, AgentRun } from '../../src/types';
 
 // ---------------------------------------------------------------------------
@@ -69,9 +70,9 @@ const ACTIVE_RUN: AgentRun = {
   promptPath: '/tmp/prompt.md',
 };
 
+// isDragging and isDragOver are no longer props — they come from useDragStore.
+// Tests that need drag state set useDragStore.setState() directly.
 const DRAG_HANDLERS = {
-  isDragging: false,
-  isDragOver: false,
   onDragStart: vi.fn(),
   onDragOver: vi.fn(),
   onDragLeave: vi.fn(),
@@ -103,6 +104,7 @@ function resetStores(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   resetStores();
+  useDragStore.getState().resetDrag();
   vi.clearAllMocks();
 });
 
@@ -468,9 +470,11 @@ describe('TaskCard — card wrapper styles', () => {
     ).toContain('gap-2');
   });
 
-  it('applies ring-2 ring-primary when isDragOver is true', () => {
+  it('applies ring-2 ring-primary when task is the drag-over target', () => {
+    // isDragging/isDragOver are now read from useDragStore — set store state directly.
+    useDragStore.setState({ dragOverTaskId: BASE_TASK.id });
     const { container } = render(
-      <TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} isDragOver={true} />
+      <TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />
     );
     expect(
       container.querySelector('[data-testid="task-card"]')?.className

@@ -47,12 +47,12 @@ function Toggle({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-hidden focus:ring-2 focus:ring-primary/50 ${
         checked ? 'bg-primary' : 'bg-surface-variant border border-border'
       }`}
     >
       <span
-        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform duration-200 ${
+        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
           checked ? 'translate-x-4' : 'translate-x-0.5'
         }`}
       />
@@ -165,7 +165,7 @@ export function AgentSettingsPanel() {
                     value={prompts.customInstructions}
                     onChange={(e) => setPrompts((p) => ({ ...p!, customInstructions: e.target.value }))}
                     rows={6}
-                    className="w-full bg-surface-variant border border-border rounded-md px-3 py-2 text-xs font-mono text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 overflow-y-auto"
+                    className="w-full bg-surface-variant border border-border rounded-md px-3 py-2 text-xs font-mono text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:ring-1 focus:ring-primary/50 overflow-y-auto"
                     placeholder="e.g. Always use TypeScript and follow the project's coding conventions."
                   />
                    {prompts?.customInstructions?.trim().length > 0 && (
@@ -223,7 +223,7 @@ export function AgentSettingsPanel() {
                     value={cli.binary}
                     onChange={(e) => setCli((c) => ({ ...c!, binary: e.target.value }))}
                     placeholder="/usr/local/bin/mycli"
-                    className="w-full h-9 bg-surface-variant border border-border rounded-md px-3 text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    className="w-full h-9 bg-surface-variant border border-border rounded-md px-3 text-sm text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:ring-1 focus:ring-primary/50"
                   />
                 </div>
               )}
@@ -247,7 +247,7 @@ export function AgentSettingsPanel() {
                     }))
                   }
                   placeholder='--allowedTools "Agent,Bash,Read,Write,Edit"'
-                  className="w-full h-9 bg-surface-variant border border-border rounded-md px-3 text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  className="w-full h-9 bg-surface-variant border border-border rounded-md px-3 text-sm text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:ring-1 focus:ring-primary/50"
                 />
               </div>
 
@@ -394,7 +394,7 @@ export function AgentSettingsPanel() {
                         setPrompts((p) => ({ ...p!, workingDirectory: e.target.value }))
                       }
                       placeholder="Auto-detect from server cwd"
-                      className="w-full h-9 bg-surface-variant border border-border rounded-md px-3 text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50"
+                      className="w-full h-9 bg-surface-variant border border-border rounded-md px-3 text-sm text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:ring-1 focus:ring-primary/50"
                     />
                   </div>
                 </div>

@@ -129,7 +129,7 @@ export function ConfigEditor() {
           disabled={configLoading || configSaving}
           spellCheck={false}
           aria-label={`Edit ${activeFile?.name ?? activeConfigFileId}`}
-          className="flex-1 min-h-0 w-full resize-none bg-transparent text-text-primary font-mono text-xs leading-relaxed px-3 py-2 outline-none placeholder:text-text-secondary disabled:opacity-60 overflow-auto"
+          className="flex-1 min-h-0 w-full resize-none bg-transparent text-text-primary font-mono text-xs leading-relaxed px-3 py-2 outline-hidden placeholder:text-text-secondary disabled:opacity-60 overflow-auto"
         />
       )}
 

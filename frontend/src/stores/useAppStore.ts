@@ -108,7 +108,7 @@ interface AppState {
   toast: ToastState | null;
   /** T-1: true during the 200ms exit animation window before toast is cleared */
   toastLeaving: boolean;
-  showToast: (message: string, type?: 'success' | 'error') => void;
+  showToast: (message: string, type?: 'success' | 'error' | 'info', action?: { label: string; onClick: () => void }) => void;
 
   // Config editor (ADR-1: Config Editor Panel)
   configPanelOpen: boolean;
@@ -454,17 +454,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   toast: null,
   toastLeaving: false,
-  showToast: (message, type = 'success') => {
+  showToast: (message, type = 'success', action?) => {
     if (toastTimer) clearTimeout(toastTimer);
-    set({ toast: { message, type }, toastLeaving: false });
-    // T-1: set leaving flag at 2800ms so the exit animation (200ms) can play
+    set({ toast: { message, type, action }, toastLeaving: false });
+    // Toasts with action buttons stay visible longer (6s) so the user can click.
+    const displayMs = action ? 6000 : 2800;
     toastTimer = setTimeout(() => {
       set({ toastLeaving: true });
       setTimeout(() => {
         set({ toast: null, toastLeaving: false });
         toastTimer = null;
       }, 200);
-    }, 2800);
+    }, displayMs);
   },
 
   // ── Config editor ─────────────────────────────────────────────────────────
@@ -755,11 +756,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             durationMs,
           );
           get().clearActiveRun();
-          // Clear the pipelineState created for this single-stage run.
-          // Multi-stage pipeline runs manage their own pipelineState transitions
-          // via advancePipeline / abortPipeline — do not clobber those.
           const ps = get().pipelineState;
-          if (ps && ps.stages.length === 1 && ps.runId === runIdToWatch) {
+          if (ps && ps.stages.length > 1 && ps.status === 'running' && run.status === 'completed') {
+            // Multi-stage pipeline: advance to the next stage automatically.
+            get().advancePipeline();
+          } else if (ps && ps.stages.length === 1 && ps.runId === runIdToWatch) {
+            // Single-stage run — clear pipelineState.
             set({ pipelineState: null });
           }
           get().loadBoard();
@@ -980,6 +982,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     showToast(`Stage ${nextIndex + 1}: ${agentDisplayName}`);
     await get().prepareAgentRun(subTask.id, nextStage, pipelineState.dangerouslySkipPermissions);
+
+    // Auto-execute: skip the prompt preview modal and run immediately.
+    const autoAdvance = get().agentSettings?.pipeline?.autoAdvance ?? true;
+    if (autoAdvance) {
+      await get().executeAgentRun();
+    }
   },
 
   abortPipeline: () => {

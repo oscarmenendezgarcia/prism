@@ -225,7 +225,7 @@ function PipelineFieldEditor({
                 disabled={disabled}
                 aria-label="Edit pipeline"
                 title="Edit pipeline"
-                className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
               >
                 <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
                   edit
@@ -237,7 +237,7 @@ function PipelineFieldEditor({
                 disabled={disabled}
                 aria-label="Clear pipeline"
                 title="Clear pipeline (revert to space default)"
-                className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:text-error hover:bg-error/10 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+                className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:text-error hover:bg-error/10 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
               >
                 <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
                   close
@@ -256,7 +256,7 @@ function PipelineFieldEditor({
               disabled={disabled}
               aria-label="Configure pipeline"
               title="Configure pipeline"
-              className="text-xs text-primary hover:text-primary/80 focus:outline-none focus:ring-2 focus:ring-primary rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150 px-1.5 py-0.5"
+              className="text-xs text-primary hover:text-primary/80 focus:outline-hidden focus:ring-2 focus:ring-primary rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150 px-1.5 py-0.5"
             >
               Configure
             </button>
@@ -298,7 +298,7 @@ function PipelineFieldEditor({
                   onClick={() => handleMoveUp(index)}
                   disabled={index === 0}
                   aria-label={`Move ${agentId} up`}
-                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-100"
+                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-100"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     arrow_upward
@@ -309,7 +309,7 @@ function PipelineFieldEditor({
                   onClick={() => handleMoveDown(index)}
                   disabled={index === draftStages.length - 1}
                   aria-label={`Move ${agentId} down`}
-                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-100"
+                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-100"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     arrow_downward
@@ -319,7 +319,7 @@ function PipelineFieldEditor({
                   type="button"
                   onClick={() => handleRemove(index)}
                   aria-label={`Remove ${agentId} from pipeline`}
-                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-error focus:outline-none focus:ring-1 focus:ring-primary transition-colors duration-100"
+                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-error focus:outline-hidden focus:ring-1 focus:ring-primary transition-colors duration-100"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     close
@@ -337,7 +337,7 @@ function PipelineFieldEditor({
           aria-label="Add a stage to the pipeline"
           defaultValue=""
           onChange={(e) => { handleAddStage(e.target.value); e.currentTarget.value = ''; }}
-          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary transition-colors duration-150"
+          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150"
         >
           <option value="" disabled>Add stage...</option>
           {addableAgents.map((id) => (
@@ -584,7 +584,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           <button
             onClick={closeDetailPanel}
             aria-label="Close task detail"
-            className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary transition-colors duration-150 flex-shrink-0"
+            className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150 flex-shrink-0"
           >
             <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
               close
@@ -621,7 +621,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 onClick={handleCopyId}
                 aria-label="Copy task ID"
                 title="Copy task ID"
-                className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary transition-colors duration-150"
+                className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150"
               >
                 <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
                   {isCopied ? 'check' : 'content_copy'}
@@ -644,7 +644,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               onBlur={handleTitleBlur}
               disabled={fieldDisabled}
               aria-disabled={fieldDisabled}
-              className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
+              className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
               placeholder="Task title"
             />
           </div>
@@ -668,7 +668,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   onClick={() => handleTypeChange(t)}
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
-                  className={`flex-1 py-1.5 text-xs font-medium capitalize transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
+                  className={`flex-1 py-1.5 text-xs font-medium capitalize transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
                     localType === t
                       ? 'bg-primary text-on-primary'
                       : 'bg-surface-elevated text-text-secondary hover:bg-surface-variant'
@@ -693,7 +693,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               onBlur={handleAssignedBlur}
               disabled={fieldDisabled}
               aria-disabled={fieldDisabled}
-              className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
+              className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
               placeholder="Assign to someone..."
             />
           </div>
@@ -710,7 +710,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               disabled={fieldDisabled}
               aria-disabled={fieldDisabled}
               rows={6}
-              className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-150"
+              className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-150"
               placeholder="Add a description..."
             />
             <div className="flex justify-end">
@@ -756,7 +756,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                       data-testid="attachment-row"
                       onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
                       aria-label={`Open attachment ${att.name}`}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary transition-colors duration-150"
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150"
                     >
                       <span
                         className="material-symbols-outlined text-base leading-none text-text-secondary flex-shrink-0"

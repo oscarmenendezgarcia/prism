@@ -164,7 +164,7 @@ export function AgentPromptPreview() {
               value={editedPrompt}
               onChange={(e) => setEditedPrompt(e.target.value)}
               rows={12}
-              className="w-full bg-surface-variant border border-border rounded-md p-3 text-xs font-mono text-text-primary resize-none focus:outline-none focus:ring-1 focus:ring-primary/50"
+              className="w-full bg-surface-variant border border-border rounded-md p-3 text-xs font-mono text-text-primary resize-none focus:outline-hidden focus:ring-1 focus:ring-primary/50"
               aria-label="Prompt preview (edit mode)"
             />
           ) : (

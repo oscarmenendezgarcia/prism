@@ -37,7 +37,7 @@ function PipelineLogToggle() {
       aria-pressed={logPanelOpen}
       aria-disabled={inactive}
       tabIndex={inactive ? -1 : 0}
-      className={`relative h-10 min-w-[72px] px-3 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all duration-150 ease-apple focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+      className={`relative h-10 min-w-[72px] px-3 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all duration-150 ease-apple focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/50 ${
         inactive
           ? 'opacity-40 pointer-events-none text-text-secondary bg-white/[0.04] border border-white/[0.08]'
           : logPanelOpen
