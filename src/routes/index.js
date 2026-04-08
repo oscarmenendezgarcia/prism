@@ -44,17 +44,29 @@ const {
 const { handleTaggerRun }          = require('../handlers/tagger');
 const { handleAutoTaskGenerate, handleAutoTaskConfirm } = require('../handlers/autoTask');
 const {
+  TEMPLATES_LIST_ROUTE,
+  TEMPLATES_SINGLE_ROUTE,
+  handleListTemplates,
+  handleCreateTemplate,
+  handleGetTemplate,
+  handleUpdateTemplate,
+  handleDeleteTemplate,
+} = require('../handlers/templates');
+const {
   PIPELINE_RUNS_LIST_ROUTE,
   PIPELINE_RUNS_SINGLE_ROUTE,
   PIPELINE_RUNS_LOG_ROUTE,
   PIPELINE_RUNS_PROMPT_ROUTE,
   PIPELINE_RUNS_PREVIEW_ROUTE,
+  PIPELINE_RUNS_RESUME_ROUTE,
   handleCreateRun,
+  handleListRuns,
   handleGetRun,
   handleGetStageLog,
   handleGetStagePrompt,
   handlePreviewPrompts,
   handleDeleteRun,
+  handleResumeRun,
 } = require('../handlers/pipeline');
 
 // ---------------------------------------------------------------------------
@@ -334,13 +346,21 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
     // Pipeline run routes
     // Order matters:
     //   1. PREVIEW_ROUTE  (/runs/preview-prompts)          — before LIST_ROUTE
-    //   2. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
-    //   3. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
-    //   4. LIST_ROUTE     (/runs)
-    //   5. SINGLE_ROUTE   (/runs/:id)
+    //   2. RESUME_ROUTE   (/runs/:id/resume)               — before SINGLE_ROUTE
+    //   3. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
+    //   4. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
+    //   5. LIST_ROUTE     (/runs)
+    //   6. SINGLE_ROUTE   (/runs/:id)
     // -------------------------------------------------------------------------
     if (PIPELINE_RUNS_PREVIEW_ROUTE.test(urlPath)) {
       if (method === 'POST') return handlePreviewPrompts(req, res, dataDir, spaceManager);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const pipelineResumeMatch = PIPELINE_RUNS_RESUME_ROUTE.exec(urlPath);
+    if (pipelineResumeMatch) {
+      const runId = pipelineResumeMatch[1];
+      if (method === 'POST') return handleResumeRun(req, res, runId, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 
@@ -362,6 +382,7 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
 
     if (PIPELINE_RUNS_LIST_ROUTE.test(urlPath)) {
       if (method === 'POST') return handleCreateRun(req, res, dataDir, spaceManager);
+      if (method === 'GET')  return handleListRuns(req, res, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 
@@ -370,6 +391,25 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
       const runId = pipelineSingleMatch[1];
       if (method === 'GET')    return handleGetRun(req, res, runId, dataDir);
       if (method === 'DELETE') return handleDeleteRun(req, res, runId, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Pipeline template routes
+    // List route MUST be tested before single-template route to avoid regex match.
+    // -------------------------------------------------------------------------
+    if (TEMPLATES_LIST_ROUTE.test(urlPath)) {
+      if (method === 'GET')  return handleListTemplates(req, res, dataDir);
+      if (method === 'POST') return handleCreateTemplate(req, res, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const templateSingleMatch = TEMPLATES_SINGLE_ROUTE.exec(urlPath);
+    if (templateSingleMatch) {
+      const templateId = templateSingleMatch[1];
+      if (method === 'GET')    return handleGetTemplate(req, res, templateId, dataDir);
+      if (method === 'PUT')    return handleUpdateTemplate(req, res, templateId, dataDir);
+      if (method === 'DELETE') return handleDeleteTemplate(req, res, templateId, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

@@ -79,11 +79,12 @@ function makePipelineState(overrides: Partial<PipelineState> = {}): PipelineStat
 
 function resetStore(overrides: Record<string, unknown> = {}) {
   useAppStore.setState({
-    pipelineState:   null,
-    availableAgents: [],
-    abortPipeline:   vi.fn(),
-    clearPipeline:   vi.fn(),
-    resumePipeline:  vi.fn(),
+    pipelineState:          null,
+    availableAgents:        [],
+    abortPipeline:          vi.fn(),
+    clearPipeline:          vi.fn(),
+    resumePipeline:         vi.fn(),
+    resumeInterruptedRun:   vi.fn(),
     ...overrides,
   } as any);
 }
@@ -489,5 +490,119 @@ describe('RunIndicator — elapsed timer', () => {
     useAppStore.setState({ pipelineState: newState } as any);
     rerender(<RunIndicator />);
     expect(screen.getByText('0:00')).toBeInTheDocument();
+  });
+
+  it('freezes elapsed at finishedAt when status is interrupted', () => {
+    const startedAt  = new Date(Date.now() - 120_000).toISOString();
+    const finishedAt = new Date(Date.now() -  45_000).toISOString();
+    resetStore({
+      pipelineState: makePipelineState({
+        status: 'interrupted',
+        startedAt,
+        finishedAt,
+      }),
+    });
+    render(<RunIndicator />);
+    // elapsed = 120s - 45s = 75s → "1:15"
+    expect(screen.getByText('1:15')).toBeInTheDocument();
+  });
+
+  it('does not start a setInterval when status is interrupted (timer frozen)', () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const startedAt  = new Date(Date.now() - 60_000).toISOString();
+    const finishedAt = new Date(Date.now() - 10_000).toISOString();
+    resetStore({
+      pipelineState: makePipelineState({ status: 'interrupted', startedAt, finishedAt }),
+    });
+    render(<RunIndicator />);
+    expect(setIntervalSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Interrupted mode
+// ---------------------------------------------------------------------------
+
+describe('RunIndicator — interrupted mode', () => {
+  it('renders the interrupted banner when status is interrupted', () => {
+    resetStore({
+      pipelineState: makePipelineState({ status: 'interrupted' }),
+    });
+    render(<RunIndicator />);
+    expect(screen.getByTestId('run-indicator-interrupted')).toBeInTheDocument();
+  });
+
+  it('interrupted banner has role="status" and aria-live="polite"', () => {
+    resetStore({
+      pipelineState: makePipelineState({ status: 'interrupted' }),
+    });
+    render(<RunIndicator />);
+    const el = screen.getByTestId('run-indicator-interrupted');
+    expect(el).toHaveAttribute('role', 'status');
+    expect(el).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('interrupted banner shows "Pipeline interrupted" text', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'interrupted' }) });
+    render(<RunIndicator />);
+    expect(screen.getByText(/pipeline interrupted/i)).toBeInTheDocument();
+  });
+
+  it('interrupted banner shows a Resume button', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'interrupted' }) });
+    render(<RunIndicator />);
+    expect(screen.getByRole('button', { name: /resume pipeline/i })).toBeInTheDocument();
+  });
+
+  it('clicking Resume calls resumeInterruptedRun', () => {
+    const resumeFn = vi.fn();
+    resetStore({
+      pipelineState:        makePipelineState({ status: 'interrupted' }),
+      resumeInterruptedRun: resumeFn,
+    });
+    render(<RunIndicator />);
+    fireEvent.click(screen.getByRole('button', { name: /resume pipeline/i }));
+    expect(resumeFn).toHaveBeenCalledOnce();
+  });
+
+  it('interrupted banner shows a Cancel button', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'interrupted' }) });
+    render(<RunIndicator />);
+    expect(screen.getByRole('button', { name: /cancel pipeline/i })).toBeInTheDocument();
+  });
+
+  it('clicking Cancel calls abortPipeline', () => {
+    const abortFn = vi.fn();
+    resetStore({
+      pipelineState: makePipelineState({ status: 'interrupted' }),
+      abortPipeline: abortFn,
+    });
+    render(<RunIndicator />);
+    fireEvent.click(screen.getByRole('button', { name: /cancel pipeline/i }));
+    expect(abortFn).toHaveBeenCalledOnce();
+  });
+
+  it('interrupted banner shows a Dismiss button', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'interrupted' }) });
+    render(<RunIndicator />);
+    expect(screen.getByRole('button', { name: /dismiss pipeline indicator/i })).toBeInTheDocument();
+  });
+
+  it('clicking Dismiss calls clearPipeline', () => {
+    const clearFn = vi.fn();
+    resetStore({
+      pipelineState: makePipelineState({ status: 'interrupted' }),
+      clearPipeline: clearFn,
+    });
+    render(<RunIndicator />);
+    fireEvent.click(screen.getByRole('button', { name: /dismiss pipeline indicator/i }));
+    expect(clearFn).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT render step-nodes or single-agent dot in interrupted mode', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'interrupted' }) });
+    render(<RunIndicator />);
+    expect(screen.queryByTestId('run-indicator-steps')).toBeNull();
+    expect(screen.queryByTestId('run-indicator-single')).toBeNull();
   });
 });

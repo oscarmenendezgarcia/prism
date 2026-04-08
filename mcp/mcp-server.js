@@ -36,6 +36,7 @@ import {
   listActivity,
   startPipeline,
   getRunStatus,
+  resumePipeline,
 } from './kanban-client.js';
 
 // ---------------------------------------------------------------------------
@@ -451,6 +452,25 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
+// Tool: kanban_resume_pipeline
+// ---------------------------------------------------------------------------
+
+server.tool(
+  'kanban_resume_pipeline',
+  'Resume an interrupted or failed pipeline run. ' +
+  'Use this when a run was interrupted by a server restart but the current stage actually completed. ' +
+  'Pass fromStage (zero-based) to skip to a specific stage, or omit it to resume from the first non-completed stage.',
+  {
+    runId:     z.string().describe('The runId of the interrupted or failed run.'),
+    fromStage: z.number().int().optional()
+                .describe('Zero-based index of the stage to resume from. Omit to auto-detect the first non-completed stage.'),
+  },
+  withTiming('kanban_resume_pipeline', async ({ runId, fromStage }) => {
+    return resumePipeline({ runId, fromStage });
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------------------
 
@@ -458,6 +478,6 @@ const transport = new StdioServerTransport();
 
 log('INFO', `Starting ${SERVER_NAME} v${SERVER_VERSION}`);
 log('INFO', `Kanban API URL: ${KANBAN_API_URL}`);
-log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_start_pipeline, kanban_get_run_status');
+log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_start_pipeline, kanban_get_run_status, kanban_resume_pipeline');
 
 await server.connect(transport);

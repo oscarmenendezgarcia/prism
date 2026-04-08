@@ -128,7 +128,7 @@ export function Modal({
     <ModalCloseContext.Provider value={handleClose}>
       <div
         ref={overlayRef}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[40px] backdrop-saturate-[200%]"
+        className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 backdrop-blur-[40px] backdrop-saturate-[200%]"
         role={role}
         aria-modal="true"
         aria-labelledby={labelId}

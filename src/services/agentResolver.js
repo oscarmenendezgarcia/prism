@@ -9,8 +9,11 @@
  * stateless — safe to call from any context including test environments.
  *
  * Spawn modes (controlled by PIPELINE_AGENT_MODE env var):
- *   subagent (default): ['--agent', agentId, '--print', '--enable-auto-mode', '--output-format', 'stream-json', '--verbose', '--allowedTools', '...']
- *   headless:           ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--verbose', '--enable-auto-mode']
+ *   subagent (default): ['--agent', agentId, '--print', '--output-format', 'stream-json', '--allowedTools', '...']
+ *   headless:           ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--enable-auto-mode']
+ *
+ * Note: --dangerously-skip-permissions is injected at spawn time by pipelineManager,
+ * not here — this keeps resolveAgent pure and testable.
  */
 
 'use strict';
@@ -123,19 +126,16 @@ function resolveAgent(agentId, agentsDir) {
   let spawnArgs;
   if (agentMode === 'headless') {
     // Stable fallback: pass system prompt and model explicitly via -p flag.
-    spawnArgs = ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--verbose', '--enable-auto-mode'];
+    spawnArgs = ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--enable-auto-mode'];
   } else {
     // Default subagent mode: invoke the named agent definition.
     // --output-format stream-json emits tokens progressively (text mode buffers and
     // only writes at the end — empty log on timeout/kill).
-    // --verbose is required by --output-format=stream-json with --print.
     // --enable-auto-mode grants full tool access including MCP tools (mcp__prism__*, etc.)
     spawnArgs = [
       '--agent', agentId,
       '--print',
-      '--enable-auto-mode',
       '--output-format', 'stream-json',
-      '--verbose',
       '--allowedTools', 'Bash Edit Write Read Glob Grep mcp__prism__* mcp__stitch__* mcp__figma__* mcp__plugin_playwright_playwright__*',
     ];
   }

@@ -120,6 +120,75 @@ function PausedBanner({ stageName, pausedIdx, elapsed, onContinue, onAbort, onDi
   );
 }
 
+interface InterruptedBannerProps {
+  elapsed: number;
+  onResume: () => void;
+  onCancel: () => void;
+  onDismiss: () => void;
+}
+
+function InterruptedBanner({ elapsed, onResume, onCancel, onDismiss }: InterruptedBannerProps) {
+  return (
+    <div
+      className="flex items-center gap-3 px-3 py-1.5 rounded-sm bg-warning/10 border border-warning/40"
+      role="status"
+      aria-live="polite"
+      aria-label="Pipeline interrupted"
+      data-testid="run-indicator-interrupted"
+    >
+      <span
+        className="material-symbols-outlined text-base text-warning leading-none flex-shrink-0"
+        aria-hidden="true"
+      >
+        pause_circle
+      </span>
+
+      <span className="text-xs text-text-primary flex-1 truncate">
+        Pipeline interrupted
+      </span>
+
+      <span className="text-xs text-text-secondary tabular-nums flex-shrink-0">
+        {formatElapsed(elapsed)}
+      </span>
+
+      <button
+        onClick={onResume}
+        aria-label="Resume pipeline"
+        title="Resume"
+        className="text-xs text-primary hover:text-primary/80 transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+      >
+        <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+          play_arrow
+        </span>
+        Resume
+      </button>
+
+      <button
+        onClick={onCancel}
+        aria-label="Cancel pipeline"
+        title="Cancel"
+        className="text-xs text-error hover:text-error-hover transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+      >
+        <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+          stop
+        </span>
+        Cancel
+      </button>
+
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss pipeline indicator"
+        title="Dismiss"
+        className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-150 flex-shrink-0"
+      >
+        <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+          close
+        </span>
+      </button>
+    </div>
+  );
+}
+
 interface SingleAgentDotProps {
   displayName: string;
   elapsed: number;
@@ -266,32 +335,50 @@ function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDism
 export function RunIndicator() {
   const pipelineState  = usePipelineState();
   const agents         = useAvailableAgents();
-  const abortPipeline  = useAppStore((s) => s.abortPipeline);
-  const clearPipeline  = useAppStore((s) => s.clearPipeline);
-  const resumePipeline = useAppStore((s) => s.resumePipeline);
+  const abortPipeline         = useAppStore((s) => s.abortPipeline);
+  const clearPipeline         = useAppStore((s) => s.clearPipeline);
+  const resumePipeline        = useAppStore((s) => s.resumePipeline);
+  const resumeInterruptedRun  = useAppStore((s) => s.resumeInterruptedRun);
 
   const [elapsedSecs, setElapsedSecs] = useState(0);
 
-  // Timer: resets when pipelineState.startedAt changes, ticks every 1 s.
-  // ADR-1 §3.5: identical timer logic to PipelineProgressBar.
+  // Timer: ticks every 1 s while running; freezes at finishedAt for terminal states.
   useEffect(() => {
     if (!pipelineState) {
       setElapsedSecs(0);
       return;
     }
-    const startMs = new Date(pipelineState.startedAt).getTime();
+    const startMs    = new Date(pipelineState.startedAt).getTime();
+    const isTerminal = pipelineState.status !== 'running' && pipelineState.status !== 'paused';
+    if (isTerminal) {
+      const endMs = pipelineState.finishedAt
+        ? new Date(pipelineState.finishedAt).getTime()
+        : Date.now();
+      setElapsedSecs(Math.floor((endMs - startMs) / 1000));
+      return;
+    }
     setElapsedSecs(Math.floor((Date.now() - startMs) / 1000));
-
     const id = setInterval(() => {
       setElapsedSecs(Math.floor((Date.now() - startMs) / 1000));
     }, 1000);
-
     return () => clearInterval(id);
-  }, [pipelineState?.startedAt]);
+  }, [pipelineState?.startedAt, pipelineState?.status, pipelineState?.finishedAt]);
 
   if (!pipelineState) return null;
 
   const { stages, currentStageIndex, status, pausedBeforeStage } = pipelineState;
+
+  // --- Interrupted mode ---
+  if (status === 'interrupted') {
+    return (
+      <InterruptedBanner
+        elapsed={elapsedSecs}
+        onResume={resumeInterruptedRun}
+        onCancel={abortPipeline}
+        onDismiss={clearPipeline}
+      />
+    );
+  }
 
   // --- Paused mode ---
   if (status === 'paused') {

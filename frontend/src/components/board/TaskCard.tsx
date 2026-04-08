@@ -10,7 +10,7 @@
  * ADR-003 §8.4: transition-all ease-apple, done state opacity-50 grayscale-[30%].
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 import type { Task, Column } from '@/types';
 import { Badge } from '@/components/shared/Badge';
 import { CardActionMenu } from '@/components/board/CardActionMenu';
@@ -57,12 +57,14 @@ const COLUMNS: Column[] = ['todo', 'in-progress', 'done'];
 interface TaskCardProps {
   task: Task;
   column: Column;
-  isDragging: boolean;
-  isDragOver: boolean;
-  onDragStart: (e: React.DragEvent, taskId: string, sourceColumn: Column) => void;
-  onDragOver: (e: React.DragEvent, taskId: string) => void;
-  onDragLeave: (e: React.DragEvent, taskId: string) => void;
-  onDrop: (e: React.DragEvent, targetColumn: Column) => void;
+  isDragging?: boolean;
+  isDragOver?: boolean;
+  onDragStart?: (e: React.DragEvent, taskId: string, sourceColumn: Column) => void;
+  onDragOver?: (e: React.DragEvent, taskId: string) => void;
+  onDragLeave?: (e: React.DragEvent, taskId: string) => void;
+  /** Called when drag ends (drop or cancel). Lets Board reset drag state. */
+  onDragEnd?: () => void;
+  onDrop?: (e: React.DragEvent, targetColumn: Column) => void;
   /** A-1: stagger delay in ms for the entrance animation. EXCEPTION: only inline style allowed. */
   staggerDelayMs?: number;
 }
@@ -71,7 +73,11 @@ interface TaskCardProps {
 // Component
 // ---------------------------------------------------------------------------
 
-export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, onDragOver, onDragLeave, onDrop, staggerDelayMs = 0 }: TaskCardProps) {
+// PERF: memo prevents re-renders when sibling cards' drag state changes.
+// Since all callbacks are now stable (useCallback with [] deps in Board), and
+// isDragging/isDragOver only change for the specific card involved, React.memo
+// cuts per-drag-event renders from O(n_all_cards) to O(1).
+export const TaskCard = memo(function TaskCard({ task, column, isDragging = false, isDragOver = false, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, staggerDelayMs = 0 }: TaskCardProps) {
   const moveTask          = useAppStore((s) => s.moveTask);
   const deleteTask        = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
@@ -116,10 +122,11 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
       // A-1: EXCEPTION — dynamic stagger delay requires inline style
       style={staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms`, animationFillMode: 'both' } : { animationFillMode: 'both' }}
       aria-grabbed={isDragging}
-      onDragStart={(e) => onDragStart(e, task.id, column)}
-      onDragOver={(e) => onDragOver(e, task.id)}
-      onDragLeave={(e) => onDragLeave(e, task.id)}
-      onDrop={(e) => onDrop(e, column)}
+      onDragStart={(e) => onDragStart?.(e, task.id, column)}
+      onDragOver={(e) => onDragOver?.(e, task.id)}
+      onDragLeave={(e) => onDragLeave?.(e, task.id)}
+      onDragEnd={onDragEnd}
+      onDrop={(e) => onDrop?.(e, column)}
     >
 
       {/* ------------------------------------------------------------------ */}
@@ -238,4 +245,4 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
 
     </article>
   );
-}
+});

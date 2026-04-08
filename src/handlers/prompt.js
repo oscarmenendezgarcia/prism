@@ -34,7 +34,7 @@ const AGENT_PROMPT_ROUTE = /^\/api\/v1\/agent\/prompt$/;
 /**
  * Build the CLI command string based on current settings and prompt file path.
  */
-function buildCliCommand(settings, promptPath) {
+function buildCliCommand(settings, promptPath, dangerouslySkipPermissions = false) {
   const { tool, binary, fileInputMethod } = settings.cli;
   const bin = binary || tool;
 
@@ -53,7 +53,8 @@ function buildCliCommand(settings, promptPath) {
   }
 
   // claude (default) — interactive mode so tool calls and thinking are visible in the TUI.
-  return `${bin} ${promptRef} --enable-auto-mode`;
+  const extraFlags = dangerouslySkipPermissions ? ' --dangerously-skip-permissions' : '';
+  return `${bin} ${promptRef}${extraFlags}`;
 }
 
 /**
@@ -177,7 +178,7 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
     }
   }
 
-  const { agentId, taskId, spaceId, customInstructions, workingDirectory } = body;
+  const { agentId, taskId, spaceId, customInstructions, workingDirectory, dangerouslySkipPermissions } = body;
 
   if (!AGENT_ID_RE.test(agentId)) {
     return sendError(res, 400, 'VALIDATION_ERROR', 'The agent ID provided is not valid.', {
@@ -240,7 +241,7 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
     });
   }
 
-  const cliCommand      = buildCliCommand(settings, promptPath);
+  const cliCommand      = buildCliCommand(settings, promptPath, dangerouslySkipPermissions === true);
   const promptPreview   = promptText.slice(0, 500);
   const estimatedTokens = Math.ceil(promptText.length / 4);
   const promptSizeBytes = Buffer.byteLength(promptText, 'utf8');

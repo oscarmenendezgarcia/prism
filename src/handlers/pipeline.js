@@ -31,6 +31,7 @@ const PIPELINE_RUNS_SINGLE_ROUTE  = /^\/api\/v1\/runs\/([^/]+)$/;
 const PIPELINE_RUNS_LOG_ROUTE     = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/log$/;
 const PIPELINE_RUNS_PROMPT_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/prompt$/;
 const PIPELINE_RUNS_PREVIEW_ROUTE = /^\/api\/v1\/runs\/preview-prompts$/;
+const PIPELINE_RUNS_RESUME_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/resume$/;
 
 // ---------------------------------------------------------------------------
 // Route handlers
@@ -39,7 +40,7 @@ const PIPELINE_RUNS_PREVIEW_ROUTE = /^\/api\/v1\/runs\/preview-prompts$/;
 /**
  * POST /api/v1/runs
  * Create and kick off a new pipeline run.
- * Body: { spaceId, taskId, stages? }
+ * Body: { spaceId, taskId, stages?, dangerouslySkipPermissions? }
  * When stages is omitted, falls back to the space's default pipeline, then
  * the pipelineManager default.
  */
@@ -55,7 +56,7 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
     return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
   }
 
-  const { spaceId, taskId, stages } = body;
+  const { spaceId, taskId, stages, dangerouslySkipPermissions } = body;
 
   if (!spaceId || typeof spaceId !== 'string') {
     return sendError(res, 400, 'VALIDATION_ERROR', "The 'spaceId' field is required.");
@@ -91,9 +92,12 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
     }
   }
 
+  // Get space to resolve stages and extract workingDirectory
+  const spaceResult = spaceManager.getSpace(spaceId);
+  const workingDirectory = spaceResult.ok ? spaceResult.space.workingDirectory : undefined;
+
   if (!resolvedStages) {
     // Try space.pipeline
-    const spaceResult = spaceManager.getSpace(spaceId);
     if (spaceResult.ok && Array.isArray(spaceResult.space.pipeline) && spaceResult.space.pipeline.length > 0) {
       resolvedStages = spaceResult.space.pipeline;
       resolvedFrom   = 'space';
@@ -109,11 +113,12 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
     spaceId, taskId,
     resolvedFrom: resolvedFrom ?? 'explicit',
     stages: resolvedStages ?? pipelineManager.DEFAULT_STAGES,
+    workingDirectory,
     ts: new Date().toISOString(),
   }) + '\n');
 
   try {
-    const run = await pipelineManager.createRun({ spaceId, taskId, stages: resolvedStages, dataDir });
+    const run = await pipelineManager.createRun({ spaceId, taskId, stages: resolvedStages, dataDir, workingDirectory, dangerouslySkipPermissions: dangerouslySkipPermissions === true });
     // Include resolvedFrom in the response when stages were not explicitly provided (MCP path).
     const responseBody = resolvedFrom && resolvedFrom !== 'explicit'
       ? { ...run, resolvedFrom, stages: run.stages }
@@ -127,6 +132,15 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
     console.error('[pipeline] ERROR creating run:', err);
     return sendError(res, 500, 'INTERNAL_ERROR', err.message);
   }
+}
+
+/**
+ * GET /api/v1/runs
+ * Return summary list of all runs from the registry.
+ */
+async function handleListRuns(req, res, dataDir) {
+  const runs = await pipelineManager.listRuns(dataDir);
+  return sendJSON(res, 200, runs);
 }
 
 /**
@@ -182,6 +196,38 @@ async function handleGetStageLog(req, res, runId, stageIndex, dataDir) {
   } catch (err) {
     console.error(`[pipeline] ERROR reading log for run ${runId} stage ${stageIndex}:`, err.message);
     return sendError(res, 500, 'INTERNAL_ERROR', 'Failed to read stage log file');
+  }
+}
+
+/**
+ * POST /api/v1/runs/:runId/resume
+ * Resume an interrupted or failed run from a given stage.
+ * Body (optional): { fromStage?: number }
+ * When fromStage is omitted, resumes from the first non-completed stage.
+ */
+async function handleResumeRun(req, res, runId, dataDir) {
+  let body = {};
+  try {
+    body = await parseBody(req) || {};
+  } catch (err) {
+    return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+  }
+
+  const { fromStage } = body;
+
+  if (fromStage !== undefined && !Number.isInteger(fromStage)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', "'fromStage' must be an integer when provided.");
+  }
+
+  try {
+    const run = await pipelineManager.resumeRun(runId, dataDir, { fromStage });
+    return sendJSON(res, 200, run);
+  } catch (err) {
+    if (err.code === 'RUN_NOT_FOUND')      return sendError(res, 404, err.code, err.message);
+    if (err.code === 'RUN_NOT_RESUMABLE')  return sendError(res, 422, err.code, err.message);
+    if (err.code === 'INVALID_FROM_STAGE') return sendError(res, 400, err.code, err.message);
+    console.error(`[pipeline] ERROR resuming run ${runId}:`, err);
+    return sendError(res, 500, 'INTERNAL_ERROR', err.message);
   }
 }
 
@@ -321,10 +367,13 @@ module.exports = {
   PIPELINE_RUNS_LOG_ROUTE,
   PIPELINE_RUNS_PROMPT_ROUTE,
   PIPELINE_RUNS_PREVIEW_ROUTE,
+  PIPELINE_RUNS_RESUME_ROUTE,
   handleCreateRun,
+  handleListRuns,
   handleGetRun,
   handleGetStageLog,
   handleGetStagePrompt,
   handlePreviewPrompts,
   handleDeleteRun,
+  handleResumeRun,
 };

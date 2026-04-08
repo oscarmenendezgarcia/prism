@@ -4,7 +4,7 @@
  * ADR-003 §8.3: bg-transparent, rounded-lg, col.* tokens replace hardcoded hex.
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 import type { Task, Column as ColumnType } from '@/types';
 import { TaskCard } from './TaskCard';
 import { EmptyState } from './EmptyState';
@@ -19,31 +19,36 @@ const COLUMN_META: Record<ColumnType, { label: string; accentClass: string; colI
 interface ColumnProps {
   column: ColumnType;
   tasks: Task[];
-  onDragStart: (e: React.DragEvent, taskId: string, sourceColumn: ColumnType) => void;
-  onDragOver: (e: React.DragEvent, targetColumn: ColumnType) => void;
-  onDragOverTask: (e: React.DragEvent, taskId: string) => void;
-  onDragLeave: (e: React.DragEvent, targetColumn: ColumnType) => void;
-  onDragLeaveTask: (e: React.DragEvent, taskId: string) => void;
-  onDrop: (e: React.DragEvent, targetColumn: ColumnType) => void;
-  draggedTaskId: string | null;
-  dragOverTaskId: string | null;
+  onDragStart?: (e: React.DragEvent, taskId: string, sourceColumn: ColumnType) => void;
+  onDragOver?: (e: React.DragEvent, targetColumn: ColumnType) => void;
+  onDragOverTask?: (e: React.DragEvent, taskId: string) => void;
+  onDragLeave?: (e: React.DragEvent, targetColumn: ColumnType) => void;
+  onDragLeaveTask?: (e: React.DragEvent, taskId: string) => void;
+  /** Forwarded to TaskCard; allows Board to reset drag state on cancelled drag. */
+  onDragEnd?: () => void;
+  onDrop?: (e: React.DragEvent, targetColumn: ColumnType) => void;
+  draggedTaskId?: string | null;
+  dragOverTaskId?: string | null;
 }
 
-export function Column({ column, tasks, onDragStart, onDragOver, onDragOverTask, onDragLeave, onDragLeaveTask, onDrop, draggedTaskId, dragOverTaskId }: ColumnProps) {
+// PERF: memo prevents re-renders when parent Board state changes (e.g.
+// dragOverTaskId for a task in a different column) don't affect this column's
+// props. Stable callback refs from Board complete the optimisation.
+export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragOverTask, onDragLeave, onDragLeaveTask, onDragEnd, onDrop, draggedTaskId, dragOverTaskId }: ColumnProps) {
   const { label, accentClass } = COLUMN_META[column];
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    onDragOver(e, column);
+    onDragOver?.(e, column);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
-    onDragLeave(e, column);
+    onDragLeave?.(e, column);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
-    onDrop(e, column);
+    onDrop?.(e, column);
   };
 
   return (
@@ -54,7 +59,7 @@ export function Column({ column, tasks, onDragStart, onDragOver, onDragOverTask,
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       data-column={column}
-      data-drag-over={draggedTaskId !== null}
+      data-drag-over={draggedTaskId != null}
     >
       {/* S-1: sticky so the header stays visible when column content scrolls */}
       <div className={`sticky top-0 z-10 flex items-center justify-between px-3 py-2.5 border-b-2 bg-background/80 backdrop-blur-md ${accentClass}`}>
@@ -88,6 +93,7 @@ export function Column({ column, tasks, onDragStart, onDragOver, onDragOverTask,
                 onDragStart={onDragStart}
                 onDragOver={onDragOverTask}
                 onDragLeave={onDragLeaveTask}
+                onDragEnd={onDragEnd}
                 onDrop={onDrop}
                 staggerDelayMs={staggerMs}
               />
@@ -97,4 +103,4 @@ export function Column({ column, tasks, onDragStart, onDragOver, onDragOverTask,
       </div>
     </section>
   );
-}
+});
