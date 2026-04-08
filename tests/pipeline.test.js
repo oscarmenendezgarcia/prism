@@ -134,9 +134,7 @@ describe('agentResolver', () => {
     assert.deepEqual(spec.spawnArgs, [
       '--agent', 'senior-architect',
       '--print',
-      '--enable-auto-mode',
       '--output-format', 'stream-json',
-      '--verbose',
       '--allowedTools', 'Bash Edit Write Read Glob Grep mcp__prism__* mcp__stitch__* mcp__figma__* mcp__plugin_playwright_playwright__*',
     ]);
 
@@ -160,8 +158,7 @@ describe('agentResolver', () => {
     assert.equal(spec.spawnArgs[3], 'sonnet');
     assert.equal(spec.spawnArgs[4], '--output-format');
     assert.equal(spec.spawnArgs[5], 'stream-json');
-    assert.equal(spec.spawnArgs[6], '--verbose');
-    assert.equal(spec.spawnArgs[7], '--enable-auto-mode');
+    assert.equal(spec.spawnArgs[6], '--enable-auto-mode');
 
     delete process.env.PIPELINE_AGENT_MODE;
     delete require.cache[require.resolve('../src/services/agentResolver')];

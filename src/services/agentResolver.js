@@ -9,8 +9,11 @@
  * stateless — safe to call from any context including test environments.
  *
  * Spawn modes (controlled by PIPELINE_AGENT_MODE env var):
- *   subagent (default): ['--agent', agentId, '--print', '--enable-auto-mode', '--output-format', 'stream-json', '--verbose', '--allowedTools', '...']
- *   headless:           ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--verbose', '--enable-auto-mode']
+ *   subagent (default): ['--agent', agentId, '--print', '--output-format', 'stream-json', '--allowedTools', '...']
+ *   headless:           ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--enable-auto-mode']
+ *
+ * Note: --dangerously-skip-permissions is injected at spawn time by pipelineManager,
+ * not here — this keeps resolveAgent pure and testable.
  */
 
 'use strict';
