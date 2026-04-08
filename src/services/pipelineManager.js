@@ -366,18 +366,21 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
 
   // Include git context so agents can evaluate what work has already been done.
   // This helps the developer-agent avoid re-implementing code from prior partial runs.
+  // IMPORTANT: Must run in the space's workingDirectory (not Prism's CWD) so the
+  // git log reflects the target project, not Prism itself.
   try {
     const execSync2 = require('child_process').execSync;
-    const opts = { encoding: 'utf8', timeout: 5000 };
+    const gitCwd    = workingDirectory && fs.existsSync(workingDirectory) ? workingDirectory : process.cwd();
+    const opts = { encoding: 'utf8', timeout: 5000, cwd: gitCwd };
     const gitLog    = execSync2('git log --oneline -10 2>/dev/null', opts).trim();
     const gitStatus = execSync2('git status --short 2>/dev/null', opts).trim();
     if (gitLog || gitStatus) {
-      promptText += '\n## GIT CONTEXT (recent commits + working tree state)\n';
+      promptText += `\n## GIT CONTEXT (recent commits + working tree state in ${gitCwd})\n`;
       if (gitLog)    promptText += '```\n' + gitLog + '\n```\n';
       if (gitStatus) promptText += '\nWorking tree changes:\n```\n' + gitStatus + '\n```\n';
     }
   } catch (e) {
-    // git not available - skip
+    // git not available or directory doesn't exist - skip
   }
 
   // For the developer stage: require compilation gate before closing.
@@ -568,8 +571,9 @@ async function spawnStage(dataDir, run, stageIndex) {
     // Guard: run may have been deleted or interrupted while the stage ran.
     if (!currentRun) return;
 
-    // Guard: if timeout already fired, stageStatus is 'timeout' — don't overwrite.
+    // Guard: if timeout or stall already fired, don't overwrite that status.
     if (currentRun.stageStatuses[stageIndex].status === 'timeout') return;
+    if (currentRun.stageStatuses[stageIndex].status === 'stalled') return;
 
     currentRun.stageStatuses[stageIndex].exitCode   = code;
     currentRun.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
