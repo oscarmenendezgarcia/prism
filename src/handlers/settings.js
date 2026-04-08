@@ -37,13 +37,6 @@ const DEFAULT_SETTINGS = {
     includeKanbanBlock: true,
     includeGitBlock:    true,
     workingDirectory:   '',
-    inksmith: {
-      enabled:        false,
-      endpoint:       'https://api.inksmith.example/v1/refine',
-      timeoutMs:      1500,
-      retry:          { attempts: 1, backoffMs: 200 },
-      circuitBreaker: { failureThreshold: 5, openMs: 30000 },
-    },
   },
 };
 
@@ -57,11 +50,8 @@ const VALID_FILE_METHODS = ['cat-subshell', 'stdin-redirect', 'flag-file'];
 /**
  * Deep-merge two plain objects (two levels deep for known setting groups).
  * The first level merges top-level keys (e.g. `cli`, `prompts`, `pipeline`).
- * The second level merges nested sub-objects within those groups (e.g. `prompts.inksmith`)
- * so that a partial update like `{ prompts: { inksmith: { enabled: true } } }` preserves
- * the sibling fields `endpoint`, `timeoutMs`, `retry`, and `circuitBreaker`.
- *
- * BUG-001 fix: was one-level only, causing partial inksmith updates to silently drop sub-fields.
+ * The second level merges nested sub-objects within those groups
+ * so that partial updates preserve sibling fields.
  *
  * Immutable — returns a new object.
  */

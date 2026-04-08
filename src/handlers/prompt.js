@@ -19,7 +19,6 @@ const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { COLUMNS }                        = require('../constants');
 const { AGENTS_DIR, AGENT_ID_RE }        = require('./agents');
 const { readSettings }                   = require('./settings');
-const promptRefiner                      = require('../services/promptRefiner');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -222,13 +221,7 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
     workingDirectory: workingDirectory || settings.prompts.workingDirectory,
   });
 
-  // ── Optional Inksmith refinement — fail-open ───────────────────────────────
-  const refinement = await promptRefiner.refine(
-    rawPromptText,
-    { agentId, taskId, spaceId },
-    settings,
-  );
-  const promptText = refinement.prompt;
+  const promptText = rawPromptText;
 
   if (!fs.existsSync(promptsDir)) {
     fs.mkdirSync(promptsDir, { recursive: true });
@@ -266,8 +259,6 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
     promptPath,
     estimatedTokens,
     promptSizeBytes,
-    source:       refinement.source,
-    refinementId: refinement.refinementId,
   }));
 
   sendJSON(res, 201, {
@@ -276,8 +267,6 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
     promptFull:    promptText,
     cliCommand,
     estimatedTokens,
-    source:        refinement.source,
-    refinementId:  refinement.refinementId,
   });
 }
 
