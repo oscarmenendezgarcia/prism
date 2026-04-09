@@ -58,6 +58,13 @@ export interface UseThemeResult {
   setTheme: (t: ThemePreference) => void;
 }
 
+const THEME_CHANGE_EVENT = 'prism-theme-change';
+
+interface ThemeChangeDetail {
+  theme: ThemePreference;
+  resolved: ResolvedTheme;
+}
+
 export function useTheme(): UseThemeResult {
   const [theme, setThemeState] = useState<ThemePreference>(readStoredTheme);
   const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() =>
@@ -87,6 +94,18 @@ export function useTheme(): UseThemeResult {
     return () => mq.removeEventListener('change', handleChange);
   }, [theme]);
 
+  // Sync with other hook instances in the same document (e.g. TerminalTab) when
+  // the user changes the theme via ThemeToggle while they are already mounted.
+  useEffect(() => {
+    function handleThemeChange(e: Event) {
+      const { theme: t, resolved } = (e as CustomEvent<ThemeChangeDetail>).detail;
+      setThemeState(t);
+      setResolvedTheme(resolved);
+    }
+    window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange);
+    return () => window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange);
+  }, []);
+
   const setTheme = useCallback((t: ThemePreference) => {
     try {
       if (t === 'system') {
@@ -100,6 +119,8 @@ export function useTheme(): UseThemeResult {
     const resolved = resolveTheme(t);
     setThemeState(t);
     setResolvedTheme(resolved);
+    // Notify all other hook instances in the same document
+    window.dispatchEvent(new CustomEvent<ThemeChangeDetail>(THEME_CHANGE_EVENT, { detail: { theme: t, resolved } }));
   }, []);
 
   return { theme, resolvedTheme, setTheme };

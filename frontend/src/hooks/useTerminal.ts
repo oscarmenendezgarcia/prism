@@ -19,9 +19,9 @@ const BACKOFF_BASE_MS = 2000;
 const BACKOFF_MAX_MS  = 30000;
 const RESIZE_DEBOUNCE = 100;
 
-/** Dark palette — unchanged from original XTERM_THEME. */
+/** Dark palette — background matches --color-terminal-bg dark token (#0D0D0F). */
 export const XTERM_THEME_DARK = {
-  background:          '#1e1e1e',
+  background:          '#0d0d0f',
   foreground:          '#d4d4d4',
   cursor:              '#1a73e8',
   selectionBackground: 'rgba(26, 115, 232, 0.3)',
