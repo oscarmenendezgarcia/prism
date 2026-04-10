@@ -2,12 +2,13 @@
  * Integration tests for GET /api/v1/tasks pagination and server-side filtering.
  *
  * Run with: node tests/list-tasks-pagination.test.js
- * Requires the server to be running on http://localhost:3000.
+ * Starts its own isolated server on a random port with a temporary data directory.
  */
 
 'use strict';
 
 const http = require('http');
+const { startTestServer } = require('./helpers/server');
 
 // ---------------------------------------------------------------------------
 // Minimal test runner
@@ -40,12 +41,14 @@ function suite(name) { console.log(`\n${name}`); }
 // HTTP helper
 // ---------------------------------------------------------------------------
 
+let _port;
+
 function request(method, urlPath, body) {
   return new Promise((resolve, reject) => {
     const payload = body ? JSON.stringify(body) : undefined;
     const options = {
       hostname: 'localhost',
-      port: 3000,
+      port: _port,
       path: urlPath,
       method,
       headers: {
@@ -88,6 +91,10 @@ function totalTasks(body) {
 // ---------------------------------------------------------------------------
 
 async function runTests() {
+  const { port, close } = await startTestServer();
+  _port = port;
+
+  try {
   await clearBoard();
 
   // -------------------------------------------------------------------------
@@ -140,13 +147,14 @@ async function runTests() {
     await clearBoard();
   });
 
-  await test('default limit is 50 (does not return more than 50 without cursor)', async () => {
+  await test('no limit param returns all tasks (frontend use case)', async () => {
     await clearBoard();
     for (let i = 0; i < 60; i++) await createTask(`Bulk ${i}`);
     const res = await request('GET', '/api/v1/tasks');
-    assert(totalTasks(res.body) === 50, `Expected 50, got ${totalTasks(res.body)}`);
+    assert(res.status === 200, `Expected 200, got ${res.status}`);
+    assert(totalTasks(res.body) === 60, `Expected all 60 tasks, got ${totalTasks(res.body)}`);
     assert(res.body.total === 60, `Expected total=60, got ${res.body.total}`);
-    assert(res.body.nextCursor !== null, 'Expected nextCursor to be set');
+    assert(res.body.nextCursor === null, 'Expected nextCursor=null when all tasks returned');
     await clearBoard();
   });
 
@@ -251,10 +259,9 @@ async function runTests() {
     assert(res.body.error.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${res.body.error.code}`);
   });
 
-  // -------------------------------------------------------------------------
-  // Cleanup
-  // -------------------------------------------------------------------------
-  await clearBoard();
+  } finally {
+    await close();
+  }
 
   // -------------------------------------------------------------------------
   // Summary
