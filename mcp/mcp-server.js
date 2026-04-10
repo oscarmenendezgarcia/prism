@@ -36,6 +36,7 @@ import {
   listActivity,
   startPipeline,
   getRunStatus,
+  resumePipeline,
 } from './kanban-client.js';
 
 // ---------------------------------------------------------------------------
@@ -179,7 +180,7 @@ server.tool(
   "Create a new task in the 'todo' column. Returns the created task with its generated ID. Pass spaceId to create in a specific space.",
   {
     title: z.string().describe('Task title (max 200 chars).'),
-    type:  z.enum(['task', 'research']).describe('Task type.'),
+    type:  z.enum(['feature', 'bug', 'tech-debt', 'chore']).describe('Task type.'),
     description: z
       .string()
       .optional()
@@ -188,10 +189,14 @@ server.tool(
       .string()
       .optional()
       .describe('Optional agent name to assign the task to.'),
+    pipeline: z
+      .array(z.string())
+      .optional()
+      .describe('Optional ordered list of agent IDs for this task\'s pipeline. Overrides the space default when set.'),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_create_task', async ({ title, type, description, assigned, spaceId }) => {
-    return createTask({ title, type, description, assigned }, spaceId);
+  withTiming('kanban_create_task', async ({ title, type, description, assigned, pipeline, spaceId }) => {
+    return createTask({ title, type, description, assigned, pipeline }, spaceId);
   })
 );
 
@@ -201,13 +206,22 @@ server.tool(
 
 server.tool(
   'kanban_update_task',
-  'Update fields of an existing task (title, description, assigned, type) and/or replace its attachments. Only provided fields are changed.',
+  'Update fields of an existing task (title, description, assigned, type, pipeline) and/or replace its attachments. Only provided fields are changed.',
   {
     id:    z.string().describe('The task ID to update.'),
     title: z.string().optional().describe('New title.'),
-    type:  z.enum(['task', 'research']).optional().describe('New type.'),
+    type:  z.enum(['feature', 'bug', 'tech-debt', 'chore']).optional().describe('New type.'),
     description: z.string().optional().describe('New description.'),
     assigned:    z.string().optional().describe('New assigned agent.'),
+    // T-007: per-card pipeline override
+    pipeline: z
+      .array(z.string())
+      .optional()
+      .describe(
+        'Ordered agent IDs for this task\'s pipeline. ' +
+        'Overrides the space-level default when "Run Pipeline" is invoked. ' +
+        'Pass an empty array to clear the field and revert to the space default.',
+      ),
     attachments: z
       .array(
         z.object({
@@ -220,12 +234,14 @@ server.tool(
       .describe('Replace the task attachments. An empty array clears all attachments.'),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, attachments, spaceId }) => {
+  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, pipeline, attachments, spaceId }) => {
     const fields = {};
     if (title       !== undefined) fields.title       = title;
     if (type        !== undefined) fields.type        = type;
     if (description !== undefined) fields.description = description;
     if (assigned    !== undefined) fields.assigned    = assigned;
+    // T-007: forward pipeline (including empty array = clear semantics)
+    if (pipeline    !== undefined) fields.pipeline    = pipeline;
 
     let result;
     if (Object.keys(fields).length > 0) {
@@ -436,6 +452,25 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
+// Tool: kanban_resume_pipeline
+// ---------------------------------------------------------------------------
+
+server.tool(
+  'kanban_resume_pipeline',
+  'Resume an interrupted or failed pipeline run. ' +
+  'Use this when a run was interrupted by a server restart but the current stage actually completed. ' +
+  'Pass fromStage (zero-based) to skip to a specific stage, or omit it to resume from the first non-completed stage.',
+  {
+    runId:     z.string().describe('The runId of the interrupted or failed run.'),
+    fromStage: z.number().int().optional()
+                .describe('Zero-based index of the stage to resume from. Omit to auto-detect the first non-completed stage.'),
+  },
+  withTiming('kanban_resume_pipeline', async ({ runId, fromStage }) => {
+    return resumePipeline({ runId, fromStage });
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------------------
 
@@ -443,6 +478,6 @@ const transport = new StdioServerTransport();
 
 log('INFO', `Starting ${SERVER_NAME} v${SERVER_VERSION}`);
 log('INFO', `Kanban API URL: ${KANBAN_API_URL}`);
-log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_start_pipeline, kanban_get_run_status');
+log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_start_pipeline, kanban_get_run_status, kanban_resume_pipeline');
 
 await server.connect(transport);

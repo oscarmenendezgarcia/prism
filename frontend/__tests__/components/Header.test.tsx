@@ -72,24 +72,29 @@ describe('Header', () => {
     expect(screen.getByLabelText(/switch to/i)).toBeInTheDocument();
   });
 
-  it('agent settings button toggles the panel open then closed', () => {
+  it('agent settings button has static aria-label and aria-pressed=false when closed', () => {
     useAppStore.setState({ agentSettingsPanelOpen: false, setAgentSettingsPanelOpen: vi.fn() } as any);
     renderHeader();
-    const btn = screen.getByLabelText(/open agent settings/i);
+    const btn = screen.getByLabelText(/agent settings/i);
     expect(btn).toBeInTheDocument();
     expect(btn).toHaveAttribute('aria-pressed', 'false');
-
-    fireEvent.click(btn);
-    expect(useAppStore.getState().agentSettingsPanelOpen === false ||
-      (useAppStore.getState() as any).setAgentSettingsPanelOpen.mock?.calls.length >= 0
-    ).toBe(true);
   });
 
-  it('agent settings button shows close label when panel is open', () => {
+  it('agent settings button has static aria-label and aria-pressed=true when open', () => {
     useAppStore.setState({ agentSettingsPanelOpen: true } as any);
     renderHeader();
-    const btn = screen.getByLabelText(/close agent settings/i);
+    const btn = screen.getByLabelText(/agent settings/i);
     expect(btn).toBeInTheDocument();
     expect(btn).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('Terminal toggle appears before AgentSettings toggle in DOM order (T-4 redesign)', () => {
+    renderHeader();
+    const buttons = screen.getAllByRole('button');
+    const terminalIdx = buttons.findIndex((b) => /toggle terminal panel/i.test(b.getAttribute('aria-label') ?? ''));
+    const agentIdx    = buttons.findIndex((b) => /agent settings/i.test(b.getAttribute('aria-label') ?? ''));
+    expect(terminalIdx).toBeGreaterThanOrEqual(0);
+    expect(agentIdx).toBeGreaterThanOrEqual(0);
+    expect(terminalIdx).toBeLessThan(agentIdx);
   });
 });

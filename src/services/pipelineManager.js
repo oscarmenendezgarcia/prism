@@ -12,7 +12,8 @@
  * listing without reading individual run directories.
  *
  * Environment variables:
- *   PIPELINE_STAGE_TIMEOUT_MS  - Kill timeout per stage (default: 600000)
+ *   PIPELINE_STAGE_TIMEOUT_MS  - Kill timeout per stage (default: 3600000)
+ *   PIPELINE_STALL_TIMEOUT_MS  - Kill if no output for this long (default: 90000)
  *   PIPELINE_MAX_CONCURRENT    - Max active runs (default: 5)
  *   PIPELINE_RUNS_DIR          - Override runs directory
  *   PIPELINE_AGENT_MODE        - 'subagent' (default) or 'headless'
@@ -21,10 +22,11 @@
 
 'use strict';
 
-const fs           = require('fs');
-const path         = require('path');
-const crypto       = require('crypto');
-const { spawn }    = require('child_process');
+const fs                        = require('fs');
+const path                      = require('path');
+const crypto                    = require('crypto');
+const { spawn }                 = require('child_process');
+const { Transform }             = require('stream');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 
@@ -66,6 +68,10 @@ const DEFAULT_STAGES = [
 
 const DEFAULT_STAGE_TIMEOUT_MS = 3_600_000; // 1 hour
 const DEFAULT_MAX_CONCURRENT   = 5;
+// Stall watchdog: kill if no output for this long.  5 min is conservative —
+// tool calls (Bash builds, WebSearch) can be silent for a while, but AskUserQuestion
+// and permission prompts produce no output forever, so we still need a ceiling.
+const DEFAULT_STALL_TIMEOUT_MS = 300_000;   // 5 min without any output → kill
 
 // ---------------------------------------------------------------------------
 // Module-level state (in-process registry of active child processes)
@@ -130,6 +136,18 @@ function runJsonPath(dataDir, runId) {
  */
 function stageLogPath(dataDir, runId, stageIndex) {
   return path.join(runDir(dataDir, runId), `stage-${stageIndex}.log`);
+}
+
+/**
+ * Path to stage prompt file.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {number} stageIndex
+ * @returns {string}
+ */
+function stagePromptPath(dataDir, runId, stageIndex) {
+  return path.join(runDir(dataDir, runId), `stage-${stageIndex}-prompt.md`);
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +315,90 @@ async function moveKanbanTask(spaceId, taskId, column) {
 }
 
 // ---------------------------------------------------------------------------
+// Prompt building
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the prompt text that a pipeline stage agent receives via stdin.
+ *
+ * Reads the task from the space, appends artifact paths from previous stages,
+ * git context, and the compile gate block for developer-agent.
+ * Returns an object with the full prompt text and an estimated token count.
+ *
+ * This is the single source of truth used by both spawnStage() (actual
+ * execution) and handlePreviewPrompts() (dry-run preview endpoint).
+ *
+ * @param {string}   dataDir    - Root data directory.
+ * @param {string}   spaceId    - Kanban space containing the task.
+ * @param {string}   taskId     - Task ID to build the prompt for.
+ * @param {number}   stageIndex - Zero-based index of this stage in the run.
+ * @param {string}   agentId    - Agent ID for this stage.
+ * @param {string[]} stages     - Full ordered list of agent IDs in the pipeline.
+ * @returns {{ promptText: string, estimatedTokens: number }}
+ */
+function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages, workingDirectory) {
+  // readTaskFromSpace uses path.join(baseDataDir, spaceId) for legacy layout.
+  // The production data layout is data/spaces/<spaceId>/, so pass the spaces dir.
+  const spacesDir = path.join(dataDir, 'spaces');
+  const task = readTaskFromSpace(spacesDir, spaceId, taskId);
+  let promptText = task
+    ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
+    : `TaskId: ${taskId}\nSpaceId: ${spaceId}\n`;
+
+  // Include working directory if set — tells the agent where to cd into.
+  if (workingDirectory) {
+    promptText += `\nWorking Directory: ${workingDirectory}\n`;
+    promptText += '⚠️ You MUST cd into this directory before starting work. All file paths should be relative to this directory.\n';
+  }
+
+  // Include artifact paths from previous stages (attached to the task by earlier agents).
+  // This gives each stage full context of what was produced before it.
+  if (task && Array.isArray(task.attachments) && task.attachments.length > 0) {
+    const fileArtifacts = task.attachments.filter((a) => a.type === 'file' && a.content);
+    if (fileArtifacts.length > 0) {
+      promptText += '\n## ARTIFACTS FROM PREVIOUS STAGES\n';
+      promptText += 'The following files were produced by earlier pipeline stages. Read them before starting your work:\n';
+      for (const att of fileArtifacts) {
+        promptText += `- ${att.name}: ${att.content}\n`;
+      }
+    }
+  }
+
+  // Include git context so agents can evaluate what work has already been done.
+  // This helps the developer-agent avoid re-implementing code from prior partial runs.
+  // IMPORTANT: Must run in the space's workingDirectory (not Prism's CWD) so the
+  // git log reflects the target project, not Prism itself.
+  try {
+    const execSync2 = require('child_process').execSync;
+    const gitCwd    = workingDirectory && fs.existsSync(workingDirectory) ? workingDirectory : process.cwd();
+    const opts = { encoding: 'utf8', timeout: 5000, cwd: gitCwd };
+    const gitLog    = execSync2('git log --oneline -10 2>/dev/null', opts).trim();
+    const gitStatus = execSync2('git status --short 2>/dev/null', opts).trim();
+    if (gitLog || gitStatus) {
+      promptText += `\n## GIT CONTEXT (recent commits + working tree state in ${gitCwd})\n`;
+      if (gitLog)    promptText += '```\n' + gitLog + '\n```\n';
+      if (gitStatus) promptText += '\nWorking tree changes:\n```\n' + gitStatus + '\n```\n';
+    }
+  } catch (e) {
+    // git not available or directory doesn't exist - skip
+  }
+
+  // For the developer stage: require compilation gate before closing.
+  // Prevents QA from launching against code that does not compile.
+  if (agentId === 'developer-agent') {
+    promptText += '\n## MANDATORY COMPILE GATE\n';
+    promptText += 'Before marking your Kanban task done, you MUST verify the code compiles:\n';
+    promptText += '- Java/Maven: run `mvn compile -q` (or `./mvnw compile -q`)\n';
+    promptText += '- Java/Gradle: run `./gradlew compileJava -q`\n';
+    promptText += '- TypeScript/Node: run `npm run build` or `tsc --noEmit`\n';
+    promptText += 'If compilation fails, fix the errors before closing the task. Do NOT advance to QA with broken code.\n';
+  }
+
+  const estimatedTokens = Math.ceil(promptText.length / 4);
+  return { promptText, estimatedTokens };
+}
+
+// ---------------------------------------------------------------------------
 // Stage execution
 // ---------------------------------------------------------------------------
 
@@ -363,30 +465,41 @@ async function spawnStage(dataDir, run, stageIndex) {
   pipelineLog('stage.started', { runId: run.runId, stageIndex, agentId });
 
   // Build the task prompt to pass via stdin.
-  const task = readTaskFromSpace(dataDir, run.spaceId, run.taskId);
-  let taskPrompt = task
-    ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${run.spaceId}\n`
-    : `TaskId: ${run.taskId}\nSpaceId: ${run.spaceId}\n`;
+  const { promptText: taskPrompt } = buildStagePrompt(
+    dataDir, run.spaceId, run.taskId, stageIndex, agentId, run.stages, run.workingDirectory,
+  );
 
-  // Include artifact paths from previous stages (attached to the task by earlier agents).
-  // This gives each stage full context of what was produced before it.
-  if (task && Array.isArray(task.attachments) && task.attachments.length > 0) {
-    const fileArtifacts = task.attachments.filter((a) => a.type === 'file' && a.content);
-    if (fileArtifacts.length > 0) {
-      taskPrompt += '\n## ARTIFACTS FROM PREVIOUS STAGES\n';
-      taskPrompt += 'The following files were produced by earlier pipeline stages. Read them before starting your work:\n';
-      for (const att of fileArtifacts) {
-        taskPrompt += `- ${att.name}: ${att.content}\n`;
-      }
-    }
+  // T-002: Persist the prompt to disk before piping it to the child process.
+  // Written atomically (.tmp + rename) so the file is available even if the child crashes.
+  const promptFilePath = stagePromptPath(dataDir, run.runId, stageIndex);
+  try {
+    const tmpPath = promptFilePath + '.tmp';
+    fs.writeFileSync(tmpPath, taskPrompt, 'utf8');
+    fs.renameSync(tmpPath, promptFilePath);
+    pipelineLog('stage_prompt_persisted', {
+      runId:      run.runId,
+      stageIndex,
+      sizeBytes:  Buffer.byteLength(taskPrompt, 'utf8'),
+    });
+  } catch (writeErr) {
+    console.warn(`[pipelineManager] WARN: could not persist prompt for stage ${stageIndex}:`, writeErr.message);
   }
 
   const logPath   = stageLogPath(dataDir, run.runId, stageIndex);
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 
-  const child = spawn('claude', agentSpec.spawnArgs, {
-    stdio: ['pipe', 'pipe', 'pipe'],
-    env:   { ...process.env },
+  // Backend spawns always get --dangerously-skip-permissions: there is no user
+  // present to respond to permission prompts, so any interactive pause would
+  // hang the stage until the stall watchdog kills it.
+  const SKIP_FLAG = '--dangerously-skip-permissions';
+  const spawnArgs = agentSpec.spawnArgs.includes(SKIP_FLAG)
+    ? agentSpec.spawnArgs
+    : [...agentSpec.spawnArgs, SKIP_FLAG];
+
+  const child = spawn('claude', spawnArgs, {
+    stdio:    ['pipe', 'pipe', 'pipe'],
+    detached: true,
+    env:      { ...process.env },
   });
 
   // Write task context to stdin and close so claude receives the prompt.
@@ -395,15 +508,98 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   activeProcesses.set(run.runId, { process: child, stageIndex });
 
-  // Pipe stdout and stderr to log file.
-  child.stdout.pipe(logStream, { end: false });
-  child.stderr.pipe(logStream, { end: false });
-
+  // Pipe stdout and stderr into the log file via a timestamp-tracking Transform.
+  // Using pipe() preserves backpressure semantics; the Transform only updates
+  // lastOutputAt and passes chunks through unchanged.
   const stageStartMs = Date.now();
+  let   lastOutputAt = Date.now();
+
+  function makeStallTracker() {
+    return new Transform({
+      transform(chunk, _enc, cb) { lastOutputAt = Date.now(); cb(null, chunk); },
+    });
+  }
+
+  // Filter stream-json stdout: only write assistant text content to the log.
+  // Each line from --output-format=stream-json is a JSON object; we extract
+  // the text from assistant messages and discard system/tool/result events.
+  let lineBuffer = '';
+  function makeAssistantFilter() {
+    return new Transform({
+      transform(chunk, _enc, cb) {
+        lastOutputAt = Date.now();
+        lineBuffer += chunk.toString();
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop(); // keep incomplete last line
+        let out = '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+            if (event.type === 'assistant') {
+              const content = event.message?.content ?? [];
+              for (const block of content) {
+                if (block.type === 'text' && block.text) {
+                  out += block.text;
+                }
+              }
+            }
+          } catch {
+            // Non-JSON line (e.g. stderr) — pass through as-is
+            out += line + '\n';
+          }
+        }
+        cb(null, out);
+      },
+      flush(cb) {
+        // Handle any remaining buffered line
+        if (lineBuffer.trim()) {
+          try {
+            const event = JSON.parse(lineBuffer);
+            if (event.type === 'assistant') {
+              const content = event.message?.content ?? [];
+              let out = '';
+              for (const block of content) {
+                if (block.type === 'text' && block.text) out += block.text;
+              }
+              cb(null, out);
+              return;
+            }
+          } catch { /* ignore */ }
+        }
+        cb();
+      },
+    });
+  }
+
+  child.stdout.pipe(makeAssistantFilter()).pipe(logStream, { end: false });
+  child.stderr.pipe(makeStallTracker()).pipe(logStream, { end: false });
+
+  // Stall watchdog: kill the stage if it produces no output for PIPELINE_STALL_TIMEOUT_MS.
+  // This catches AskUserQuestion hangs and any other interactive prompts that slip through.
+  const stallMs      = Number(process.env.PIPELINE_STALL_TIMEOUT_MS) || DEFAULT_STALL_TIMEOUT_MS;
+  const stallWatcher = setInterval(() => {
+    if (Date.now() - lastOutputAt >= stallMs) {
+      clearInterval(stallWatcher);
+      pipelineLog('stage.kill', { runId: run.runId, stageIndex, agentId, pid: child.pid, reason: 'stall', stallMs });
+      try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already gone */ }
+      const stalledRun = readRun(dataDir, run.runId);
+      if (stalledRun && stalledRun.stageStatuses[stageIndex].status === 'running') {
+        stalledRun.stageStatuses[stageIndex].status     = 'stalled';
+        stalledRun.stageStatuses[stageIndex].exitCode   = null;
+        stalledRun.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
+        stalledRun.status = 'failed';
+        writeRun(dataDir, stalledRun);
+      }
+      pipelineLog('stage.stalled', { runId: run.runId, stageIndex, agentId, stallMs });
+    }
+  }, 15_000);
 
   // Enforce stage timeout.
   const timer = setTimeout(() => {
-    child.kill('SIGTERM');
+    clearInterval(stallWatcher);
+    pipelineLog('stage.kill', { runId: run.runId, stageIndex, agentId, pid: child.pid, pgid: child.pid, reason: 'timeout' });
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { /* process group may already be gone */ }
     const currentRun = readRun(dataDir, run.runId);
     if (currentRun) {
       currentRun.stageStatuses[stageIndex].status     = 'timeout';
@@ -417,6 +613,7 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   child.on('close', async (code) => {
     clearTimeout(timer);
+    clearInterval(stallWatcher);
     logStream.end();
     activeProcesses.delete(run.runId);
 
@@ -426,8 +623,9 @@ async function spawnStage(dataDir, run, stageIndex) {
     // Guard: run may have been deleted or interrupted while the stage ran.
     if (!currentRun) return;
 
-    // Guard: if timeout already fired, stageStatus is 'timeout' — don't overwrite.
+    // Guard: if timeout or stall already fired, don't overwrite that status.
     if (currentRun.stageStatuses[stageIndex].status === 'timeout') return;
+    if (currentRun.stageStatuses[stageIndex].status === 'stalled') return;
 
     currentRun.stageStatuses[stageIndex].exitCode   = code;
     currentRun.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
@@ -480,6 +678,14 @@ function init(dataDir) {
       if (run && run.status === 'running') {
         run.status    = 'interrupted';
         run.updatedAt = new Date().toISOString();
+        if (Array.isArray(run.stageStatuses)) {
+          for (const s of run.stageStatuses) {
+            if (s.status === 'running') {
+              s.status     = 'interrupted';
+              s.finishedAt = run.updatedAt;
+            }
+          }
+        }
         writeJSON(runJsonFile, run);
         upsertRegistryEntry(dataDir, { runId: run.runId, spaceId: run.spaceId, taskId: run.taskId, status: 'interrupted', createdAt: run.createdAt, updatedAt: run.updatedAt });
         console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart)`);
@@ -508,7 +714,7 @@ function init(dataDir) {
  * @returns {Promise<object>} Initial run state.
  * @throws On validation failure (TASK_NOT_FOUND, TASK_NOT_IN_TODO, MAX_CONCURRENT_REACHED, AGENT_NOT_FOUND).
  */
-async function createRun({ spaceId, taskId, stages, dataDir }) {
+async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, dangerouslySkipPermissions = false }) {
   const stageList = stages && stages.length > 0 ? stages : DEFAULT_STAGES;
 
   // --- Validate task exists and is in 'todo'. ---
@@ -563,6 +769,8 @@ async function createRun({ spaceId, taskId, stages, dataDir }) {
     })),
     createdAt: now,
     updatedAt: now,
+    dangerouslySkipPermissions,
+    ...(workingDirectory ? { workingDirectory } : {}),
   };
 
   // --- Ensure runs directory exists. ---
@@ -605,6 +813,77 @@ function findTaskInDataDir(spaceId, taskId, dataDir) {
 }
 
 /**
+ * Resume an interrupted or failed pipeline run from a given stage.
+ *
+ * Marks any stale 'running' stages before fromStage as 'completed', resets
+ * stages at and after fromStage to 'pending', then kicks off execution.
+ *
+ * @param {string} runId
+ * @param {string} dataDir
+ * @param {object} [opts]
+ * @param {number} [opts.fromStage] - Zero-based stage index to resume from.
+ *   Defaults to the first stage whose status is not 'completed'.
+ * @returns {Promise<object>} Updated run state.
+ * @throws On validation failure (RUN_NOT_FOUND, RUN_NOT_RESUMABLE).
+ */
+async function resumeRun(runId, dataDir, { fromStage } = {}) {
+  const run = readRun(dataDir, runId);
+  if (!run) {
+    const err = new Error(`Run '${runId}' not found.`);
+    err.code = 'RUN_NOT_FOUND';
+    throw err;
+  }
+
+  if (!['interrupted', 'failed'].includes(run.status)) {
+    const err = new Error(`Run '${runId}' has status '${run.status}' and cannot be resumed. Only interrupted or failed runs can be resumed.`);
+    err.code = 'RUN_NOT_RESUMABLE';
+    throw err;
+  }
+
+  // Determine resume index.
+  let resumeIndex;
+  if (fromStage !== undefined) {
+    if (!Number.isInteger(fromStage) || fromStage < 0 || fromStage >= run.stages.length) {
+      const err = new Error(`fromStage must be an integer between 0 and ${run.stages.length - 1}.`);
+      err.code = 'INVALID_FROM_STAGE';
+      throw err;
+    }
+    resumeIndex = fromStage;
+  } else {
+    // Default: first stage that is not 'completed'.
+    resumeIndex = run.stageStatuses.findIndex((s) => s.status !== 'completed');
+    if (resumeIndex === -1) resumeIndex = run.stages.length; // all done — will complete immediately
+  }
+
+  // Fix any stale 'running' stages before the resume point — assume they completed.
+  for (let i = 0; i < resumeIndex; i++) {
+    if (run.stageStatuses[i].status === 'running') {
+      run.stageStatuses[i].status     = 'completed';
+      run.stageStatuses[i].exitCode   = 0;
+      run.stageStatuses[i].finishedAt = new Date().toISOString();
+    }
+  }
+
+  // Reset stages from resumeIndex onwards to pending.
+  for (let i = resumeIndex; i < run.stages.length; i++) {
+    run.stageStatuses[i].status     = 'pending';
+    run.stageStatuses[i].exitCode   = null;
+    run.stageStatuses[i].startedAt  = null;
+    run.stageStatuses[i].finishedAt = null;
+  }
+
+  run.currentStage = resumeIndex;
+  run.status       = 'running';
+  writeRun(dataDir, run);
+
+  pipelineLog('run.resumed', { runId, resumeIndex, agentId: run.stages[resumeIndex] });
+
+  setImmediate(() => executeNextStage(dataDir, runId));
+
+  return run;
+}
+
+/**
  * Get the full run state for a given runId.
  *
  * @param {string} runId
@@ -634,10 +913,11 @@ async function listRuns(dataDir) {
  * @returns {Promise<void>}
  */
 async function deleteRun(runId, dataDir) {
-  // Send SIGTERM to active process if running.
+  // Send SIGTERM to active process group if running.
   if (activeProcesses.has(runId)) {
-    const { process: child } = activeProcesses.get(runId);
-    try { child.kill('SIGTERM'); } catch { /* process may already be gone */ }
+    const { process: child, stageIndex } = activeProcesses.get(runId);
+    pipelineLog('run.aborted', { runId, pid: child.pid, pgid: child.pid, stageIndex });
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { /* process group may already be gone */ }
     activeProcesses.delete(runId);
   }
 
@@ -651,15 +931,43 @@ async function deleteRun(runId, dataDir) {
   removeRegistryEntry(dataDir, runId);
 }
 
+/**
+ * Kill all active pipeline processes. Intended for test teardown to prevent
+ * spawned claude subprocesses from outliving the test and contaminating the
+ * environment (e.g. starting a new node server.js with test env vars).
+ *
+ * @param {string} dataDir
+ * @returns {Promise<void>}
+ */
+async function abortAll(dataDir) {
+  const runIds = [...activeProcesses.keys()];
+  await Promise.all(runIds.map((runId) => deleteRun(runId, dataDir).catch(() => {})));
+}
+
+/**
+ * Returns the number of currently active (running) pipeline processes.
+ * Used by the graceful shutdown handler in server.js.
+ *
+ * @returns {number}
+ */
+function getActiveProcessCount() {
+  return activeProcesses.size;
+}
+
 module.exports = {
   init,
   createRun,
+  resumeRun,
   getRun,
   listRuns,
   deleteRun,
-  // Exported for testing:
+  abortAll,
+  getActiveProcessCount,
+  // Exported for testing and preview endpoint:
   runsDir,
   runDir,
   stageLogPath,
+  stagePromptPath,
+  buildStagePrompt,
   DEFAULT_STAGES,
 };

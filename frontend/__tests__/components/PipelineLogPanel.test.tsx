@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { useAppStore } from '../../src/stores/useAppStore';
 import { usePipelineLogStore } from '../../src/stores/usePipelineLogStore';
 
@@ -15,9 +15,13 @@ import { usePipelineLogStore } from '../../src/stores/usePipelineLogStore';
 
 vi.mock('../../src/api/client', () => ({
   getStageLog:    vi.fn().mockResolvedValue(''),
-  getBackendRun:  vi.fn().mockResolvedValue({ runId: 'run-1', status: 'running', stages: ['senior-architect'], stageStatuses: [], spaceId: 's', taskId: 't', createdAt: new Date().toISOString() }),
+  getBackendRun:  vi.fn().mockResolvedValue({ runId: 'run-1', status: 'running', stages: ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e'], stageStatuses: [], currentStage: 0, spaceId: 's', taskId: 't', createdAt: new Date().toISOString() }),
+  getStagePrompt: vi.fn().mockResolvedValue('## TASK CONTEXT\nTitle: Test task\n'),
   LogNotAvailableError: class LogNotAvailableError extends Error {
     constructor() { super('LOG_NOT_AVAILABLE'); this.name = 'LogNotAvailableError'; }
+  },
+  PromptNotAvailableError: class PromptNotAvailableError extends Error {
+    constructor() { super('PROMPT_NOT_AVAILABLE'); this.name = 'PromptNotAvailableError'; }
   },
   // Other methods needed by useAppStore if it is imported transitively
   getSpaces: vi.fn().mockResolvedValue([]),
@@ -32,6 +36,8 @@ vi.mock('../../src/api/client', () => ({
   getConfigFiles: vi.fn(), getConfigFile: vi.fn(), saveConfigFile: vi.fn(),
   getAgent: vi.fn(),
   updateTask: vi.fn(),
+  listRuns: vi.fn().mockResolvedValue([]),
+  previewPipelinePrompts: vi.fn(),
 }));
 
 // Mock usePanelResize to avoid localStorage complexities in tests.
@@ -50,6 +56,7 @@ vi.mock('../../src/hooks/usePipelineLogPolling', () => ({
 }));
 
 import { PipelineLogPanel } from '../../src/components/pipeline-log/PipelineLogPanel';
+import * as apiClient from '../../src/api/client';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,6 +82,9 @@ function resetStores() {
     stageLogs:          {},
     stageLoading:       {},
     stageErrors:        {},
+    stageView:          {},
+    stagePrompts:       {},
+    stagePromptLoading: {},
   });
 }
 
@@ -85,7 +95,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-  vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 function renderPanel() {
@@ -149,11 +159,12 @@ describe('PipelineLogPanel — stage tab selection', () => {
 });
 
 describe('PipelineLogPanel — no runId state', () => {
-  it('shows "No active pipeline run." message when no runId in pipelineState', async () => {
+  it('shows "No pipeline runs yet." message when no runId in pipelineState', async () => {
     const stateWithoutRunId = { ...BASE_PIPELINE_STATE, runId: undefined };
     useAppStore.setState({ pipelineState: stateWithoutRunId } as any);
     await act(async () => { renderPanel(); });
-    expect(screen.getByText('No active pipeline run.')).toBeInTheDocument();
+    // T-008 updated the empty-state text from "No active pipeline run." to "No pipeline runs yet."
+    expect(screen.getByText('No pipeline runs yet.')).toBeInTheDocument();
   });
 });
 
@@ -198,5 +209,84 @@ describe('PipelineLogPanel — log content routing', () => {
     });
     await act(async () => { renderPanel(); });
     expect(screen.getByText('No se pudo cargar el log.')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-008: Prompt/Log toggle
+// ---------------------------------------------------------------------------
+
+describe('PipelineLogPanel — T-008 Prompt/Log toggle', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Fake timers conflict with waitFor — use real timers for these async tests.
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it('renders "Log" and "Prompt" toggle buttons when run is active', async () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    await act(async () => { renderPanel(); });
+
+    const logBtn    = screen.getByRole('button', { name: /^Log$/i });
+    const promptBtn = screen.getByRole('button', { name: /^Prompt$/i });
+    expect(logBtn).toBeInTheDocument();
+    expect(promptBtn).toBeInTheDocument();
+  });
+
+  it('"Log" button is active by default (aria-pressed=true)', async () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    await act(async () => { renderPanel(); });
+
+    const logBtn = screen.getByRole('button', { name: /^Log$/i });
+    expect(logBtn).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('"Prompt" button has aria-pressed=false by default', async () => {
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    await act(async () => { renderPanel(); });
+
+    const promptBtn = screen.getByRole('button', { name: /^Prompt$/i });
+    expect(promptBtn).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('clicking "Prompt" button triggers getStagePrompt and shows content', async () => {
+    const mockGetStagePrompt = vi.mocked(apiClient.getStagePrompt);
+    mockGetStagePrompt.mockResolvedValue('## TASK CONTEXT\nTitle: Test task\n');
+
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    await act(async () => { renderPanel(); });
+
+    const promptBtn = screen.getByRole('button', { name: /^Prompt$/i });
+    await act(async () => { fireEvent.click(promptBtn); });
+
+    await waitFor(() => {
+      expect(mockGetStagePrompt).toHaveBeenCalledWith('run-1', 0);
+    });
+  });
+
+  it('shows "Prompt not available yet." when getStagePrompt throws PromptNotAvailableError', async () => {
+    const { PromptNotAvailableError } = await import('../../src/api/client');
+    const mockGetStagePrompt = vi.mocked(apiClient.getStagePrompt);
+    mockGetStagePrompt.mockRejectedValue(new PromptNotAvailableError());
+
+    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
+    usePipelineLogStore.setState({
+      selectedStageIndex: 0,
+      stageView:    {},
+      stagePrompts: {},
+      stagePromptLoading: {},
+    });
+    await act(async () => { renderPanel(); });
+
+    const promptBtn = screen.getByRole('button', { name: /^Prompt$/i });
+    await act(async () => { fireEvent.click(promptBtn); });
+
+    await waitFor(() => {
+      expect(screen.getByText('Prompt not available yet.')).toBeInTheDocument();
+    });
   });
 });

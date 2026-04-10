@@ -10,6 +10,13 @@ import type { TerminalStatus } from '../../src/types';
 // ── Mock xterm.js CSS ────────────────────────────────────────────────────────
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}));
 
+// ── Mock useTheme ─────────────────────────────────────────────────────────────
+let mockResolvedTheme: 'light' | 'dark' = 'dark';
+
+vi.mock('../../src/hooks/useTheme', () => ({
+  useTheme: vi.fn(() => ({ resolvedTheme: mockResolvedTheme, theme: mockResolvedTheme, setTheme: vi.fn() })),
+}));
+
 // ── Mock useTerminal ─────────────────────────────────────────────────────────
 
 const mockSendInput = vi.fn(() => true);
@@ -103,6 +110,7 @@ function renderTab(props: {
 beforeEach(() => {
   vi.clearAllMocks();
   capturedOptions = {};
+  mockResolvedTheme = 'dark';
 });
 
 describe('TerminalTab — rendering', () => {
@@ -139,6 +147,20 @@ describe('TerminalTab — useTerminal wiring', () => {
     renderTab({ panelOpen: true });
     const options = mockUseTerminal.mock.calls[0][0];
     expect(options.panelOpen).toBe(true);
+  });
+
+  it('passes resolvedTheme="dark" to useTerminal when theme is dark', () => {
+    mockResolvedTheme = 'dark';
+    renderTab({});
+    const options = mockUseTerminal.mock.calls[0][0];
+    expect(options.resolvedTheme).toBe('dark');
+  });
+
+  it('passes resolvedTheme="light" to useTerminal when theme is light', () => {
+    mockResolvedTheme = 'light';
+    renderTab({});
+    const options = mockUseTerminal.mock.calls[0][0];
+    expect(options.resolvedTheme).toBe('light');
   });
 });
 

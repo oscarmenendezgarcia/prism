@@ -1,0 +1,40 @@
+# Dependencies — reinstalled inside the Docker build.
+node_modules
+frontend/node_modules
+mcp/node_modules
+
+# Build output — rebuilt inside the Docker build.
+dist
+frontend/dist
+
+# Persistent data — mounted as a volume at runtime, never baked into the image.
+data
+
+# Version control
+.git
+.gitignore
+
+# Editor / IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Test artefacts and CI output
+coverage
+frontend/coverage
+*.log
+
+# Agent / development artefacts (not needed at runtime)
+.claude
+agent-docs
+docs
+tests
+frontend/__tests__
+
+# Screenshot artefacts from QA runs
+*.png
+
+# Environment files (never bake secrets into the image)
+.env
+.env.*

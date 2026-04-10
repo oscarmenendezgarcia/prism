@@ -86,6 +86,28 @@ describe('ConfigToggle', () => {
     expect(mockToggle).toHaveBeenCalledOnce();
   });
 
+  it('has h-10 min-w-[72px] px-3 size classes (T-4 redesign)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    expect(btn.className).toContain('h-10');
+    expect(btn.className).toContain('min-w-[72px]');
+    expect(btn.className).toContain('px-3');
+  });
+
+  it('has flex-col layout for icon+label column (T-4 redesign)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    expect(btn.className).toContain('flex-col');
+    expect(btn.className).toContain('gap-0.5');
+  });
+
+  it('uses rounded-lg instead of rounded-xl (T-4 wireframe spec)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    expect(btn.className).toContain('rounded-lg');
+    expect(btn.className).not.toContain('rounded-xl');
+  });
+
   it('toggles configPanelOpen state when clicked via real store', () => {
     // Reset the store fully, including the toggleConfigPanel action as the real impl.
     useAppStore.setState({
@@ -99,5 +121,31 @@ describe('ConfigToggle', () => {
     const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
     fireEvent.click(btn);
     expect(useAppStore.getState().configPanelOpen).toBe(true);
+  });
+
+  // T-5: text label tests
+  it('renders "Config" text label (T-5)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label).toBeInTheDocument();
+    expect(label?.textContent).toBe('Config');
+  });
+
+  it('label has hidden sm:block classes for mobile-only visibility (T-5)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label?.className).toContain('hidden');
+    expect(label?.className).toContain('sm:block');
+  });
+
+  it('label has text-[10px] font-medium leading-none classes (T-5)', () => {
+    render(<ConfigToggle />);
+    const btn = screen.getByRole('button', { name: /toggle configuration editor/i });
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label?.className).toContain('text-[10px]');
+    expect(label?.className).toContain('font-medium');
+    expect(label?.className).toContain('leading-none');
   });
 });

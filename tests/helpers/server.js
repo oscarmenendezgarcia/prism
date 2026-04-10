@@ -1,28 +1,20 @@
 'use strict';
 
-const fs   = require('fs');
-const os   = require('os');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
-
 const { startServer } = require('../../server');
 
 /**
- * Starts an isolated Prism server on a random port with a temporary data
- * directory. Returns { port, close } where close() shuts the server down and
- * deletes the temp directory.
+ * Start an isolated test server with a temporary data directory.
+ * The server listens on a random OS-assigned port.
  *
- * @returns {Promise<{ port: number, close: () => Promise<void> }>}
+ * @returns {Promise<{ port: number, close: Function }>}
  */
 function startTestServer() {
   return new Promise((resolve, reject) => {
-    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-test-'));
-
-    const server = startServer({ port: 0, dataDir, silent: true });
-
-    server.once('error', (err) => {
-      fs.rmSync(dataDir, { recursive: true, force: true });
-      reject(err);
-    });
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-test-'));
+    const server = startServer({ port: 0, dataDir: tmpDir, silent: true });
 
     server.once('listening', () => {
       const port = server.address().port;
@@ -30,13 +22,18 @@ function startTestServer() {
       function close() {
         return new Promise((res) => {
           server.close(() => {
-            fs.rmSync(dataDir, { recursive: true, force: true });
+            fs.rmSync(tmpDir, { recursive: true, force: true });
             res();
           });
         });
       }
 
       resolve({ port, close });
+    });
+
+    server.once('error', (err) => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      reject(err);
     });
   });
 }

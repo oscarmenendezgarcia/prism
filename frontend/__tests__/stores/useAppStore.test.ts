@@ -61,6 +61,7 @@ vi.mock('../../src/api/client', () => ({
   startRun:             vi.fn().mockResolvedValue({ runId: 'run-orch-1', status: 'pending', stages: ['orchestrator'], spaceId: 'space-1', taskId: 'task-1', createdAt: new Date().toISOString() }),
   getBackendRun:        vi.fn().mockResolvedValue({ runId: 'run-orch-1', status: 'completed', stages: ['orchestrator'], spaceId: 'space-1', taskId: 'task-1', createdAt: new Date().toISOString() }),
   deleteRun:            vi.fn().mockResolvedValue(undefined),
+  resumeRun:            vi.fn().mockResolvedValue({ runId: 'run-orch-1', status: 'running', stages: ['orchestrator'], spaceId: 'space-1', taskId: 'task-1', createdAt: new Date().toISOString() }),
 }));
 
 import { useAppStore } from '../../src/stores/useAppStore';
@@ -140,7 +141,7 @@ describe('loadBoard', () => {
   it('fetches tasks for active space and updates store', async () => {
     useAppStore.setState({ activeSpaceId: 'space-1' });
     const board = {
-      todo: [{ id: 't1', title: 'Task 1', type: 'task' as const, createdAt: '', updatedAt: '' }],
+      todo: [{ id: 't1', title: 'Task 1', type: 'chore' as const, createdAt: '', updatedAt: '' }],
       'in-progress': [],
       done: [],
     };
@@ -162,10 +163,10 @@ describe('loadBoard', () => {
 describe('createTask', () => {
   it('calls api.createTask, closes modal, reloads board, shows toast', async () => {
     useAppStore.setState({ createModalOpen: true });
-    vi.mocked(api.createTask).mockResolvedValue({ id: 'new', title: 'New task', type: 'task', createdAt: '', updatedAt: '' });
+    vi.mocked(api.createTask).mockResolvedValue({ id: 'new', title: 'New task', type: 'chore', createdAt: '', updatedAt: '' });
     vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
 
-    await useAppStore.getState().createTask({ title: 'New task', type: 'task' });
+    await useAppStore.getState().createTask({ title: 'New task', type: 'chore' });
 
     expect(useAppStore.getState().createModalOpen).toBe(false);
     expect(api.createTask).toHaveBeenCalled();
@@ -174,10 +175,10 @@ describe('createTask', () => {
   });
 
   it('sets isMutating true during call and false after', async () => {
-    vi.mocked(api.createTask).mockResolvedValue({ id: 'x', title: 'T', type: 'task', createdAt: '', updatedAt: '' });
+    vi.mocked(api.createTask).mockResolvedValue({ id: 'x', title: 'T', type: 'chore', createdAt: '', updatedAt: '' });
     vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
 
-    const promise = useAppStore.getState().createTask({ title: 'T', type: 'task' });
+    const promise = useAppStore.getState().createTask({ title: 'T', type: 'chore' });
     // isMutating should be true synchronously right after start
     // Note: because Zustand sets synchronously before await, we can check after resolution
     await promise;
@@ -187,7 +188,7 @@ describe('createTask', () => {
   it('re-throws error and resets isMutating on failure', async () => {
     vi.mocked(api.createTask).mockRejectedValue(new Error('Validation error'));
     await expect(
-      useAppStore.getState().createTask({ title: 'T', type: 'task' })
+      useAppStore.getState().createTask({ title: 'T', type: 'chore' })
     ).rejects.toThrow('Validation error');
     expect(useAppStore.getState().isMutating).toBe(false);
   });
@@ -197,7 +198,7 @@ describe('moveTask', () => {
   it('calls api.moveTask with target column, shows toast, reloads board', async () => {
     useAppStore.setState({ activeSpaceId: 'space-1' });
     vi.mocked(api.moveTask).mockResolvedValue({
-      task: { id: 't1', title: 'T', type: 'task', createdAt: '', updatedAt: '' },
+      task: { id: 't1', title: 'T', type: 'chore', createdAt: '', updatedAt: '' },
       from: 'todo',
       to: 'in-progress',
     });
@@ -213,7 +214,7 @@ describe('moveTask', () => {
   it('moves left from in-progress to todo', async () => {
     useAppStore.setState({ activeSpaceId: 'space-1' });
     vi.mocked(api.moveTask).mockResolvedValue({
-      task: { id: 't1', title: 'T', type: 'task', createdAt: '', updatedAt: '' },
+      task: { id: 't1', title: 'T', type: 'chore', createdAt: '', updatedAt: '' },
       from: 'in-progress',
       to: 'todo',
     });
@@ -725,7 +726,7 @@ describe('cancelAgentRun', () => {
 const MOCK_SUB_TASK = {
   id: 'sub-task-1',
   title: 'Main Task / Stage 1: Senior Architect',
-  type: 'research' as const,
+  type: 'chore' as const,
   assigned: 'senior-architect',
   description: 'Pipeline sub-task for stage 1. Parent task: task-main',
   createdAt: new Date().toISOString(),
@@ -739,7 +740,7 @@ describe('startPipeline', () => {
     // Seed a main task in the todo column so resolveMainTaskTitle can find it
     useAppStore.setState({
       tasks: {
-        todo: [{ id: 'task-main', title: 'Main Task', type: 'task', createdAt: '', updatedAt: '' }],
+        todo: [{ id: 'task-main', title: 'Main Task', type: 'chore', createdAt: '', updatedAt: '' }],
         'in-progress': [],
         done: [],
       },
@@ -793,12 +794,14 @@ describe('startPipeline', () => {
     );
   });
 
-  it('shows a "Pipeline started" toast', async () => {
+  it('opens the prompt preview after preparing the first stage run', async () => {
+    // "Pipeline started" toast is emitted in executeAgentRun (not startPipeline).
+    // startPipeline ends by calling prepareAgentRun which sets promptPreviewOpen=true.
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
 
     await useAppStore.getState().startPipeline('space-1', 'task-main');
 
-    expect(useAppStore.getState().toast?.message).toContain('Pipeline started');
+    expect(useAppStore.getState().promptPreviewOpen).toBe(true);
   });
 });
 
@@ -813,7 +816,7 @@ describe('advancePipeline', () => {
     vi.mocked(api.createTask).mockResolvedValue({
       id: 'sub-task-2',
       title: 'Main Task / Stage 2: Developer',
-      type: 'research',
+      type: 'chore',
       assigned: 'developer-agent',
       description: 'Pipeline sub-task for stage 2. Parent task: task-main',
       createdAt: new Date().toISOString(),
@@ -1096,7 +1099,7 @@ describe('resolveMainTaskTitle (via startPipeline)', () => {
     vi.clearAllMocks();
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
     vi.mocked(api.createTask).mockResolvedValue({
-      id: 'sub-task-1', title: '', type: 'research',
+      id: 'sub-task-1', title: '', type: 'chore',
       createdAt: '', updatedAt: '',
     });
   });
@@ -1104,7 +1107,7 @@ describe('resolveMainTaskTitle (via startPipeline)', () => {
   it('finds the main task title in the todo column', async () => {
     useAppStore.setState({
       tasks: {
-        todo: [{ id: 'task-main', title: 'Todo Task', type: 'task', createdAt: '', updatedAt: '' }],
+        todo: [{ id: 'task-main', title: 'Todo Task', type: 'chore', createdAt: '', updatedAt: '' }],
         'in-progress': [],
         done: [],
       },
@@ -1122,7 +1125,7 @@ describe('resolveMainTaskTitle (via startPipeline)', () => {
     useAppStore.setState({
       tasks: {
         todo: [],
-        'in-progress': [{ id: 'task-main', title: 'InProgress Task', type: 'task', createdAt: '', updatedAt: '' }],
+        'in-progress': [{ id: 'task-main', title: 'InProgress Task', type: 'chore', createdAt: '', updatedAt: '' }],
         done: [],
       },
     });
@@ -1140,7 +1143,7 @@ describe('resolveMainTaskTitle (via startPipeline)', () => {
       tasks: {
         todo: [],
         'in-progress': [],
-        done: [{ id: 'task-main', title: 'Done Task', type: 'task', createdAt: '', updatedAt: '' }],
+        done: [{ id: 'task-main', title: 'Done Task', type: 'chore', createdAt: '', updatedAt: '' }],
       },
     });
 
@@ -1167,11 +1170,11 @@ describe('resolveMainTaskTitle (via startPipeline)', () => {
 
   it('startPipeline initialises subTaskIds with the new sub-task ID', async () => {
     vi.mocked(api.createTask).mockResolvedValue({
-      id: 'new-sub-001', title: '', type: 'research', createdAt: '', updatedAt: '',
+      id: 'new-sub-001', title: '', type: 'chore', createdAt: '', updatedAt: '',
     });
     useAppStore.setState({
       tasks: {
-        todo: [{ id: 'task-main', title: 'Main', type: 'task', createdAt: '', updatedAt: '' }],
+        todo: [{ id: 'task-main', title: 'Main', type: 'chore', createdAt: '', updatedAt: '' }],
         'in-progress': [],
         done: [],
       },
@@ -1184,11 +1187,11 @@ describe('resolveMainTaskTitle (via startPipeline)', () => {
 
   it('startPipeline calls prepareAgentRun with the sub-task ID, not the main task ID', async () => {
     vi.mocked(api.createTask).mockResolvedValue({
-      id: 'sub-xyz', title: '', type: 'research', createdAt: '', updatedAt: '',
+      id: 'sub-xyz', title: '', type: 'chore', createdAt: '', updatedAt: '',
     });
     useAppStore.setState({
       tasks: {
-        todo: [{ id: 'task-main', title: 'Main', type: 'task', createdAt: '', updatedAt: '' }],
+        todo: [{ id: 'task-main', title: 'Main', type: 'chore', createdAt: '', updatedAt: '' }],
         'in-progress': [],
         done: [],
       },
@@ -1217,7 +1220,7 @@ describe('startPipeline — createTask failure', () => {
     vi.clearAllMocks();
     useAppStore.setState({
       tasks: {
-        todo: [{ id: 'task-main', title: 'Main', type: 'task', createdAt: '', updatedAt: '' }],
+        todo: [{ id: 'task-main', title: 'Main', type: 'chore', createdAt: '', updatedAt: '' }],
         'in-progress': [],
         done: [],
       },
@@ -1298,7 +1301,7 @@ describe('advancePipeline — createTask failure', () => {
   it('subTaskIds grows by exactly one on successful advancePipeline', async () => {
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
     vi.mocked(api.createTask).mockResolvedValue({
-      id: 'sub-task-2', title: '', type: 'research', createdAt: '', updatedAt: '',
+      id: 'sub-task-2', title: '', type: 'chore', createdAt: '', updatedAt: '',
     });
 
     await useAppStore.getState().advancePipeline();
@@ -1309,7 +1312,7 @@ describe('advancePipeline — createTask failure', () => {
   it('prepareAgentRun receives the new sub-task ID, not the main task ID', async () => {
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
     vi.mocked(api.createTask).mockResolvedValue({
-      id: 'sub-task-stage2', title: '', type: 'research', createdAt: '', updatedAt: '',
+      id: 'sub-task-stage2', title: '', type: 'chore', createdAt: '', updatedAt: '',
     });
 
     await useAppStore.getState().advancePipeline();
@@ -1333,7 +1336,7 @@ describe('startPipeline — checkpoint on stage 0', () => {
     vi.clearAllMocks();
     useAppStore.setState({
       tasks: {
-        todo: [{ id: 'task-main', title: 'Main Task', type: 'task', createdAt: '', updatedAt: '' }],
+        todo: [{ id: 'task-main', title: 'Main Task', type: 'chore', createdAt: '', updatedAt: '' }],
         'in-progress': [],
         done: [],
       },
@@ -1384,7 +1387,7 @@ describe('advancePipeline — checkpoint on next stage', () => {
     vi.clearAllMocks();
     useAppStore.setState({
       tasks: {
-        todo: [{ id: 'task-main', title: 'Main Task', type: 'task', createdAt: '', updatedAt: '' }],
+        todo: [{ id: 'task-main', title: 'Main Task', type: 'chore', createdAt: '', updatedAt: '' }],
         'in-progress': [],
         done: [],
       },
@@ -1439,7 +1442,7 @@ describe('resumePipeline', () => {
     vi.clearAllMocks();
     useAppStore.setState({
       tasks: {
-        todo: [{ id: 'task-main', title: 'Main Task', type: 'task', createdAt: '', updatedAt: '' }],
+        todo: [{ id: 'task-main', title: 'Main Task', type: 'chore', createdAt: '', updatedAt: '' }],
         'in-progress': [],
         done: [],
       },
@@ -1466,7 +1469,7 @@ describe('resumePipeline', () => {
   });
 
   it('sets status back to running when resuming stage 0 checkpoint', async () => {
-    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-1', title: '', type: 'research', createdAt: '', updatedAt: '' });
+    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-1', title: '', type: 'chore', createdAt: '', updatedAt: '' });
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
 
     useAppStore.setState({
@@ -1484,7 +1487,7 @@ describe('resumePipeline', () => {
   });
 
   it('removes the consumed checkpoint so the same stage does not pause again', async () => {
-    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-1', title: '', type: 'research', createdAt: '', updatedAt: '' });
+    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-1', title: '', type: 'chore', createdAt: '', updatedAt: '' });
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
 
     useAppStore.setState({
@@ -1503,7 +1506,7 @@ describe('resumePipeline', () => {
   });
 
   it('creates a sub-task and calls generatePrompt when resuming stage 0', async () => {
-    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-resume-0', title: '', type: 'research', createdAt: '', updatedAt: '' });
+    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-resume-0', title: '', type: 'chore', createdAt: '', updatedAt: '' });
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
 
     useAppStore.setState({
@@ -1524,7 +1527,7 @@ describe('resumePipeline', () => {
   });
 
   it('creates a sub-task for mid-pipeline resume (stage 1)', async () => {
-    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-resume-mid', title: '', type: 'research', createdAt: '', updatedAt: '' });
+    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-resume-mid', title: '', type: 'chore', createdAt: '', updatedAt: '' });
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
 
     useAppStore.setState({
@@ -1560,5 +1563,182 @@ describe('resumePipeline', () => {
 
     expect(useAppStore.getState().pipelineState).toBeNull();
     expect(useAppStore.getState().toast?.type).toBe('error');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// clearPipeline (updated: calls deleteRun for non-completed runs)
+// ---------------------------------------------------------------------------
+
+describe('clearPipeline', () => {
+  beforeEach(() => {
+    resetStore();
+    vi.clearAllMocks();
+  });
+
+  it('sets pipelineState to null', () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'running', checkpoints: [],
+        runId: 'run-abc',
+      } as any,
+    });
+    useAppStore.getState().clearPipeline();
+    expect(useAppStore.getState().pipelineState).toBeNull();
+  });
+
+  it('calls deleteRun when runId is present and status is running', () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'running', checkpoints: [],
+        runId: 'run-to-delete',
+      } as any,
+    });
+    useAppStore.getState().clearPipeline();
+    expect(api.deleteRun).toHaveBeenCalledWith('run-to-delete');
+  });
+
+  it('calls deleteRun when status is interrupted', () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'interrupted', checkpoints: [],
+        runId: 'run-interrupted',
+      } as any,
+    });
+    useAppStore.getState().clearPipeline();
+    expect(api.deleteRun).toHaveBeenCalledWith('run-interrupted');
+  });
+
+  it('does NOT call deleteRun when status is completed', () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'completed', checkpoints: [],
+        runId: 'run-done',
+      } as any,
+    });
+    useAppStore.getState().clearPipeline();
+    expect(api.deleteRun).not.toHaveBeenCalled();
+  });
+
+  it('does NOT call deleteRun when runId is absent', () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'running', checkpoints: [],
+        // no runId
+      } as any,
+    });
+    useAppStore.getState().clearPipeline();
+    expect(api.deleteRun).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when pipelineState is null', () => {
+    useAppStore.setState({ pipelineState: null });
+    useAppStore.getState().clearPipeline();
+    expect(useAppStore.getState().pipelineState).toBeNull();
+    expect(api.deleteRun).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resumeInterruptedRun
+// ---------------------------------------------------------------------------
+
+describe('resumeInterruptedRun', () => {
+  beforeEach(() => {
+    resetStore();
+    vi.clearAllMocks();
+  });
+
+  it('does nothing when pipelineState is null', async () => {
+    useAppStore.setState({ pipelineState: null });
+    await useAppStore.getState().resumeInterruptedRun();
+    expect(api.resumeRun).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when status is not interrupted', async () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'running', checkpoints: [], runId: 'run-1',
+      } as any,
+    });
+    await useAppStore.getState().resumeInterruptedRun();
+    expect(api.resumeRun).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when runId is absent', async () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'interrupted', checkpoints: [],
+        // no runId
+      } as any,
+    });
+    await useAppStore.getState().resumeInterruptedRun();
+    expect(api.resumeRun).not.toHaveBeenCalled();
+  });
+
+  it('calls resumeRun with the correct runId', async () => {
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'interrupted', checkpoints: [], runId: 'run-xyz',
+      } as any,
+    });
+    await useAppStore.getState().resumeInterruptedRun();
+    expect(api.resumeRun).toHaveBeenCalledWith('run-xyz');
+  });
+
+  it('sets pipelineState status to running and clears finishedAt on success', async () => {
+    const startedAt = new Date().toISOString();
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt,
+        status: 'interrupted', checkpoints: [], runId: 'run-xyz',
+        finishedAt: new Date().toISOString(),
+      } as any,
+    });
+    await useAppStore.getState().resumeInterruptedRun();
+    const ps = useAppStore.getState().pipelineState;
+    expect(ps?.status).toBe('running');
+    expect(ps?.finishedAt).toBeUndefined();
+  });
+
+  it('shows an error toast when resumeRun rejects', async () => {
+    vi.mocked(api.resumeRun).mockRejectedValueOnce(new Error('network error'));
+    useAppStore.setState({
+      pipelineState: {
+        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+        stages: ['developer-agent'] as any,
+        currentStageIndex: 0, startedAt: new Date().toISOString(),
+        status: 'interrupted', checkpoints: [], runId: 'run-fail',
+      } as any,
+    });
+    await useAppStore.getState().resumeInterruptedRun();
+    expect(useAppStore.getState().toast?.type).toBe('error');
+    expect(useAppStore.getState().toast?.message).toContain('resume');
   });
 });

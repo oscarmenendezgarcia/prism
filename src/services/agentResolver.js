@@ -9,8 +9,11 @@
  * stateless — safe to call from any context including test environments.
  *
  * Spawn modes (controlled by PIPELINE_AGENT_MODE env var):
- *   subagent (default): ['--agent', agentId, '--print', '--no-auto-approve']
- *   headless:           ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--verbose', '--enable-auto-mode']
+ *   subagent (default): ['--agent', agentId, '--print', '--output-format', 'stream-json', '--allowedTools', '...']
+ *   headless:           ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--enable-auto-mode']
+ *
+ * Note: --dangerously-skip-permissions is injected at spawn time by pipelineManager,
+ * not here — this keeps resolveAgent pure and testable.
  */
 
 'use strict';
@@ -18,6 +21,14 @@
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
+
+/** Expand a leading `~` to the user's home directory. */
+function expandTilde(p) {
+  if (!p) return p;
+  if (p === '~') return os.homedir();
+  if (p.startsWith('~/') || p.startsWith('~\\')) return os.homedir() + p.slice(1);
+  return p;
+}
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -100,7 +111,7 @@ function parseFrontmatter(content, defaultModel = 'sonnet') {
  * @throws {AgentNotFoundError} When the agent file does not exist.
  */
 function resolveAgent(agentId, agentsDir) {
-  const dir      = agentsDir || path.join(os.homedir(), '.claude', 'agents');
+  const dir      = expandTilde(agentsDir) || path.join(os.homedir(), '.claude', 'agents');
   const filePath = path.join(dir, `${agentId}.md`);
 
   if (!fs.existsSync(filePath)) {
@@ -115,14 +126,15 @@ function resolveAgent(agentId, agentsDir) {
   let spawnArgs;
   if (agentMode === 'headless') {
     // Stable fallback: pass system prompt and model explicitly via -p flag.
-    spawnArgs = ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--verbose', '--enable-auto-mode'];
+    spawnArgs = ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--enable-auto-mode'];
   } else {
     // Default subagent mode: invoke the named agent definition.
-    // stream-json emits tokens as they arrive so the log file is populated progressively
-    // (text mode buffers everything and only writes at the end — empty log on timeout/kill).
-    // --verbose is required by --output-format=stream-json with --print.
-    // --enable-auto-mode grants full tool access including MCP tools (mcp__prism__*, etc.)
-    spawnArgs = ['--agent', agentId, '--print', '--enable-auto-mode'];
+    spawnArgs = [
+      '--agent', agentId,
+      '--print',
+      '--output-format', 'stream-json',
+      '--allowedTools', 'Bash Edit Write Read Glob Grep mcp__prism__* mcp__stitch__* mcp__figma__* mcp__plugin_playwright_playwright__*',
+    ];
   }
 
   return { agentId, model, systemPrompt, spawnArgs };

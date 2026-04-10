@@ -22,6 +22,7 @@ import type {
   Column,
   CreateTaskPayload,
   UpdateTaskPayload,
+  Attachment,
   AttachmentModalState,
   MarkdownModalState,
   SpaceModalState,
@@ -34,6 +35,8 @@ import type {
   PipelineStage,
   PreparedRun,
   AgentSettings,
+  TaggerSuggestion,
+  TaggerResult,
 } from '@/types';
 
 /** Keys used to persist state across page reloads. */
@@ -83,7 +86,7 @@ interface AppState {
 
   // Attachment modal
   attachmentModal: AttachmentModalState | null;
-  openAttachmentModal: (spaceId: string, taskId: string, index: number, name: string) => void;
+  openAttachmentModal: (spaceId: string, taskId: string, index: number, name: string, attachments: Attachment[]) => void;
   closeAttachmentModal: () => void;
 
   // Markdown modal (rendered .md viewer)
@@ -103,7 +106,9 @@ interface AppState {
 
   // Toast
   toast: ToastState | null;
-  showToast: (message: string, type?: 'success' | 'error') => void;
+  /** T-1: true during the 200ms exit animation window before toast is cleared */
+  toastLeaving: boolean;
+  showToast: (message: string, type?: 'success' | 'error' | 'info', action?: { label: string; onClick: () => void }) => void;
 
   // Config editor (ADR-1: Config Editor Panel)
   configPanelOpen: boolean;
@@ -131,7 +136,7 @@ interface AppState {
 
   /** Agents discovered from ~/.claude/agents/*.md */
   availableAgents: AgentInfo[];
-  loadAgents: () => Promise<void>;
+  loadAgents: (workingDirectory?: string) => Promise<void>;
 
   /** Non-null while an agent command is running in the PTY. */
   activeRun: AgentRun | null;
@@ -147,7 +152,7 @@ interface AppState {
 
   /** Prepared run waiting in the prompt preview modal. */
   preparedRun: PreparedRun | null;
-  prepareAgentRun: (taskId: string, agentId: string) => Promise<void>;
+  prepareAgentRun: (taskId: string, agentId: string, dangerouslySkipPermissions?: boolean) => Promise<void>;
   clearPreparedRun: () => void;
 
   /** Execute the prepared run — injects command into the terminal PTY. */
@@ -158,7 +163,7 @@ interface AppState {
 
   /** Active pipeline state — null when no pipeline is running. */
   pipelineState: PipelineState | null;
-  startPipeline: (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints?: number[]) => Promise<void>;
+  startPipeline: (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints?: number[], dangerouslySkipPermissions?: boolean) => Promise<void>;
   advancePipeline: () => Promise<void>;
   /**
    * T-3 (manual checkpoints): resume a paused pipeline.
@@ -166,16 +171,23 @@ interface AppState {
    * advances to execute the paused stage.
    */
   resumePipeline: () => Promise<void>;
+  /** Resume a backend-interrupted run via POST /api/v1/runs/:runId/resume. */
+  resumeInterruptedRun: () => Promise<void>;
   abortPipeline: () => void;
   /** Silently dismiss the pipeline indicator without sending Ctrl+C or toasting. */
   clearPipeline: () => void;
+  /**
+   * Attach to a backend run that is already executing (e.g. after a page
+   * refresh or a backend resume). Sets pipelineState so the log panel opens.
+   */
+  attachRun: (state: PipelineState) => void;
   /**
    * T-4 (orchestrator mode): dispatch a single-stage run using the
    * `orchestrator` agent, which sub-launches the full pipeline internally.
    * Does not use the per-stage PipelineState — shows a simplified "Orchestrator
    * running" indicator via activeRun only.
    */
-  executeOrchestratorRun: (spaceId: string, taskId: string, stages: PipelineStage[]) => Promise<void>;
+  executeOrchestratorRun: (spaceId: string, taskId: string, stages: PipelineStage[], dangerouslySkipPermissions?: boolean) => Promise<void>;
 
   /** Pipeline confirm modal — shown when user clicks "Run Pipeline" on a card. */
   pipelineConfirmModal: {
@@ -225,6 +237,26 @@ interface AppState {
    * @param patch  - Partial payload; only present keys are sent.
    */
   updateTask: (taskId: string, patch: UpdateTaskPayload) => Promise<void>;
+
+  // ── Tagger agent (ADR-1: Tagger Agent) ───────────────────────────────────
+
+  /** True while a tagger API call is in flight. Disables the TaggerButton. */
+  taggerLoading: boolean;
+  /** Suggestions returned by the tagger endpoint. */
+  taggerSuggestions: TaggerSuggestion[];
+  /** Whether the TaggerReviewModal is open. */
+  taggerModalOpen: boolean;
+  /** Non-null when the tagger call returned an error. */
+  taggerError: string | null;
+
+  /** Called immediately on button click — sets taggerLoading=true, clears previous state. */
+  startTagger: () => void;
+  /** Called when the API returns successfully — stores suggestions and opens modal. */
+  setSuggestions: (result: TaggerResult) => void;
+  /** Resets all tagger state and closes the modal. */
+  closeTagger: () => void;
+  /** Stores an error message and clears the loading flag. */
+  setTaggerError: (message: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -393,8 +425,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Attachment modal ─────────────────────────────────────────────────────
 
   attachmentModal: null,
-  openAttachmentModal: (spaceId, taskId, index, name) =>
-    set({ attachmentModal: { open: true, spaceId, taskId, index, name } }),
+  openAttachmentModal: (spaceId, taskId, index, name, attachments) =>
+    set({ attachmentModal: { open: true, spaceId, taskId, index, name, attachments } }),
   closeAttachmentModal: () => set({ attachmentModal: null }),
 
   // ── Markdown modal ───────────────────────────────────────────────────────
@@ -421,13 +453,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Toast ────────────────────────────────────────────────────────────────
 
   toast: null,
-  showToast: (message, type = 'success') => {
+  toastLeaving: false,
+  showToast: (message, type = 'success', action?) => {
     if (toastTimer) clearTimeout(toastTimer);
-    set({ toast: { message, type } });
+    set({ toast: { message, type, action }, toastLeaving: false });
+    // Toasts with action buttons stay visible longer (6s) so the user can click.
+    const displayMs = action ? 6000 : 2800;
     toastTimer = setTimeout(() => {
-      set({ toast: null });
-      toastTimer = null;
-    }, 3000);
+      set({ toastLeaving: true });
+      setTimeout(() => {
+        set({ toast: null, toastLeaving: false });
+        toastTimer = null;
+      }, 200);
+    }, displayMs);
   },
 
   // ── Config editor ─────────────────────────────────────────────────────────
@@ -519,9 +557,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Agent launcher ────────────────────────────────────────────────────────
 
   availableAgents: [],
-  loadAgents: async () => {
+  loadAgents: async (workingDirectory?: string) => {
     try {
-      const agents = await api.getAgents();
+      const agents = await api.getAgents(workingDirectory);
       set({ availableAgents: agents });
     } catch (err) {
       get().showToast(`Failed to load agents: ${(err as Error).message}`, 'error');
@@ -580,7 +618,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   preparedRun:      null,
   promptPreviewOpen: false,
 
-  prepareAgentRun: async (taskId: string, agentId: string) => {
+  prepareAgentRun: async (taskId: string, agentId: string, dangerouslySkipPermissions = false) => {
     const { activeSpaceId, agentSettings, showToast } = get();
     try {
       const result = await api.generatePrompt({
@@ -588,15 +626,17 @@ export const useAppStore = create<AppState>((set, get) => ({
         taskId,
         spaceId:          activeSpaceId,
         workingDirectory: agentSettings?.prompts.workingDirectory,
+        dangerouslySkipPermissions,
       });
       set({
         preparedRun: {
           taskId,
           agentId,
-          spaceId:        activeSpaceId,
-          promptPath:     result.promptPath,
-          cliCommand:     result.cliCommand,
-          promptPreview:  result.promptPreview,
+          spaceId:         activeSpaceId,
+          promptPath:      result.promptPath,
+          cliCommand:      result.cliCommand,
+          promptPreview:   result.promptPreview,
+          promptFull:      result.promptFull,
           estimatedTokens: result.estimatedTokens,
         },
         promptPreviewOpen: true,
@@ -614,21 +654,32 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const startedAt = new Date().toISOString();
     const cmd       = preparedRun.cliCommand;
+    const terminalSender = useTerminalSessionStore.getState().activeSendInput();
 
-    // Always dispatch to the pipeline backend (POST /api/v1/runs).
-    // A single-agent run is a pipeline run with one stage — this gives it
-    // full log capture via the stage log API.
-    let backendRunId: string;
-    try {
-      const run = await api.startRun(
-        preparedRun.spaceId,
-        preparedRun.taskId,
-        [preparedRun.agentId],
-      );
-      backendRunId = run.runId;
-    } catch (err) {
-      showToast(`Failed to start agent run: ${(err as Error).message}`, 'error');
-      return;
+    let backendRunId: string | undefined;
+
+    if (terminalSender) {
+      // Terminal is open — inject the command into PTY instead of backend spawn.
+      const sent = terminalSender(cmd + '\r');
+      if (!sent) {
+        showToast('Could not send to terminal. Please try again.', 'error');
+        return;
+      }
+    } else {
+      // No terminal — dispatch to the pipeline backend (POST /api/v1/runs).
+      // A single-agent run is a pipeline run with one stage — this gives it
+      // full log capture via the stage log API.
+      try {
+        const run = await api.startRun(
+          preparedRun.spaceId,
+          preparedRun.taskId,
+          [preparedRun.agentId],
+        );
+        backendRunId = run.runId;
+      } catch (err) {
+        showToast(`Failed to start agent run: ${(err as Error).message}`, 'error');
+        return;
+      }
     }
 
     set({
@@ -639,7 +690,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         startedAt,
         cliCommand:  cmd,
         promptPath:  preparedRun.promptPath,
-        backendRunId,
+        ...(backendRunId ? { backendRunId } : {}),
       },
       preparedRun:       null,
       promptPreviewOpen: false,
@@ -680,6 +731,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       availableAgents.find((a) => a.id === preparedRun.agentId)?.displayName ??
       preparedRun.agentId;
 
+    // Show "Pipeline started" toast only when the user clicks Execute in the preview modal,
+    // and only on stage 0 (not on subsequent stage advances).
+    if (existingPs && existingPs.currentStageIndex === 0) {
+      showToast(`Pipeline started — Stage 1: ${agentDisplayName}`);
+    }
+
     useRunHistoryStore.getState().recordRunStarted({
       id:               historyRunId,
       taskId:           preparedRun.taskId,
@@ -694,38 +751,44 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     // Poll for completion and clear activeRun + pipelineState when done.
-    // BUG-001: store the interval handle in state so cancelAgentRun can clear it.
-    const runIdToWatch = backendRunId;
-    const POLL_MS = 5000;
-    const pollId = setInterval(async () => {
-      try {
-        const run = await api.getBackendRun(runIdToWatch);
-        if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+    // Only poll if backend run (no PTY injection).
+    if (backendRunId) {
+      const POLL_MS = 5000;
+      const pollId = setInterval(async () => {
+        try {
+          const run = await api.getBackendRun(backendRunId);
+          if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+            clearInterval(pollId);
+            set({ _agentRunPollId: null });
+            const durationMs = Date.now() - Date.parse(startedAt);
+            useRunHistoryStore.getState().recordRunFinished(
+              historyRunId,
+              run.status === 'completed' ? 'completed' : 'failed',
+              durationMs,
+            );
+            get().clearActiveRun();
+            const ps = get().pipelineState;
+            if (ps && ps.stages.length > 1 && ps.status === 'running' && run.status === 'completed') {
+              // Multi-stage pipeline: advance to the next stage automatically.
+              get().advancePipeline();
+            } else if (ps && ps.stages.length === 1 && ps.runId === backendRunId) {
+              // Single-stage run — clear pipelineState.
+              set({ pipelineState: null });
+            }
+            get().loadBoard();
+          }
+        } catch {
           clearInterval(pollId);
           set({ _agentRunPollId: null });
-          const durationMs = Date.now() - Date.parse(startedAt);
-          useRunHistoryStore.getState().recordRunFinished(
-            historyRunId,
-            run.status === 'completed' ? 'completed' : 'failed',
-            durationMs,
-          );
           get().clearActiveRun();
-          // Clear the pipelineState created for this single-stage run.
-          // Multi-stage pipeline runs manage their own pipelineState transitions
-          // via advancePipeline / abortPipeline — do not clobber those.
           const ps = get().pipelineState;
-          if (ps && ps.stages.length === 1 && ps.runId === runIdToWatch) {
+          if (ps && ps.stages.length === 1 && ps.runId === backendRunId) {
             set({ pipelineState: null });
           }
-          get().loadBoard();
         }
-      } catch {
-        clearInterval(pollId);
-        set({ _agentRunPollId: null });
-        get().clearActiveRun();
-      }
-    }, POLL_MS);
-    set({ _agentRunPollId: pollId });
+      }, POLL_MS);
+      set({ _agentRunPollId: pollId });
+    }
   },
 
   // ── Pipeline ──────────────────────────────────────────────────────────────
@@ -734,9 +797,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   pipelineConfirmModal: null,
 
   openPipelineConfirm: (spaceId: string, taskId: string) => {
-    const { agentSettings, spaces } = get();
+    const { agentSettings, spaces, tasks, detailTask } = get();
     const space = spaces.find((s) => s.id === spaceId);
+
+    // T-008: resolution chain — task.pipeline > space.pipeline > agentSettings > DEFAULT_STAGES
+    // Search all board columns and the open detail panel for the task.
+    const allBoardTasks = [
+      ...tasks.todo,
+      ...tasks['in-progress'],
+      ...tasks.done,
+      ...(detailTask ? [detailTask] : []),
+    ];
+    const boardTask    = allBoardTasks.find((t) => t.id === taskId);
+    const taskPipeline = boardTask?.pipeline && boardTask.pipeline.length > 0
+      ? boardTask.pipeline
+      : null;
+
     const stages = (
+      taskPipeline ??
       (space?.pipeline && space.pipeline.length > 0 ? space.pipeline : null) ??
       agentSettings?.pipeline?.stages ??
       ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e']
@@ -757,7 +835,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ pipelineConfirmModal: null });
   },
 
-  startPipeline: async (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints: number[] = []) => {
+  startPipeline: async (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints: number[] = [], dangerouslySkipPermissions = false) => {
     const { agentSettings, availableAgents, showToast, spaces } = get();
     const space = spaces.find((s) => s.id === spaceId);
     const resolvedStages: PipelineStage[] = stages && stages.length > 0
@@ -781,6 +859,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           subTaskIds: [],
           checkpoints,
           pausedBeforeStage: 0,
+          dangerouslySkipPermissions,
         },
       });
       showToast(`Pipeline paused before stage 1: ${resolvedStages[0]}. Click Continue to proceed.`);
@@ -800,6 +879,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         taskId,
         subTaskIds: [],
         checkpoints,
+        dangerouslySkipPermissions,
       },
     });
 
@@ -812,7 +892,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       subTask = await api.createTask(spaceId, {
         title:       `${mainTitle} / Stage 1: ${agentDisplayName}`,
-        type:        'research',
+        type:        'chore',
         assigned:    firstStage,
         description: `Pipeline sub-task for stage 1. Parent task: ${taskId}`,
       });
@@ -839,8 +919,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       agentId:    firstStage,
     }));
 
-    await get().prepareAgentRun(subTask.id, firstStage);
-    showToast(`Pipeline started — Stage 1: ${agentDisplayName}`);
+    await get().prepareAgentRun(subTask.id, firstStage, dangerouslySkipPermissions);
   },
 
   advancePipeline: async () => {
@@ -880,7 +959,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       subTask = await api.createTask(pipelineState.spaceId, {
         title:       `${mainTitle} / Stage ${nextIndex + 1}: ${agentDisplayName}`,
-        type:        'research',
+        type:        'chore',
         assigned:    nextStage,
         description: `Pipeline sub-task for stage ${nextIndex + 1}. Parent task: ${pipelineState.taskId}`,
       });
@@ -914,12 +993,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
 
     showToast(`Stage ${nextIndex + 1}: ${agentDisplayName}`);
-    await get().prepareAgentRun(subTask.id, nextStage);
+    await get().prepareAgentRun(subTask.id, nextStage, pipelineState.dangerouslySkipPermissions);
+
+    // Auto-execute: skip the prompt preview modal and run immediately.
+    const autoAdvance = get().agentSettings?.pipeline?.autoAdvance ?? true;
+    if (autoAdvance) {
+      await get().executeAgentRun();
+    }
   },
 
   abortPipeline: () => {
     const { pipelineState, showToast } = get();
     if (!pipelineState) return;
+
+    // If this is a server-side run, cancel via REST API - Issue 5 fix.
+    if (pipelineState.runId) {
+      api.deleteRun(pipelineState.runId).catch(() => {});
+    }
 
     const terminalSender = useTerminalSessionStore.getState().activeSendInput();
     if (terminalSender) {
@@ -930,8 +1020,30 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ pipelineState: null, activeRun: null });
     showToast(`Pipeline aborted at stage ${stage}.`);
   },
+  clearPipeline: () => {
+    const { pipelineState } = get();
+    if (pipelineState?.runId && pipelineState.status !== 'completed') {
+      api.deleteRun(pipelineState.runId).catch(() => {});
+    }
+    set({ pipelineState: null, activeRun: null });
+  },
 
-  clearPipeline: () => set({ pipelineState: null, activeRun: null }),
+  attachRun: (state) => set({ pipelineState: state }),
+
+  /**
+   * Resume a backend-interrupted run via POST /api/v1/runs/:runId/resume.
+   * Updates pipelineState to 'running' so the indicator live-tracks again.
+   */
+  resumeInterruptedRun: async () => {
+    const { pipelineState, showToast } = get();
+    if (!pipelineState?.runId || pipelineState.status !== 'interrupted') return;
+    try {
+      await api.resumeRun(pipelineState.runId);
+      set({ pipelineState: { ...pipelineState, status: 'running', finishedAt: undefined } });
+    } catch {
+      showToast('Failed to resume run.', 'error');
+    }
+  },
 
   /**
    * T-3 (manual checkpoints): resume a paused pipeline.
@@ -969,7 +1081,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       try {
         subTask = await api.createTask(pipelineState.spaceId, {
           title:       `${mainTitle} / Stage 1: ${agentDisplayName}`,
-          type:        'research',
+          type:        'chore',
           assigned:    firstStage,
           description: `Pipeline sub-task for stage 1. Parent task: ${pipelineState.taskId}`,
         });
@@ -996,7 +1108,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }));
 
       showToast(`Pipeline resumed — Stage 1: ${agentDisplayName}`);
-      await get().prepareAgentRun(subTask.id, firstStage);
+      await get().prepareAgentRun(subTask.id, firstStage, pipelineState.dangerouslySkipPermissions);
       return;
     }
 
@@ -1013,7 +1125,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       subTask = await api.createTask(pipelineState.spaceId, {
         title:       `${mainTitle} / Stage ${resumeIndex + 1}: ${agentDisplayName}`,
-        type:        'research',
+        type:        'chore',
         assigned:    nextStage,
         description: `Pipeline sub-task for stage ${resumeIndex + 1}. Parent task: ${pipelineState.taskId}`,
       });
@@ -1045,7 +1157,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
 
     showToast(`Pipeline resumed — Stage ${resumeIndex + 1}: ${agentDisplayName}`);
-    await get().prepareAgentRun(subTask.id, nextStage);
+    await get().prepareAgentRun(subTask.id, nextStage, pipelineState.dangerouslySkipPermissions);
   },
 
   /**
@@ -1055,7 +1167,7 @@ export const useAppStore = create<AppState>((set, get) => ({
    * simplified "Orchestrator running" state via activeRun (no per-stage
    * PipelineState).
    */
-  executeOrchestratorRun: async (spaceId: string, taskId: string, stages: PipelineStage[]) => {
+  executeOrchestratorRun: async (spaceId: string, taskId: string, stages: PipelineStage[], dangerouslySkipPermissions = false) => {
     const { showToast, tasks, spaces, availableAgents } = get();
     const terminalSender = useTerminalSessionStore.getState().activeSendInput();
     const startedAt = new Date().toISOString();
@@ -1073,6 +1185,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           taskId,
           spaceId,
           customInstructions: `Pipeline stages to execute in order: ${stages.join(' → ')}`,
+          dangerouslySkipPermissions,
         });
       } catch (err) {
         showToast(`Failed to prepare orchestrator prompt: ${(err as Error).message}`, 'error');
@@ -1090,7 +1203,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       promptPath = '~/.claude/agents/orchestrator.md';
       cliCommand = `orchestrator (${stages.join(' → ')})`;
       try {
-        const run = await api.startRun(spaceId, taskId, ['orchestrator'], { stages });
+        const run = await api.startRun(spaceId, taskId, ['orchestrator'], { stages, dangerouslySkipPermissions });
         backendRunId = run.runId;
       } catch (err) {
         showToast(`Failed to start orchestrator run: ${(err as Error).message}`, 'error');
@@ -1164,6 +1277,13 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
           if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
             clearInterval(pollId);
+            set({ _agentRunPollId: null });
+            const durationMs = Date.now() - Date.parse(startedAt);
+            useRunHistoryStore.getState().recordRunFinished(
+              historyRunId,
+              run.status === 'completed' ? 'completed' : 'failed',
+              durationMs,
+            );
             const finalPs = get().pipelineState;
             if (finalPs && finalPs.runId === runIdToWatch) {
               const terminalStatus = run.status === 'completed' ? 'completed' : 'aborted';
@@ -1180,9 +1300,15 @@ export const useAppStore = create<AppState>((set, get) => ({
           }
         } catch {
           clearInterval(pollId);
+          set({ _agentRunPollId: null });
           get().clearActiveRun();
+          const ps = get().pipelineState;
+          if (ps && ps.runId === runIdToWatch) {
+            set({ pipelineState: null });
+          }
         }
       }, POLL_MS);
+      set({ _agentRunPollId: pollId });
     }
   },
 
@@ -1274,6 +1400,39 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ isMutating: false });
     }
   },
+
+  // ── Tagger agent (ADR-1: Tagger Agent) ───────────────────────────────────
+
+  taggerLoading:     false,
+  taggerSuggestions: [],
+  taggerModalOpen:   false,
+  taggerError:       null,
+
+  startTagger: () => {
+    set({ taggerLoading: true, taggerSuggestions: [], taggerModalOpen: false, taggerError: null });
+  },
+
+  setSuggestions: (result: TaggerResult) => {
+    set({
+      taggerLoading:     false,
+      taggerSuggestions: result.suggestions,
+      taggerModalOpen:   true,
+      taggerError:       null,
+    });
+  },
+
+  closeTagger: () => {
+    set({
+      taggerLoading:     false,
+      taggerSuggestions: [],
+      taggerModalOpen:   false,
+      taggerError:       null,
+    });
+  },
+
+  setTaggerError: (message: string) => {
+    set({ taggerLoading: false, taggerError: message });
+  },
 }));
 
 // Convenience selector hooks for common slices
@@ -1282,6 +1441,8 @@ export const useSpaces = () => useAppStore((s) => s.spaces);
 export const useTasks = () => useAppStore((s) => s.tasks);
 export const useIsMutating = () => useAppStore((s) => s.isMutating);
 export const useToast = () => useAppStore((s) => s.toast);
+/** T-1: true during the exit animation window (200ms before toast clears). */
+export const useToastLeaving = () => useAppStore((s) => s.toastLeaving);
 /** @deprecated Use useTerminalSessionStore(s => s.panelOpen) instead. */
 export const useTerminalOpen = () => useTerminalSessionStore((s) => s.panelOpen);
 
@@ -1307,3 +1468,9 @@ export const usePromptPreviewOpen = () => useAppStore((s) => s.promptPreviewOpen
 // Agent settings selectors
 export const useAgentSettings        = () => useAppStore((s) => s.agentSettings);
 export const useAgentSettingsPanelOpen = () => useAppStore((s) => s.agentSettingsPanelOpen);
+
+// Tagger selectors
+export const useTaggerLoading     = () => useAppStore((s) => s.taggerLoading);
+export const useTaggerSuggestions = () => useAppStore((s) => s.taggerSuggestions);
+export const useTaggerModalOpen   = () => useAppStore((s) => s.taggerModalOpen);
+export const useTaggerError       = () => useAppStore((s) => s.taggerError);

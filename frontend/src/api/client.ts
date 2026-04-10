@@ -22,6 +22,9 @@ import type {
   PromptGenerationResponse,
   AgentSettings,
   BackendRun,
+  PipelinePromptPreview,
+  TaggerOptions,
+  TaggerResult,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -154,6 +157,49 @@ export const getAttachmentContent = (
   apiFetch<AttachmentContent>(`/spaces/${spaceId}/tasks/${taskId}/attachments/${index}`);
 
 // ---------------------------------------------------------------------------
+// Auto-task generation
+// ---------------------------------------------------------------------------
+
+/** Response from POST /spaces/:spaceId/autotask/generate */
+export interface AutoTaskResponse {
+  tasksCreated: number;
+  tasks: Task[];
+}
+
+/**
+ * Generate tasks from a natural-language prompt and persist them to a column.
+ * @param spaceId - Target space.
+ * @param prompt  - User's description of the work to break down.
+ * @param column  - Target column (defaults to "todo" on the server).
+ */
+export const generateAutoTasks = (
+  spaceId: string,
+  prompt: string,
+  column?: string,
+  preview?: boolean,
+): Promise<AutoTaskResponse> =>
+  apiFetch<AutoTaskResponse>(`/spaces/${spaceId}/autotask/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt, ...(column ? { column } : {}), ...(preview ? { preview } : {}) }),
+  });
+
+/**
+ * Persist a user-reviewed subset of previously generated tasks.
+ * @param spaceId - Target space.
+ * @param tasks   - Tasks to create (as returned by generateAutoTasks with preview:true).
+ * @param column  - Target column (defaults to "todo" on the server).
+ */
+export const confirmAutoTasks = (
+  spaceId: string,
+  tasks: Task[],
+  column?: string,
+): Promise<AutoTaskResponse> =>
+  apiFetch<AutoTaskResponse>(`/spaces/${spaceId}/autotask/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({ tasks, ...(column ? { column } : {}) }),
+  });
+
+// ---------------------------------------------------------------------------
 // Config file operations (ADR-1: Config Editor Panel)
 // ---------------------------------------------------------------------------
 
@@ -192,8 +238,10 @@ export const saveConfigFile = (fileId: string, content: string, spaceId?: string
  * List all available agent definition files from ~/.claude/agents/.
  * Returns an empty array if the directory does not exist.
  */
-export const getAgents = (): Promise<AgentInfo[]> =>
-  apiFetch<AgentInfo[]>('/agents');
+export const getAgents = (workingDirectory?: string): Promise<AgentInfo[]> => {
+  const qs = workingDirectory ? `?workingDirectory=${encodeURIComponent(workingDirectory)}` : '';
+  return apiFetch<AgentInfo[]>(`/agents${qs}`);
+};
 
 /**
  * Read the full content of a specific agent definition file by its kebab-case ID.
@@ -316,6 +364,10 @@ export const startRun = (
     }),
   });
 
+/** List all pipeline run summaries. */
+export const listRuns = (): Promise<BackendRun[]> =>
+  apiFetch<BackendRun[]>('/runs');
+
 /** Fetch the current status of a backend pipeline run. */
 export const getBackendRun = (runId: string): Promise<BackendRun> =>
   apiFetch<BackendRun>(`/runs/${runId}`);
@@ -323,6 +375,98 @@ export const getBackendRun = (runId: string): Promise<BackendRun> =>
 /** Cancel a backend pipeline run. */
 export const deleteRun = (runId: string): Promise<void> =>
   apiFetch<void>(`/runs/${runId}`, { method: 'DELETE' });
+
+/** Resume an interrupted or failed pipeline run from the first non-completed stage. */
+export const resumeRun = (runId: string): Promise<BackendRun> =>
+  apiFetch<BackendRun>(`/runs/${runId}/resume`, { method: 'POST' });
+
+/**
+ * Fetch the persisted prompt for a specific pipeline stage.
+ * Returns raw text/plain content.
+ * Throws PromptNotAvailableError when the stage has not started yet (404 PROMPT_NOT_AVAILABLE).
+ *
+ * @param runId       Pipeline run ID.
+ * @param stageIndex  Zero-based stage index.
+ */
+export async function getStagePrompt(runId: string, stageIndex: number): Promise<string> {
+  const url = `${API_BASE}/runs/${encodeURIComponent(runId)}/stages/${stageIndex}/prompt`;
+  const res = await fetch(url);
+
+  if (res.ok) {
+    return res.text();
+  }
+
+  let code: string | undefined;
+  try {
+    const body = await res.json() as { error?: { code?: string } };
+    code = body?.error?.code;
+  } catch {
+    // Non-JSON body — fall through to generic error.
+  }
+
+  if (res.status === 404 && code === 'PROMPT_NOT_AVAILABLE') {
+    throw new PromptNotAvailableError();
+  }
+
+  throw new Error(
+    code
+      ? `[PipelinePrompt] fetch error stage=${stageIndex} code=${code} status=${res.status}`
+      : `[PipelinePrompt] fetch error stage=${stageIndex} status=${res.status}`,
+  );
+}
+
+/**
+ * Sentinel error thrown when the backend returns 404 PROMPT_NOT_AVAILABLE.
+ * The prompt file is written before the stage starts; this error means
+ * the stage hasn't begun yet — callers should show a friendly empty state.
+ */
+export class PromptNotAvailableError extends Error {
+  constructor() {
+    super('PROMPT_NOT_AVAILABLE');
+    this.name = 'PromptNotAvailableError';
+  }
+}
+
+/**
+ * Generate prompts for all pipeline stages without starting a run.
+ * Useful for previewing what each agent will receive before confirming launch.
+ *
+ * @param spaceId  Target space ID.
+ * @param taskId   Task ID to build prompts for.
+ * @param stages   Ordered list of agent IDs.
+ */
+export const previewPipelinePrompts = (
+  spaceId: string,
+  taskId: string,
+  stages: string[],
+): Promise<PipelinePromptPreview> =>
+  apiFetch<PipelinePromptPreview>('/runs/preview-prompts', {
+    method: 'POST',
+    body: JSON.stringify({ spaceId, taskId, stages }),
+  });
+
+// ---------------------------------------------------------------------------
+// Tagger API (ADR-1: Tagger Agent)
+// ---------------------------------------------------------------------------
+
+/**
+ * Trigger the tagger for a space.
+ * The backend reads all cards, calls Claude, and returns classification suggestions.
+ * No mutations are applied — the user reviews suggestions in TaggerReviewModal before confirming.
+ *
+ * @param spaceId - The space to tag.
+ * @param opts    - Optional filters (column, improveDescriptions).
+ * @returns TaggerResult with suggestions and token usage.
+ * @throws Error with the server's error message on failure.
+ */
+export const runTagger = (spaceId: string, opts: TaggerOptions = {}): Promise<TaggerResult> =>
+  apiFetch<TaggerResult>(`/spaces/${encodeURIComponent(spaceId)}/tagger/run`, {
+    method: 'POST',
+    body: JSON.stringify({
+      improveDescriptions: opts.improveDescriptions ?? false,
+      ...(opts.column !== undefined ? { column: opts.column } : {}),
+    }),
+  });
 
 // ---------------------------------------------------------------------------
 // Pipeline log viewer API (ADR-1: log-viewer)

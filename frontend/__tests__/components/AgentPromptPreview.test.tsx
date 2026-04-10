@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { AgentPromptPreview } from '../../src/components/agent-launcher/AgentPromptPreview';
 import { useAppStore } from '../../src/stores/useAppStore';
 import type { PreparedRun, AgentInfo } from '../../src/types';
@@ -48,13 +48,16 @@ const SAMPLE_AGENTS: AgentInfo[] = [
   },
 ];
 
+const FULL_PROMPT = '## TASK CONTEXT\nTitle: Implement feature X\nType: task\nColumn: todo\nSpace: My Project\n\nThis is the full prompt text with lots more content that exceeds 500 characters. '.repeat(10);
+
 const PREPARED_RUN: PreparedRun = {
   taskId:          'task-123',
   agentId:         'senior-architect',
   spaceId:         'space-456',
   promptPath:      '/data/.prompts/prompt-1234567890-task123.md',
   cliCommand:      'claude -p "$(cat /data/.prompts/prompt-1234567890-task123.md)" --allowedTools "Agent,Bash,Read,Write,Edit,Glob,Grep"',
-  promptPreview:   '## TASK CONTEXT\nTitle: Implement feature X\nType: task\nColumn: todo\nSpace: My Project',
+  promptPreview:   FULL_PROMPT.slice(0, 500),
+  promptFull:      FULL_PROMPT,
   estimatedTokens: 2400,
 };
 
@@ -271,6 +274,7 @@ describe('AgentPromptPreview — Cancel button', () => {
   });
 
   it('calls clearPreparedRun when the modal close (×) button is clicked', () => {
+    vi.useFakeTimers();
     const mockClear = vi.fn();
     resetStore({
       preparedRun:       PREPARED_RUN,
@@ -282,8 +286,11 @@ describe('AgentPromptPreview — Cancel button', () => {
     const closeBtn = document.body.querySelector('[aria-label="Close modal"]') as HTMLElement;
     expect(closeBtn).toBeInTheDocument();
     fireEvent.click(closeBtn);
+    // M-1: 180ms exit animation plays before onClose fires
+    act(() => { vi.advanceTimersByTime(200); });
 
     expect(mockClear).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 });
 
@@ -374,5 +381,87 @@ describe('AgentPromptPreview — Copy button', () => {
     await waitFor(() => {
       expect(document.body).toHaveTextContent('Copied');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-007: Full prompt display and collapse/expand toggle
+// ---------------------------------------------------------------------------
+
+describe('AgentPromptPreview — T-007 full prompt display', () => {
+  beforeEach(() => {
+    resetStore({ preparedRun: PREPARED_RUN, promptPreviewOpen: true });
+  });
+
+  it('shows full prompt content (promptFull) by default, not just 500-char preview', () => {
+    renderPreview();
+    // The full prompt contains repeated text beyond 500 chars.
+    // MarkdownViewer renders markdown — the heading text "TASK CONTEXT" must be present.
+    expect(document.body).toHaveTextContent('TASK CONTEXT');
+  });
+
+  it('renders a "Collapse" button in read mode (default expanded)', () => {
+    renderPreview();
+    const collapseBtn = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Collapse'
+    );
+    expect(collapseBtn).toBeTruthy();
+  });
+
+  it('clicking "Collapse" switches to "Show full" button', () => {
+    renderPreview();
+
+    const collapseBtn = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Collapse'
+    )!;
+    fireEvent.click(collapseBtn);
+
+    const showFullBtn = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Show full'
+    );
+    expect(showFullBtn).toBeTruthy();
+  });
+
+  it('shows "Showing first 500 characters" note when collapsed', () => {
+    renderPreview();
+
+    const collapseBtn = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Collapse'
+    )!;
+    fireEvent.click(collapseBtn);
+
+    expect(document.body).toHaveTextContent('Showing first 500 characters');
+  });
+
+  it('clicking "Show full prompt" link re-expands and removes the note', () => {
+    renderPreview();
+
+    // Collapse first.
+    const collapseBtn = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Collapse'
+    )!;
+    fireEvent.click(collapseBtn);
+
+    // Click the inline "Show full prompt" link.
+    const showFullLink = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.includes('Show full prompt')
+    )!;
+    expect(showFullLink).toBeTruthy();
+    fireEvent.click(showFullLink);
+
+    expect(document.body).not.toHaveTextContent('Showing first 500 characters');
+  });
+
+  it('edit mode textarea starts with promptFull text (not truncated preview)', () => {
+    renderPreview();
+
+    const editBtn = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Edit'
+    )!;
+    fireEvent.click(editBtn);
+
+    const textarea = document.body.querySelector('textarea') as HTMLTextAreaElement;
+    expect(textarea).toBeInTheDocument();
+    expect(textarea.value).toBe(FULL_PROMPT);
   });
 });

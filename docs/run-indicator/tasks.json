@@ -1,0 +1,115 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "run-indicator",
+  "date": "2026-03-25",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Backend: spawn detached:true y kill de process group",
+      "description": "En src/pipelineManager.js: (1) agregar detached:true a spawn en spawnStage. (2) Reemplazar child.kill con process.kill(-child.pid,SIGTERM) en deleteRun Y en el timeout handler. (3) Agregar log run.aborted con pid y pgid antes del kill.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "spawnStage usa { detached: true, stdio: [pipe, pipe, pipe] }",
+        "deleteRun usa process.kill(-child.pid, SIGTERM)",
+        "Timeout handler en spawnStage tambien usa process.kill(-child.pid, SIGTERM)",
+        "Pipes de log siguen funcionando tras el cambio",
+        "Verificacion manual: ps aux despues de Abort no muestra procesos claude del run abortado"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Frontend: crear RunIndicator.tsx",
+      "description": "Crear frontend/src/components/agent-launcher/RunIndicator.tsx. Lee de pipelineState exclusivamente. Bifurcacion: null si pipelineState null, PausedBanner si paused, SingleAgentDot si stages.length===1 (dot + displayName completo + elapsed + Abort), StepNodes si stages.length>1 (identico al PipelineProgressBar actual + Dismiss). Timer identico al PipelineProgressBar actual. STAGE_LABELS y STAGE_DISPLAY incluyen code-reviewer.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "No importa useActiveRun ni activeRun",
+        "stages=[senior-architect] muestra nombre completo Senior Architect",
+        "stages=[A,B,C,D] muestra 4 step nodes",
+        "status=paused muestra banner con Continue y Abort",
+        "Timer resetea al cambiar pipelineState",
+        "role=status, aria-live=polite, aria-label descriptivo",
+        "Sin inline styles"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Frontend: tests RunIndicator.test.tsx + eliminar test files obsoletos",
+      "description": "Crear frontend/__tests__/components/RunIndicator.test.tsx. Cubrir: null cuando pipelineState null, modo 1-etapa con dot y displayName, modo N-etapas con step nodes, modo paused con Continue y Abort, timer tick 1s, accesibilidad. Eliminar AgentRunIndicator.test.tsx y PipelineProgressBar.test.tsx con git rm.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": [
+        "T-002"
+      ],
+      "acceptance_criteria": [
+        "RunIndicator.test.tsx cubre todos los escenarios",
+        "npm test pasa sin errores",
+        "AgentRunIndicator.test.tsx eliminado con git rm",
+        "PipelineProgressBar.test.tsx eliminado con git rm",
+        "Cobertura >= 90%"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Frontend: actualizar Header.tsx",
+      "description": "Eliminar imports de AgentRunIndicator y PipelineProgressBar. Agregar import de RunIndicator. En el div centre: un unico <RunIndicator />.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": [
+        "T-002"
+      ],
+      "acceptance_criteria": [
+        "Header.tsx no importa AgentRunIndicator ni PipelineProgressBar",
+        "Div centre contiene exactamente un RunIndicator",
+        "npm run build completa sin errores de TypeScript"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Frontend: eliminar AgentRunIndicator.tsx y PipelineProgressBar.tsx",
+      "description": "Eliminar con git rm: frontend/src/components/agent-launcher/AgentRunIndicator.tsx y PipelineProgressBar.tsx. Verificar que no hay otras importaciones.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": [
+        "T-003",
+        "T-004"
+      ],
+      "acceptance_criteria": [
+        "AgentRunIndicator.tsx no existe en el repositorio",
+        "PipelineProgressBar.tsx no existe en el repositorio",
+        "grep AgentRunIndicator PipelineProgressBar en frontend/src devuelve cero resultados",
+        "npm run build completa sin errores"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "QA: verificacion E2E de ausencia de doble indicador y kill de proceso",
+      "description": "Verificar: (1) Agente suelto 1 etapa muestra un unico indicador con dot y nombre completo. (2) Pipeline multi-etapa muestra step nodes sin dot adicional. (3) Abort: ps aux antes y despues confirma que no quedan procesos claude del run abortado.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [
+        "T-001",
+        "T-002",
+        "T-004",
+        "T-005"
+      ],
+      "acceptance_criteria": [
+        "En ningun escenario aparecen dos indicadores en el Header",
+        "Modo 1-etapa muestra displayName completo del agente",
+        "Despues de Abort ps aux no muestra procesos claude del run",
+        "Banner paused muestra Continue y Abort y funciona",
+        "npm test en frontend pasa completamente"
+      ]
+    }
+  ]
+}

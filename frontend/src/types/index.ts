@@ -31,13 +31,25 @@ export interface AttachmentContent {
   source?: string;
 }
 
+/**
+ * Semantic task type — v1.2.0.
+ * Replaces the legacy 'task' | 'research' enum (see scripts/migrate-card-types.js).
+ */
+export type TaskType = 'feature' | 'bug' | 'tech-debt' | 'chore';
+
 /** A Kanban task. */
 export interface Task {
   id: string;
   title: string;
-  type: 'task' | 'research';
+  type: TaskType;
   description?: string;
   assigned?: string;
+  /**
+   * Optional per-card pipeline override. When non-empty, takes precedence over
+   * the space-level pipeline default when "Run Pipeline" is invoked.
+   * ADR-1 (pipeline-field-per-card): resolution chain is task > space > DEFAULT_STAGES.
+   */
+  pipeline?: string[];
   attachments?: Attachment[];
   createdAt: string;
   updatedAt: string;
@@ -49,10 +61,12 @@ export type BoardTasks = Record<Column, Task[]>;
 /** Payload for POST /spaces/:spaceId/tasks */
 export interface CreateTaskPayload {
   title: string;
-  type: 'task' | 'research';
+  type: TaskType;
   /** Omit from body when empty — never send null. */
   assigned?: string;
   description?: string;
+  /** Optional ordered list of agent IDs. Omit to inherit the space default. */
+  pipeline?: string[];
 }
 
 /**
@@ -63,11 +77,16 @@ export interface CreateTaskPayload {
  */
 export interface UpdateTaskPayload {
   title?: string;
-  type?: 'task' | 'research';
+  type?: TaskType;
   /** Empty string deletes the field on the server. */
   description?: string;
   /** Empty string deletes the field on the server. */
   assigned?: string;
+  /**
+   * Per-card pipeline override. Non-empty array = set; empty array = clear
+   * (reverts to space default). Omit to leave the field unchanged.
+   */
+  pipeline?: string[];
 }
 
 /** Response from PUT /spaces/:spaceId/tasks/:id/move */
@@ -90,6 +109,8 @@ export interface AttachmentModalState {
   taskId: string;
   index: number;
   name: string;
+  /** Full attachment list for the task — enables prev/next navigation. */
+  attachments: Attachment[];
 }
 
 /** Space modal state. */
@@ -108,7 +129,9 @@ export interface DeleteSpaceDialogState {
 /** Toast notification state. */
 export interface ToastState {
   message: string;
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'info';
+  /** Optional action button rendered inside the toast. */
+  action?: { label: string; onClick: () => void };
 }
 
 /** Markdown viewer modal state — used to show .md attachments rendered. */
@@ -167,7 +190,7 @@ export interface BackendStageStatus {
 /** Run object returned by the backend pipeline API. */
 export interface BackendRun {
   runId: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   stages: string[];
   stageStatuses?: BackendStageStatus[];
   spaceId: string;
@@ -191,8 +214,10 @@ export interface PipelineState {
   taskId: string;
   stages: PipelineStage[];
   currentStageIndex: number;
-  startedAt: string; // ISO timestamp
-  status: 'running' | 'paused' | 'completed' | 'aborted';
+  startedAt: string;  // ISO timestamp
+  /** ISO timestamp when the run finished (completed, aborted, or interrupted). */
+  finishedAt?: string;
+  status: 'running' | 'paused' | 'completed' | 'aborted' | 'interrupted';
   /**
    * Backend run ID returned by POST /api/v1/runs when the pipeline is launched
    * via backend spawn. Used by PipelineLogPanel to fetch stage logs.
@@ -217,6 +242,7 @@ export interface PipelineState {
    * on.  Cleared when resumePipeline() is called.
    */
   pausedBeforeStage?: number;
+  dangerouslySkipPermissions?: boolean;
 }
 
 /** A prepared (but not yet executed) agent run — shown in the preview modal. */
@@ -227,7 +253,21 @@ export interface PreparedRun {
   promptPath: string;
   cliCommand: string;
   promptPreview: string;
+  promptFull: string;      // complete prompt text (T-006)
   estimatedTokens: number;
+}
+
+/** One prompt entry in a pipeline prompt preview response. */
+export interface PipelinePromptPreviewEntry {
+  stageIndex: number;
+  agentId: string;
+  promptFull: string;
+  estimatedTokens: number;
+}
+
+/** Response from POST /api/v1/runs/preview-prompts. */
+export interface PipelinePromptPreview {
+  prompts: PipelinePromptPreviewEntry[];
 }
 
 /** CLI tool configuration. */
@@ -261,6 +301,48 @@ export interface AgentSettings {
   prompts: PromptsSettings;
 }
 
+// ---------------------------------------------------------------------------
+// Tagger agent types (ADR-1: Tagger Agent)
+// ---------------------------------------------------------------------------
+
+/** Options for POST /api/v1/spaces/:spaceId/tagger/run */
+export interface TaggerOptions {
+  /** If true, Claude also returns rewritten card descriptions. Default false. */
+  improveDescriptions?: boolean;
+  /** Restrict tagging to a single column. Omit to process all columns. */
+  column?: 'todo' | 'in-progress' | 'done';
+}
+
+/** One classification suggestion returned by the tagger endpoint. */
+export interface TaggerSuggestion {
+  id: string;
+  title: string;
+  currentType: string;
+  inferredType: 'feature' | 'bug' | 'tech-debt' | 'chore';
+  confidence: 'high' | 'medium' | 'low';
+  /** Only present when improveDescriptions=true was requested. */
+  description?: string;
+}
+
+/** Response from POST /api/v1/spaces/:spaceId/tagger/run */
+export interface TaggerResult {
+  suggestions: TaggerSuggestion[];
+  /** Card IDs Claude could not classify. */
+  skipped: string[];
+  /** Model used for the inference (for observability). */
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** Tagger UI state stored in useAppStore. */
+export interface TaggerState {
+  taggerLoading: boolean;
+  taggerSuggestions: TaggerSuggestion[];
+  taggerModalOpen: boolean;
+  taggerError: string | null;
+}
+
 /** Request body for POST /api/v1/agent/prompt. */
 export interface PromptGenerationRequest {
   agentId: string;
@@ -268,12 +350,14 @@ export interface PromptGenerationRequest {
   spaceId: string;
   customInstructions?: string;
   workingDirectory?: string;
+  dangerouslySkipPermissions?: boolean;
 }
 
 /** Response from POST /api/v1/agent/prompt. */
 export interface PromptGenerationResponse {
   promptPath: string;
   promptPreview: string;
+  promptFull: string;      // complete prompt text (T-005)
   cliCommand: string;
   estimatedTokens: number;
 }

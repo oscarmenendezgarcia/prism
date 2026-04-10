@@ -10,9 +10,41 @@ A local-first Kanban board with an integrated terminal, AI agent run history, an
 
 - Kanban board with spaces, columns (To Do / In Progress / Done), and task attachments
 - Integrated terminal panel (PTY-backed, full shell access)
-- Agent run history with live polling and status timeline
+- AI agent pipeline runner — launch multi-stage agent pipelines from any task
+- Live log viewer — stream stage output in real time
+- Agent run history with status timeline
+- Config editor — edit `~/.claude/*.md` files directly from the UI
 - Dark-first Material Design 3 UI
-- MCP server exposing all Kanban operations as tools callable by Claude
+- MCP server exposing all Kanban and pipeline operations as tools callable by Claude
+
+---
+
+## Quick start with Docker
+
+The fastest way to run Prism — no Node.js or build tools required locally.
+
+```bash
+docker compose up -d
+# → http://localhost:3000
+```
+
+Board data is persisted in the local `./data/` directory and survives container restarts.
+
+### Environment variables (Docker)
+
+Copy-paste into a `.env` file next to `docker-compose.yml` to override defaults:
+
+```dotenv
+PORT=3000
+DATA_DIR=/app/data
+ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | HTTP server port exposed on the host |
+| `DATA_DIR` | `/app/data` | Persistence directory inside the container (leave as-is unless you change the volume target) |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,...` | Allowed WebSocket origins for the terminal. Set to your public URL when running behind a reverse proxy (e.g. `https://myapp.example.com`). |
 
 ---
 
@@ -72,6 +104,7 @@ The Vite dev server proxies `/api/v1` and `/ws` requests to `localhost:3000`.
 | `PORT` | `3000` | HTTP server port |
 | `DATA_DIR` | `./data` | Directory for JSON persistence files |
 | `KANBAN_API_URL` | `http://localhost:3000/api/v1` | Base URL used by the MCP server |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated list of allowed WebSocket origins for the terminal. Set this when running behind a reverse proxy, in Docker, or in cloud deployments (e.g. `ALLOWED_ORIGINS=https://myapp.example.com`). |
 
 ---
 
@@ -113,7 +146,7 @@ Prism includes an MCP server (`mcp/mcp-server.js`) that exposes all Kanban opera
 }
 ```
 
-Available MCP tools: `kanban_list_tasks`, `kanban_get_task`, `kanban_create_task`, `kanban_update_task`, `kanban_move_task`, `kanban_delete_task`, `kanban_list_spaces`, `kanban_create_space`, `kanban_rename_space`, `kanban_delete_space`, `kanban_list_activity`.
+Available MCP tools: `kanban_list_tasks`, `kanban_get_task`, `kanban_create_task`, `kanban_update_task`, `kanban_move_task`, `kanban_delete_task`, `kanban_clear_board`, `kanban_list_spaces`, `kanban_create_space`, `kanban_rename_space`, `kanban_delete_space`, `kanban_list_activity`, `kanban_start_pipeline`, `kanban_get_run_status`.
 
 ---
 
@@ -136,8 +169,13 @@ Backend test suite: integration tests covering all API endpoints.
 
 ```
 prism/
-├── server.js          # HTTP server — all API routes
+├── server.js          # Entry point — wires services, handlers and router
 ├── terminal.js        # PTY-backed WebSocket terminal
+├── src/
+│   ├── routes/        # URL pattern matching and dispatch
+│   ├── handlers/      # Per-resource request handlers (tasks, spaces, pipeline…)
+│   ├── services/      # Business logic (spaceManager, pipelineManager, migrator…)
+│   └── utils/         # Shared HTTP helpers
 ├── mcp/               # MCP server (ESM sub-package)
 │   └── mcp-server.js
 ├── frontend/          # React 19 + TypeScript + Vite
@@ -154,9 +192,15 @@ The `docs/` directory contains ADRs, blueprints, and design artefacts for each f
 
 ---
 
+## Contributing
+
+See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for setup instructions, code conventions and how to submit a PR.
+
+---
+
 ## Changelog
 
-See [docs/agent-run-history/CHANGELOG.md](docs/agent-run-history/CHANGELOG.md) for the implementation history of the agent run history feature.
+See [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

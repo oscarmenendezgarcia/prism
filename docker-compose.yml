@@ -1,0 +1,17 @@
+services:
+  prism:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    volumes:
+      # Persist Kanban board data across container restarts.
+      - ./data:/app/data
+    environment:
+      PORT: ${PORT:-3000}
+      DATA_DIR: ${DATA_DIR:-/app/data}
+      # Override ALLOWED_ORIGINS when running behind a reverse proxy or on a
+      # custom domain (e.g. ALLOWED_ORIGINS=https://myapp.example.com).
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+    restart: unless-stopped

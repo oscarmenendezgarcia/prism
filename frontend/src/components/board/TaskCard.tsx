@@ -1,18 +1,26 @@
 /**
- * Kanban task card.
- * Renders title, type badge, optional description, assigned, timestamps,
- * attachment buttons, move arrows, and delete button.
+ * Kanban task card — redesigned with three-zone progressive disclosure layout.
+ *
+ * Zone A (always visible): Badge + title + optional active-run dot + more_vert button.
+ * Zone B (always visible, conditional content): assigned avatar + attachment count + description preview.
+ * Hover overlay: CardActionMenu (move ← →, run agent, delete) — revealed via CSS group-hover.
+ *
+ * ADR-1 (redesign-cards): replaces monolithic flat-list layout with progressive disclosure.
  * ADR-002: replaces buildCard() in legacy app.js.
- * ADR-003 §8.4: transition-all ease-apple, p-4, gap-2.5, done state opacity-50 grayscale-[30%].
+ * ADR-003 §8.4: transition-all ease-apple, done state opacity-50 grayscale-[30%].
  */
 
-import React from 'react';
+import React, { memo } from 'react';
 import type { Task, Column } from '@/types';
 import { Badge } from '@/components/shared/Badge';
-import { formatTimestamp } from '@/utils/formatTimestamp';
+import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore, useActiveRun } from '@/stores/useAppStore';
-import { AgentLauncherMenu } from '@/components/agent-launcher/AgentLauncherMenu';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
+import { useDragStore } from '@/stores/useDragStore';
+
+// ---------------------------------------------------------------------------
+// Avatar helpers — deterministic gradient + initials from an assigned name
+// ---------------------------------------------------------------------------
 
 const AVATAR_GRADIENTS = [
   'from-indigo-500 to-purple-600',
@@ -37,47 +45,67 @@ function getGradient(name: string): string {
   return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
 }
 
+// ---------------------------------------------------------------------------
+// Column metadata
+// ---------------------------------------------------------------------------
+
 const COLUMNS: Column[] = ['todo', 'in-progress', 'done'];
 
-const COLUMN_LABELS: Record<Column, string> = {
-  'todo': 'Todo',
-  'in-progress': 'In Progress',
-  'done': 'Done',
-};
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
 
 interface TaskCardProps {
   task: Task;
   column: Column;
-  isDragging: boolean;
-  isDragOver: boolean;
-  onDragStart: (e: React.DragEvent, taskId: string, sourceColumn: Column) => void;
-  onDragOver: (e: React.DragEvent, taskId: string) => void;
-  onDragLeave: (e: React.DragEvent, taskId: string) => void;
-  onDrop: (e: React.DragEvent, targetColumn: Column) => void;
+  // PERF: isDragging and isDragOver removed from props. The component now
+  // subscribes to useDragStore directly with per-card boolean selectors so
+  // that only this card re-renders when its own drag state changes — not all
+  // cards in the column.
+  onDragStart?: (e: React.DragEvent, taskId: string, sourceColumn: Column) => void;
+  onDragOver?: (e: React.DragEvent, taskId: string) => void;
+  onDragLeave?: (e: React.DragEvent, taskId: string) => void;
+  /** Called when drag ends (drop or cancel). Lets Board reset drag state. */
+  onDragEnd?: () => void;
+  onDrop?: (e: React.DragEvent, targetColumn: Column) => void;
+  /** A-1: stagger delay in ms for the entrance animation. EXCEPTION: only inline style allowed. */
+  staggerDelayMs?: number;
 }
 
-export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, onDragOver, onDragLeave, onDrop }: TaskCardProps) {
-  const moveTask = useAppStore((s) => s.moveTask);
-  const deleteTask = useAppStore((s) => s.deleteTask);
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+// PERF: memo prevents re-renders when the parent Column re-renders (e.g. on
+// task list changes). Drag state is now read directly from useDragStore with
+// per-card boolean selectors — only this specific card re-renders when its own
+// drag state changes, giving O(1) re-renders per drag event.
+export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, staggerDelayMs = 0 }: TaskCardProps) {
+  const moveTask          = useAppStore((s) => s.moveTask);
+  const deleteTask        = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
-  const activeSpaceId = useAppStore((s) => s.activeSpaceId);
-  const isMutating      = useAppStore((s) => s.isMutating);
-  const activeRun       = useActiveRun();
-  const openDetailPanel = useAppStore((s) => s.openDetailPanel);
-  const openPanelForTask = useRunHistoryStore((s) => s.openPanelForTask);
+  const activeSpaceId     = useAppStore((s) => s.activeSpaceId);
+  const isMutating        = useAppStore((s) => s.isMutating);
+  const activeRun         = useActiveRun();
+  const openDetailPanel   = useAppStore((s) => s.openDetailPanel);
+  const openPanelForTask  = useRunHistoryStore((s) => s.openPanelForTask);
+
+  // Per-card drag state — Zustand only re-renders this component when the
+  // boolean result of the selector changes (false→true or true→false).
+  const isDragging = useDragStore((s) => s.draggedTaskId === task.id);
+  const isDragOver = useDragStore((s) => s.dragOverTaskId === task.id);
 
   const isActiveTask = activeRun?.taskId === task.id;
+  const isDone = column === 'done';
 
   const idx = COLUMNS.indexOf(column);
   const showLeft = idx > 0;
   const showRight = idx < COLUMNS.length - 1;
 
-  const wasUpdated =
-    task.updatedAt &&
-    task.createdAt &&
-    new Date(task.updatedAt).getTime() !== new Date(task.createdAt).getTime();
-
-  const isDone = column === 'done';
+  const hasMetadata =
+    !!task.assigned ||
+    (task.attachments && task.attachments.length > 0) ||
+    !!task.description;
 
   return (
     <article
@@ -85,167 +113,144 @@ export function TaskCard({ task, column, isDragging, isDragOver, onDragStart, on
       draggable
       data-id={task.id}
       data-column={column}
-      className={`relative bg-surface rounded-card border shadow-card hover:shadow-card-hover transition-all duration-200 ease-apple p-4 flex flex-col gap-2.5 ${
-        isDone ? 'opacity-50 grayscale-[30%]' : ''
-      }${isDragging ? ' opacity-50' : ''}${isDragOver ? ' ring-2 ring-primary' : ''} ${
-        isActiveTask ? 'border-[#3b82f6]/40' : 'border-border'
-      }`}
+      data-testid="task-card"
+      className={[
+        'group relative bg-surface rounded-card border shadow-card hover:shadow-card-hover',
+        // A-1: entrance fade-in-up; A-2: hover lifts card via translateY
+        'animate-fade-in-up hover:-translate-y-0.5',
+        'transition-all duration-200 ease-apple p-3 flex flex-col gap-2',
+        // shrink-0: prevent flex-shrink in overflow-y-auto column from collapsing card height
+        // MB-3: minimum 44px touch target + press scale feedback on coarse pointer
+        'shrink-0 min-h-[44px] [@media(pointer:coarse)]:active:scale-[0.98]',
+        isDone ? 'opacity-50 grayscale-[30%]' : '',
+        isDragging ? 'opacity-50' : '',
+        isDragOver ? 'ring-2 ring-primary' : '',
+        isActiveTask ? 'border-primary/40' : 'border-border',
+      ].filter(Boolean).join(' ')}
+      // A-1: EXCEPTION — dynamic stagger delay requires inline style
+      style={staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms`, animationFillMode: 'both' } : { animationFillMode: 'both' }}
       aria-grabbed={isDragging}
-      onDragStart={(e) => onDragStart(e, task.id, column)}
-      onDragOver={(e) => onDragOver(e, task.id)}
-      onDragLeave={(e) => onDragLeave(e, task.id)}
-      onDrop={(e) => onDrop(e, column)}
+      onDragStart={(e) => onDragStart?.(e, task.id, column)}
+      onDragOver={(e) => onDragOver?.(e, task.id)}
+      onDragLeave={(e) => onDragLeave?.(e, task.id)}
+      onDragEnd={onDragEnd}
+      onDrop={(e) => onDrop?.(e, column)}
     >
 
-      {/* Top: title + badge + expand icon */}
-      <div className="flex items-start justify-between gap-2">
-        {/* Title — clickable to open the detail panel */}
+      {/* ------------------------------------------------------------------ */}
+      {/* ZONE A — Identity: Badge + title + optional run dot + more_vert     */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="flex items-baseline gap-2">
+        <Badge type={task.type} />
+
+        {/* Title — clickable to open the detail panel. ADR-1: line-clamp-2 */}
         <button
           type="button"
           onClick={() => openDetailPanel(task)}
-          className="text-sm font-medium text-text-primary leading-snug flex-1 text-left cursor-pointer hover:text-primary transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-primary rounded-sm"
+          className="flex-1 min-w-0 text-sm font-medium text-text-primary leading-snug line-clamp-2 text-left cursor-pointer hover:text-primary transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
         >
           {task.title}
         </button>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <Badge type={task.type} />
-          {/* Expand icon — opens the detail panel */}
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              openDetailPanel(task);
-            }}
-            onDragStart={(e) => e.stopPropagation()}
-            aria-label="Open task detail"
-            title="Open task detail"
-            className="w-6 h-6 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant focus:outline-none focus:ring-2 focus:ring-primary transition-colors duration-150"
-          >
-            <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
-              open_in_full
-            </span>
-          </button>
-        </div>
-      </div>
 
-      {/* Description */}
-      {task.description && (
-        <p className="text-xs text-text-secondary leading-snug">{task.description}</p>
-      )}
-
-      {/* Assigned */}
-      {task.assigned && (
-        <div className="flex items-center gap-2 mt-0.5">
-          <div
-            className={`w-5 h-5 rounded-full bg-gradient-to-br ${getGradient(task.assigned)} flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0`}
-            aria-hidden="true"
-          >
-            {getInitials(task.assigned)}
-          </div>
-          <span className="text-[11px] text-text-secondary truncate">{task.assigned}</span>
-        </div>
-      )}
-
-      {/* Timestamps */}
-      {task.createdAt && (
-        <div className="flex flex-col gap-0.5">
-          <span className="text-[11px] text-text-disabled">
-            Created: {formatTimestamp(task.createdAt)}
-          </span>
-          {wasUpdated && (
-            <span className="text-[11px] text-text-disabled">
-              Updated: {formatTimestamp(task.updatedAt)}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Attachments */}
-      {task.attachments && task.attachments.length > 0 && (
-        <div className="pt-2 border-t border-border/60">
-          <span className="text-[11px] text-text-disabled mb-1 block">
-            Attachments ({task.attachments.length})
-          </span>
-          <div className="flex flex-wrap gap-1">
-            {task.attachments.map((att, i) => (
-              <button
-                key={i}
-                onClick={() => openAttachmentModal(activeSpaceId, task.id, i, att.name)}
-                title={att.name}
-                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-primary hover:bg-primary/[0.08] rounded-xs transition-colors duration-150"
-              >
-                <span
-                  className="material-symbols-outlined text-sm leading-none"
-                  aria-hidden="true"
-                >
-                  {att.type === 'file' ? 'folder' : 'attachment'}
-                </span>
-                <span className="max-w-[120px] truncate">{att.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Card footer: move actions + run agent + delete */}
-      <div className="flex items-center justify-between pt-1">
-        <div className="flex items-center gap-1">
-          {showLeft && (
-            <button
-              onClick={() => moveTask(task.id, 'left', column)}
-              disabled={isMutating}
-              aria-label={`Move to ${COLUMN_LABELS[COLUMNS[idx - 1]]}`}
-              title={`Move to ${COLUMN_LABELS[COLUMNS[idx - 1]]}`}
-              className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150 text-base"
-            >
-              &#8592;
-            </button>
-          )}
-          {showRight && (
-            <button
-              onClick={() => moveTask(task.id, 'right', column)}
-              disabled={isMutating}
-              aria-label={`Move to ${COLUMN_LABELS[COLUMNS[idx + 1]]}`}
-              title={`Move to ${COLUMN_LABELS[COLUMNS[idx + 1]]}`}
-              className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150 text-base"
-            >
-              &#8594;
-            </button>
-          )}
-
-          {/* Run Agent button — only on todo cards (agents should not re-run done tasks) */}
-          {column === 'todo' && (
-            <AgentLauncherMenu
-              taskId={task.id}
-              spaceId={activeSpaceId}
-            />
-          )}
-        </div>
-        {/* Active agent run indicator — pulsing dot, click opens run history for this task */}
+        {/* Active run indicator — 6px pulsing dot. Only visible when this task is running. */}
         {isActiveTask && (
           <button
+            type="button"
             onClick={() => openPanelForTask(task.id)}
-            aria-label="Agent running — view run history for this task"
+            aria-label="Agent running — view run history"
             title="Agent running — click to view run history"
-            className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-[#3b82f6]/10 hover:bg-[#3b82f6]/20 transition-colors duration-150"
+            className="flex-shrink-0 flex items-center justify-center w-4 h-4 focus:outline-hidden focus:ring-2 focus:ring-primary rounded-full"
           >
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#3b82f6] opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#3b82f6]" />
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" aria-hidden="true" />
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary" aria-hidden="true" />
             </span>
-            <span className="text-[10px] font-semibold text-[#3b82f6]">Running</span>
           </button>
         )}
+
+        {/* more_vert button — always visible, opens the card action context menu */}
         <button
-          onClick={() => deleteTask(task.id)}
-          disabled={isMutating || activeRun !== null}
-          aria-label="Delete task"
-          title="Delete task"
-          className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-error/[0.10] hover:text-error disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150 text-sm"
+          type="button"
+          aria-label="Task actions"
+          aria-haspopup="menu"
+          className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded-sm text-text-secondary opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 hover:text-text-primary hover:bg-surface-variant transition-all duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary focus:opacity-100"
         >
-          &#10005;
+          <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
+            more_vert
+          </span>
         </button>
+
       </div>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* ZONE B — Metadata: assigned avatar + attachment count + description */}
+      {/* Only rendered when at least one piece of metadata is present.       */}
+      {/* ------------------------------------------------------------------ */}
+      {hasMetadata && (
+        <div className="flex items-center gap-2 min-h-0 flex-wrap" data-testid="zone-b">
+          {task.assigned && (
+            <>
+              <div
+                className={`w-5 h-5 rounded-full bg-gradient-to-br ${getGradient(task.assigned)} flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0`}
+                aria-hidden="true"
+                data-testid="avatar"
+              >
+                {getInitials(task.assigned)}
+              </div>
+              <span className="text-[11px] text-text-secondary truncate" data-testid="assigned-name">
+                {task.assigned}
+              </span>
+            </>
+          )}
+
+          {task.attachments && task.attachments.length > 0 && (
+            <button
+              type="button"
+              onClick={() => openAttachmentModal(activeSpaceId, task.id, 0, task.attachments![0].name, task.attachments!)}
+              aria-label={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
+              title={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
+              data-testid="attachment-pill"
+              className="ml-auto inline-flex items-center gap-0.5 text-[11px] text-text-secondary hover:text-primary transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
+            >
+              <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
+                attachment
+              </span>
+              {task.attachments.length}
+            </button>
+          )}
+
+          {task.description && (
+            <p className="w-full text-[11px] text-text-secondary/70 line-clamp-3" data-testid="desc-preview">
+              {task.description}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* HOVER OVERLAY — CardActionMenu                                      */}
+      {/* Hidden at rest; revealed on group-hover (CSS only, no JS handlers). */}
+      {/* Always visible on coarse-pointer (touch) devices.                   */}
+      {/* ADR-1: absolute top-2 right-2 z-10, pure CSS group-hover approach.  */}
+      {/* ------------------------------------------------------------------ */}
+      {/* A-2: overlay reveals with scale-in animation on group-hover */}
+      <div
+        data-testid="hover-overlay"
+        className="absolute top-2 right-2 z-10 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-hover:animate-hover-overlay-in [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:pointer-events-auto transition-opacity duration-150 ease-apple bg-surface-elevated border border-border rounded-md shadow-sm"
+        aria-hidden="true"
+      >
+        <CardActionMenu
+          taskId={task.id}
+          column={column}
+          spaceId={activeSpaceId}
+          isMutating={isMutating}
+          activeRun={activeRun}
+          onMoveLeft={showLeft ? () => moveTask(task.id, 'left', column) : undefined}
+          onMoveRight={showRight ? () => moveTask(task.id, 'right', column) : undefined}
+          onDelete={() => deleteTask(task.id)}
+        />
+      </div>
+
     </article>
   );
-}
+});

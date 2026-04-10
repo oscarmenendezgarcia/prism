@@ -1,193 +1,216 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   THEME — CSS Custom Properties
-   :root        = light mode (default)
-   html.dark    = dark mode overrides
-   Terminal tokens are defined ONLY in :root and NOT overridden in html.dark —
-   the terminal always renders in dark mode regardless of app theme.
+   DARK MODE — preserve html.dark class-based switcher from v3.
+   Must come before @theme so the variant is available throughout the file.
+───────────────────────────────────────────────────────────────────────────── */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   THEME — CSS-first token declaration (Tailwind v4)
+   Light-mode values live here. html.dark overrides below.
+   Naming: --color-* → bg-*, text-*, border-* utilities
+           --shadow-* → shadow-* utilities
+           --radius-* → rounded-* utilities
+           --font-*   → font-* utilities
+           --ease-*   → ease-* utilities
+           --animate-* → animate-* utilities
 ───────────────────────────────────────────────────────────────────────────── */
 
-:root {
-  /* Base surfaces */
-  --color-background: #F5F5F7;
-  --color-surface: #FFFFFF;
-  --color-surface-variant: rgba(0, 0, 0, 0.04);
-  --color-surface-elevated: #E8E8ED;
+@theme {
+  /* ── Surfaces ──────────────────────────────────────────────────────────── */
+  --color-background:        #F5F5F7;
+  --color-surface:           #FFFFFF;
+  --color-surface-variant:   rgba(0, 0, 0, 0.04);
+  --color-surface-elevated:  #E8E8ED;
 
-  /* Text */
-  --color-text-primary: #1D1D1F;
+  /* ── Text ─────────────────────────────────────────────────────────────── */
+  --color-text-primary:   #1D1D1F;
   --color-text-secondary: #6E6E73;
-  --color-text-disabled: #AEAEB2;
+  --color-text-disabled:  #AEAEB2;
 
-  /* On-surface */
-  --color-on-surface: #1D1D1F;
-  --color-on-primary: #FFFFFF;
-  --color-on-primary-container: #003A8C;
+  /* ── On-surface ───────────────────────────────────────────────────────── */
+  --color-on-surface:            #1D1D1F;
+  --color-on-primary:            #FFFFFF;
+  --color-on-primary-container:  #003A8C;
 
-  /* Primary accent — Apple Blue */
-  --color-primary: #0A84FF;
-  --color-primary-hover: #0071E3;
-  --color-primary-active: #005BB5;
+  /* ── Primary accent — Apple Blue ─────────────────────────────────────── */
+  --color-primary:           #0A84FF;
+  --color-primary-hover:     #0071E3;
+  --color-primary-active:    #005BB5;
   --color-primary-container: rgba(10, 132, 255, 0.10);
 
-  /* Secondary */
-  --color-secondary: #6E6E73;
+  /* ── Secondary ───────────────────────────────────────────────────────── */
+  --color-secondary:       #6E6E73;
   --color-secondary-hover: #48484A;
 
-  /* Borders */
-  --color-border: #D1D1D6;
+  /* ── Borders ─────────────────────────────────────────────────────────── */
+  --color-border:          #D1D1D6;
   --color-border-disabled: #E5E5EA;
 
-  /* Semantic */
-  --color-error: #FF3B30;
-  --color-error-hover: #E5332A;
-  --color-error-container: rgba(255, 59, 48, 0.10);
-  --color-success: #28CD41;
+  /* ── Semantic ────────────────────────────────────────────────────────── */
+  --color-error:             #FF3B30;
+  --color-error-hover:       #E5332A;
+  --color-error-container:   rgba(255, 59, 48, 0.10);
+  --color-success:           #28CD41;
   --color-success-container: rgba(40, 205, 65, 0.10);
-  --color-warning: #FF9500;
+  --color-warning:           #FF9500;
   --color-warning-container: rgba(255, 149, 0, 0.10);
-  --color-warning-on: #E65100;
-  --color-info: #0A84FF;
-  --color-info-container: rgba(10, 132, 255, 0.10);
-  --color-info-on: #003A8C;
+  --color-warning-on:        #E65100;
+  --color-info:              #0A84FF;
+  --color-info-container:    rgba(10, 132, 255, 0.10);
+  --color-info-on:           #003A8C;
 
-  /* Glass effect backgrounds */
+  /* ── Glass effects ───────────────────────────────────────────────────── */
   --color-glass-surface-bg: rgba(255, 255, 255, 0.72);
-  --color-glass-heavy-bg: rgba(255, 255, 255, 0.85);
+  --color-glass-heavy-bg:   rgba(255, 255, 255, 0.85);
 
-  /* Column accents */
-  --color-col-todo: #D1D1D6;
-  --color-col-in-progress: #0A84FF;
-  --color-col-done: #28CD41;
+  /* ── Column accents ──────────────────────────────────────────────────── */
+  --color-col-todo:            #D1D1D6;
+  --color-col-in-progress:     #0A84FF;
+  --color-col-done:            #28CD41;
   --color-col-in-progress-pill: rgba(10, 132, 255, 0.10);
-  --color-col-done-pill: rgba(40, 205, 65, 0.10);
+  --color-col-done-pill:       rgba(40, 205, 65, 0.10);
 
-  /* Badge text colors */
-  --color-badge-task-text: #E86800;
-  --color-badge-research-text: #0A84FF;
-  --color-badge-done-text: #248A3D;
+  /* ── Badge text colors ───────────────────────────────────────────────── */
+  --color-badge-feature-text:   #6C39C0;
+  --color-badge-bug-text:       #FF3B30;
+  --color-badge-tech-debt-text: #E65100;
+  --color-badge-chore-text:     #6E6E73;
+  --color-badge-done-text:      #248A3D;
 
-  /* Shadows — light mode (lower opacity, no white inner rings) */
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  /* ── Terminal colors ─────────────────────────────────────────────────── */
+  --color-terminal-bg:              #FFFFFF;
+  --color-terminal-text:            #1F1F1F;
+  --color-terminal-input-bg:        rgba(0, 0, 0, 0.04);
+  --color-terminal-stderr:          #C5221F;
+  --color-terminal-prompt:          #1A73E8;
+  --color-terminal-tab-active:      rgba(0, 0, 0, 0.08);
+  --color-terminal-tab-hover:       rgba(0, 0, 0, 0.04);
+  --color-terminal-tab-close-hover: rgba(0, 0, 0, 0.10);
+
+  /* ── Shadows (light mode) ────────────────────────────────────────────── */
+  --shadow-card:       0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
   --shadow-card-hover: 0 8px 24px rgba(10, 132, 255, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.06);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  --shadow-modal: 0 24px 80px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-sm:         0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md:         0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-lg:         0 12px 32px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-modal:      0 24px 80px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
 
-  /* Terminal — always dark, NOT overridden in html.dark */
-  --color-terminal-bg: #0D0D0F;
-  --color-terminal-text: #E0E0E0;
-  --color-terminal-input-bg: rgba(255, 255, 255, 0.06);
-  --color-terminal-stderr: #FF6961;
-  --color-terminal-prompt: #0A84FF;
+  /* ── Border radius ───────────────────────────────────────────────────── */
+  --radius:       0.25rem;  /* bare rounded — matches v3 default (4px) */
+  --radius-xs:    6px;
+  --radius-sm:    8px;
+  --radius-md:    12px;
+  --radius-lg:    16px;
+  --radius-card:  14px;
+  --radius-modal: 20px;
+  --radius-full:  9999px;
 
-  /* OPTCG card search theme — T-007 (ADR-1 §3.7) */
-  /* In light mode these map to the same vivid values; the OPTCG page is
-     intentionally always dark-navy regardless of the app's light/dark toggle. */
-  --color-optcg-red: #E5383B;
-  --color-optcg-blue: #3A86FF;
-  --color-optcg-green: #2DC653;
-  --color-optcg-yellow: #FFD166;
-  --color-optcg-purple: #9B5DE5;
-  --color-optcg-black: #2B2D42;
-  --color-optcg-gold: #D4A843;
-  --color-optcg-navy: #0B132B;
-  --color-optcg-navy-light: #1C2541;
-  --color-optcg-card-bg: rgba(28, 37, 65, 0.85);
-  --color-optcg-card-border: rgba(212, 168, 67, 0.2);
-  --shadow-optcg-card: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(212, 168, 67, 0.1);
-  --shadow-optcg-card-hover: 0 8px 32px rgba(212, 168, 67, 0.15), 0 0 0 1px rgba(212, 168, 67, 0.25);
+  /* ── Font families ───────────────────────────────────────────────────── */
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
+  --font-slab: "Roboto Slab", Georgia, serif;
+
+  /* ── Transition timing functions ─────────────────────────────────────── */
+  --ease-apple:  cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ── Animations ──────────────────────────────────────────────────────── */
+  --animate-fade-in-up:        fade-in-up 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --animate-scale-in:          scale-in 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-slide-in-bottom:   slide-in-bottom 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-slide-in-right:    slide-in-right 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --animate-modal-out:         modal-out 180ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  --animate-toast-out:         toast-out 200ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  --animate-empty-pulse:       empty-pulse 3s ease-in-out infinite;
+  --animate-hover-overlay-in:  hover-overlay-in 150ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   DARK MODE OVERRIDES
+   Switching html.dark updates all CSS variables → all utilities update instantly.
+───────────────────────────────────────────────────────────────────────────── */
 
 html.dark {
   /* Base surfaces */
-  --color-background: #0D0D0F;
-  --color-surface: rgba(30, 30, 35, 0.72);
-  --color-surface-variant: rgba(255, 255, 255, 0.06);
+  --color-background:       #0D0D0F;
+  --color-surface:          rgba(30, 30, 35, 0.72);
+  --color-surface-variant:  rgba(255, 255, 255, 0.06);
   --color-surface-elevated: rgba(44, 44, 49, 0.80);
 
   /* Text */
-  --color-text-primary: #F5F5F7;
+  --color-text-primary:   #F5F5F7;
   --color-text-secondary: rgba(245, 245, 247, 0.55);
-  --color-text-disabled: rgba(245, 245, 247, 0.30);
+  --color-text-disabled:  rgba(245, 245, 247, 0.30);
 
   /* On-surface */
-  --color-on-surface: #F5F5F7;
-  --color-on-primary: #FFFFFF;
+  --color-on-surface:           #F5F5F7;
+  --color-on-primary:           #FFFFFF;
   --color-on-primary-container: #C5D8FF;
 
   /* Primary accent — Apple Blue (same in both modes) */
-  --color-primary: #0A84FF;
-  --color-primary-hover: #409CFF;
-  --color-primary-active: #0071E3;
+  --color-primary:           #0A84FF;
+  --color-primary-hover:     #409CFF;
+  --color-primary-active:    #0071E3;
   --color-primary-container: rgba(10, 132, 255, 0.16);
 
   /* Secondary */
-  --color-secondary: rgba(245, 245, 247, 0.55);
+  --color-secondary:       rgba(245, 245, 247, 0.55);
   --color-secondary-hover: rgba(245, 245, 247, 0.70);
 
   /* Borders */
-  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border:          rgba(255, 255, 255, 0.08);
   --color-border-disabled: rgba(255, 255, 255, 0.04);
 
   /* Semantic */
-  --color-error: #FF453A;
-  --color-error-hover: #E5392F;
-  --color-error-container: rgba(255, 69, 58, 0.12);
-  --color-success: #30D158;
+  --color-error:             #FF453A;
+  --color-error-hover:       #E5392F;
+  --color-error-container:   rgba(255, 69, 58, 0.12);
+  --color-success:           #30D158;
   --color-success-container: rgba(48, 209, 88, 0.12);
-  --color-warning: #FFD60A;
+  --color-warning:           #FFD60A;
   --color-warning-container: rgba(255, 214, 10, 0.12);
-  --color-warning-on: #FFD60A;
-  --color-info: #0A84FF;
-  --color-info-container: rgba(10, 132, 255, 0.12);
-  --color-info-on: #64D2FF;
+  --color-warning-on:        #FFD60A;
+  --color-info:              #0A84FF;
+  --color-info-container:    rgba(10, 132, 255, 0.12);
+  --color-info-on:           #64D2FF;
 
   /* Glass effect backgrounds */
   --color-glass-surface-bg: rgba(30, 30, 35, 0.72);
-  --color-glass-heavy-bg: rgba(44, 44, 49, 0.80);
+  --color-glass-heavy-bg:   rgba(44, 44, 49, 0.80);
 
   /* Column accents */
-  --color-col-todo: rgba(255, 255, 255, 0.15);
-  --color-col-in-progress: #0A84FF;
-  --color-col-done: #30D158;
+  --color-col-todo:             rgba(255, 255, 255, 0.15);
+  --color-col-in-progress:      #0A84FF;
+  --color-col-done:             #30D158;
   --color-col-in-progress-pill: rgba(10, 132, 255, 0.16);
-  --color-col-done-pill: rgba(48, 209, 88, 0.16);
+  --color-col-done-pill:        rgba(48, 209, 88, 0.16);
 
   /* Badge text colors */
-  --color-badge-task-text: #FF9F0A;
-  --color-badge-research-text: #0A84FF;
-  --color-badge-done-text: #30D158;
+  --color-badge-feature-text:   #BF5AF2;
+  --color-badge-bug-text:       #FF453A;
+  --color-badge-tech-debt-text: #FFD60A;
+  --color-badge-chore-text:     rgba(245, 245, 247, 0.55);
+  --color-badge-done-text:      #30D158;
 
   /* Shadows — dark mode (stronger opacity + white inner rings for depth) */
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.30), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-card:       0 1px 3px rgba(0, 0, 0, 0.30), 0 0 0 1px rgba(255, 255, 255, 0.05);
   --shadow-card-hover: 0 8px 24px rgba(10, 132, 255, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.50), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --shadow-modal: 0 24px 80px rgba(0, 0, 0, 0.60), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --shadow-sm:         0 1px 2px rgba(0, 0, 0, 0.30);
+  --shadow-md:         0 4px 12px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-lg:         0 12px 32px rgba(0, 0, 0, 0.50), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-modal:      0 24px 80px rgba(0, 0, 0, 0.60), 0 0 0 1px rgba(255, 255, 255, 0.08);
 
-  /* Terminal tokens intentionally NOT overridden — terminal is always dark */
-
-  /* OPTCG tokens — same vivid values in dark mode (the OPTCG page forces a
-     dark-navy background regardless of the system theme preference). */
-  --color-optcg-red: #E5383B;
-  --color-optcg-blue: #3A86FF;
-  --color-optcg-green: #2DC653;
-  --color-optcg-yellow: #FFD166;
-  --color-optcg-purple: #9B5DE5;
-  --color-optcg-black: #2B2D42;
-  --color-optcg-gold: #D4A843;
-  --color-optcg-navy: #0B132B;
-  --color-optcg-navy-light: #1C2541;
-  --color-optcg-card-bg: rgba(28, 37, 65, 0.85);
-  --color-optcg-card-border: rgba(212, 168, 67, 0.2);
-  --shadow-optcg-card: 0 2px 8px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(212, 168, 67, 0.1);
-  --shadow-optcg-card-hover: 0 8px 32px rgba(212, 168, 67, 0.15), 0 0 0 1px rgba(212, 168, 67, 0.25);
+  /* Terminal — dark mode overrides */
+  --color-terminal-bg:              #0D0D0F;
+  --color-terminal-text:            #E0E0E0;
+  --color-terminal-input-bg:        rgba(255, 255, 255, 0.06);
+  --color-terminal-stderr:          #FF6961;
+  --color-terminal-prompt:          #0A84FF;
+  --color-terminal-tab-active:      rgba(255, 255, 255, 0.12);
+  --color-terminal-tab-hover:       rgba(255, 255, 255, 0.06);
+  --color-terminal-tab-close-hover: rgba(255, 255, 255, 0.15);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -199,6 +222,9 @@ html.dark {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
+    /* T-004: v4 changed default border color from gray-200 to currentColor.
+       Restore previous behavior by defaulting to the design token. */
+    border-color: var(--color-border);
   }
 
   html, body, #root {
@@ -232,7 +258,7 @@ html.dark {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   UTILITIES
+   BASE — thin scrollbars
 ───────────────────────────────────────────────────────────────────────────── */
 
 @layer base {
@@ -272,7 +298,16 @@ html.dark {
   }
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   UTILITIES
+───────────────────────────────────────────────────────────────────────────── */
+
 @layer utilities {
+  /* MB-2: FAB bottom position respects iOS safe-area-inset-bottom */
+  .bottom-safe-6 {
+    bottom: max(1.5rem, env(safe-area-inset-bottom, 1.5rem));
+  }
+
   /* BUG-005: replaces style={{ fontVariationSettings: "'FILL' 1" }} inline styles */
   .icon-filled {
     font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
@@ -303,5 +338,208 @@ html.dark {
     backdrop-filter: blur(40px) saturate(200%);
     -webkit-backdrop-filter: blur(40px) saturate(200%);
   }
+}
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   CUSTOM UTILITIES — height/width tokens not in the @theme spacing scale
+───────────────────────────────────────────────────────────────────────────── */
+
+@utility h-header {
+  height: 64px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   KEYFRAMES — referenced by --animate-* in @theme
+───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes fade-in-up {
+  0%   { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  0%   { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-in-bottom {
+  0%   { opacity: 0; transform: translateY(16px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* ADR-1 (task-detail-edit): right-side panel entry animation ≤ 200ms. */
+@keyframes slide-in-right {
+  0%   { transform: translateX(100%); }
+  100% { transform: translateX(0); }
+}
+
+/* M-1: modal spring close exit */
+@keyframes modal-out {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.97); }
+}
+
+/* T-1: toast exit slide-down */
+@keyframes toast-out {
+  0%   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(8px); }
+}
+
+/* A-2: hover overlay entrance */
+@keyframes hover-overlay-in {
+  0%   { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* S-3: empty state ambient pulse */
+@keyframes empty-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%       { opacity: 0.7; transform: scale(1.04); }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   AUTO-TASK FAB — conic-gradient border rotation animation
+   The ::before pseudo-element on .autotask-fab-border carries the gradient.
+   Rotate it via a CSS custom property on the parent so hover can ramp speed.
+───────────────────────────────────────────────────────────────────────────── */
+
+@property --autotask-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes autotask-spin {
+  to { --autotask-angle: 360deg; }
+}
+
+.autotask-fab {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: 40;
+  /* pill shape */
+  height: 48px;
+  padding: 0 20px;
+  border-radius: 9999px;
+  /* glass background */
+  background: rgba(30, 30, 35, 0.85);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  /* glow */
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.20), 0 0 40px rgba(6, 182, 212, 0.08);
+  /* layout */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  /* text */
+  color: #F5F5F7;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: 'Inter', sans-serif;
+  /* border from ::before — keep border transparent so it doesn't double */
+  border: none;
+  outline: none;
+  cursor: pointer;
+  /* smooth transitions */
+  transition: transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 200ms ease,
+              background 150ms ease;
+  /* the ::before must be clipped to the rounded pill */
+  isolation: isolate;
+  /* gradient border rotation speed variable (default 4s, hover 2s) */
+  animation: autotask-spin 4s linear infinite;
+}
+
+/* The conic-gradient border ring */
+.autotask-fab::before {
+  content: '';
+  position: absolute;
+  inset: -1.5px;
+  border-radius: 9999px;
+  background: conic-gradient(
+    from var(--autotask-angle),
+    #7C3AED,
+    #2563EB,
+    #06B6D4,
+    #2563EB,
+    #7C3AED
+  );
+  z-index: -1;
+  /* mask inner area so only the 1.5px ring is visible */
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  padding: 1.5px;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: destination-out;
+}
+
+.autotask-fab:hover {
+  transform: scale(1.04);
+  background: rgba(44, 44, 49, 0.90);
+  box-shadow: 0 0 28px rgba(124, 58, 237, 0.35), 0 0 56px rgba(6, 182, 212, 0.15);
+  animation-duration: 2s;
+}
+
+.autotask-fab:active {
+  transform: scale(0.97);
+}
+
+.autotask-fab:focus-visible {
+  outline: 2px solid rgba(10, 132, 255, 0.70);
+  outline-offset: 3px;
+}
+
+/* Light mode overrides */
+html:not(.dark) .autotask-fab {
+  background: rgba(255, 255, 255, 0.88);
+  color: #1F1F1F;
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+html:not(.dark) .autotask-fab:hover {
+  background: rgba(245, 245, 247, 0.96);
+  box-shadow: 0 0 28px rgba(124, 58, 237, 0.22), 0 4px 12px rgba(0, 0, 0, 0.10);
+}
+
+/* Mobile: icon-only circle */
+@media (max-width: 599px) {
+  .autotask-fab {
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .autotask-fab__label {
+    display: none;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   XTERM.JS — override hardcoded #000 backgrounds so the terminal adapts to
+   both light and dark themes via the --color-terminal-bg token.
+───────────────────────────────────────────────────────────────────────────── */
+
+.xterm .xterm-viewport {
+  background-color: var(--color-terminal-bg) !important;
+}
+
+.xterm .composition-view {
+  background: var(--color-terminal-bg) !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ACCESSIBILITY — reduce motion
+   Honoring prefers-reduced-motion: all animations collapsed to near-instant.
+───────────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .autotask-fab {
+    animation-play-state: paused;
+  }
 }

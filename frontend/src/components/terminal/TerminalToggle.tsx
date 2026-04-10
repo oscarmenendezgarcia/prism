@@ -17,15 +17,16 @@ export function TerminalToggle() {
       onClick={togglePanel}
       aria-label="Toggle terminal panel"
       aria-pressed={panelOpen}
-      className={`w-9 h-9 flex items-center justify-center rounded-xl transition-all duration-150 ease-apple ${
+      className={`h-10 min-w-[72px] px-3 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all duration-150 ease-apple focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/50 ${
         panelOpen
-          ? 'bg-primary/[0.15] text-primary'
-          : 'text-text-secondary hover:bg-surface-variant hover:text-text-primary'
+          ? 'bg-primary/[0.15] text-primary border border-primary/30'
+          : 'text-text-secondary bg-white/[0.04] border border-white/[0.08] hover:bg-surface-variant hover:text-text-primary'
       }`}
     >
       <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
         terminal
       </span>
+      <span className="hidden sm:block text-[10px] font-medium leading-none">Terminal</span>
     </button>
   );
 }

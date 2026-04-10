@@ -18,6 +18,14 @@ interface PipelineLogState {
   logPanelOpen: boolean;
   setLogPanelOpen: (open: boolean) => void;
 
+  /**
+   * Count of log lines appended since the panel was last opened.
+   * Drives the notification dot on the Logs toggle.
+   * Resets to 0 when the panel is opened.
+   */
+  unseenCount: number;
+  incrementUnseenCount: () => void;
+
   /** Stage index (0-based) currently shown in the panel. */
   selectedStageIndex: number;
   setSelectedStageIndex: (index: number) => void;
@@ -47,6 +55,24 @@ interface PipelineLogState {
    * are not shown while the new run loads.
    */
   clearStageLogs: () => void;
+
+  // ── T-008: Prompt/Log toggle ───────────────────────────────────────────────
+
+  /** Which view is active in the log panel per stage: 'log' (default) or 'prompt'. */
+  stageView: Record<number, 'log' | 'prompt'>;
+  setStageView: (stageIndex: number, view: 'log' | 'prompt') => void;
+
+  /**
+   * Per-stage prompt content cache. Keyed by stageIndex.
+   * null  → not yet fetched or error.
+   * string → fetched prompt text.
+   */
+  stagePrompts: Record<number, string | null>;
+  setStagePrompt: (stageIndex: number, prompt: string | null) => void;
+
+  /** Per-stage prompt loading flag. */
+  stagePromptLoading: Record<number, boolean>;
+  setStagePromptLoading: (stageIndex: number, loading: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,12 +81,19 @@ interface PipelineLogState {
 
 export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   logPanelOpen:       false,
+  unseenCount:        0,
   selectedStageIndex: 0,
   stageLogs:          {},
   stageLoading:       {},
   stageErrors:        {},
+  stageView:          {},
+  stagePrompts:       {},
+  stagePromptLoading: {},
 
-  setLogPanelOpen: (open) => set({ logPanelOpen: open }),
+  setLogPanelOpen: (open) => set({ logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) }),
+
+  incrementUnseenCount: () =>
+    set((state) => ({ unseenCount: state.unseenCount + 1 })),
 
   setSelectedStageIndex: (index) => set({ selectedStageIndex: index }),
 
@@ -80,5 +113,27 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
     })),
 
   clearStageLogs: () =>
-    set({ stageLogs: {}, stageLoading: {}, stageErrors: {} }),
+    set({
+      stageLogs:          {},
+      stageLoading:       {},
+      stageErrors:        {},
+      stageView:          {},
+      stagePrompts:       {},
+      stagePromptLoading: {},
+    }),
+
+  setStageView: (stageIndex, view) =>
+    set((state) => ({
+      stageView: { ...state.stageView, [stageIndex]: view },
+    })),
+
+  setStagePrompt: (stageIndex, prompt) =>
+    set((state) => ({
+      stagePrompts: { ...state.stagePrompts, [stageIndex]: prompt },
+    })),
+
+  setStagePromptLoading: (stageIndex, loading) =>
+    set((state) => ({
+      stagePromptLoading: { ...state.stagePromptLoading, [stageIndex]: loading },
+    })),
 }));

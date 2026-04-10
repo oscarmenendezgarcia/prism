@@ -11,6 +11,7 @@
 import React, { useRef, useLayoutEffect, useCallback } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminal } from '@/hooks/useTerminal';
+import { useTheme } from '@/hooks/useTheme';
 import { useTerminalSessionStore } from '@/stores/useTerminalSessionStore';
 import { useAppStore } from '@/stores/useAppStore';
 import type { TerminalStatus } from '@/types';
@@ -24,9 +25,11 @@ interface TerminalTabProps {
   isActive: boolean;
 }
 
-const WS_BASE = 'ws://localhost:3000/ws/terminal';
+const WS_BASE = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/terminal`;
 
 export function TerminalTab({ sessionId, panelOpen, isActive }: TerminalTabProps) {
+  const { resolvedTheme } = useTheme();
+
   // Stable ref to the sendInput function — updated each render via layout effect.
   // This allows onStatusChange (a callback capture) to always close over the
   // latest version without being recreated on every render.
@@ -63,6 +66,7 @@ export function TerminalTab({ sessionId, panelOpen, isActive }: TerminalTabProps
       // Countdown display is delegated to TerminalPanel.
     },
     onProcessExit: handleProcessExit,
+    resolvedTheme,
   });
 
   // Keep sendInputRef in sync so that handleStatusChange always registers the

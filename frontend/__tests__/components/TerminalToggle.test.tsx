@@ -48,4 +48,52 @@ describe('TerminalToggle', () => {
     render(<TerminalToggle />);
     expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true');
   });
+
+  it('has h-10 min-w-[72px] px-3 size classes (T-4 redesign)', () => {
+    render(<TerminalToggle />);
+    const btn = screen.getByRole('button');
+    expect(btn.className).toContain('h-10');
+    expect(btn.className).toContain('min-w-[72px]');
+    expect(btn.className).toContain('px-3');
+  });
+
+  it('has flex-col layout class for icon+label column (T-4 redesign)', () => {
+    render(<TerminalToggle />);
+    const btn = screen.getByRole('button');
+    expect(btn.className).toContain('flex-col');
+    expect(btn.className).toContain('gap-0.5');
+  });
+
+  it('uses rounded-lg instead of rounded-xl (T-4 wireframe spec)', () => {
+    render(<TerminalToggle />);
+    const btn = screen.getByRole('button');
+    expect(btn.className).toContain('rounded-lg');
+    expect(btn.className).not.toContain('rounded-xl');
+  });
+
+  // T-5: text label tests
+  it('renders "Terminal" text label (T-5)', () => {
+    render(<TerminalToggle />);
+    const btn = screen.getByRole('button');
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label).toBeInTheDocument();
+    expect(label?.textContent).toBe('Terminal');
+  });
+
+  it('label has hidden sm:block classes for mobile-only visibility (T-5)', () => {
+    render(<TerminalToggle />);
+    const btn = screen.getByRole('button');
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label?.className).toContain('hidden');
+    expect(label?.className).toContain('sm:block');
+  });
+
+  it('label has text-[10px] font-medium leading-none classes (T-5)', () => {
+    render(<TerminalToggle />);
+    const btn = screen.getByRole('button');
+    const label = btn.querySelector('span:not(.material-symbols-outlined)');
+    expect(label?.className).toContain('text-[10px]');
+    expect(label?.className).toContain('font-medium');
+    expect(label?.className).toContain('leading-none');
+  });
 });

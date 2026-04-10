@@ -235,4 +235,16 @@ describe('StageTabBar — status icons', () => {
     );
     expect(screen.getByText('hourglass_empty')).toBeInTheDocument();
   });
+
+  it('shows "pause_circle" icon for interrupted stage', () => {
+    render(
+      <StageTabBar
+        stages={['developer-agent']}
+        stageStatuses={[makeStatus(0, 'interrupted')]}
+        selectedIndex={0}
+        onSelect={vi.fn()}
+      />
+    );
+    expect(screen.getByText('pause_circle')).toBeInTheDocument();
+  });
 });
