@@ -31,7 +31,10 @@ function startTestServer() {
       resolve({ port, close });
     });
 
-    server.once('error', reject);
+    server.once('error', (err) => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      reject(err);
+    });
   });
 }
 
