@@ -491,7 +491,7 @@ describe('useTerminal — resolvedTheme palette switching', () => {
   });
 
   it('should_export_XTERM_THEME_DARK_with_correct_background', () => {
-    expect(XTERM_THEME_DARK.background).toBe('#1e1e1e');
+    expect(XTERM_THEME_DARK.background).toBe('#0d0d0f');
   });
 
   it('should_export_XTERM_THEME_LIGHT_with_correct_background', () => {

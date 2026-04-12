@@ -654,32 +654,22 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const startedAt = new Date().toISOString();
     const cmd       = preparedRun.cliCommand;
-    const terminalSender = useTerminalSessionStore.getState().activeSendInput();
 
     let backendRunId: string | undefined;
 
-    if (terminalSender) {
-      // Terminal is open — inject the command into PTY instead of backend spawn.
-      const sent = terminalSender(cmd + '\r');
-      if (!sent) {
-        showToast('Could not send to terminal. Please try again.', 'error');
-        return;
-      }
-    } else {
-      // No terminal — dispatch to the pipeline backend (POST /api/v1/runs).
-      // A single-agent run is a pipeline run with one stage — this gives it
-      // full log capture via the stage log API.
-      try {
-        const run = await api.startRun(
-          preparedRun.spaceId,
-          preparedRun.taskId,
-          [preparedRun.agentId],
-        );
-        backendRunId = run.runId;
-      } catch (err) {
-        showToast(`Failed to start agent run: ${(err as Error).message}`, 'error');
-        return;
-      }
+    // Always dispatch through the pipeline backend (POST /api/v1/runs).
+    // A single-agent run is a pipeline run with one stage — this gives it
+    // full log capture via the stage log API regardless of terminal state.
+    try {
+      const run = await api.startRun(
+        preparedRun.spaceId,
+        preparedRun.taskId,
+        [preparedRun.agentId],
+      );
+      backendRunId = run.runId;
+    } catch (err) {
+      showToast(`Failed to start agent run: ${(err as Error).message}`, 'error');
+      return;
     }
 
     set({
