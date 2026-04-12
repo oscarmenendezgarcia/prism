@@ -30,8 +30,6 @@ import { useAppStore } from '@/stores/useAppStore';
 import { generateAutoTasks, confirmAutoTasks, runTagger } from '@/api/client';
 import type { Column, Task } from '@/types';
 
-const DEFAULT_TAG_PROMPT = 'Classify all tasks as: feature, bug, tech-debt, or chore.';
-
 type Mode = 'generate' | 'autotag';
 type Step = 'form' | 'review';
 
@@ -59,7 +57,6 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
   const [mode,         setMode]         = useState<Mode>('generate');
   const [step,         setStep]         = useState<Step>('form');
   const [prompt,       setPrompt]       = useState('');
-  const [tagPrompt,    setTagPrompt]    = useState(DEFAULT_TAG_PROMPT);
   const [spaceId,      setSpaceId]      = useState(activeSpaceId);
   const [column,       setColumn]       = useState<Column>('todo');
   const [loading,      setLoading]      = useState(false);
@@ -79,7 +76,6 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
       setMode('generate');
       setStep('form');
       setPrompt('');
-      setTagPrompt(DEFAULT_TAG_PROMPT);
       setError(null);
       setLoading(false);
       setColumn('todo');
@@ -133,20 +129,11 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
   }, [pendingTasks, spaceId, column, loadBoard, onClose]);
 
   const handleAutoTag = useCallback(async () => {
-    const trimmed = tagPrompt.trim();
-    if (!trimmed) {
-      setError('Please describe how to classify the tasks.');
-      textareaRef.current?.focus();
-      return;
-    }
     setError(null);
     setLoading(true);
     startTagger();
     try {
-      const result = await runTagger(spaceId, {
-        improveDescriptions: false,
-        prompt: trimmed,
-      });
+      const result = await runTagger(spaceId, { improveDescriptions: false });
       setSuggestions(result);
       onClose();
     } catch (err) {
@@ -156,7 +143,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
     } finally {
       setLoading(false);
     }
-  }, [spaceId, tagPrompt, startTagger, setSuggestions, setTaggerError, onClose]);
+  }, [spaceId, startTagger, setSuggestions, setTaggerError, onClose]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Cmd/Ctrl+Enter submits
@@ -354,43 +341,10 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
             </div>
           )
         ) : (
-          <form
-            id="autotag-form"
-            aria-busy={loading}
-            onSubmit={(e) => { e.preventDefault(); handleAutoTag(); }}
-            className="flex flex-col gap-4"
-          >
+          <div className="flex flex-col gap-4" aria-busy={loading}>
             <p className="text-[13px] text-text-secondary">
-              Describe how to classify tasks — AI will tag all cards in the space. You'll review suggestions before anything changes.
+              AI will classify all cards in the space as <strong className="text-text-primary font-medium">feature</strong>, <strong className="text-text-primary font-medium">bug</strong>, <strong className="text-text-primary font-medium">tech-debt</strong>, or <strong className="text-text-primary font-medium">chore</strong>. You'll review suggestions before anything changes.
             </p>
-
-            <div className="flex flex-col gap-1">
-              <textarea
-                ref={mode === 'autotag' ? textareaRef : undefined}
-                aria-label="Tagging instructions"
-                disabled={loading}
-                value={tagPrompt}
-                onChange={(e) => { setTagPrompt(e.target.value); setError(null); }}
-                placeholder="e.g. Classify all tasks as: feature, bug, tech-debt, or chore."
-                rows={4}
-                className={[
-                  'w-full resize-y rounded-lg px-3 py-3 text-sm text-text-primary',
-                  'bg-surface-variant border placeholder:text-text-disabled',
-                  'focus:outline-hidden focus:ring-[3px]',
-                  'disabled:opacity-50 disabled:cursor-not-allowed',
-                  'min-h-[100px]',
-                  error
-                    ? 'border-error focus:border-error focus:ring-error/[0.12]'
-                    : 'border-border focus:border-primary/50 focus:ring-primary/[0.12]',
-                ].join(' ')}
-              />
-              {error && (
-                <p role="alert" className="text-[12px] text-error flex items-center gap-1">
-                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '14px' }}>error</span>
-                  {error}
-                </p>
-              )}
-            </div>
 
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[12px] text-text-secondary shrink-0">Space:</span>
@@ -414,7 +368,14 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                 <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary" aria-hidden="true" style={{ fontSize: '14px' }}>expand_more</span>
               </div>
             </div>
-          </form>
+
+            {error && (
+              <p role="alert" className="text-[12px] text-error flex items-center gap-1">
+                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '14px' }}>error</span>
+                {error}
+              </p>
+            )}
+          </div>
         )}
       </ModalBody>
 
@@ -464,12 +425,11 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
           )
         ) : (
           <Button
-            type="submit"
-            form="autotag-form"
             variant="primary"
             disabled={loading}
             aria-busy={loading}
             className="h-9 text-sm"
+            onClick={handleAutoTag}
           >
             {loading ? (
               <>
