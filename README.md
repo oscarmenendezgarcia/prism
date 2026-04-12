@@ -1,6 +1,7 @@
 # Prism
 
 [![CI](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml/badge.svg)](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml)
+![version](https://img.shields.io/badge/version-0.1.0--beta-blue)
 
 **A Kanban board built for Claude Code agents.**
 
@@ -16,10 +17,18 @@ Most Kanban tools are built for humans to track human work. Prism is different: 
 
 - **Agents manage the board** — via MCP tools, Claude Code agents create tasks, update status, and attach artifacts as they work
 - **Run pipelines from any task** — one click launches a multi-stage pipeline (architect → UX → developer → QA) against a task card
-- **Orchestrator mode** — a meta-agent drives the full pipeline, with live output streaming into the built-in terminal
-- **Embedded terminal** — full PTY shell inside the UI; the orchestrator attaches to it automatically when open
 - **Live log viewer** — stream stage-by-stage output in real time as each agent runs
+- **Embedded terminal** — full PTY shell inside the UI, useful for monitoring agent sessions
 - **Multiple spaces** — organise work across projects, each with its own board and pipeline config
+- **Auto-task generation** — describe a feature in natural language; Prism generates structured task cards via Claude
+
+---
+
+## What Prism is not
+
+- Not a SaaS — it runs on your machine, against your API key
+- Not multi-user — single operator, single instance
+- Not a replacement for Jira or Linear — it's a purpose-built tool for AI agent workflows
 
 ---
 
@@ -32,7 +41,11 @@ docker compose up -d
 
 No Node.js or build tools required locally. Board data persists in `./data/`.
 
-> **With Claude:** set `ANTHROPIC_API_KEY` in your environment before running Docker to enable agent pipelines.
+The board works without an API key. To enable agent pipelines, set `ANTHROPIC_API_KEY`:
+
+```bash
+ANTHROPIC_API_KEY=sk-... docker compose up -d
+```
 
 ---
 
@@ -40,7 +53,7 @@ No Node.js or build tools required locally. Board data persists in `./data/`.
 
 Prism ships with an MCP server that exposes the full Kanban API as tools. Connect it to Claude Code or Claude Desktop and your agents can read and write the board directly.
 
-> **Prerequisite:** `node server.js` (or `docker compose up`) must be running before starting any Claude session — the MCP server proxies requests to the Prism HTTP API.
+> **Prerequisite:** `node server.js` (or `docker compose up`) must be running before starting any Claude session.
 
 **Claude Code** — one-liner from the project root:
 
@@ -112,8 +125,8 @@ cd frontend && npm run dev   # → http://localhost:5173
 |----------|---------|-------------|
 | `PORT` | `3000` | HTTP server port |
 | `DATA_DIR` | `./data` | JSON persistence directory |
-| `ALLOWED_ORIGINS` | `http://localhost:3000,...` | Allowed WebSocket origins — set to your public URL behind a reverse proxy |
-| `ANTHROPIC_API_KEY` | — | Required to run agent pipelines |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,...` | Allowed WebSocket origins — set to your public URL if running behind a reverse proxy |
+| `ANTHROPIC_API_KEY` | — | Required for agent pipelines and auto-task generation |
 
 ---
 
