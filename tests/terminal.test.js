@@ -289,7 +289,9 @@ function closeWs(ws) {
 function openRawWs(wsUrl, opts = {}) {
   return new Promise((resolve, reject) => {
     const origin = opts.origin !== undefined ? opts.origin : 'http://localhost:3000';
-    const ws = new WebSocket(wsUrl, { headers: { origin } });
+    // handshakeTimeout ensures the promise rejects if the server never responds
+    // (e.g. pass-through upgrade paths with no handler in tests).
+    const ws = new WebSocket(wsUrl, { headers: { origin }, handshakeTimeout: 1000 });
     ws.once('open',  () => resolve(ws));
     ws.once('error', (err) => { ws.terminate(); reject(err); });
   });
