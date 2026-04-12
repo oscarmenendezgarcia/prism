@@ -293,7 +293,7 @@ function openRawWs(wsUrl, opts = {}) {
     // (e.g. pass-through upgrade paths with no handler in tests).
     const ws = new WebSocket(wsUrl, { headers: { origin }, handshakeTimeout: 1000 });
     ws.once('open',  () => resolve(ws));
-    ws.once('error', (err) => { ws.terminate(); reject(err); });
+    ws.once('error', (err) => reject(err));
   });
 }
 
