@@ -1,120 +1,44 @@
 # Prism
 
-A local-first Kanban board with an integrated terminal, AI agent run history, and a Model Context Protocol (MCP) server — built for use with Claude Code and Claude Desktop.
+**A Kanban board built for Claude Code agents.**
 
-**Stack:** Node.js (no framework) · React 19 · TypeScript · Tailwind CSS · Vite · Zustand
+Prism gives your AI pipelines a place to work. Agents create tasks, move them across columns, write to an embedded terminal, and stream live logs — all from a single interface you can run locally or in Docker.
 
----
-
-## Features
-
-- Kanban board with spaces, columns (To Do / In Progress / Done), and task attachments
-- Integrated terminal panel (PTY-backed, full shell access)
-- AI agent pipeline runner — launch multi-stage agent pipelines from any task
-- Live log viewer — stream stage output in real time
-- Agent run history with status timeline
-- Config editor — edit `~/.claude/*.md` files directly from the UI
-- Dark-first Material Design 3 UI
-- MCP server exposing all Kanban and pipeline operations as tools callable by Claude
+![Prism demo](docs/prism-demo.gif)
 
 ---
 
-## Quick start with Docker
+## What it does
 
-The fastest way to run Prism — no Node.js or build tools required locally.
+Most Kanban tools are built for humans to track human work. Prism is different: it's designed as the **operating environment for AI agent pipelines**.
+
+- **Agents manage the board** — via MCP tools, Claude Code agents create tasks, update status, and attach artifacts as they work
+- **Run pipelines from any task** — one click launches a multi-stage pipeline (architect → UX → developer → QA) against a task card
+- **Orchestrator mode** — a meta-agent drives the full pipeline, with live output streaming into the built-in terminal
+- **Embedded terminal** — full PTY shell inside the UI; the orchestrator attaches to it automatically when open
+- **Live log viewer** — stream stage-by-stage output in real time as each agent runs
+- **Multiple spaces** — organise work across projects, each with its own board and pipeline config
+
+---
+
+## Quick start
 
 ```bash
 docker compose up -d
 # → http://localhost:3000
 ```
 
-Board data is persisted in the local `./data/` directory and survives container restarts.
+No Node.js or build tools required locally. Board data persists in `./data/`.
 
-### Environment variables (Docker)
-
-Copy-paste into a `.env` file next to `docker-compose.yml` to override defaults:
-
-```dotenv
-PORT=3000
-DATA_DIR=/app/data
-ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-```
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3000` | HTTP server port exposed on the host |
-| `DATA_DIR` | `/app/data` | Persistence directory inside the container (leave as-is unless you change the volume target) |
-| `ALLOWED_ORIGINS` | `http://localhost:3000,...` | Allowed WebSocket origins for the terminal. Set to your public URL when running behind a reverse proxy (e.g. `https://myapp.example.com`). |
+> **With Claude:** set `ANTHROPIC_API_KEY` in your environment before running Docker to enable agent pipelines.
 
 ---
 
-## Prerequisites
+## MCP — let Claude manage the board
 
-**Node.js ≥ 18** is required.
+Prism ships with an MCP server that exposes the full Kanban API as tools. Connect it to Claude Code or Claude Desktop and your agents can read and write the board directly.
 
-`node-pty` compiles native C++ bindings via `node-gyp`. You must have build tools installed before running `npm install`.
-
-| OS | Command |
-|----|---------|
-| macOS | `xcode-select --install` |
-| Linux (Debian/Ubuntu) | `sudo apt install build-essential python3` |
-| Windows | `npm install --global windows-build-tools` (run as Administrator) |
-
----
-
-## Setup
-
-```bash
-# 1. Install backend dependencies (compiles node-pty)
-npm install
-
-# 2. Install and build the frontend
-cd frontend && npm install && npm run build && cd ..
-
-# 3. Start the server
-node server.js
-# → http://localhost:3000
-```
-
-> The `data/` directory is created automatically on first startup. No manual initialisation needed.
-
----
-
-## Development Mode
-
-Run backend and frontend concurrently with hot-reload:
-
-```bash
-# Terminal 1 — backend
-node server.js
-
-# Terminal 2 — frontend (Vite dev server with HMR)
-cd frontend && npm run dev
-# → http://localhost:5173
-```
-
-The Vite dev server proxies `/api/v1` and `/ws` requests to `localhost:3000`.
-
----
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3000` | HTTP server port |
-| `DATA_DIR` | `./data` | Directory for JSON persistence files |
-| `KANBAN_API_URL` | `http://localhost:3000/api/v1` | Base URL used by the MCP server |
-| `ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Comma-separated list of allowed WebSocket origins for the terminal. Set this when running behind a reverse proxy, in Docker, or in cloud deployments (e.g. `ALLOWED_ORIGINS=https://myapp.example.com`). |
-
----
-
-## MCP Configuration
-
-Prism includes an MCP server (`mcp/mcp-server.js`) that exposes all Kanban operations as tools. This allows Claude Code and Claude Desktop to read and write your board directly.
-
-**Requires `node server.js` to be running** before launching any Claude session.
-
-### Claude Code (`.claude/settings.json`)
+**Claude Code** (`.claude/settings.json`):
 
 ```json
 {
@@ -122,15 +46,13 @@ Prism includes an MCP server (`mcp/mcp-server.js`) that exposes all Kanban opera
     "prism": {
       "command": "node",
       "args": ["./mcp/mcp-server.js"],
-      "env": {
-        "KANBAN_API_URL": "http://localhost:3000/api/v1"
-      }
+      "env": { "KANBAN_API_URL": "http://localhost:3000/api/v1" }
     }
   }
 }
 ```
 
-### Claude Desktop (`claude_desktop_config.json`)
+**Claude Desktop** (`claude_desktop_config.json`):
 
 ```json
 {
@@ -138,69 +60,65 @@ Prism includes an MCP server (`mcp/mcp-server.js`) that exposes all Kanban opera
     "prism": {
       "command": "node",
       "args": ["/absolute/path/to/prism/mcp/mcp-server.js"],
-      "env": {
-        "KANBAN_API_URL": "http://localhost:3000/api/v1"
-      }
+      "env": { "KANBAN_API_URL": "http://localhost:3000/api/v1" }
     }
   }
 }
 ```
 
-Available MCP tools: `kanban_list_tasks`, `kanban_get_task`, `kanban_create_task`, `kanban_update_task`, `kanban_move_task`, `kanban_delete_task`, `kanban_clear_board`, `kanban_list_spaces`, `kanban_create_space`, `kanban_rename_space`, `kanban_delete_space`, `kanban_list_activity`, `kanban_start_pipeline`, `kanban_get_run_status`.
+Available tools: `kanban_list_tasks`, `kanban_create_task`, `kanban_update_task`, `kanban_move_task`, `kanban_delete_task`, `kanban_list_spaces`, `kanban_create_space`, `kanban_start_pipeline`, `kanban_get_run_status`, and more.
+
+---
+
+## Running locally (without Docker)
+
+**Prerequisites:** Node.js ≥ 18 and build tools for `node-pty`:
+
+| OS | Command |
+|----|---------|
+| macOS | `xcode-select --install` |
+| Linux | `sudo apt install build-essential python3` |
+| Windows | `npm install --global windows-build-tools` |
+
+```bash
+npm install
+cd frontend && npm install && npm run build && cd ..
+node server.js
+# → http://localhost:3000
+```
+
+**Development mode** (with HMR):
+
+```bash
+node server.js &
+cd frontend && npm run dev   # → http://localhost:5173
+```
+
+---
+
+## Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | HTTP server port |
+| `DATA_DIR` | `./data` | JSON persistence directory |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,...` | Allowed WebSocket origins — set to your public URL behind a reverse proxy |
+| `ANTHROPIC_API_KEY` | — | Required to run agent pipelines |
 
 ---
 
 ## Tests
 
 ```bash
-# Backend integration tests (Node.js test runner)
-npm test
-
-# Frontend unit + component tests (Vitest + React Testing Library)
-cd frontend && npm test
+npm test                        # Backend (Node.js test runner)
+cd frontend && npm test         # Frontend (Vitest + React Testing Library)
 ```
-
-Frontend test suite: 142+ tests across stores, hooks, and components.
-Backend test suite: integration tests covering all API endpoints.
 
 ---
 
-## Project Structure
+## Stack
 
-```
-prism/
-├── server.js          # Entry point — wires services, handlers and router
-├── terminal.js        # PTY-backed WebSocket terminal
-├── src/
-│   ├── routes/        # URL pattern matching and dispatch
-│   ├── handlers/      # Per-resource request handlers (tasks, spaces, pipeline…)
-│   ├── services/      # Business logic (spaceManager, pipelineManager, migrator…)
-│   └── utils/         # Shared HTTP helpers
-├── mcp/               # MCP server (ESM sub-package)
-│   └── mcp-server.js
-├── frontend/          # React 19 + TypeScript + Vite
-│   └── src/
-│       ├── components/
-│       ├── hooks/
-│       ├── stores/
-│       └── api/
-├── data/              # JSON persistence (auto-created, gitignored)
-└── dist/              # Built frontend (served in production, gitignored)
-```
-
-The `docs/` directory contains ADRs, blueprints, and design artefacts for each feature, organised by feature name.
-
----
-
-## Contributing
-
-See [.github/CONTRIBUTING.md](.github/CONTRIBUTING.md) for setup instructions, code conventions and how to submit a PR.
-
----
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md).
+Node.js (no framework) · React 19 · TypeScript · Tailwind CSS v4 · Vite · Zustand · node-pty
 
 ---
 

@@ -64,6 +64,13 @@ ENV ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
 EXPOSE $PORT
 
+# Install Claude Code CLI so agents can run inside the container.
+RUN npm install -g @anthropic-ai/claude-code
+
+# Pre-load the pipeline agents so they are available without mounting the host ~/.claude/agents/.
+RUN mkdir -p /root/.claude/agents
+COPY agents/ /root/.claude/agents/
+
 # Ensure the data directory exists even when the volume is not yet mounted.
 # The volume mount will overlay this directory at runtime.
 RUN mkdir -p /app/data
