@@ -62,7 +62,7 @@ function startTestServer() {
         });
       }
 
-      resolve({ port, close });
+      resolve({ port, agentsDir, close });
     });
 
     server.once('error', (err) => {

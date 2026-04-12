@@ -6,10 +6,9 @@
  * Strategy:
  *   - startTestServer() creates an isolated server on a random port with a
  *     temp data directory.
- *   - Agent files are written to a temp directory under os.tmpdir() and the
- *     AGENTS_DIR constant cannot be overridden, so we write real .md files
- *     to ~/.claude/agents/ with a unique test prefix and clean them up in
- *     teardown (identical strategy to config.test.js).
+ *   - Agent files are written to the server's temp agentsDir (PIPELINE_AGENTS_DIR)
+ *     with a unique test prefix and cleaned up in teardown. The dir is exposed
+ *     by startTestServer() so no writes to ~/.claude/agents/ are needed.
  *   - Tasks are created directly via the task API so prompt generation can
  *     find them.
  *   - Settings file (data/settings.json) lives in the per-test temp dataDir
@@ -94,20 +93,14 @@ function makeRequest(port) {
 }
 
 // ---------------------------------------------------------------------------
-// Agent file helpers — write real files to ~/.claude/agents/ with test prefix
+// Agent file helpers — write files into the server's agents dir (PIPELINE_AGENTS_DIR)
 // ---------------------------------------------------------------------------
 
-const AGENTS_DIR = path.join(os.homedir(), '.claude', 'agents');
+// Set after startTestServer() resolves; startTestServer() exposes agentsDir.
+let AGENTS_DIR = path.join(os.homedir(), '.claude', 'agents');
 const TEST_PREFIX = 'prism-test-agent-';
 
-function ensureAgentsDir() {
-  if (!fs.existsSync(AGENTS_DIR)) {
-    fs.mkdirSync(AGENTS_DIR, { recursive: true });
-  }
-}
-
 function createTestAgent(stem, content = `# ${stem}\n\nTest agent content.`) {
-  ensureAgentsDir();
   const filename = `${TEST_PREFIX}${stem}.md`;
   const absPath  = path.join(AGENTS_DIR, filename);
   fs.writeFileSync(absPath, content, 'utf8');
@@ -150,9 +143,10 @@ async function runTests() {
   let port;
 
   // Set up a single server for all tests.
-  server  = await startTestServer();
-  port    = server.port;
-  request = makeRequest(port);
+  server    = await startTestServer();
+  port      = server.port;
+  AGENTS_DIR = server.agentsDir;
+  request   = makeRequest(port);
 
   // Clean up any leftover test agents from a previous aborted run.
   removeAllTestAgents();
