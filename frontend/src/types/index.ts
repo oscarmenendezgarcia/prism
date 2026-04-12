@@ -311,6 +311,8 @@ export interface TaggerOptions {
   improveDescriptions?: boolean;
   /** Restrict tagging to a single column. Omit to process all columns. */
   column?: 'todo' | 'in-progress' | 'done';
+  /** Classification instructions from the user. If omitted, the server uses a built-in default. */
+  prompt?: string;
 }
 
 /** One classification suggestion returned by the tagger endpoint. */
