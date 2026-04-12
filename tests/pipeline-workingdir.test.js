@@ -125,8 +125,12 @@ describe('Pipeline + Working Directory (BUG-004)', () => {
 
   after(async () => {
     return new Promise((resolve) => {
-      if (server) server.close(() => resolve());
-      else resolve();
+      if (server) {
+        if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+        server.close(() => resolve());
+      } else {
+        resolve();
+      }
     });
   });
 
