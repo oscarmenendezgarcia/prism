@@ -169,7 +169,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
           >
             auto_awesome
           </span>
-          <ModalTitle id="autotask-modal-title">Auto-task</ModalTitle>
+          <ModalTitle id="autotask-modal-title">AI Actions</ModalTitle>
         </div>
       </ModalHeader>
 
@@ -341,9 +341,9 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
             </div>
           )
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4" aria-busy={loading}>
             <p className="text-[13px] text-text-secondary">
-              AI will classify and tag all tasks in the selected space. You'll review suggestions before anything changes.
+              AI will classify all cards in the space as <strong className="text-text-primary font-medium">feature</strong>, <strong className="text-text-primary font-medium">bug</strong>, <strong className="text-text-primary font-medium">tech-debt</strong>, or <strong className="text-text-primary font-medium">chore</strong>. You'll review suggestions before anything changes.
             </p>
 
             <div className="flex items-center gap-2 flex-wrap">
@@ -380,13 +380,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
       </ModalBody>
 
       <ModalFooter>
-        <span className="flex-1 text-[12px] text-text-secondary opacity-40 flex items-center gap-1">
-          <span className="material-symbols-outlined icon-filled" aria-hidden="true" style={{ fontSize: '14px' }}>
-            auto_awesome
-          </span>
-          AI-powered by Claude
-        </span>
-        {mode === 'generate' ? (
+{mode === 'generate' ? (
           step === 'form' ? (
             <Button
               type="submit"

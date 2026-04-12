@@ -25,15 +25,30 @@ const path = require('path');
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { COLUMNS }                        = require('../constants');
+const { readSettings }                   = require('./settings');
 
 // ---------------------------------------------------------------------------
-// System prompt (loaded once at module init)
+// Format-only system prompt — defines output schema, NOT classification rules.
+// Classification behavior is driven by the user-provided prompt at runtime.
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = fs.readFileSync(
-  path.join(__dirname, '../prompts/tagger-system.txt'),
-  'utf8'
-);
+const FORMAT_SYSTEM_PROMPT = `Respond ONLY with a JSON object matching this exact schema — no prose, no markdown fences:
+{
+  "suggestions": [
+    {
+      "id": "<string>",
+      "inferredType": "feature" | "bug" | "tech-debt" | "chore",
+      "confidence": "high" | "medium" | "low",
+      "description": "<string, only present when improve_descriptions=true>"
+    }
+  ],
+  "skipped": ["<id>", ...]
+}
+Rules:
+- Include ALL cards in either suggestions or skipped — do not silently drop any.
+- Set confidence to "high" if obvious, "medium" if ambiguous, "low" if guessing.
+- If you cannot classify a card, add its id to "skipped".
+- Be deterministic — same input always produces same output.`;
 
 // ---------------------------------------------------------------------------
 // Concurrency guard — one in-flight call per spaceId
@@ -117,17 +132,24 @@ function readSpaceTasks(spaceDataDir, column) {
  *
  * @param {Array<{ id: string, title: string, description: string }>} cards
  * @param {boolean} improveDescriptions
+ * @param {string} userPrompt - Classification instructions from the user
+ * @param {string} cli        - CLI binary resolved from settings
+ * @param {string} model      - Model override
  * @returns {Promise<{ suggestions: object[], skipped: string[], model: string, usage: object }>}
  * @throws {Error} on spawn failure, non-zero exit, or invalid JSON response
  */
-function callClaude(cards, improveDescriptions) {
-  const cli   = process.env.TAGGER_CLI   || 'claude';
-  const model = process.env.TAGGER_MODEL || 'haiku';
+function callClaude(cards, improveDescriptions, userPrompt, cli, model) {
 
-  const userMessage = JSON.stringify({
-    improveDescriptions,
-    cards: cards.map(({ id, title, description }) => ({ id, title, description })),
-  });
+  const cardsJson = JSON.stringify(
+    cards.map(({ id, title, description }) => ({ id, title, description })),
+    null, 2
+  );
+
+  const improveNote = improveDescriptions
+    ? '\n\nAlso rewrite each description to be clear, specific, and actionable in ≤ 2 sentences (set improve_descriptions=true in response).'
+    : '';
+
+  const userMessage = `${userPrompt}${improveNote}\n\nCards to classify:\n${cardsJson}`;
 
   return new Promise((resolve, reject) => {
     // Lazy require so child_process can be mocked in tests before server loads.
@@ -143,7 +165,7 @@ function callClaude(cards, improveDescriptions) {
     const child = require('child_process').spawn(
       cli,
       ['--print',
-        '--system-prompt', SYSTEM_PROMPT,
+        '--system-prompt', FORMAT_SYSTEM_PROMPT,
         '--model', model,
         '--dangerously-skip-permissions',
         '--no-session-persistence'],
@@ -227,8 +249,9 @@ function callClaude(cards, improveDescriptions) {
  * @param {import('http').ServerResponse}  res
  * @param {string}                         spaceId
  * @param {string}                         spaceDataDir - absolute path to space data dir
+ * @param {string}                         dataDir      - root data dir (for reading settings)
  */
-async function handleTaggerRun(req, res, spaceId, spaceDataDir) {
+async function handleTaggerRun(req, res, spaceId, spaceDataDir, dataDir) {
   const startMs = Date.now();
 
   // 1. Parse body
@@ -246,9 +269,12 @@ async function handleTaggerRun(req, res, spaceId, spaceDataDir) {
     return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
   }
 
-  const rawBody            = body || {};
+  const rawBody             = body || {};
   const improveDescriptions = coerceBoolean(rawBody.improveDescriptions);
-  const column             = rawBody.column != null ? String(rawBody.column) : null;
+  const column              = rawBody.column != null ? String(rawBody.column) : null;
+  const userPrompt          = rawBody.prompt != null
+    ? String(rawBody.prompt).trim()
+    : 'Classify each task as exactly one of: feature, bug, tech-debt, or chore.\n- feature: new capability or user-facing functionality\n- bug: defect, error, or unexpected behaviour\n- tech-debt: refactor, upgrade, or code quality improvement\n- chore: operational task, dependency update, docs, config';
 
   // 3. Validate column filter
   if (column !== null && !VALID_COLUMNS.has(column)) {
@@ -264,17 +290,22 @@ async function handleTaggerRun(req, res, spaceId, spaceDataDir) {
 
   runningSpaces.add(spaceId);
 
+  // 5. Resolve CLI binary and model from settings (TAGGER_CLI env var overrides settings for compat)
+  const settings = readSettings(dataDir);
+  const cli      = process.env.TAGGER_CLI || settings.cli.binary || settings.cli.tool || 'claude';
+  const model    = process.env.TAGGER_MODEL || 'haiku';
+
   try {
-    // 5. Read tasks from disk
+    // 6. Read tasks from disk
     const allTasks = readSpaceTasks(spaceDataDir, column);
 
-    // 6. Handle empty board
+    // 7. Handle empty board
     if (allTasks.length === 0) {
       const durationMs = Date.now() - startMs;
       console.log(JSON.stringify({
         event:               'tagger.run.complete',
         spaceId,
-        model:               process.env.TAGGER_MODEL || 'haiku',
+        model,
         cardsProcessed:      0,
         suggestionsCount:    0,
         skippedCount:        0,
@@ -286,16 +317,16 @@ async function handleTaggerRun(req, res, spaceId, spaceDataDir) {
       return sendJSON(res, 200, {
         suggestions:  [],
         skipped:      [],
-        model:        process.env.TAGGER_MODEL || 'haiku',
+        model,
         inputTokens:  0,
         outputTokens: 0,
       });
     }
 
-    // 7. Call Claude
+    // 8. Call AI CLI
     let claudeResult;
     try {
-      claudeResult = await callClaude(allTasks, improveDescriptions);
+      claudeResult = await callClaude(allTasks, improveDescriptions, userPrompt, cli, model);
     } catch (err) {
       const durationMs = Date.now() - startMs;
       console.error(JSON.stringify({

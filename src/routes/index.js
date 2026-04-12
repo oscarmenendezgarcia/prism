@@ -124,7 +124,7 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
 
       if (method === 'POST') {
         const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
-        return handleTaggerRun(req, res, spaceId, spaceDataDir);
+        return handleTaggerRun(req, res, spaceId, spaceDataDir, dataDir);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
@@ -146,7 +146,7 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
 
       if (method === 'POST') {
         const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
-        return handleAutoTaskGenerate(req, res, spaceId, spaceDataDir, spaceResult.space.workingDirectory);
+        return handleAutoTaskGenerate(req, res, spaceId, spaceDataDir, spaceResult.space.workingDirectory, dataDir);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',

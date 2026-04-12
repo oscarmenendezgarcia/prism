@@ -128,7 +128,7 @@ export function AgentSettingsPanel() {
           >
             settings
           </span>
-          <span className="text-sm font-medium text-text-primary">Agent Settings</span>
+          <span className="text-sm font-medium text-text-primary">Settings</span>
         </div>
         <button
           onClick={() => setOpen(false)}
@@ -147,44 +147,17 @@ export function AgentSettingsPanel() {
           <p className="text-sm text-text-secondary">Loading settings...</p>
         ) : (
           <>
-            {/* Custom instructions section */}
-            {prompts && (
-              <section aria-labelledby="settings-custom-instructions-heading">
-                <h3
-                  id="settings-custom-instructions-heading"
-                  className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3"
-                >
-                  Custom Instructions
-                </h3>
-
-                <div className="space-y-2">
-                  <p className="text-xs text-text-secondary">
-                    Add custom instructions that will be appended to the agent prompt. Markdown is supported.
-                  </p>
-                  <textarea
-                    value={prompts.customInstructions}
-                    onChange={(e) => setPrompts((p) => ({ ...p!, customInstructions: e.target.value }))}
-                    rows={6}
-                    className="w-full bg-surface-variant border border-border rounded-md px-3 py-2 text-xs font-mono text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:ring-1 focus:ring-primary/50 overflow-y-auto"
-                    placeholder="e.g. Always use TypeScript and follow the project's coding conventions."
-                  />
-                   {prompts?.customInstructions?.trim().length > 0 && (
-                    <div className="bg-surface border border-border rounded-md p-3 overflow-y-auto max-h-64">
-                      <MarkdownViewer content={prompts.customInstructions} />
-                    </div>
-                  )}
-                </div>
-              </section>
-            )}
-
             {/* CLI Tool section */}
             <section aria-labelledby="settings-cli-heading">
               <h3
                 id="settings-cli-heading"
-                className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3"
+                className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1"
               >
-                CLI Tool
+                AI Provider
               </h3>
+              <p className="text-xs text-text-secondary mb-3">
+                The CLI used to run agents from the launcher and AI Actions (Generate tasks, Auto-tag).
+              </p>
 
               <div className="space-y-2 mb-4">
                 {CLI_TOOLS.map(({ value, label }) => (
@@ -228,32 +201,10 @@ export function AgentSettingsPanel() {
                 </div>
               )}
 
-              {/* Additional flags */}
-              <div className="mb-4">
-                <label
-                  htmlFor="cli-flags"
-                  className="block text-xs text-text-secondary mb-1"
-                >
-                  Additional flags
-                </label>
-                <input
-                  id="cli-flags"
-                  type="text"
-                  value={cli.flags.join(' ')}
-                  onChange={(e) =>
-                    setCli((c) => ({
-                      ...c!,
-                      flags: e.target.value.split(/\s+/).filter(Boolean),
-                    }))
-                  }
-                  placeholder='--allowedTools "Agent,Bash,Read,Write,Edit"'
-                  className="w-full h-9 bg-surface-variant border border-border rounded-md px-3 text-sm text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:ring-1 focus:ring-primary/50"
-                />
-              </div>
-
               {/* Prompt delivery method */}
               <div>
-                <p className="text-xs text-text-secondary mb-2">Prompt delivery method</p>
+                <p className="text-xs text-text-secondary mb-1">Prompt delivery method</p>
+                <p className="text-xs text-text-disabled mb-2">How the agent launcher passes the prompt file to the CLI.</p>
                 <div className="space-y-2">
                   {FILE_METHODS.map(({ value, label }) => (
                     <label key={value} className="flex items-center gap-3 cursor-pointer">
@@ -279,19 +230,27 @@ export function AgentSettingsPanel() {
               <section aria-labelledby="settings-pipeline-heading">
                 <h3
                   id="settings-pipeline-heading"
-                  className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3"
+                  className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1"
                 >
                   Pipeline
                 </h3>
+                <p className="text-xs text-text-secondary mb-3">
+                  Controls how multi-stage pipelines progress when launched from a task card.
+                </p>
 
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label
-                      htmlFor="toggle-auto-advance"
-                      className="text-sm text-text-primary cursor-pointer"
-                    >
-                      Auto-advance stages
-                    </label>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <label
+                        htmlFor="toggle-auto-advance"
+                        className="text-sm text-text-primary cursor-pointer"
+                      >
+                        Auto-advance stages
+                      </label>
+                      <p className="text-xs text-text-secondary mt-0.5">
+                        Move to the next stage automatically once the current one completes.
+                      </p>
+                    </div>
                     <Toggle
                       id="toggle-auto-advance"
                       checked={pipeline.autoAdvance}
@@ -299,13 +258,18 @@ export function AgentSettingsPanel() {
                     />
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <label
-                      htmlFor="toggle-confirm-stages"
-                      className="text-sm text-text-primary cursor-pointer"
-                    >
-                      Confirm between stages
-                    </label>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <label
+                        htmlFor="toggle-confirm-stages"
+                        className="text-sm text-text-primary cursor-pointer"
+                      >
+                        Confirm between stages
+                      </label>
+                      <p className="text-xs text-text-secondary mt-0.5">
+                        Show a confirmation prompt before launching each subsequent stage.
+                      </p>
+                    </div>
                     <Toggle
                       id="toggle-confirm-stages"
                       checked={pipeline.confirmBetweenStages}
@@ -315,9 +279,12 @@ export function AgentSettingsPanel() {
                     />
                   </div>
 
-                  {/* Stage order (read-only) */}
+                  {/* Stage order */}
                   <div>
-                    <p className="text-xs text-text-secondary mb-2">Stage order (read-only)</p>
+                    <p className="text-xs text-text-secondary mb-1">Default stage order</p>
+                    <p className="text-xs text-text-disabled mb-2">
+                      Applied when a task has no custom pipeline. Override per task via the task detail panel.
+                    </p>
                     <ol className="space-y-1">
                       {pipeline.stages.map((stage, idx) => (
                         <li
@@ -336,24 +303,32 @@ export function AgentSettingsPanel() {
               </section>
             )}
 
-            {/* Prompt content section */}
+            {/* Agent prompt content section */}
             {prompts && (
               <section aria-labelledby="settings-prompts-heading">
                 <h3
                   id="settings-prompts-heading"
-                  className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3"
+                  className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1"
                 >
-                  Prompt Content
+                  Agent Prompts
                 </h3>
+                <p className="text-xs text-text-secondary mb-3">
+                  Extra context injected into every agent prompt when launching from a task card.
+                </p>
 
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <label
-                      htmlFor="toggle-kanban-block"
-                      className="text-sm text-text-primary cursor-pointer"
-                    >
-                      Include Kanban instructions
-                    </label>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <label
+                        htmlFor="toggle-kanban-block"
+                        className="text-sm text-text-primary cursor-pointer"
+                      >
+                        Include Kanban instructions
+                      </label>
+                      <p className="text-xs text-text-secondary mt-0.5">
+                        Adds MCP tool usage instructions so agents can read and update the board.
+                      </p>
+                    </div>
                     <Toggle
                       id="toggle-kanban-block"
                       checked={prompts.includeKanbanBlock}
@@ -363,13 +338,18 @@ export function AgentSettingsPanel() {
                     />
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <label
-                      htmlFor="toggle-git-block"
-                      className="text-sm text-text-primary cursor-pointer"
-                    >
-                      Include Git instructions
-                    </label>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <label
+                        htmlFor="toggle-git-block"
+                        className="text-sm text-text-primary cursor-pointer"
+                      >
+                        Include Git instructions
+                      </label>
+                      <p className="text-xs text-text-secondary mt-0.5">
+                        Reminds agents to work on a feature branch and follow the commit convention.
+                      </p>
+                    </div>
                     <Toggle
                       id="toggle-git-block"
                       checked={prompts.includeGitBlock}
@@ -382,10 +362,13 @@ export function AgentSettingsPanel() {
                   <div>
                     <label
                       htmlFor="working-directory"
-                      className="block text-sm text-text-primary mb-1"
+                      className="block text-sm text-text-primary mb-0.5"
                     >
                       Working directory
                     </label>
+                    <p className="text-xs text-text-secondary mb-1">
+                      Default directory agents run in. Overridden by the space's own working directory when set.
+                    </p>
                     <input
                       id="working-directory"
                       type="text"
@@ -397,6 +380,36 @@ export function AgentSettingsPanel() {
                       className="w-full h-9 bg-surface-variant border border-border rounded-md px-3 text-sm text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:ring-1 focus:ring-primary/50"
                     />
                   </div>
+                </div>
+              </section>
+            )}
+
+            {/* Custom instructions section */}
+            {prompts && (
+              <section aria-labelledby="settings-custom-instructions-heading">
+                <h3
+                  id="settings-custom-instructions-heading"
+                  className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1"
+                >
+                  Custom Instructions
+                </h3>
+                <p className="text-xs text-text-secondary mb-3">
+                  Appended verbatim at the end of every agent prompt. Use it for project-wide conventions or constraints.
+                </p>
+
+                <div className="space-y-2">
+                  <textarea
+                    value={prompts.customInstructions}
+                    onChange={(e) => setPrompts((p) => ({ ...p!, customInstructions: e.target.value }))}
+                    rows={6}
+                    className="w-full bg-surface-variant border border-border rounded-md px-3 py-2 text-xs font-mono text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:ring-1 focus:ring-primary/50 overflow-y-auto"
+                    placeholder="e.g. Always use TypeScript and follow the project's coding conventions."
+                  />
+                  {prompts?.customInstructions?.trim().length > 0 && (
+                    <div className="bg-surface border border-border rounded-md p-3 overflow-y-auto max-h-64">
+                      <MarkdownViewer content={prompts.customInstructions} />
+                    </div>
+                  )}
                 </div>
               </section>
             )}

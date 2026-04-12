@@ -28,6 +28,7 @@ const os   = require('os');
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { COLUMNS }                        = require('../constants');
 const { validatePipelineField }          = require('./tasks');
+const { readSettings }                   = require('./settings');
 
 // ---------------------------------------------------------------------------
 // System prompt (loaded once at module init)
@@ -130,9 +131,7 @@ function buildSystemPrompt(knownAgents) {
  * @returns {Promise<Array<{ title: string, type: string, description: string }>>}
  * @throws {Error} on spawn failure, non-zero exit, or invalid JSON response
  */
-function callCLI(prompt, systemPrompt) {
-  const cli   = process.env.TAGGER_CLI   || 'claude';
-  const model = process.env.TAGGER_MODEL || 'haiku';
+function callCLI(prompt, systemPrompt, cli, model) {
 
   return new Promise((resolve, reject) => {
     const child = require('child_process').spawn(
@@ -253,7 +252,7 @@ function appendTasksToColumn(spaceDataDir, column, newTasks) {
  * Response:
  *   { tasksCreated: number, tasks: Task[], preview: boolean }
  */
-async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir, workingDirectory) {
+async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir, workingDirectory, dataDir) {
   const startMs = Date.now();
 
   // 1. Parse body
@@ -299,13 +298,18 @@ async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir, workingDi
 
   runningSpaces.add(spaceId);
 
+  // 5. Resolve CLI binary and model from settings (TAGGER_CLI env var overrides for compat)
+  const settings = readSettings(dataDir);
+  const cli      = process.env.TAGGER_CLI || settings.cli.binary || settings.cli.tool || 'claude';
+  const model    = process.env.TAGGER_MODEL || 'haiku';
+
   try {
-    // 5. Call CLI (inject known agent IDs into system prompt)
+    // 6. Call CLI (inject known agent IDs into system prompt)
     const knownAgents  = resolveKnownAgentIds(workingDirectory);
     const systemPrompt = buildSystemPrompt(knownAgents);
     let rawTasks;
     try {
-      rawTasks = await callCLI(prompt, systemPrompt);
+      rawTasks = await callCLI(prompt, systemPrompt, cli, model);
     } catch (err) {
       const durationMs = Date.now() - startMs;
       console.error(JSON.stringify({

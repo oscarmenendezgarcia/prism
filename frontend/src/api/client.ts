@@ -465,6 +465,7 @@ export const runTagger = (spaceId: string, opts: TaggerOptions = {}): Promise<Ta
     body: JSON.stringify({
       improveDescriptions: opts.improveDescriptions ?? false,
       ...(opts.column !== undefined ? { column: opts.column } : {}),
+      ...(opts.prompt !== undefined ? { prompt: opts.prompt } : {}),
     }),
   });
 
