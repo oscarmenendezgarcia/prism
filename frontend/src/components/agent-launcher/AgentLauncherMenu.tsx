@@ -22,12 +22,14 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
   const menuRef                 = useRef<HTMLDivElement>(null);
   const buttonRef               = useRef<HTMLButtonElement>(null);
 
-  const activeRun          = useActiveRun();
-  const availableAgents    = useAvailableAgents();
-  const loadAgents         = useAppStore((s) => s.loadAgents);
-  const prepareAgentRun    = useAppStore((s) => s.prepareAgentRun);
+  const activeRun           = useActiveRun();
+  const availableAgents     = useAvailableAgents();
+  const loadAgents          = useAppStore((s) => s.loadAgents);
+  const prepareAgentRun     = useAppStore((s) => s.prepareAgentRun);
   const openPipelineConfirm = useAppStore((s) => s.openPipelineConfirm);
-  const spacePipeline      = useAppStore((s) => s.spaces.find((sp) => sp.id === spaceId)?.pipeline);
+  const spaceData           = useAppStore((s) => s.spaces.find((sp) => sp.id === spaceId));
+  const spacePipeline       = spaceData?.pipeline;
+  const spaceWorkingDir     = spaceData?.workingDirectory;
 
   const pipelineStages = spacePipeline && spacePipeline.length > 0 ? spacePipeline : null;
   const pipelineLabel  = pipelineStages
@@ -39,7 +41,7 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
   const MENU_WIDTH    = 200;
   const MENU_MAX_HEIGHT = 300;
 
-  /** Open dropdown — lazy-load agents on first open. */
+  /** Open dropdown — lazy-load agents on first open, scoped to this space's workingDirectory. */
   const handleOpen = useCallback(() => {
     if (isDisabled) return;
     if (buttonRef.current) {
@@ -51,9 +53,9 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
     }
     setOpen(true);
     if (availableAgents.length === 0) {
-      loadAgents();
+      loadAgents(spaceWorkingDir ?? undefined);
     }
-  }, [isDisabled, availableAgents.length, loadAgents]);
+  }, [isDisabled, availableAgents.length, loadAgents, spaceWorkingDir]);
 
   /** Select a specific agent. */
   const handleSelectAgent = useCallback(

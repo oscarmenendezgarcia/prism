@@ -22,10 +22,21 @@ const { sendJSON, sendError } = require('../utils/http');
 // ---------------------------------------------------------------------------
 
 const AGENTS_DIR_DEFAULT = path.join(os.homedir(), '.claude', 'agents');
-// Evaluated lazily so PIPELINE_AGENTS_DIR set after module load (e.g. in tests) is picked up.
-function getAgentsDir() {
-  return process.env.PIPELINE_AGENTS_DIR || AGENTS_DIR_DEFAULT;
+
+/** Expand a leading `~` to the user's home directory (Node.js does not do this automatically). */
+function expandTilde(p) {
+  if (!p) return p;
+  if (p === '~') return os.homedir();
+  if (p.startsWith('~/') || p.startsWith('~\\')) return os.homedir() + p.slice(1);
+  return p;
 }
+
+// Evaluated lazily so PIPELINE_AGENTS_DIR set after module load (e.g. in tests) is picked up.
+// Tilde is expanded so that PIPELINE_AGENTS_DIR=~/.claude/agents works correctly.
+function getAgentsDir() {
+  return expandTilde(process.env.PIPELINE_AGENTS_DIR) || AGENTS_DIR_DEFAULT;
+}
+
 const AGENT_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /** Route patterns (compiled once at module load). */
@@ -53,8 +64,10 @@ function toDisplayName(stem) {
 
 /**
  * GET /api/v1/agents[?workingDirectory=<abs-path>]
- * List all .md files in ~/.claude/agents/ plus <workingDirectory>/.claude/agents/ (if provided).
- * Workspace agents override global agents with the same ID.
+ * List agents from all search directories, merged in priority order (later overrides earlier):
+ *   1. ~/.claude/agents/                    (always)
+ *   2. PIPELINE_AGENTS_DIR (if set, tilde-expanded, and different from #1)
+ *   3. <workingDirectory>/.claude/agents/   (if ?workingDirectory provided)
  */
 function handleListAgents(req, res) {
   const qs = new URL(req.url, 'http://x').searchParams;
@@ -81,20 +94,33 @@ function handleListAgents(req, res) {
     return results;
   }
 
-  const globalAgents = scanDir(getAgentsDir(), 'global');
+  // 1. Always scan the global dir.
+  const globalAgents = scanDir(AGENTS_DIR_DEFAULT, 'global');
 
+  // 2. Scan PIPELINE_AGENTS_DIR if set and different from global (after tilde expansion).
+  let envAgents = [];
+  const envRaw = process.env.PIPELINE_AGENTS_DIR;
+  if (envRaw) {
+    const envDir = expandTilde(envRaw);
+    if (envDir !== AGENTS_DIR_DEFAULT) {
+      envAgents = scanDir(envDir, 'env');
+    }
+  }
+
+  // 3. Scan workspace dir if workingDirectory is provided.
   let workspaceAgents = [];
   if (workingDirectory && path.isAbsolute(workingDirectory)) {
     workspaceAgents = scanDir(path.join(workingDirectory, '.claude', 'agents'), 'workspace');
   }
 
-  // Merge: workspace agents override global ones with the same ID.
+  // Merge in priority order: global → env → workspace (later overrides earlier).
   const merged = new Map();
-  for (const a of globalAgents) merged.set(a.id, a);
+  for (const a of globalAgents)   merged.set(a.id, a);
+  for (const a of envAgents)      merged.set(a.id, a);
   for (const a of workspaceAgents) merged.set(a.id, a);
 
   const agents = [...merged.values()];
-  console.log(`[agents] Listed ${agents.length} agents (global: ${globalAgents.length}, workspace: ${workspaceAgents.length})`);
+  console.log(`[agents] Listed ${agents.length} agents (global: ${globalAgents.length}, env: ${envAgents.length}, workspace: ${workspaceAgents.length})`);
   sendJSON(res, 200, agents);
 }
 
