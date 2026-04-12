@@ -21,6 +21,11 @@ function startTestServer() {
 
       function close() {
         return new Promise((res) => {
+          // closeAllConnections() drops keep-alive sockets immediately so
+          // server.close() doesn't hang waiting for them to time out.
+          if (typeof server.closeAllConnections === 'function') {
+            server.closeAllConnections();
+          }
           server.close(() => {
             fs.rmSync(tmpDir, { recursive: true, force: true });
             res();
