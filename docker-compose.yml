@@ -14,4 +14,5 @@ services:
       # Override ALLOWED_ORIGINS when running behind a reverse proxy or on a
       # custom domain (e.g. ALLOWED_ORIGINS=https://myapp.example.com).
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     restart: unless-stopped
