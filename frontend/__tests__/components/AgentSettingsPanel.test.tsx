@@ -102,10 +102,10 @@ describe('AgentSettingsPanel — visibility', () => {
     expect(screen.getByRole('complementary', { name: /agent launcher settings/i })).toBeInTheDocument();
   });
 
-  it('shows "Agent Settings" heading', () => {
+  it('shows "Settings" heading', () => {
     resetStore({ agentSettingsPanelOpen: true });
     render(<AgentSettingsPanel />);
-    expect(screen.getByText('Agent Settings')).toBeInTheDocument();
+    expect(screen.getByText('Settings')).toBeInTheDocument();
   });
 
   it('renders a drag handle with role=separator for panel resize', () => {
@@ -210,7 +210,7 @@ describe('AgentSettingsPanel — pipeline section', () => {
   it('shows stage order list', () => {
     resetStore({ agentSettingsPanelOpen: true });
     render(<AgentSettingsPanel />);
-    expect(screen.getByText('Stage order (read-only)')).toBeInTheDocument();
+    expect(screen.getByText('Default stage order')).toBeInTheDocument();
     // Four stages rendered
     expect(screen.getAllByRole('listitem').length).toBeGreaterThanOrEqual(4);
   });

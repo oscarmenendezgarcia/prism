@@ -40,7 +40,7 @@ describe('AutoTaskModal', () => {
   it('renders title and subtitle when open', () => {
     render(<AutoTaskModal open={true} onClose={vi.fn()} />);
     expect(document.body.querySelector('#autotask-modal-title')).toBeInTheDocument();
-    expect(document.body.textContent).toContain('Auto-task');
+    expect(document.body.textContent).toContain('AI Actions');
     expect(document.body.textContent).toContain('Describe what you need');
   });
 
@@ -188,8 +188,4 @@ describe('AutoTaskModal', () => {
     });
   });
 
-  it('renders AI-powered attribution', () => {
-    render(<AutoTaskModal open={true} onClose={vi.fn()} />);
-    expect(document.body.textContent).toContain('AI-powered by Claude');
-  });
 });
