@@ -8,11 +8,9 @@ const { startServer } = require('../../server');
 // Agents that pipeline tests reference by ID.
 const STUB_AGENTS = [
   'senior-architect',
+  'ux-api-designer',
   'developer-agent',
   'qa-engineer-e2e',
-  'code-reviewer',
-  'ux-api-designer',
-  'orchestrator',
 ];
 
 /**
