@@ -40,7 +40,15 @@ No Node.js or build tools required locally. Board data persists in `./data/`.
 
 Prism ships with an MCP server that exposes the full Kanban API as tools. Connect it to Claude Code or Claude Desktop and your agents can read and write the board directly.
 
-**Claude Code** (`.claude/settings.json`):
+> **Prerequisite:** `node server.js` (or `docker compose up`) must be running before starting any Claude session — the MCP server proxies requests to the Prism HTTP API.
+
+**Claude Code** — one-liner from the project root:
+
+```bash
+claude mcp add prism node ./mcp/mcp-server.js -e KANBAN_API_URL=http://localhost:3000/api/v1
+```
+
+Or add it manually to `.claude/settings.json`:
 
 ```json
 {
