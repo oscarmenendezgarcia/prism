@@ -3,12 +3,12 @@
  * ADR-1 (Clear Board): covers T-001 acceptance criteria.
  *
  * Run with: node tests/clear-board.test.js
- * Requires the server to be running on http://localhost:3000.
  */
 
 'use strict';
 
 const http = require('http');
+const { startTestServer } = require('./helpers/server');
 
 // ---------------------------------------------------------------------------
 // Minimal test runner (same pattern as attachments.test.js)
@@ -42,85 +42,45 @@ function suite(name) {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP helper
+// HTTP helper — port resolved after server starts
 // ---------------------------------------------------------------------------
 
-function request(method, urlPath, body) {
-  return new Promise((resolve, reject) => {
-    const payload = body ? JSON.stringify(body) : undefined;
-    const options = {
-      hostname: 'localhost',
-      port: 3000,
-      path: urlPath,
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
-      },
-    };
+function makeRequest(port) {
+  return function request(method, urlPath, body) {
+    return new Promise((resolve, reject) => {
+      const payload = body ? JSON.stringify(body) : undefined;
+      const options = {
+        hostname: 'localhost',
+        port,
+        path: urlPath,
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
+        },
+      };
 
-    const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        try {
-          resolve({ status: res.statusCode, body: JSON.parse(data) });
-        } catch {
-          resolve({ status: res.statusCode, body: data });
-        }
+      const req = http.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            resolve({ status: res.statusCode, body: JSON.parse(data) });
+          } catch {
+            resolve({ status: res.statusCode, body: data });
+          }
+        });
       });
+
+      req.on('error', reject);
+      if (payload) req.write(payload);
+      req.end();
     });
-
-    req.on('error', reject);
-    if (payload) req.write(payload);
-    req.end();
-  });
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Create N tasks via POST and return their IDs.
- * @param {number} count
- * @returns {Promise<string[]>}
- */
-async function createTasks(count) {
-  const ids = [];
-  for (let i = 0; i < count; i++) {
-    const res = await request('POST', '/api/v1/tasks', {
-      title: `Clear-board test task ${i + 1}`,
-      type: 'chore',
-    });
-    assert(res.status === 201, `Setup: expected 201, got ${res.status}`);
-    ids.push(res.body.id);
-  }
-  return ids;
-}
-
-/**
- * Fetch the board state. Returns { todo, 'in-progress', done }.
- */
-async function getBoard() {
-  const res = await request('GET', '/api/v1/tasks');
-  assert(res.status === 200, `getBoard: expected 200, got ${res.status}`);
-  return res.body;
-}
-
-/**
- * Count total tasks across all columns.
- */
 function totalTasks(board) {
   return board.todo.length + board['in-progress'].length + board.done.length;
-}
-
-/**
- * Empty the board by calling DELETE /api/v1/tasks.
- * Used as a pre-condition reset between test suites.
- */
-async function clearBoard() {
-  await request('DELETE', '/api/v1/tasks');
 }
 
 // ---------------------------------------------------------------------------
@@ -128,14 +88,37 @@ async function clearBoard() {
 // ---------------------------------------------------------------------------
 
 async function runTests() {
+  const { port, close } = await startTestServer();
+  const request = makeRequest(port);
 
-  // -------------------------------------------------------------------------
-  // Pre-condition: ensure a clean board before this suite starts.
-  // -------------------------------------------------------------------------
-  await clearBoard();
+  async function createTasks(count) {
+    const ids = [];
+    for (let i = 0; i < count; i++) {
+      const res = await request('POST', '/api/v1/tasks', {
+        title: `Clear-board test task ${i + 1}`,
+        type: 'chore',
+      });
+      assert(res.status === 201, `Setup: expected 201, got ${res.status}`);
+      ids.push(res.body.id);
+    }
+    return ids;
+  }
 
-  // -------------------------------------------------------------------------
-  // Suite: empty board (idempotent path)
+  async function getBoard() {
+    const res = await request('GET', '/api/v1/tasks');
+    assert(res.status === 200, `getBoard: expected 200, got ${res.status}`);
+    return res.body;
+  }
+
+  async function clearBoard() {
+    await request('DELETE', '/api/v1/tasks');
+  }
+
+  try {
+    await clearBoard();
+
+    // -------------------------------------------------------------------------
+    // Suite: empty board (idempotent path)
   // -------------------------------------------------------------------------
 
   suite('DELETE /api/v1/tasks — empty board');
@@ -277,14 +260,9 @@ async function runTests() {
     assert(!res.body.error, `Should not have an error field, got: ${JSON.stringify(res.body)}`);
   });
 
-  // -------------------------------------------------------------------------
-  // Cleanup
-  // -------------------------------------------------------------------------
-  await clearBoard();
-
-  // -------------------------------------------------------------------------
-  // Summary
-  // -------------------------------------------------------------------------
+  } finally {
+    await close();
+  }
 
   console.log('\n' + '='.repeat(60));
   console.log(`Results: ${passed} passed, ${failed} failed`);
