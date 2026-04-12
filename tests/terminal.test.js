@@ -291,7 +291,7 @@ function openRawWs(wsUrl, opts = {}) {
     const origin = opts.origin !== undefined ? opts.origin : 'http://localhost:3000';
     const ws = new WebSocket(wsUrl, { headers: { origin } });
     ws.once('open',  () => resolve(ws));
-    ws.once('error', reject);
+    ws.once('error', (err) => { ws.terminate(); reject(err); });
   });
 }
 
