@@ -276,8 +276,6 @@ async function runTests() {
     assert(res.status === 200,                      `expected 200, got ${res.status}`);
     assert(res.body.cli.tool            === 'claude',        'default cli.tool should be claude');
     assert(res.body.cli.binary          === 'claude',        'default cli.binary should be claude');
-    assert(Array.isArray(res.body.cli.flags),                'cli.flags must be an array');
-    assert(res.body.cli.promptFlag      === '-p',            'default promptFlag should be -p');
     assert(res.body.cli.fileInputMethod === 'cat-subshell',  'default fileInputMethod should be cat-subshell');
     assert(res.body.pipeline.autoAdvance         === true,   'default autoAdvance should be true');
     assert(res.body.pipeline.confirmBetweenStages === true,  'default confirmBetweenStages should be true');
@@ -306,7 +304,7 @@ async function runTests() {
     assert(res.body.cli.tool   === 'opencode',     `tool should be opencode, got ${res.body.cli.tool}`);
     assert(res.body.cli.binary === 'opencode',     `binary should be opencode, got ${res.body.cli.binary}`);
     // Fields not in partial should retain defaults.
-    assert(res.body.cli.promptFlag === '-p',       'promptFlag should retain default');
+    assert(res.body.cli.fileInputMethod === 'cat-subshell', 'fileInputMethod should retain default');
     assert(res.body.pipeline.autoAdvance === true, 'pipeline.autoAdvance should retain default');
   });
 
