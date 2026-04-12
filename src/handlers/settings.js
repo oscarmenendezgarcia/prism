@@ -23,8 +23,6 @@ const DEFAULT_SETTINGS = {
   cli: {
     tool:            'claude',
     binary:          'claude',
-    flags:           ['-p'],
-    promptFlag:      '-p',
     fileInputMethod: 'cat-subshell',
   },
   pipeline: {

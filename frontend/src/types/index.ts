@@ -274,8 +274,6 @@ export interface PipelinePromptPreview {
 export interface CliSettings {
   tool: 'claude' | 'opencode' | 'custom';
   binary: string;
-  flags: string[];
-  promptFlag: string;
   fileInputMethod: 'cat-subshell' | 'stdin-redirect' | 'flag-file';
 }
 

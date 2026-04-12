@@ -128,7 +128,7 @@ export function AgentSettingsPanel() {
           >
             settings
           </span>
-          <span className="text-sm font-medium text-text-primary">Agent Settings</span>
+          <span className="text-sm font-medium text-text-primary">Settings</span>
         </div>
         <button
           onClick={() => setOpen(false)}
@@ -227,29 +227,6 @@ export function AgentSettingsPanel() {
                   />
                 </div>
               )}
-
-              {/* Additional flags */}
-              <div className="mb-4">
-                <label
-                  htmlFor="cli-flags"
-                  className="block text-xs text-text-secondary mb-1"
-                >
-                  Additional flags
-                </label>
-                <input
-                  id="cli-flags"
-                  type="text"
-                  value={cli.flags.join(' ')}
-                  onChange={(e) =>
-                    setCli((c) => ({
-                      ...c!,
-                      flags: e.target.value.split(/\s+/).filter(Boolean),
-                    }))
-                  }
-                  placeholder='--allowedTools "Agent,Bash,Read,Write,Edit"'
-                  className="w-full h-9 bg-surface-variant border border-border rounded-md px-3 text-sm text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:ring-1 focus:ring-primary/50"
-                />
-              </div>
 
               {/* Prompt delivery method */}
               <div>
