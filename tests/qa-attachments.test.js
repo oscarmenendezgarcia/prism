@@ -146,20 +146,46 @@ async function runTests() {
     // QA-TC-004 to QA-TC-006: Body size limit
     // -------------------------------------------------------------------------
 
-    suite('QA-TC-004: Body size — handleMoveTask still has stale "64 KB" error message');
+    suite('QA-TC-004: Body size — move endpoint enforces 512 KB limit');
 
-    await test('move endpoint error message says 64 KB (stale after T-002 raised to 512 KB)', async () => {
-      // Create a task first
+    await test('PUT /move with body exceeding 512 KB returns 413 PAYLOAD_TOO_LARGE', async () => {
       const createRes = await request('POST', '/api/v1/tasks', { title: 'Size test', type: 'chore' });
+      assert(createRes.status === 201, `Expected 201, got ${createRes.status}`);
       const taskId = createRes.body.id;
 
-      // The move handler's PAYLOAD_TOO_LARGE error says "64 KB limit" but actual limit is 512 KB
-      // We can't easily trigger it here without sending >512KB to /move, but we confirm via
-      // static analysis (server.js line 422 has the stale message).
-      // This test documents the defect found statically.
-      // We simply verify the task was created and the concern is recorded.
-      assert(createRes.status === 201, 'Task created successfully for size test');
-      // Note: runtime trigger would require a >512KB body to /move which is unusual in practice.
+      // Build a payload that exceeds the 512 KB limit by padding a junk field.
+      const oversize = JSON.stringify({ to: 'done', _pad: 'x'.repeat(513 * 1024) });
+
+      await new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'localhost',
+          port,
+          path: `/api/v1/tasks/${taskId}/move`,
+          method: 'PUT',
+          headers: {
+            'Content-Type':   'application/json',
+            'Content-Length': Buffer.byteLength(oversize),
+          },
+        };
+        const req = http.request(options, (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try {
+              const body = JSON.parse(data);
+              assert(res.statusCode === 413, `Expected 413, got ${res.statusCode}`);
+              assert(body.error.code === 'PAYLOAD_TOO_LARGE', `Expected PAYLOAD_TOO_LARGE, got ${body.error.code}`);
+              assert(body.error.message.includes('512'), `Expected "512" in message, got: ${body.error.message}`);
+              resolve();
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+        req.write(oversize);
+        req.end();
+      });
     });
 
     suite('QA-TC-005: Body size — exactly at 512KB boundary');
