@@ -508,4 +508,4 @@ function setupTerminalWebSocket(httpServer) {
   });
 }
 
-module.exports = { setupTerminalWebSocket };
+module.exports = { setupTerminalWebSocket, MAX_CONNECTIONS };
