@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.0] — 2026-04-12
+## [Unreleased] — run-indicator
 
 ### Added
 - `frontend/src/components/agent-launcher/RunIndicator.tsx`: componente unificado que reemplaza `AgentRunIndicator` + `PipelineProgressBar`. Lee exclusivamente de `pipelineState`. Bifurcación null | SingleAgentDot | StepNodes | PausedBanner. STAGE_DISPLAY incluye `code-reviewer`.
