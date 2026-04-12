@@ -25,6 +25,7 @@ const path = require('path');
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { COLUMNS }                        = require('../constants');
+const { readSettings }                   = require('./settings');
 
 // ---------------------------------------------------------------------------
 // Format-only system prompt — defines output schema, NOT classification rules.
@@ -132,12 +133,12 @@ function readSpaceTasks(spaceDataDir, column) {
  * @param {Array<{ id: string, title: string, description: string }>} cards
  * @param {boolean} improveDescriptions
  * @param {string} userPrompt - Classification instructions from the user
+ * @param {string} cli        - CLI binary resolved from settings
+ * @param {string} model      - Model override
  * @returns {Promise<{ suggestions: object[], skipped: string[], model: string, usage: object }>}
  * @throws {Error} on spawn failure, non-zero exit, or invalid JSON response
  */
-function callClaude(cards, improveDescriptions, userPrompt) {
-  const cli   = process.env.TAGGER_CLI   || 'claude';
-  const model = process.env.TAGGER_MODEL || 'haiku';
+function callClaude(cards, improveDescriptions, userPrompt, cli, model) {
 
   const cardsJson = JSON.stringify(
     cards.map(({ id, title, description }) => ({ id, title, description })),
@@ -248,8 +249,9 @@ function callClaude(cards, improveDescriptions, userPrompt) {
  * @param {import('http').ServerResponse}  res
  * @param {string}                         spaceId
  * @param {string}                         spaceDataDir - absolute path to space data dir
+ * @param {string}                         dataDir      - root data dir (for reading settings)
  */
-async function handleTaggerRun(req, res, spaceId, spaceDataDir) {
+async function handleTaggerRun(req, res, spaceId, spaceDataDir, dataDir) {
   const startMs = Date.now();
 
   // 1. Parse body
@@ -288,17 +290,22 @@ async function handleTaggerRun(req, res, spaceId, spaceDataDir) {
 
   runningSpaces.add(spaceId);
 
+  // 5. Resolve CLI binary and model from settings (TAGGER_CLI env var overrides settings for compat)
+  const settings = readSettings(dataDir);
+  const cli      = process.env.TAGGER_CLI || settings.cli.binary || settings.cli.tool || 'claude';
+  const model    = process.env.TAGGER_MODEL || 'haiku';
+
   try {
-    // 5. Read tasks from disk
+    // 6. Read tasks from disk
     const allTasks = readSpaceTasks(spaceDataDir, column);
 
-    // 6. Handle empty board
+    // 7. Handle empty board
     if (allTasks.length === 0) {
       const durationMs = Date.now() - startMs;
       console.log(JSON.stringify({
         event:               'tagger.run.complete',
         spaceId,
-        model:               process.env.TAGGER_MODEL || 'haiku',
+        model,
         cardsProcessed:      0,
         suggestionsCount:    0,
         skippedCount:        0,
@@ -310,16 +317,16 @@ async function handleTaggerRun(req, res, spaceId, spaceDataDir) {
       return sendJSON(res, 200, {
         suggestions:  [],
         skipped:      [],
-        model:        process.env.TAGGER_MODEL || 'haiku',
+        model,
         inputTokens:  0,
         outputTokens: 0,
       });
     }
 
-    // 7. Call Claude
+    // 8. Call AI CLI
     let claudeResult;
     try {
-      claudeResult = await callClaude(allTasks, improveDescriptions, userPrompt);
+      claudeResult = await callClaude(allTasks, improveDescriptions, userPrompt, cli, model);
     } catch (err) {
       const durationMs = Date.now() - startMs;
       console.error(JSON.stringify({
