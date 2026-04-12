@@ -1,6 +1,6 @@
 {
   "scripts": {
-    "test": "node --test 'tests/*.test.js'"
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "node-pty": "^1.1.0",

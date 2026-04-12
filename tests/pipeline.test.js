@@ -572,6 +572,7 @@ describe('REST integration — pipeline endpoints', () => {
       const pm = require('../src/services/pipelineManager');
       await pm.abortAll(dataDir);
     } catch { /* best-effort */ }
+    if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(dataDir,   { recursive: true, force: true });
     fs.rmSync(agentsDir, { recursive: true, force: true });

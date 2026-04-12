@@ -93,31 +93,20 @@ async function runTests() {
     // QA-TC-001 to QA-TC-005: Path traversal security
     // -------------------------------------------------------------------------
 
-    suite('QA-TC-001: Path traversal — stored path with .. that resolves after normalization');
+    suite('QA-TC-001: Path traversal — stored path with .. is rejected at validation time');
 
-    await test('path /etc/../etc/hosts is accepted by validation and served (traversal not blocked)', async () => {
-      // This test DOCUMENTS the confirmed vulnerability:
-      // path.normalize('/etc/../etc/hosts') => '/etc/hosts' which contains no '..'
-      // So the server's include('..') check never fires.
+    await test('path /etc/../etc/hosts is rejected by validation (traversal blocked at storage)', async () => {
+      // validateAttachments uses path.normalize(content) !== content to detect traversal.
+      // path.normalize('/etc/../etc/hosts') => '/etc/hosts' !== '/etc/../etc/hosts' → 400.
       const createRes = await request('POST', '/api/v1/tasks', {
         title: 'QA traversal check',
         type: 'chore',
         attachments: [{ name: 'traversal', type: 'file', content: '/etc/../etc/hosts' }],
       });
-      assert(createRes.status === 201, `Expected 201, got ${createRes.status}`);
-      // The path SHOULD be blocked at validation time but IS NOT.
-      // This test confirms the vulnerability exists (expected to PASS as a vulnerability proof).
-      const taskId = createRes.body.id;
-      const contentRes = await request('GET', `/api/v1/tasks/${taskId}/attachments/0`);
-      // If we get 200 with content, the traversal succeeded (vulnerability confirmed).
-      // The test passes because the behavior is what the code does, not what it should do.
+      assert(createRes.status === 400, `Expected 400 (traversal blocked), got ${createRes.status}`);
       assert(
-        contentRes.status === 200,
-        `Path traversal not blocked at normalization. Status: ${contentRes.status}`
-      );
-      assert(
-        typeof contentRes.body.content === 'string' && contentRes.body.content.length > 0,
-        'File content returned via traversal path — vulnerability confirmed'
+        createRes.body.error.code === 'VALIDATION_ERROR',
+        `Expected VALIDATION_ERROR, got ${createRes.body.error.code}`
       );
     });
 
@@ -136,39 +125,67 @@ async function runTests() {
       assert(contentRes.status === 200, `Expected 200 for known-safe absolute path`);
     });
 
-    suite('QA-TC-003: Path traversal check at storage time (validation gap)');
+    suite('QA-TC-003: Path traversal check at storage time (fixed)');
 
-    await test('validation does NOT reject paths containing ".." when they start with "/"', async () => {
-      // BUG: validateAttachments only checks content.startsWith('/') for file type.
-      // It does not check for '..' in the path.
+    await test('validation rejects paths containing ".." (traversal blocked at storage)', async () => {
+      // validateAttachments now uses path.normalize(content) !== content.
+      // path.normalize('/safe/../unsafe') => '/unsafe' !== '/safe/../unsafe' → 400.
       const res = await request('POST', '/api/v1/tasks', {
         title: 'QA dotdot validation',
         type: 'chore',
         attachments: [{ name: 'test', type: 'file', content: '/safe/../unsafe' }],
       });
-      // If server returns 201, it means '..' was not rejected at validation time.
-      // This is the bug: paths with '..' should be rejected at storage, not at serve time.
-      assert(res.status === 201, `Path with '..' accepted by validation (bug confirmed): ${res.status}`);
+      assert(res.status === 400, `Expected 400 (traversal blocked), got ${res.status}`);
+      assert(
+        res.body.error.code === 'VALIDATION_ERROR',
+        `Expected VALIDATION_ERROR, got ${res.body.error.code}`
+      );
     });
 
     // -------------------------------------------------------------------------
     // QA-TC-004 to QA-TC-006: Body size limit
     // -------------------------------------------------------------------------
 
-    suite('QA-TC-004: Body size — handleMoveTask still has stale "64 KB" error message');
+    suite('QA-TC-004: Body size — move endpoint enforces 512 KB limit');
 
-    await test('move endpoint error message says 64 KB (stale after T-002 raised to 512 KB)', async () => {
-      // Create a task first
+    await test('PUT /move with body exceeding 512 KB returns 413 PAYLOAD_TOO_LARGE', async () => {
       const createRes = await request('POST', '/api/v1/tasks', { title: 'Size test', type: 'chore' });
+      assert(createRes.status === 201, `Expected 201, got ${createRes.status}`);
       const taskId = createRes.body.id;
 
-      // The move handler's PAYLOAD_TOO_LARGE error says "64 KB limit" but actual limit is 512 KB
-      // We can't easily trigger it here without sending >512KB to /move, but we confirm via
-      // static analysis (server.js line 422 has the stale message).
-      // This test documents the defect found statically.
-      // We simply verify the task was created and the concern is recorded.
-      assert(createRes.status === 201, 'Task created successfully for size test');
-      // Note: runtime trigger would require a >512KB body to /move which is unusual in practice.
+      // Build a payload that exceeds the 512 KB limit by padding a junk field.
+      const oversize = JSON.stringify({ to: 'done', _pad: 'x'.repeat(513 * 1024) });
+
+      await new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'localhost',
+          port,
+          path: `/api/v1/tasks/${taskId}/move`,
+          method: 'PUT',
+          headers: {
+            'Content-Type':   'application/json',
+            'Content-Length': Buffer.byteLength(oversize),
+          },
+        };
+        const req = http.request(options, (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            try {
+              const body = JSON.parse(data);
+              assert(res.statusCode === 413, `Expected 413, got ${res.statusCode}`);
+              assert(body.error.code === 'PAYLOAD_TOO_LARGE', `Expected PAYLOAD_TOO_LARGE, got ${body.error.code}`);
+              assert(body.error.message.includes('512'), `Expected "512" in message, got: ${body.error.message}`);
+              resolve();
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+        req.on('error', reject);
+        req.write(oversize);
+        req.end();
+      });
     });
 
     suite('QA-TC-005: Body size — exactly at 512KB boundary');

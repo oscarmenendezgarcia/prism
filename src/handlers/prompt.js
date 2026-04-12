@@ -17,7 +17,7 @@ const path = require('path');
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { COLUMNS }                        = require('../constants');
-const { AGENTS_DIR, AGENT_ID_RE }        = require('./agents');
+const { getAgentsDir, AGENT_ID_RE }      = require('./agents');
 const { readSettings }                   = require('./settings');
 
 // ---------------------------------------------------------------------------
@@ -193,7 +193,7 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
   }
 
   const agentFilename = `${agentId}.md`;
-  const agentPath     = path.join(AGENTS_DIR, agentFilename);
+  const agentPath     = path.join(getAgentsDir(), agentFilename);
   if (!fs.existsSync(agentPath)) {
     return sendError(res, 404, 'AGENT_NOT_FOUND', `No agent named '${agentId}' was found.`, {
       suggestion: `Check that '${agentFilename}' exists in ~/.claude/agents/.`,

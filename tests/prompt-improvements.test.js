@@ -310,6 +310,7 @@ describe('Pipeline prompt endpoints — REST integration', () => {
     delete process.env.PIPELINE_AGENTS_DIR;
     delete process.env.PIPELINE_MAX_CONCURRENT;
     delete process.env.KANBAN_API_URL;
+    if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(dataDir,   { recursive: true, force: true });
     fs.rmSync(agentsDir, { recursive: true, force: true });

@@ -38,7 +38,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
-    pool: 'vmThreads',
+    pool: 'forks',
     teardownTimeout: 5000,
     coverage: {
       provider: 'v8',

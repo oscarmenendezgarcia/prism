@@ -145,6 +145,7 @@ async function runTests() {
   });
 
   after(() => {
+    if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
     server.close();
     restoreSpawn();
     fs.rmSync(dataDir, { recursive: true, force: true });

@@ -611,6 +611,22 @@ async function spawnStage(dataDir, run, stageIndex) {
     pipelineLog('stage.timeout', { runId: run.runId, stageIndex, agentId, timeoutMs });
   }, timeoutMs);
 
+  child.on('error', (err) => {
+    clearTimeout(timer);
+    clearInterval(stallWatcher);
+    logStream.end();
+    activeProcesses.delete(run.runId);
+
+    const currentRun = readRun(dataDir, run.runId);
+    if (!currentRun) return;
+
+    currentRun.stageStatuses[stageIndex].status     = 'failed';
+    currentRun.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
+    currentRun.status = 'failed';
+    writeRun(dataDir, currentRun);
+    pipelineLog('stage.spawn_error', { runId: run.runId, stageIndex, agentId, error: err.message });
+  });
+
   child.on('close', async (code) => {
     clearTimeout(timer);
     clearInterval(stallWatcher);

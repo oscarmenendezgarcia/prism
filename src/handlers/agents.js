@@ -21,7 +21,11 @@ const { sendJSON, sendError } = require('../utils/http');
 // Constants
 // ---------------------------------------------------------------------------
 
-const AGENTS_DIR  = path.join(os.homedir(), '.claude', 'agents');
+const AGENTS_DIR_DEFAULT = path.join(os.homedir(), '.claude', 'agents');
+// Evaluated lazily so PIPELINE_AGENTS_DIR set after module load (e.g. in tests) is picked up.
+function getAgentsDir() {
+  return process.env.PIPELINE_AGENTS_DIR || AGENTS_DIR_DEFAULT;
+}
 const AGENT_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /** Route patterns (compiled once at module load). */
@@ -77,7 +81,7 @@ function handleListAgents(req, res) {
     return results;
   }
 
-  const globalAgents = scanDir(AGENTS_DIR, 'global');
+  const globalAgents = scanDir(getAgentsDir(), 'global');
 
   let workspaceAgents = [];
   if (workingDirectory && path.isAbsolute(workingDirectory)) {
@@ -108,10 +112,11 @@ function handleGetAgent(req, res, agentId) {
   }
 
   const filename = `${agentId}.md`;
-  const absPath  = path.join(AGENTS_DIR, filename);
+  const agentsDir = getAgentsDir();
+  const absPath   = path.join(agentsDir, filename);
 
   const resolved = path.resolve(absPath);
-  if (!resolved.startsWith(AGENTS_DIR + path.sep)) {
+  if (!resolved.startsWith(agentsDir + path.sep)) {
     return sendError(res, 403, 'FORBIDDEN_PATH', 'Access to this agent file is not allowed.', {
       suggestion: 'Only agent files inside ~/.claude/agents/ can be read.',
     });
@@ -141,7 +146,7 @@ function handleGetAgent(req, res, agentId) {
 }
 
 module.exports = {
-  AGENTS_DIR,
+  getAgentsDir,
   AGENT_ID_RE,
   AGENTS_LIST_ROUTE,
   AGENTS_SINGLE_ROUTE,

@@ -5,15 +5,38 @@ const os = require('os');
 const path = require('path');
 const { startServer } = require('../../server');
 
+// Agents that pipeline tests reference by ID.
+const STUB_AGENTS = [
+  'senior-architect',
+  'ux-api-designer',
+  'developer-agent',
+  'qa-engineer-e2e',
+];
+
 /**
  * Start an isolated test server with a temporary data directory.
- * The server listens on a random OS-assigned port.
+ * Also creates a temporary agents directory with stub .md files and points
+ * PIPELINE_AGENTS_DIR at it, so pipeline tests work without ~/.claude/agents/.
  *
  * @returns {Promise<{ port: number, close: Function }>}
  */
 function startTestServer() {
   return new Promise((resolve, reject) => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-test-'));
+    const tmpDir    = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-test-'));
+    const agentsDir = path.join(tmpDir, 'agents');
+    fs.mkdirSync(agentsDir);
+
+    for (const agent of STUB_AGENTS) {
+      fs.writeFileSync(
+        path.join(agentsDir, `${agent}.md`),
+        `# ${agent}\nStub agent for tests.\n`,
+      );
+    }
+
+    // Point pipelineManager at the stub agents directory.
+    const prevAgentsDir = process.env.PIPELINE_AGENTS_DIR;
+    process.env.PIPELINE_AGENTS_DIR = agentsDir;
+
     const server = startServer({ port: 0, dataDir: tmpDir, silent: true });
 
     server.once('listening', () => {
@@ -21,14 +44,25 @@ function startTestServer() {
 
       function close() {
         return new Promise((res) => {
+          // closeAllConnections() drops keep-alive sockets immediately so
+          // server.close() doesn't hang waiting for them to time out.
+          if (typeof server.closeAllConnections === 'function') {
+            server.closeAllConnections();
+          }
           server.close(() => {
             fs.rmSync(tmpDir, { recursive: true, force: true });
+            // Restore env var so parallel test files don't interfere.
+            if (prevAgentsDir === undefined) {
+              delete process.env.PIPELINE_AGENTS_DIR;
+            } else {
+              process.env.PIPELINE_AGENTS_DIR = prevAgentsDir;
+            }
             res();
           });
         });
       }
 
-      resolve({ port, close });
+      resolve({ port, agentsDir, close });
     });
 
     server.once('error', (err) => {

@@ -169,6 +169,7 @@ async function startServer(extraEnv = {}) {
 }
 
 async function stopServer(server, dataDir, agentsDir) {
+  if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
   fs.rmSync(dataDir, { recursive: true, force: true });
   if (agentsDir) fs.rmSync(agentsDir, { recursive: true, force: true });
@@ -525,6 +526,7 @@ describe('handleCreateRun — pipeline resolution (T-004)', () => {
   }
 
   async function stopPipelineServer(server, dataDir, agentsDir) {
+    if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(dataDir,   { recursive: true, force: true });
     fs.rmSync(agentsDir, { recursive: true, force: true });

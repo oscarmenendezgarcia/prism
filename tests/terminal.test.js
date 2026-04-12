@@ -32,7 +32,7 @@ const http   = require('node:http');
 const net    = require('node:net');
 const path   = require('node:path');
 const { WebSocket } = require('ws');
-const { setupTerminalWebSocket } = require(path.join(__dirname, '..', 'terminal'));
+const { setupTerminalWebSocket, MAX_CONNECTIONS } = require(path.join(__dirname, '..', 'terminal'));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,6 +64,17 @@ async function startTestServer() {
       res.writeHead(200);
       res.end('ok');
     });
+    // Reject unhandled upgrade paths immediately (before setupTerminalWebSocket)
+    // so openRawWs tests complete in milliseconds rather than waiting for a
+    // handshakeTimeout. setupTerminalWebSocket uses a pass-through pattern for
+    // non-terminal paths, which would leave the socket open and stall the event loop.
+    server.on('upgrade', (req, socket) => {
+      const url = req.url ? req.url.split('?')[0] : '';
+      if (url !== '/ws/terminal' && !socket.destroyed) {
+        socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+        socket.destroy();
+      }
+    });
     setupTerminalWebSocket(server);
     server.listen(port, '127.0.0.1', () => {
       resolve({ server, port, wsUrl: `ws://127.0.0.1:${port}/ws/terminal` });
@@ -79,6 +90,7 @@ async function startTestServer() {
  */
 function stopServer(server) {
   return new Promise((resolve, reject) => {
+    if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
     server.close((err) => (err ? reject(err) : resolve()));
   });
 }
@@ -290,7 +302,7 @@ function openRawWs(wsUrl, opts = {}) {
     const origin = opts.origin !== undefined ? opts.origin : 'http://localhost:3000';
     const ws = new WebSocket(wsUrl, { headers: { origin } });
     ws.once('open',  () => resolve(ws));
-    ws.once('error', reject);
+    ws.once('error', (err) => reject(err));
   });
 }
 
@@ -335,29 +347,27 @@ describe('Connection management', async () => {
     await stopServer(server);
   });
 
-  test('rejects 3rd concurrent connection with HTTP 429', async () => {
+  test(`rejects connection when ${MAX_CONNECTIONS}-connection limit is reached with HTTP 429`, async () => {
     const { server, wsUrl } = await startTestServer();
-    const conn1 = await openWs(wsUrl);
-    const conn2 = await openWs(wsUrl);
+    const conns = [];
+    for (let i = 0; i < MAX_CONNECTIONS; i++) conns.push(await openWs(wsUrl));
     await assert.rejects(
       () => openRawWs(wsUrl),
       (err) => { assert.match(err.message, /429|Unexpected server response/); return true; }
     );
-    await closeWs(conn1.ws);
-    await closeWs(conn2.ws);
+    await Promise.all(conns.map((c) => closeWs(c.ws)));
     await stopServer(server);
   });
 
   test('accepts new connection after previous ones close', async () => {
     const { server, wsUrl } = await startTestServer();
-    const conn1 = await openWs(wsUrl);
-    const conn2 = await openWs(wsUrl);
-    await closeWs(conn1.ws);
-    await closeWs(conn2.ws);
-    // Both slots freed — a fresh connection must succeed.
-    const conn3 = await openWs(wsUrl);
-    assert.equal(conn3.ws.readyState, WebSocket.OPEN);
-    await closeWs(conn3.ws);
+    const conns = [];
+    for (let i = 0; i < MAX_CONNECTIONS; i++) conns.push(await openWs(wsUrl));
+    await Promise.all(conns.map((c) => closeWs(c.ws)));
+    // All slots freed — a fresh connection must succeed.
+    const fresh = await openWs(wsUrl);
+    assert.equal(fresh.ws.readyState, WebSocket.OPEN);
+    await closeWs(fresh.ws);
     await stopServer(server);
   });
 });
