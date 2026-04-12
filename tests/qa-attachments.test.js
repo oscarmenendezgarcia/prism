@@ -93,31 +93,20 @@ async function runTests() {
     // QA-TC-001 to QA-TC-005: Path traversal security
     // -------------------------------------------------------------------------
 
-    suite('QA-TC-001: Path traversal — stored path with .. that resolves after normalization');
+    suite('QA-TC-001: Path traversal — stored path with .. is rejected at validation time');
 
-    await test('path /etc/../etc/hosts is accepted by validation and served (traversal not blocked)', async () => {
-      // This test DOCUMENTS the confirmed vulnerability:
-      // path.normalize('/etc/../etc/hosts') => '/etc/hosts' which contains no '..'
-      // So the server's include('..') check never fires.
+    await test('path /etc/../etc/hosts is rejected by validation (traversal blocked at storage)', async () => {
+      // validateAttachments uses path.normalize(content) !== content to detect traversal.
+      // path.normalize('/etc/../etc/hosts') => '/etc/hosts' !== '/etc/../etc/hosts' → 400.
       const createRes = await request('POST', '/api/v1/tasks', {
         title: 'QA traversal check',
         type: 'chore',
         attachments: [{ name: 'traversal', type: 'file', content: '/etc/../etc/hosts' }],
       });
-      assert(createRes.status === 201, `Expected 201, got ${createRes.status}`);
-      // The path SHOULD be blocked at validation time but IS NOT.
-      // This test confirms the vulnerability exists (expected to PASS as a vulnerability proof).
-      const taskId = createRes.body.id;
-      const contentRes = await request('GET', `/api/v1/tasks/${taskId}/attachments/0`);
-      // If we get 200 with content, the traversal succeeded (vulnerability confirmed).
-      // The test passes because the behavior is what the code does, not what it should do.
+      assert(createRes.status === 400, `Expected 400 (traversal blocked), got ${createRes.status}`);
       assert(
-        contentRes.status === 200,
-        `Path traversal not blocked at normalization. Status: ${contentRes.status}`
-      );
-      assert(
-        typeof contentRes.body.content === 'string' && contentRes.body.content.length > 0,
-        'File content returned via traversal path — vulnerability confirmed'
+        createRes.body.error.code === 'VALIDATION_ERROR',
+        `Expected VALIDATION_ERROR, got ${createRes.body.error.code}`
       );
     });
 
@@ -136,19 +125,21 @@ async function runTests() {
       assert(contentRes.status === 200, `Expected 200 for known-safe absolute path`);
     });
 
-    suite('QA-TC-003: Path traversal check at storage time (validation gap)');
+    suite('QA-TC-003: Path traversal check at storage time (fixed)');
 
-    await test('validation does NOT reject paths containing ".." when they start with "/"', async () => {
-      // BUG: validateAttachments only checks content.startsWith('/') for file type.
-      // It does not check for '..' in the path.
+    await test('validation rejects paths containing ".." (traversal blocked at storage)', async () => {
+      // validateAttachments now uses path.normalize(content) !== content.
+      // path.normalize('/safe/../unsafe') => '/unsafe' !== '/safe/../unsafe' → 400.
       const res = await request('POST', '/api/v1/tasks', {
         title: 'QA dotdot validation',
         type: 'chore',
         attachments: [{ name: 'test', type: 'file', content: '/safe/../unsafe' }],
       });
-      // If server returns 201, it means '..' was not rejected at validation time.
-      // This is the bug: paths with '..' should be rejected at storage, not at serve time.
-      assert(res.status === 201, `Path with '..' accepted by validation (bug confirmed): ${res.status}`);
+      assert(res.status === 400, `Expected 400 (traversal blocked), got ${res.status}`);
+      assert(
+        res.body.error.code === 'VALIDATION_ERROR',
+        `Expected VALIDATION_ERROR, got ${res.body.error.code}`
+      );
     });
 
     // -------------------------------------------------------------------------
