@@ -129,11 +129,14 @@ function resolveAgent(agentId, agentsDir) {
     spawnArgs = ['-p', systemPrompt, '--model', model, '--output-format', 'stream-json', '--enable-auto-mode'];
   } else {
     // Default subagent mode: invoke the named agent definition.
+    // No --allowedTools: --permission-mode bypassPermissions (injected by pipelineManager)
+    // already covers all tool approvals — a restrictive allowlist on top would cause
+    // unlisted tools to prompt interactively, hanging the stage with stdin closed.
     spawnArgs = [
       '--agent', agentId,
       '--print',
       '--output-format', 'stream-json',
-      '--allowedTools', 'Bash Edit Write Read Glob Grep mcp__prism__* mcp__stitch__* mcp__figma__* mcp__plugin_playwright_playwright__*',
+      '--verbose',
     ];
   }
 
