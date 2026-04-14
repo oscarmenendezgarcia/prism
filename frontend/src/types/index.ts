@@ -220,10 +220,17 @@ export interface PipelineState {
   status: 'running' | 'paused' | 'completed' | 'aborted' | 'interrupted';
   /**
    * Backend run ID returned by POST /api/v1/runs when the pipeline is launched
-   * via backend spawn. Used by PipelineLogPanel to fetch stage logs.
+   * via backend spawn. Tracks the most-recent run (last stage started).
    * ADR-1 (log-viewer): optional — only set when startRun() is called.
    */
   runId?: string;
+  /**
+   * Per-stage backend run IDs. Each stage of a frontend-driven pipeline creates
+   * its own backend run (with 1 stage at index 0). stageRunIds[i] is the runId
+   * for pipeline stage i. Used by PipelineLogPanel to fetch the correct run's
+   * stage-0 log instead of requesting a stage index that doesn't exist.
+   */
+  stageRunIds?: Record<number, string>;
   /**
    * Parallel index with stages[]. subTaskIds[i] is the Kanban ID of the
    * dedicated sub-task created for stages[i]. Grows incrementally as stages run.

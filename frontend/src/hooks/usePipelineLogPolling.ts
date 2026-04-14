@@ -17,8 +17,20 @@ const POLL_INTERVAL_MS = 2000;
 export interface UsePipelineLogPollingOptions {
   /** The pipeline run ID. Pass null to disable polling entirely. */
   runId: string | null;
-  /** Zero-based index of the stage whose log to poll. */
+  /**
+   * Zero-based index used in the API request path:
+   *   GET /api/v1/runs/:runId/stages/:stageIndex/log
+   * For frontend-driven pipelines where each stage has its own 1-stage backend run,
+   * this is always 0 (the single stage in that run).
+   */
   stageIndex: number;
+  /**
+   * Key under which the fetched log is stored in usePipelineLogStore.stageLogs.
+   * Defaults to stageIndex when omitted.
+   * For frontend-driven pipelines: storeKey = pipeline-level stage index (e.g. 1 for QA)
+   * while stageIndex = 0 (the actual stage index within the backend run).
+   */
+  storeKey?: number;
   /** True while run.status === 'running'. Controls whether an interval is set up. */
   isRunActive: boolean;
 }
@@ -34,11 +46,16 @@ export interface UsePipelineLogPollingOptions {
 export function usePipelineLogPolling({
   runId,
   stageIndex,
+  storeKey,
   isRunActive,
 }: UsePipelineLogPollingOptions): void {
   const setStageLog     = usePipelineLogStore((s) => s.setStageLog);
   const setStageLoading = usePipelineLogStore((s) => s.setStageLoading);
   const setStageError   = usePipelineLogStore((s) => s.setStageError);
+
+  // The key used to read/write from the log store. Falls back to stageIndex when
+  // not provided (single-stage runs or backend-native multi-stage runs).
+  const key = storeKey ?? stageIndex;
 
   // Keep a stable ref to the latest fetch function so the interval closure
   // doesn't capture stale store actions.
@@ -48,26 +65,26 @@ export function usePipelineLogPolling({
     if (!runId) return;
 
     const fetchLog = async () => {
-      setStageLoading(stageIndex, true);
+      setStageLoading(key, true);
       try {
         const content = await getStageLog(runId, stageIndex, 500);
-        setStageLog(stageIndex, content);
-        setStageError(stageIndex, null);
+        setStageLog(key, content);
+        setStageError(key, null);
         console.log(
-          `[PipelineLog] poll fetched stage=${stageIndex} bytes=${content.length} runId=${runId}`,
+          `[PipelineLog] poll fetched stageIndex=${stageIndex} storeKey=${key} bytes=${content.length} runId=${runId}`,
         );
       } catch (err) {
         if (err instanceof LogNotAvailableError) {
           // Stage has not started yet — not a real error. Leave log as empty.
-          setStageLog(stageIndex, '');
-          setStageError(stageIndex, null);
+          setStageLog(key, '');
+          setStageError(key, null);
         } else {
           const message = err instanceof Error ? err.message : String(err);
-          setStageError(stageIndex, message);
-          console.warn(`[PipelineLog] poll error stage=${stageIndex}`, message);
+          setStageError(key, message);
+          console.warn(`[PipelineLog] poll error stageIndex=${stageIndex} storeKey=${key}`, message);
         }
       } finally {
-        setStageLoading(stageIndex, false);
+        setStageLoading(key, false);
       }
     };
 
@@ -90,5 +107,5 @@ export function usePipelineLogPolling({
       clearInterval(intervalId);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runId, stageIndex, isRunActive]);
+  }, [runId, stageIndex, key, isRunActive]);
 }

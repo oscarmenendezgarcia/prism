@@ -32,6 +32,7 @@ const PIPELINE_RUNS_LOG_ROUTE     = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/l
 const PIPELINE_RUNS_PROMPT_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/prompt$/;
 const PIPELINE_RUNS_PREVIEW_ROUTE = /^\/api\/v1\/runs\/preview-prompts$/;
 const PIPELINE_RUNS_RESUME_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/resume$/;
+const PIPELINE_RUNS_STOP_ROUTE    = /^\/api\/v1\/runs\/([^/]+)\/stop$/;
 
 // ---------------------------------------------------------------------------
 // Route handlers
@@ -232,6 +233,40 @@ async function handleResumeRun(req, res, runId, dataDir) {
 }
 
 /**
+ * POST /api/v1/runs/:runId/stop
+ * Stop a running pipeline: sends SIGTERM to the active stage process and marks
+ * the run as `interrupted`. The run directory is preserved so it can be resumed
+ * later with POST /api/v1/runs/:runId/resume.
+ *
+ * Returns the updated run object on success, 404 if the run does not exist,
+ * or 422 if the run is already in a terminal state.
+ */
+async function handleStopRun(req, res, runId, dataDir) {
+  const run = await pipelineManager.getRun(runId, dataDir);
+  if (!run) {
+    return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
+  }
+
+  const terminalStatuses = new Set(['completed', 'failed', 'interrupted']);
+  if (terminalStatuses.has(run.status)) {
+    return sendError(
+      res,
+      422,
+      'RUN_NOT_STOPPABLE',
+      `Run '${runId}' is already in terminal state '${run.status}' and cannot be stopped.`,
+    );
+  }
+
+  try {
+    const updated = await pipelineManager.stopRun(runId, dataDir);
+    return sendJSON(res, 200, updated);
+  } catch (err) {
+    console.error(`[pipeline] ERROR stopping run ${runId}:`, err.message);
+    return sendError(res, 500, 'INTERNAL_ERROR', err.message);
+  }
+}
+
+/**
  * DELETE /api/v1/runs/:runId
  * Cancel and remove a run. Sends SIGTERM to any active stage process.
  */
@@ -368,6 +403,7 @@ module.exports = {
   PIPELINE_RUNS_PROMPT_ROUTE,
   PIPELINE_RUNS_PREVIEW_ROUTE,
   PIPELINE_RUNS_RESUME_ROUTE,
+  PIPELINE_RUNS_STOP_ROUTE,
   handleCreateRun,
   handleListRuns,
   handleGetRun,
@@ -376,4 +412,5 @@ module.exports = {
   handlePreviewPrompts,
   handleDeleteRun,
   handleResumeRun,
+  handleStopRun,
 };

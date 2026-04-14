@@ -49,6 +49,69 @@ ANTHROPIC_API_KEY=sk-... docker compose up -d
 
 ---
 
+## Using agent pipelines with Docker
+
+### Available CLI tools inside the container
+
+The Docker image ships with **Claude Code** (`claude`) installed globally:
+
+```bash
+docker compose exec prism claude --version
+```
+
+This is the CLI that agent pipelines use when they run inside the container. No extra setup is needed — `ANTHROPIC_API_KEY` is forwarded from your host environment via `docker-compose.yml`.
+
+> **Want to use `opencode` instead?**  
+> `opencode` is not pre-installed, but you can add it by extending the Dockerfile:
+>
+> ```dockerfile
+> FROM ghcr.io/oscarmenendezgarcia/prism:latest   # or use build: . locally
+> RUN npm install -g opencode
+> ```
+>
+> Rebuild with `docker compose build`. Note that Prism's prompt-generation layer has partial support for `opencode`-style invocations; behaviour may differ from the Claude Code path.
+
+---
+
+### Giving agents access to your project repos
+
+Agents that write code need to read and modify files on disk. There are two approaches:
+
+#### Option A — Mount a volume (recommended for Docker)
+
+Add one extra volume entry per project in `docker-compose.yml`:
+
+```yaml
+services:
+  prism:
+    volumes:
+      - ./data:/app/data                              # board state (already present)
+      - /home/user/myproject:/workspace/myproject     # ← your repo
+```
+
+Inside the container the project lives at `/workspace/myproject`. When you configure a **Space** in Prism, set its *Working Directory* to that same path so pipeline agents work in the right place.
+
+You can mount as many projects as you need:
+
+```yaml
+      - /home/user/projectA:/workspace/projectA
+      - /home/user/projectB:/workspace/projectB
+```
+
+#### Option B — Run Prism locally (without Docker)
+
+If you prefer direct host filesystem access with no volume mapping or path translation, run Prism natively:
+
+```bash
+npm install
+cd frontend && npm install && npm run build && cd ..
+ANTHROPIC_API_KEY=sk-... node server.js
+```
+
+Agents launched from a Space whose *Working Directory* is an absolute host path (e.g. `/Users/alice/myproject`) have full, native access to those files with no extra configuration.
+
+---
+
 ## MCP — let Claude manage the board
 
 Prism ships with an MCP server that exposes the full Kanban API as tools. Connect it to Claude Code or Claude Desktop and your agents can read and write the board directly.
@@ -106,6 +169,7 @@ Available tools: `kanban_list_tasks`, `kanban_create_task`, `kanban_update_task`
 ```bash
 npm install
 cd frontend && npm install && npm run build && cd ..
+cd mcp && npm install && cd ..
 node server.js
 # → http://localhost:3000
 ```

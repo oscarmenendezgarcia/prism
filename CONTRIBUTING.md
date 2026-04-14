@@ -16,6 +16,7 @@ git clone https://github.com/oscarmenendezgarcia/prism.git
 cd prism
 npm install
 cd frontend && npm install && cd ..
+cd mcp && npm install && cd ..
 node server.js &
 cd frontend && npm run dev   # → http://localhost:5173
 ```

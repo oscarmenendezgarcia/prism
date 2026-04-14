@@ -52,8 +52,12 @@ Activity event types: `task.created`, `task.moved`, `task.updated`, `task.delete
 |------|----------------|----------------|-------------|
 | `kanban_start_pipeline` | `spaceId`, `taskId` | `stages` | Launch pipeline on a `todo` task. Returns `{ runId }` immediately |
 | `kanban_get_run_status` | `runId` | — | Poll run status |
+| `kanban_stop_pipeline` | `runId` | — | Send SIGTERM to active stage; mark run as `interrupted`. Run can be resumed later |
+| `kanban_resume_pipeline` | `runId` | `fromStage` | Resume an `interrupted` or `failed` run. `fromStage` is zero-based; omit to auto-detect |
 
 Run statuses: `pending`, `running`, `completed`, `failed`, `interrupted`
+
+**Stop vs delete:** `kanban_stop_pipeline` marks the run as `interrupted` and preserves the run directory so it can be resumed. `DELETE /api/v1/runs/:runId` removes the run permanently.
 
 ## Attachments
 

@@ -59,6 +59,7 @@ const {
   PIPELINE_RUNS_PROMPT_ROUTE,
   PIPELINE_RUNS_PREVIEW_ROUTE,
   PIPELINE_RUNS_RESUME_ROUTE,
+  PIPELINE_RUNS_STOP_ROUTE,
   handleCreateRun,
   handleListRuns,
   handleGetRun,
@@ -67,6 +68,7 @@ const {
   handlePreviewPrompts,
   handleDeleteRun,
   handleResumeRun,
+  handleStopRun,
 } = require('../handlers/pipeline');
 
 // ---------------------------------------------------------------------------
@@ -347,10 +349,11 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
     // Order matters:
     //   1. PREVIEW_ROUTE  (/runs/preview-prompts)          — before LIST_ROUTE
     //   2. RESUME_ROUTE   (/runs/:id/resume)               — before SINGLE_ROUTE
-    //   3. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
-    //   4. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
-    //   5. LIST_ROUTE     (/runs)
-    //   6. SINGLE_ROUTE   (/runs/:id)
+    //   3. STOP_ROUTE     (/runs/:id/stop)                 — before SINGLE_ROUTE
+    //   4. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
+    //   5. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
+    //   6. LIST_ROUTE     (/runs)
+    //   7. SINGLE_ROUTE   (/runs/:id)
     // -------------------------------------------------------------------------
     if (PIPELINE_RUNS_PREVIEW_ROUTE.test(urlPath)) {
       if (method === 'POST') return handlePreviewPrompts(req, res, dataDir, spaceManager);
@@ -361,6 +364,13 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
     if (pipelineResumeMatch) {
       const runId = pipelineResumeMatch[1];
       if (method === 'POST') return handleResumeRun(req, res, runId, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const pipelineStopMatch = PIPELINE_RUNS_STOP_ROUTE.exec(urlPath);
+    if (pipelineStopMatch) {
+      const runId = pipelineStopMatch[1];
+      if (method === 'POST') return handleStopRun(req, res, runId, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

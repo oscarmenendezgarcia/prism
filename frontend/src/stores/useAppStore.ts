@@ -689,9 +689,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Wire backend runId into pipelineState so PipelineLogPanel can poll stage logs.
     // If a pipelineState is already set (multi-stage run), update it in place.
     // Otherwise create a minimal single-stage pipelineState so the log panel opens.
+    //
+    // stageRunIds maps each pipeline stage index to its own backend run ID.
+    // Each stage creates a 1-stage backend run (stage-0.log), so the log panel
+    // must use stageRunIds[i] + stageIndex=0 instead of the global stage index.
     const existingPs = get().pipelineState;
     if (existingPs) {
-      set({ pipelineState: { ...existingPs, runId: backendRunId } });
+      const stageIdx = existingPs.currentStageIndex;
+      set({
+        pipelineState: {
+          ...existingPs,
+          runId: backendRunId,
+          stageRunIds: { ...(existingPs.stageRunIds ?? {}), [stageIdx]: backendRunId },
+        },
+      });
     } else {
       set({
         pipelineState: {
@@ -702,6 +713,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           startedAt,
           status:            'running',
           runId:             backendRunId,
+          stageRunIds:       { 0: backendRunId },
           subTaskIds:        [],
           checkpoints:       [],
         },

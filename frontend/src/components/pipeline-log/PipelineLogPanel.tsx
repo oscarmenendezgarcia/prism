@@ -66,9 +66,17 @@ export function PipelineLogPanel() {
 
   const [backendStatuses, setBackendStatuses] = useState<BackendStageStatus[]>([]);
 
-  const runId   = pipelineState?.runId ?? null;
-  const stages  = pipelineState?.stages ?? [];
+  const runId      = pipelineState?.runId ?? null;
+  const stageRunIds = pipelineState?.stageRunIds ?? {};
+  const stages     = pipelineState?.stages ?? [];
   const isRunActive = pipelineState?.status === 'running';
+
+  // Each stage in a frontend-driven pipeline runs as its own 1-stage backend run.
+  // stageRunIds[i] holds the runId for pipeline stage i, and the log inside that
+  // run is always at stage-0 (the only stage in the run).
+  // Fall back to the global runId + selectedStageIndex for backend-native pipelines.
+  const effectiveRunId      = stageRunIds[selectedStageIndex] ?? runId;
+  const effectiveStageIndex = stageRunIds[selectedStageIndex] !== undefined ? 0 : selectedStageIndex;
 
   const { width, handleMouseDown, minWidth, maxWidth } = usePanelResize({
     storageKey:   'prism:panel-width:pipeline-log',
@@ -96,9 +104,14 @@ export function PipelineLogPanel() {
   }, [fetchRunStatus, isRunActive]);
 
   // Mount polling for the currently selected stage.
+  // - runId: the backend run that contains this stage's log (stage-specific for
+  //   frontend-driven pipelines, or the global runId for backend-native pipelines).
+  // - stageIndex: always 0 for frontend-driven pipelines (each stage is a 1-stage run).
+  // - storeKey: the pipeline-level index used as the log cache key in the store.
   usePipelineLogPolling({
-    runId,
-    stageIndex: selectedStageIndex,
+    runId:       effectiveRunId,
+    stageIndex:  effectiveStageIndex,
+    storeKey:    selectedStageIndex,
     isRunActive,
   });
 
@@ -106,15 +119,19 @@ export function PipelineLogPanel() {
 
   // Fetch prompt for current stage when the "Prompt" view is selected.
   // Caches the result in the store so repeated tab switches don't re-fetch.
+  // Uses the same effective runId/stageIndex logic as the log polling to handle
+  // frontend-driven pipelines where each stage has its own 1-stage backend run.
   const fetchPromptForStage = useCallback(async (stageIdx: number) => {
-    if (!runId) return;
+    const stageRunId  = stageRunIds[stageIdx] ?? runId;
+    const runStageIdx = stageRunIds[stageIdx] !== undefined ? 0 : stageIdx;
+    if (!stageRunId) return;
     // Already cached or currently loading — skip.
     if (stagePrompts[stageIdx] !== undefined) return;
     if (stagePromptLoading[stageIdx]) return;
 
     setStagePromptLoading(stageIdx, true);
     try {
-      const text = await getStagePrompt(runId, stageIdx);
+      const text = await getStagePrompt(stageRunId, runStageIdx);
       setStagePrompt(stageIdx, text);
     } catch (err) {
       if (err instanceof PromptNotAvailableError) {
@@ -127,7 +144,7 @@ export function PipelineLogPanel() {
     } finally {
       setStagePromptLoading(stageIdx, false);
     }
-  }, [runId, stagePrompts, stagePromptLoading, setStagePrompt, setStagePromptLoading]);
+  }, [runId, stageRunIds, stagePrompts, stagePromptLoading, setStagePrompt, setStagePromptLoading]);
 
   useEffect(() => {
     if (currentView === 'prompt') {

@@ -37,6 +37,7 @@ import {
   startPipeline,
   getRunStatus,
   resumePipeline,
+  stopPipeline,
 } from './kanban-client.js';
 
 // ---------------------------------------------------------------------------
@@ -471,6 +472,24 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
+// Tool: kanban_stop_pipeline
+// ---------------------------------------------------------------------------
+
+server.tool(
+  'kanban_stop_pipeline',
+  'Stop a running pipeline by sending SIGTERM to the active stage process. ' +
+  'The run is marked as "interrupted" and its state is preserved — ' +
+  'use kanban_resume_pipeline to restart it from where it left off. ' +
+  'Returns 422 if the run is already in a terminal state (completed, failed, interrupted).',
+  {
+    runId: z.string().describe('The runId of the pipeline run to stop.'),
+  },
+  withTiming('kanban_stop_pipeline', async ({ runId }) => {
+    return stopPipeline(runId);
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------------------
 
@@ -478,6 +497,6 @@ const transport = new StdioServerTransport();
 
 log('INFO', `Starting ${SERVER_NAME} v${SERVER_VERSION}`);
 log('INFO', `Kanban API URL: ${KANBAN_API_URL}`);
-log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_start_pipeline, kanban_get_run_status, kanban_resume_pipeline');
+log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_start_pipeline, kanban_get_run_status, kanban_resume_pipeline, kanban_stop_pipeline');
 
 await server.connect(transport);
