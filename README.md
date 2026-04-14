@@ -106,6 +106,7 @@ Available tools: `kanban_list_tasks`, `kanban_create_task`, `kanban_update_task`
 ```bash
 npm install
 cd frontend && npm install && npm run build && cd ..
+cd mcp && npm install && cd ..
 node server.js
 # → http://localhost:3000
 ```
