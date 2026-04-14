@@ -222,9 +222,10 @@ async function killStage(dataDir, runId, stageIndex, reason) {
   if (run.stageStatuses[stageIndex].status !== 'running') return;
 
   const pid = run.stageStatuses[stageIndex].pid;
-  if (pid) {
+  if (pid && pid !== process.pid) {
     pipelineLog('stage.kill', { runId, stageIndex, agentId: run.stages[stageIndex], pid, reason });
-    try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
+    // Negative pid kills the entire process group (sh + claude + caffeinate).
+    try { process.kill(-pid, 'SIGTERM'); } catch { /* already gone */ }
   }
 
   // Clear the polling interval and remove from activeProcesses.
@@ -711,11 +712,14 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   // Build shell command: shell wrapper reads prompt from file, appends to log,
   // writes exit code to done-sentinel when finished.
-  // Using `exec claude` replaces the sh process so `pid` points directly to claude.
+  // spawn() with detached=true gives sh its own process group (PGID = child.pid).
+  // Kill uses -pid (negative) to send SIGTERM to the entire group: sh + claude + caffeinate.
+  // NOTE: do NOT use `exec claude` here — exec replaces sh, so the trailing
+  //       `echo $? > doneFile` would never run and the sentinel would never be written.
   // caffeinate -i on macOS prevents idle sleep while the stage runs.
   const escapedArgs  = finalArgs.map(shellEscape).join(' ');
   const maybeCAFF    = process.platform === 'darwin' ? 'caffeinate -i ' : '';
-  const shellCmd     = `${maybeCAFF}exec claude ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+  const shellCmd     = `${maybeCAFF}claude ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
 
   const stageStartedAt = Date.now();
 
@@ -1087,7 +1091,7 @@ async function stopRun(runId, dataDir) {
     const pid = run.stageStatuses[stageIndex] && run.stageStatuses[stageIndex].pid;
     if (pid && pid !== process.pid) {
       pipelineLog('run.stopped', { runId, pid, stageIndex });
-      try { process.kill(pid, 'SIGTERM'); } catch { /* process may already be gone */ }
+      try { process.kill(-pid, 'SIGTERM'); } catch { /* process may already be gone */ }
     }
 
     // Mark the currently-running stage as interrupted.
@@ -1121,7 +1125,7 @@ async function deleteRun(runId, dataDir) {
     const pid = run && run.stageStatuses[stageIndex] && run.stageStatuses[stageIndex].pid;
     if (pid && pid !== process.pid) {
       pipelineLog('run.aborted', { runId, pid, stageIndex });
-      try { process.kill(pid, 'SIGTERM'); } catch { /* process may already be gone */ }
+      try { process.kill(-pid, 'SIGTERM'); } catch { /* process may already be gone */ }
     }
   }
 
