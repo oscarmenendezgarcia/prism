@@ -181,7 +181,7 @@ export interface AgentRun {
 export interface BackendStageStatus {
   index: number;
   agentId: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout' | 'stall' | 'interrupted';
   startedAt: string | null;
   finishedAt: string | null;
   exitCode: number | null;
@@ -190,7 +190,7 @@ export interface BackendStageStatus {
 /** Run object returned by the backend pipeline API. */
 export interface BackendRun {
   runId: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   stages: string[];
   stageStatuses?: BackendStageStatus[];
   spaceId: string;
@@ -198,6 +198,10 @@ export interface BackendRun {
   createdAt: string;
   updatedAt?: string;
   currentStage?: number;
+  /** Zero-based stage indices where the pipeline pauses before executing. */
+  checkpoints?: number[];
+  /** Set when status === 'paused' to indicate which stage is waiting. */
+  pausedBeforeStage?: number;
 }
 
 /** The four canonical pipeline stage agent IDs. */

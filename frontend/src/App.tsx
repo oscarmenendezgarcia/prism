@@ -83,6 +83,7 @@ class ErrorBoundary extends React.Component<
 function AppContent() {
   const loadSpaces           = useAppStore((s) => s.loadSpaces);
   const loadSettings         = useAppStore((s) => s.loadSettings);
+  const loadSystemInfo       = useAppStore((s) => s.loadSystemInfo);
   const configPanelOpen        = useAppStore((s) => s.configPanelOpen);
   const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
   const pipelineState          = useAppStore((s) => s.pipelineState);
@@ -95,7 +96,8 @@ function AppContent() {
   useEffect(() => {
     loadSpaces();
     loadSettings();
-  }, [loadSpaces, loadSettings]);
+    loadSystemInfo();
+  }, [loadSpaces, loadSettings, loadSystemInfo]);
 
   // On mount: if no pipelineState is set, check for any active backend run
   // and restore it so the log panel becomes accessible (e.g. after a page

@@ -75,6 +75,7 @@ const {
 // Route patterns
 // ---------------------------------------------------------------------------
 
+const SYSTEM_INFO_ROUTE   = /^\/api\/v1\/system\/info$/;
 const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
 const SPACES_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)$/;
 // Matches /api/v1/spaces/:spaceId/tasks and everything under it.
@@ -110,6 +111,16 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
   return async function mainRouter(req, res) {
     const { method } = req;
     const urlPath    = req.url.split('?')[0];
+
+    // -------------------------------------------------------------------------
+    // System info route: GET /api/v1/system/info
+    // -------------------------------------------------------------------------
+    if (SYSTEM_INFO_ROUTE.test(urlPath)) {
+      if (method === 'GET') {
+        return sendJSON(res, 200, { platform: process.platform });
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
 
     // -------------------------------------------------------------------------
     // Tagger route: POST /api/v1/spaces/:spaceId/tagger/run

@@ -62,6 +62,11 @@ const emptyBoard = (): BoardTasks => ({
 // ---------------------------------------------------------------------------
 
 interface AppState {
+  // System info (fetched once at startup)
+  /** OS platform string from the backend — 'darwin' | 'linux' | 'win32' | ... */
+  platform: string | null;
+  loadSystemInfo: () => Promise<void>;
+
   // Spaces
   spaces: Space[];
   activeSpaceId: string;
@@ -293,6 +298,19 @@ function resolveMainTaskTitle(
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  // ── System info ─────────────────────────────────────────────────────────
+
+  platform: null,
+
+  loadSystemInfo: async () => {
+    try {
+      const info = await api.getSystemInfo();
+      set({ platform: info.platform });
+    } catch {
+      // Non-critical — caffeinate will simply not be applied if this fails.
+    }
+  },
+
   // ── Spaces ──────────────────────────────────────────────────────────────
 
   spaces: [],
@@ -1038,10 +1056,18 @@ export const useAppStore = create<AppState>((set, get) => ({
    */
   resumeInterruptedRun: async () => {
     const { pipelineState, showToast } = get();
-    if (!pipelineState?.runId || pipelineState.status !== 'interrupted') return;
+    if (!pipelineState?.runId) return;
+    if (pipelineState.status !== 'interrupted' && pipelineState.status !== 'paused') return;
     try {
       await api.resumeRun(pipelineState.runId);
-      set({ pipelineState: { ...pipelineState, status: 'running', finishedAt: undefined } });
+      set({
+        pipelineState: {
+          ...pipelineState,
+          status: 'running',
+          pausedBeforeStage: undefined,
+          finishedAt: undefined,
+        },
+      });
     } catch {
       showToast('Failed to resume run.', 'error');
     }
@@ -1170,7 +1196,7 @@ export const useAppStore = create<AppState>((set, get) => ({
    * PipelineState).
    */
   executeOrchestratorRun: async (spaceId: string, taskId: string, stages: PipelineStage[], dangerouslySkipPermissions = false) => {
-    const { showToast, tasks, spaces, availableAgents } = get();
+    const { showToast, tasks, spaces, availableAgents, platform, pipelineConfirmModal } = get();
     const terminalSender = useTerminalSessionStore.getState().activeSendInput();
     const startedAt = new Date().toISOString();
 
@@ -1195,17 +1221,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       cliCommand = generated.cliCommand;
       promptPath = generated.promptPath;
-      const sent = terminalSender(cliCommand + '\r');
+      // Part 3: caffeinate -i on macOS prevents idle sleep during long runs.
+      const finalCmd = platform === 'darwin' ? `caffeinate -i ${cliCommand}` : cliCommand;
+      const sent = terminalSender(finalCmd + '\r');
       if (!sent) {
         showToast('Could not send to terminal. Please try again.', 'error');
         return;
       }
     } else {
+      const checkpoints = pipelineConfirmModal?.checkpoints ?? [];
       // No terminal — spawn in backend.
       promptPath = '~/.claude/agents/orchestrator.md';
       cliCommand = `orchestrator (${stages.join(' → ')})`;
       try {
-        const run = await api.startRun(spaceId, taskId, ['orchestrator'], { stages, dangerouslySkipPermissions });
+        const run = await api.startRun(spaceId, taskId, ['orchestrator'], { stages, dangerouslySkipPermissions }, checkpoints);
         backendRunId = run.runId;
       } catch (err) {
         showToast(`Failed to start orchestrator run: ${(err as Error).message}`, 'error');
@@ -1276,6 +1305,21 @@ export const useAppStore = create<AppState>((set, get) => ({
           const ps = get().pipelineState;
           if (ps && ps.runId === runIdToWatch && typeof run.currentStage === 'number') {
             set({ pipelineState: { ...ps, currentStageIndex: run.currentStage } });
+          }
+          // Part 2: surface paused state so the UI can show "Continue".
+          if (run.status === 'paused') {
+            const ps = get().pipelineState;
+            if (ps && ps.runId === runIdToWatch && ps.status !== 'paused') {
+              set({
+                pipelineState: {
+                  ...ps,
+                  status: 'paused',
+                  ...(typeof run.pausedBeforeStage === 'number'
+                    ? { currentStageIndex: run.pausedBeforeStage, pausedBeforeStage: run.pausedBeforeStage }
+                    : {}),
+                },
+              });
+            }
           }
           if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
             clearInterval(pollId);
