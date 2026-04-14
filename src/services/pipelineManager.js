@@ -488,13 +488,13 @@ async function spawnStage(dataDir, run, stageIndex) {
   const logPath   = stageLogPath(dataDir, run.runId, stageIndex);
   const logStream = fs.createWriteStream(logPath, { flags: 'a' });
 
-  // Backend spawns always get --dangerously-skip-permissions: there is no user
+  // Backend spawns always get --permission-mode bypassPermissions: there is no user
   // present to respond to permission prompts, so any interactive pause would
   // hang the stage until the stall watchdog kills it.
-  const SKIP_FLAG = '--dangerously-skip-permissions';
-  const spawnArgs = agentSpec.spawnArgs.includes(SKIP_FLAG)
+  const hasPermissionMode = agentSpec.spawnArgs.includes('--permission-mode');
+  const spawnArgs = hasPermissionMode
     ? agentSpec.spawnArgs
-    : [...agentSpec.spawnArgs, SKIP_FLAG];
+    : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
   const child = spawn('claude', spawnArgs, {
     stdio:    ['pipe', 'pipe', 'pipe'],
@@ -639,9 +639,11 @@ async function spawnStage(dataDir, run, stageIndex) {
     // Guard: run may have been deleted or interrupted while the stage ran.
     if (!currentRun) return;
 
-    // Guard: if timeout or stall already fired, don't overwrite that status.
-    if (currentRun.stageStatuses[stageIndex].status === 'timeout') return;
-    if (currentRun.stageStatuses[stageIndex].status === 'stalled') return;
+    // Guard: if timeout, stall, or an explicit stop already fired, don't overwrite that status.
+    if (currentRun.stageStatuses[stageIndex].status === 'timeout')      return;
+    if (currentRun.stageStatuses[stageIndex].status === 'stalled')      return;
+    if (currentRun.stageStatuses[stageIndex].status === 'interrupted')  return;
+    if (currentRun.status === 'interrupted') return;
 
     currentRun.stageStatuses[stageIndex].exitCode   = code;
     currentRun.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
@@ -921,6 +923,39 @@ async function listRuns(dataDir) {
 }
 
 /**
+ * Stop a running pipeline: send SIGTERM to the active process, mark the run
+ * as `interrupted`, and persist the updated state.
+ *
+ * Unlike deleteRun, the run directory and state are preserved so the run can
+ * be inspected and resumed later with resumeRun.
+ *
+ * @param {string} runId
+ * @param {string} dataDir
+ * @returns {object} The updated run object, or null if the run does not exist.
+ */
+async function stopRun(runId, dataDir) {
+  const run = readRun(dataDir, runId);
+  if (!run) return null;
+
+  if (activeProcesses.has(runId)) {
+    const { process: child, stageIndex } = activeProcesses.get(runId);
+    pipelineLog('run.stopped', { runId, pid: child.pid, pgid: child.pid, stageIndex });
+    try { process.kill(-child.pid, 'SIGTERM'); } catch { /* process group may already be gone */ }
+    activeProcesses.delete(runId);
+
+    // Mark the currently-running stage as interrupted.
+    if (run.stageStatuses[stageIndex] && run.stageStatuses[stageIndex].status === 'running') {
+      run.stageStatuses[stageIndex].status = 'interrupted';
+      run.stageStatuses[stageIndex].endedAt = new Date().toISOString();
+    }
+  }
+
+  run.status = 'interrupted';
+  writeRun(dataDir, run);
+  return run;
+}
+
+/**
  * Delete a run: send SIGTERM to active process, remove run directory,
  * and remove entry from runs.json.
  *
@@ -976,6 +1011,7 @@ module.exports = {
   resumeRun,
   getRun,
   listRuns,
+  stopRun,
   deleteRun,
   abortAll,
   getActiveProcessCount,

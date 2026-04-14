@@ -340,6 +340,18 @@ export async function resumePipeline({ runId, fromStage }) {
   return request('POST', `/runs/${runId}/resume`, body);
 }
 
+/**
+ * Stop a running pipeline run by sending SIGTERM to the active stage process.
+ * The run is marked as `interrupted` and its directory is preserved so it can
+ * be resumed later with resumePipeline.
+ *
+ * @param {string} runId - The runId to stop.
+ * @returns {Promise<object|{ error: true, code: string, message: string }>}
+ */
+export async function stopPipeline(runId) {
+  return request('POST', `/runs/${runId}/stop`, {});
+}
+
 // ---------------------------------------------------------------------------
 // Activity feed — ADR-1 (Activity Feed) §T-008
 // ---------------------------------------------------------------------------

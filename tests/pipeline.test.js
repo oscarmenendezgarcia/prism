@@ -375,6 +375,96 @@ describe('pipelineManager — createRun validations', () => {
   });
 });
 
+describe('pipelineManager — stopRun', () => {
+  test('stopRun returns null for unknown runId', async () => {
+    const dataDir = tmpDir();
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    const result = await pm.stopRun('no-such-run', dataDir);
+    assert.equal(result, null);
+
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  test('stopRun marks a run as interrupted without deleting the run directory', async () => {
+    const dataDir = tmpDir();
+    const runsDir = path.join(dataDir, 'runs');
+    const runId   = 'run-stop-test';
+    const runDir  = path.join(runsDir, runId);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    const runState = {
+      runId,
+      spaceId: 'space-1',
+      taskId:  'task-1',
+      stages:  ['developer-agent'],
+      currentStage: 0,
+      status:  'running',
+      stageStatuses: [{ index: 0, agentId: 'developer-agent', status: 'running', exitCode: null, startedAt: new Date().toISOString(), endedAt: null }],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(runState), 'utf8');
+
+    const registry = [{ runId, spaceId: 'space-1', taskId: 'task-1', status: 'running', createdAt: runState.createdAt }];
+    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify(registry), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    const updated = await pm.stopRun(runId, dataDir);
+
+    // Run directory must still exist (not deleted).
+    assert.ok(fs.existsSync(runDir), 'run directory should be preserved after stop');
+
+    // Returned run has interrupted status.
+    assert.equal(updated.status, 'interrupted');
+
+    // Persisted run.json reflects the change.
+    const persisted = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
+    assert.equal(persisted.status, 'interrupted');
+
+    // Registry entry is also updated.
+    const registryAfter = JSON.parse(fs.readFileSync(path.join(runsDir, 'runs.json'), 'utf8'));
+    assert.equal(registryAfter.find((r) => r.runId === runId).status, 'interrupted');
+
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  test('stopRun on a run with no active process only updates state on disk', async () => {
+    const dataDir = tmpDir();
+    const runsDir = path.join(dataDir, 'runs');
+    const runId   = 'run-pending-stop';
+    const runDir  = path.join(runsDir, runId);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    const runState = {
+      runId,
+      spaceId: 'space-2',
+      taskId:  'task-2',
+      stages:  ['senior-architect'],
+      currentStage: 0,
+      status:  'pending',
+      stageStatuses: [{ index: 0, agentId: 'senior-architect', status: 'pending', exitCode: null, startedAt: null, endedAt: null }],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(runState), 'utf8');
+    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify([{ runId, spaceId: 'space-2', taskId: 'task-2', status: 'pending', createdAt: runState.createdAt }]), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    // No active process for this runId — stopRun should still update state.
+    const updated = await pm.stopRun(runId, dataDir);
+    assert.equal(updated.status, 'interrupted');
+    assert.ok(fs.existsSync(runDir), 'run directory should still exist');
+
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+});
+
 describe('pipelineManager — getRun, deleteRun, listRuns', () => {
   test('getRun returns null for unknown runId', async () => {
     const dataDir = tmpDir();
@@ -546,7 +636,7 @@ describe('REST integration — pipeline endpoints', () => {
       writeAgentFile(agentsDir, agentId);
     }
     process.env.PIPELINE_AGENTS_DIR    = agentsDir;
-    process.env.PIPELINE_MAX_CONCURRENT = '5';
+    process.env.PIPELINE_MAX_CONCURRENT = '20';
     // Ensure pipelineManager uses a dead Kanban URL (no real kanban move needed in these tests).
     process.env.KANBAN_API_URL = 'http://localhost:19999/api/v1';
 
@@ -706,6 +796,50 @@ describe('REST integration — pipeline endpoints', () => {
 
     assert.equal(res.status, 404);
     assert.equal(res.body.error.code, 'RUN_NOT_FOUND');
+  });
+
+  test('POST /api/v1/runs/:runId/stop returns 200 with interrupted run', async () => {
+    const { spaceId, taskId } = setupSpace();
+    const createRes = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect'] });
+    assert.equal(createRes.status, 201);
+
+    const runId  = createRes.body.runId;
+    const stopRes = await request(port, 'POST', `/api/v1/runs/${runId}/stop`);
+
+    assert.equal(stopRes.status, 200, `Expected 200, got ${stopRes.status}: ${JSON.stringify(stopRes.body)}`);
+    assert.equal(stopRes.body.runId,  runId);
+    assert.equal(stopRes.body.status, 'interrupted');
+
+    // The run must still be accessible after stop (not deleted).
+    const getRes = await request(port, 'GET', `/api/v1/runs/${runId}`);
+    assert.equal(getRes.status, 200);
+    assert.equal(getRes.body.status, 'interrupted');
+  });
+
+  test('POST /api/v1/runs/:runId/stop returns 404 for unknown runId', async () => {
+    const res = await request(port, 'POST', '/api/v1/runs/no-such-run-xyz/stop');
+
+    assert.equal(res.status, 404);
+    assert.equal(res.body.error.code, 'RUN_NOT_FOUND');
+  });
+
+  test('POST /api/v1/runs/:runId/stop returns 422 RUN_NOT_STOPPABLE when run is already completed', async () => {
+    const { spaceId, taskId } = setupSpace();
+    const createRes = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect'] });
+    assert.equal(createRes.status, 201);
+
+    const runId = createRes.body.runId;
+
+    // Force the run to completed state directly on disk.
+    const pm = require('../src/services/pipelineManager');
+    const runPath = path.join(pm.runDir(dataDir, runId), 'run.json');
+    const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    runState.status = 'completed';
+    fs.writeFileSync(runPath, JSON.stringify(runState), 'utf8');
+
+    const stopRes = await request(port, 'POST', `/api/v1/runs/${runId}/stop`);
+    assert.equal(stopRes.status, 422);
+    assert.equal(stopRes.body.error.code, 'RUN_NOT_STOPPABLE');
   });
 
   test('GET /api/v1/runs/:runId/stages/99/log returns 404 STAGE_NOT_FOUND', async () => {
