@@ -135,7 +135,7 @@ describe('agentResolver', () => {
       '--agent', 'senior-architect',
       '--print',
       '--output-format', 'stream-json',
-      '--allowedTools', 'Bash Edit Write Read Glob Grep mcp__prism__* mcp__stitch__* mcp__figma__* mcp__plugin_playwright_playwright__*',
+      '--verbose',
     ]);
 
     fs.rmSync(agentsDir, { recursive: true, force: true });
@@ -803,7 +803,28 @@ describe('REST integration — pipeline endpoints', () => {
     const createRes = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect'] });
     assert.equal(createRes.status, 201);
 
-    const runId  = createRes.body.runId;
+    const runId = createRes.body.runId;
+    const pm    = require('../src/services/pipelineManager');
+
+    // In CI the spawned claude process exits immediately (not installed), so the
+    // run quickly transitions to 'failed' before our /stop request arrives.
+    // Wait for the child to finish (up to 500ms), then force the run state back
+    // to 'running' so /stop has a deterministic non-terminal state to act on.
+    const runPath = path.join(pm.runDir(dataDir, runId), 'run.json');
+    const deadline = Date.now() + 500;
+    while (Date.now() < deadline) {
+      const s = JSON.parse(fs.readFileSync(runPath, 'utf8')).status;
+      if (s !== 'pending' && s !== 'running') break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+
+    // Overwrite disk state to 'running' — the child process has already exited,
+    // so no concurrent close-handler writes can race with our forced state.
+    const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+    runState.status = 'running';
+    if (runState.stageStatuses[0]) runState.stageStatuses[0].status = 'running';
+    fs.writeFileSync(runPath, JSON.stringify(runState), 'utf8');
+
     const stopRes = await request(port, 'POST', `/api/v1/runs/${runId}/stop`);
 
     assert.equal(stopRes.status, 200, `Expected 200, got ${stopRes.status}: ${JSON.stringify(stopRes.body)}`);
