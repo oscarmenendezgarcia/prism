@@ -620,6 +620,10 @@ async function spawnStage(dataDir, run, stageIndex) {
     const currentRun = readRun(dataDir, run.runId);
     if (!currentRun) return;
 
+    // Guard: if an explicit stop already fired, don't overwrite that status.
+    if (currentRun.stageStatuses[stageIndex].status === 'interrupted') return;
+    if (currentRun.status === 'interrupted') return;
+
     currentRun.stageStatuses[stageIndex].status     = 'failed';
     currentRun.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
     currentRun.status = 'failed';
@@ -639,10 +643,12 @@ async function spawnStage(dataDir, run, stageIndex) {
     // Guard: run may have been deleted or interrupted while the stage ran.
     if (!currentRun) return;
 
-    // Guard: if timeout, stall, or an explicit stop already fired, don't overwrite that status.
+    // Guard: if timeout, stall, explicit stop, or the error handler already
+    // set the stage to failed, don't overwrite that status.
     if (currentRun.stageStatuses[stageIndex].status === 'timeout')      return;
     if (currentRun.stageStatuses[stageIndex].status === 'stalled')      return;
     if (currentRun.stageStatuses[stageIndex].status === 'interrupted')  return;
+    if (currentRun.stageStatuses[stageIndex].status === 'failed')       return;
     if (currentRun.status === 'interrupted') return;
 
     currentRun.stageStatuses[stageIndex].exitCode   = code;
