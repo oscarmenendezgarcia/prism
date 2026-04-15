@@ -157,7 +157,7 @@ interface AppState {
 
   /** Prepared run waiting in the prompt preview modal. */
   preparedRun: PreparedRun | null;
-  prepareAgentRun: (taskId: string, agentId: string, dangerouslySkipPermissions?: boolean) => Promise<void>;
+  prepareAgentRun: (taskId: string, agentId: string, dangerouslySkipPermissions?: boolean, skipPreview?: boolean) => Promise<void>;
   clearPreparedRun: () => void;
 
   /** Execute the prepared run — injects command into the terminal PTY. */
@@ -636,7 +636,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   preparedRun:      null,
   promptPreviewOpen: false,
 
-  prepareAgentRun: async (taskId: string, agentId: string, dangerouslySkipPermissions = false) => {
+  prepareAgentRun: async (taskId: string, agentId: string, dangerouslySkipPermissions = false, skipPreview = false) => {
     const { activeSpaceId, agentSettings, showToast } = get();
     try {
       const result = await api.generatePrompt({
@@ -657,7 +657,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           promptFull:      result.promptFull,
           estimatedTokens: result.estimatedTokens,
         },
-        promptPreviewOpen: true,
+        promptPreviewOpen: !skipPreview,
       });
     } catch (err) {
       showToast(`Failed to prepare agent run: ${(err as Error).message}`, 'error');
@@ -958,7 +958,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     showToast(`Stage ${nextIndex + 1}: ${agentDisplayName}`);
     // Pass the original task ID — no sub-tasks created.
-    await get().prepareAgentRun(pipelineState.taskId, nextStage, pipelineState.dangerouslySkipPermissions);
+    await get().prepareAgentRun(pipelineState.taskId, nextStage, pipelineState.dangerouslySkipPermissions, true);
 
     // Auto-execute: skip the prompt preview modal and run immediately.
     const autoAdvance = get().agentSettings?.pipeline?.autoAdvance ?? true;
@@ -1047,7 +1047,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       availableAgents.find((a) => a.id === resumeStage)?.displayName ?? resumeStage;
 
     showToast(`Pipeline resumed — Stage ${resumeIndex + 1}: ${agentDisplayName}`);
-    await get().prepareAgentRun(pipelineState.taskId, resumeStage, pipelineState.dangerouslySkipPermissions);
+    await get().prepareAgentRun(pipelineState.taskId, resumeStage, pipelineState.dangerouslySkipPermissions, true);
   },
 
   /**
