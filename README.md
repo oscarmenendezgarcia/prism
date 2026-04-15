@@ -1,7 +1,7 @@
 # Prism
 
 [![CI](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml/badge.svg)](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-0.1.0--beta-blue)
+![version](https://img.shields.io/badge/version-0.2.0--beta-blue)
 
 **A Kanban board built for Claude Code agents.**
 
