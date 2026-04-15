@@ -1272,6 +1272,147 @@ describe('pipelineManager — checkpoints', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Loop injection tests
+// ---------------------------------------------------------------------------
+
+describe('Loop injection — stage-N.inject signal', () => {
+  // -------------------------------------------------------------------------
+  // Unit tests — readInjectSignal directly (no polling loop needed)
+  // -------------------------------------------------------------------------
+
+  test('stageInjectPath returns expected path', () => {
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm     = require('../src/services/pipelineManager');
+    const result = pm.stageInjectPath('/tmp/data', 'my-run', 3);
+    assert.ok(result.endsWith('stage-3.inject'), `Expected path ending in stage-3.inject, got ${result}`);
+  });
+
+  test('readInjectSignal returns [] when inject file is absent', () => {
+    const dataDir = tmpDir();
+    fs.mkdirSync(path.join(dataDir, 'runs', 'r1'), { recursive: true });
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm  = require('../src/services/pipelineManager');
+    const run = { loopCounts: {} };
+    const result = pm.readInjectSignal(dataDir, 'r1', 0, 'code-reviewer', run);
+    assert.deepEqual(result, [], 'should return [] when no inject file');
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  test('readInjectSignal returns stages from valid inject file', () => {
+    const dataDir = tmpDir();
+    const rDir    = path.join(dataDir, 'runs', 'r1');
+    fs.mkdirSync(rDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(rDir, 'stage-2.inject'),
+      JSON.stringify(['developer-agent', 'code-reviewer']),
+      'utf8',
+    );
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm     = require('../src/services/pipelineManager');
+    const run    = { loopCounts: {} };
+    const result = pm.readInjectSignal(dataDir, 'r1', 2, 'code-reviewer', run);
+    assert.deepEqual(result, ['developer-agent', 'code-reviewer']);
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  test('readInjectSignal returns [] when loop cap is reached', () => {
+    const dataDir = tmpDir();
+    const rDir    = path.join(dataDir, 'runs', 'r1');
+    fs.mkdirSync(rDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(rDir, 'stage-2.inject'),
+      JSON.stringify(['developer-agent', 'code-reviewer']),
+      'utf8',
+    );
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm     = require('../src/services/pipelineManager');
+    const run    = { loopCounts: { 'code-reviewer': 5 } }; // cap = 5
+    const result = pm.readInjectSignal(dataDir, 'r1', 2, 'code-reviewer', run);
+    assert.deepEqual(result, [], 'should return [] when loop cap reached');
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  test('readInjectSignal returns [] for malformed JSON', () => {
+    const dataDir = tmpDir();
+    const rDir    = path.join(dataDir, 'runs', 'r1');
+    fs.mkdirSync(rDir, { recursive: true });
+    fs.writeFileSync(path.join(rDir, 'stage-0.inject'), 'not valid json{{{', 'utf8');
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm     = require('../src/services/pipelineManager');
+    const run    = { loopCounts: {} };
+    const result = pm.readInjectSignal(dataDir, 'r1', 0, 'agent-x', run);
+    assert.deepEqual(result, [], 'malformed JSON should be ignored');
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  test('readInjectSignal returns [] for non-array JSON', () => {
+    const dataDir = tmpDir();
+    const rDir    = path.join(dataDir, 'runs', 'r1');
+    fs.mkdirSync(rDir, { recursive: true });
+    fs.writeFileSync(path.join(rDir, 'stage-0.inject'), JSON.stringify({ foo: 'bar' }), 'utf8');
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm     = require('../src/services/pipelineManager');
+    const run    = { loopCounts: {} };
+    const result = pm.readInjectSignal(dataDir, 'r1', 0, 'agent-x', run);
+    assert.deepEqual(result, [], 'non-array JSON should be ignored');
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  // -------------------------------------------------------------------------
+  // Integration test — full pipeline with PIPELINE_NO_SPAWN=1
+  // The inject file is written after createRun returns but before the polling
+  // loop detects stage-0.done (poll interval = 2 s).
+  // -------------------------------------------------------------------------
+
+  test('inject file written before poll fires → stages injected into run', async () => {
+    const dataDir   = tmpDir();
+    const agentsDir = path.join(dataDir, 'agents');
+    // Three-stage pipeline: agent-a → agent-b (will request loop) → agent-c
+    writeAgentFile(agentsDir, 'agent-a');
+    writeAgentFile(agentsDir, 'agent-b');
+    writeAgentFile(agentsDir, 'agent-c');
+
+    const { spaceId, taskId } = createSpaceWithTask(dataDir, `space-loop-${crypto.randomUUID()}`);
+
+    // Keep env vars set throughout the entire pipeline run (not just createRun).
+    process.env.PIPELINE_NO_SPAWN   = '1';
+    process.env.PIPELINE_AGENTS_DIR = agentsDir;
+    process.env.PIPELINE_RUNS_DIR   = path.join(dataDir, 'runs');
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    const run = await pm.createRun({
+      spaceId, taskId,
+      stages:  ['agent-a', 'agent-b', 'agent-c'],
+      dataDir,
+    });
+
+    // Stage-0's done file is written synchronously in spawnStage (PIPELINE_NO_SPAWN).
+    // The poll interval is 2 s, so we have ~2 s to write the inject file for stage-1
+    // before the poll fires and calls executeNextStage → spawnStage(1).
+    const injectFile = pm.stageInjectPath(dataDir, run.runId, 1);
+    fs.writeFileSync(injectFile, JSON.stringify(['agent-a', 'agent-b']), 'utf8');
+
+    // Wait long enough for: poll0 (2s) + spawnStage1 + poll1 (2s) + handleStageClose1.
+    await new Promise((r) => setTimeout(r, 5500));
+
+    delete process.env.PIPELINE_NO_SPAWN;
+    delete process.env.PIPELINE_AGENTS_DIR;
+    delete process.env.PIPELINE_RUNS_DIR;
+
+    const after = JSON.parse(fs.readFileSync(path.join(pm.runDir(dataDir, run.runId), 'run.json'), 'utf8'));
+    assert.ok(after.stages.length >= 5, `Expected ≥5 stages after injection, got ${after.stages.length}`);
+    assert.equal(after.stages[2], 'agent-a', 'first injected stage');
+    assert.equal(after.stages[3], 'agent-b', 'second injected stage');
+    assert.equal(after.stages[4], 'agent-c', 'original third stage shifted');
+    assert.equal((after.loopCounts || {})['agent-b'], 1, 'loopCount for agent-b should be 1');
+
+    await pm.abortAll(dataDir).catch(() => {});
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Pipeline resilience tests — Part 2: REST checkpoint integration
 // ---------------------------------------------------------------------------
 

@@ -240,7 +240,15 @@ _No deviations found_ (if clean)
 | `APPROVED_WITH_NOTES` | Only MINOR deviations and/or non-security code issues |
 | `CHANGES_REQUIRED` | Any CRITICAL or MAJOR design deviation, or any security issue |
 
-**If verdict is `CHANGES_REQUIRED`**: do NOT proceed to QA. The pipeline should return to `developer-agent` with this report as input.
+**If verdict is `CHANGES_REQUIRED`**: write the loop-injection signal file **before** writing the done sentinel so the pipeline re-runs the developer and then this reviewer:
+
+```bash
+# RunId and StageIndex are available in the prompt as RunId / StageIndex.
+# Path pattern: data/runs/<RunId>/stage-<StageIndex>.inject
+echo '["developer-agent","code-reviewer"]' > data/runs/<RunId>/stage-<StageIndex>.inject
+```
+
+The pipeline manager reads this file automatically and injects those stages immediately after the current one (subject to a loop cap of 5). Do NOT write the file for `APPROVED` or `APPROVED_WITH_NOTES` verdicts.
 
 ---
 

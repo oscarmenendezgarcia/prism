@@ -197,6 +197,66 @@ function shellEscape(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
 }
 
+// ---------------------------------------------------------------------------
+// Loop injection helpers
+// ---------------------------------------------------------------------------
+
+const DEFAULT_MAX_LOOPS = 5;
+
+/**
+ * Path to the inject-signal file written by an agent to request stage injection.
+ *
+ * An agent writes this file (JSON array of agent IDs) before exiting to ask the
+ * pipeline to insert those stages immediately after the current one.  The manager
+ * reads it after detecting the done-sentinel and injects accordingly.
+ *
+ * Example content:  ["developer-agent", "code-reviewer"]
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {number} stageIndex
+ * @returns {string}
+ */
+function stageInjectPath(dataDir, runId, stageIndex) {
+  return path.join(runDir(dataDir, runId), `stage-${stageIndex}.inject`);
+}
+
+/**
+ * Read the inject-signal file for a completed stage.
+ * Returns the array of agent IDs to inject, or [] if the file is absent/invalid.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {number} stageIndex
+ * @param {string} agentId     - The agent that just completed (used for loop-cap tracking).
+ * @param {object} run         - Current run state (read-only here).
+ * @returns {string[]}
+ */
+function readInjectSignal(dataDir, runId, stageIndex, agentId, run) {
+  const injectFile = stageInjectPath(dataDir, runId, stageIndex);
+  if (!fs.existsSync(injectFile)) return [];
+
+  let stages;
+  try {
+    stages = JSON.parse(fs.readFileSync(injectFile, 'utf8'));
+  } catch {
+    pipelineLog('run.inject_parse_error', { runId, stageIndex, agentId });
+    return [];
+  }
+
+  if (!Array.isArray(stages) || stages.length === 0) return [];
+
+  // Enforce loop cap: count how many times this agent has already triggered a loop.
+  const maxLoops   = parseInt(process.env.PIPELINE_MAX_LOOPS || String(DEFAULT_MAX_LOOPS), 10);
+  const loopCounts = run.loopCounts || {};
+  if ((loopCounts[agentId] || 0) >= maxLoops) {
+    pipelineLog('run.loop_cap_reached', { runId, stageIndex, agentId, loopCounts });
+    return [];
+  }
+
+  return stages;
+}
+
 /**
  * Return true if a process with the given PID is alive.
  * Uses kill(pid, 0) — signal 0 does not kill but checks existence.
@@ -300,10 +360,30 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
 
   stage.status       = 'completed';
   run.currentStage   = stageIndex + 1;
-  writeRun(dataDir, run);
   pipelineLog('stage.done', { runId, stageIndex, agentId, exitCode, durationMs });
 
-  // Part 2: pause before the next stage if it is a checkpoint.
+  // Part 2: inject stages requested by the agent via the stage-N.inject signal file.
+  const stagesToInject = readInjectSignal(dataDir, runId, stageIndex, agentId, run);
+  if (stagesToInject.length > 0) {
+    const insertAt = run.currentStage;
+    run.stages.splice(insertAt, 0, ...stagesToInject);
+    run.stageStatuses.splice(insertAt, 0, ...stagesToInject.map((id) => ({
+      agentId:    id,
+      status:     'pending',
+      exitCode:   null,
+      startedAt:  null,
+      finishedAt: null,
+    })));
+    // Re-index every entry so index === position in array.
+    run.stageStatuses.forEach((s, i) => { s.index = i; });
+    run.loopCounts = run.loopCounts || {};
+    run.loopCounts[agentId] = (run.loopCounts[agentId] || 0) + 1;
+    pipelineLog('run.loop_injected', { runId, agentId, stagesToInject, loopCount: run.loopCounts[agentId] });
+  }
+
+  writeRun(dataDir, run);
+
+  // Part 3: pause before the next stage if it is a checkpoint.
   const nextStage = stageIndex + 1;
   if (nextStage < run.stages.length && (run.checkpoints ?? []).includes(nextStage)) {
     const freshRun = readRun(dataDir, runId);
@@ -564,15 +644,17 @@ async function moveKanbanTask(spaceId, taskId, column) {
  * This is the single source of truth used by both spawnStage() (actual
  * execution) and handlePreviewPrompts() (dry-run preview endpoint).
  *
- * @param {string}   dataDir    - Root data directory.
- * @param {string}   spaceId    - Kanban space containing the task.
- * @param {string}   taskId     - Task ID to build the prompt for.
- * @param {number}   stageIndex - Zero-based index of this stage in the run.
- * @param {string}   agentId    - Agent ID for this stage.
- * @param {string[]} stages     - Full ordered list of agent IDs in the pipeline.
+ * @param {string}   dataDir          - Root data directory.
+ * @param {string}   spaceId          - Kanban space containing the task.
+ * @param {string}   taskId           - Task ID to build the prompt for.
+ * @param {number}   stageIndex       - Zero-based index of this stage in the run.
+ * @param {string}   agentId          - Agent ID for this stage.
+ * @param {string[]} stages           - Full ordered list of agent IDs in the pipeline.
+ * @param {string}   [workingDirectory]
+ * @param {string}   [runId]          - Run ID, included so agents can write stage-N.inject.
  * @returns {{ promptText: string, estimatedTokens: number }}
  */
-function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages, workingDirectory) {
+function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages, workingDirectory, runId) {
   // readTaskFromSpace uses path.join(baseDataDir, spaceId) for legacy layout.
   // The production data layout is data/spaces/<spaceId>/, so pass the spaces dir.
   const spacesDir = path.join(dataDir, 'spaces');
@@ -586,6 +668,11 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
 
   // Tell the agent whether it is the last stage so it knows to move the task to done.
   promptText += `LastStage: ${isLastStage}\n`;
+
+  // Provide run context so agents can write the loop-inject signal file if needed.
+  if (runId) {
+    promptText += `RunId: ${runId}\nStageIndex: ${stageIndex}\n`;
+  }
 
   // Include working directory if set — tells the agent where to cd into.
   if (workingDirectory) {
@@ -707,7 +794,7 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   // Build the task prompt to pass via stdin.
   const { promptText: taskPrompt } = buildStagePrompt(
-    dataDir, run.spaceId, run.taskId, stageIndex, agentId, run.stages, run.workingDirectory,
+    dataDir, run.spaceId, run.taskId, stageIndex, agentId, run.stages, run.workingDirectory, run.runId,
   );
 
   // T-002: Persist the prompt to disk before piping it to the child process.
@@ -1212,6 +1299,8 @@ module.exports = {
   stageLogPath,
   stagePromptPath,
   stageDonePath,
+  stageInjectPath,
+  readInjectSignal,
   buildStagePrompt,
   shellEscape,
   DEFAULT_STAGES,

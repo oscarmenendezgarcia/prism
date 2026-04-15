@@ -182,6 +182,18 @@ For each issue found:
 - **OWASP Reference** (if security): [e.g., A01:2021 Broken Access Control]
 ```
 
+### Loop injection
+
+If `bugs.md` contains **at least one unresolved Critical or High severity bug**, write the loop-injection signal file before finishing so the pipeline re-runs the developer and then this QA agent:
+
+```bash
+# RunId and StageIndex are provided in the prompt.
+# Path pattern: data/runs/<RunId>/stage-<StageIndex>.inject
+echo '["developer-agent","qa-engineer-e2e"]' > data/runs/<RunId>/stage-<StageIndex>.inject
+```
+
+The pipeline manager reads this file automatically and injects those stages (subject to a loop cap of 5). Do NOT write the file when there are only Medium or Low bugs.
+
 ---
 
 ## Quality Gates
