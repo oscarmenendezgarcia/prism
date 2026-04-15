@@ -113,6 +113,40 @@ Write or update tests alongside implementation. Never write a test that duplicat
 
 ---
 
+## Step 5 — Push branch and open PR (MANDATORY, always last)
+
+After all commits and tests pass:
+
+```bash
+git push -u origin <branch>
+```
+
+Then create the PR:
+```bash
+gh pr create --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
+## Summary
+- bullet-point list of what was implemented
+
+## Artifacts
+- ADR: agent-docs/<feature>/ADR-N.md
+- Blueprint: agent-docs/<feature>/blueprint.md
+
+## Test plan
+- [ ] All existing tests pass
+- [ ] New tests cover >90% of changed code
+- [ ] [specific manual checks if needed]
+
+🤖 Generated with Claude Code
+EOF
+)"
+```
+
+Report the PR URL in the task output and attach it to the Kanban task.
+
+**Never skip this step.** The PR is the user's review gate — they approve and merge; you never merge directly.
+
+---
+
 ## Output format
 
 ```
@@ -166,6 +200,11 @@ A task is only `done` when every item is checked.
 - [ ] Diffs are atomic (one commit per task)
 - [ ] Changelog complete
 - [ ] "Open Questions / Risks" filled in (even if "none")
+
+**PR**
+- [ ] Branch pushed: `git push -u origin <branch>`
+- [ ] PR created with `gh pr create` and URL reported
+- [ ] PR URL attached to Kanban task
 
 ---
 

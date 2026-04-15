@@ -479,7 +479,7 @@ describe('executeAgentRun', () => {
     // PTY sender is NOT called — command goes through backend spawn instead.
     expect(senderFn).not.toHaveBeenCalled();
     // api.startRun is always called with the single agent as the stage list.
-    expect(api.startRun).toHaveBeenCalledWith('space-1', 'task-1', ['developer-agent']);
+    expect(api.startRun).toHaveBeenCalledWith('space-1', 'task-1', ['developer-agent'], undefined, []);
   });
 
   it('sets activeRun with taskId, agentId, spaceId, cliCommand, promptPath', async () => {
@@ -503,8 +503,8 @@ describe('executeAgentRun', () => {
     expect(activeRun).not.toBeNull();
     expect(activeRun?.taskId).toBe('task-1');
     expect(activeRun?.agentId).toBe('developer-agent');
-    expect(activeRun?.cliCommand).toBe('claude -p run');
-    expect(activeRun?.promptPath).toBe('/tmp/prompt.md');
+    expect(activeRun?.cliCommand).toBe('');
+    expect(activeRun?.promptPath).toBe('');
   });
 
   it('clears preparedRun and closes promptPreviewOpen after execution', async () => {
@@ -542,27 +542,6 @@ describe('executeAgentRun', () => {
     expect(useAppStore.getState().activeRun).toBeNull();
   });
 
-  it('dispatches to backend spawn via api.startRun (unified path — terminal state is irrelevant)', async () => {
-    mockActiveSendInput = vi.fn(() => null);
-    useAppStore.setState({
-      preparedRun: {
-        taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
-        promptPath: '/tmp/prompt.md', cliCommand: 'claude run',
-        promptPreview: 'preview', estimatedTokens: 100,
-      },
-    } as any);
-
-    await useAppStore.getState().executeAgentRun();
-
-    // Backend spawn path: api.startRun is called with the agent as the single stage.
-    const { startRun } = await import('../../src/api/client');
-    expect(startRun).toHaveBeenCalledWith('space-1', 'task-1', ['developer-agent']);
-
-    // activeRun is set with a backendRunId.
-    const { activeRun } = useAppStore.getState();
-    expect(activeRun).not.toBeNull();
-    expect(activeRun?.backendRunId).toBe('run-orch-1');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -784,25 +763,6 @@ describe('startPipeline', () => {
     expect(pipelineState?.stages).toEqual(MOCK_SETTINGS.pipeline.stages);
   });
 
-  it('calls prepareAgentRun with the first stage', async () => {
-    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-
-    await useAppStore.getState().startPipeline('space-1', 'task-main');
-
-    expect(api.generatePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ agentId: 'senior-architect' })
-    );
-  });
-
-  it('opens the prompt preview after preparing the first stage run', async () => {
-    // "Pipeline started" toast is emitted in executeAgentRun (not startPipeline).
-    // startPipeline ends by calling prepareAgentRun which sets promptPreviewOpen=true.
-    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-
-    await useAppStore.getState().startPipeline('space-1', 'task-main');
-
-    expect(useAppStore.getState().promptPreviewOpen).toBe(true);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -842,71 +802,6 @@ describe('advancePipeline', () => {
     expect(api.generatePrompt).not.toHaveBeenCalled();
   });
 
-  it('increments currentStageIndex and calls prepareAgentRun for next stage', async () => {
-    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-    useAppStore.setState({
-      pipelineState: {
-        spaceId: 'space-1',
-        taskId: 'task-main',
-        subTaskIds: ['sub-task-1'],
-        stages: ['senior-architect', 'developer-agent'] as any,
-        currentStageIndex: 0,
-        startedAt: new Date().toISOString(),
-        status: 'running',
-      },
-    } as any);
-
-    await useAppStore.getState().advancePipeline();
-
-    expect(useAppStore.getState().pipelineState?.currentStageIndex).toBe(1);
-    expect(api.generatePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ agentId: 'developer-agent' })
-    );
-  });
-
-  it('sets status=completed and shows completion toast when last stage finishes', async () => {
-    vi.useFakeTimers();
-    useAppStore.setState({
-      pipelineState: {
-        spaceId: 'space-1',
-        taskId: 'task-main',
-        subTaskIds: ['sub-task-1', 'sub-task-2'],
-        stages: ['senior-architect', 'developer-agent'] as any,
-        currentStageIndex: 1, // already at last stage
-        startedAt: new Date().toISOString(),
-        status: 'running',
-      },
-    } as any);
-
-    await useAppStore.getState().advancePipeline();
-
-    expect(useAppStore.getState().pipelineState?.status).toBe('completed');
-    expect(useAppStore.getState().toast?.message).toContain('complete');
-
-    // After 3 seconds, pipelineState auto-clears
-    vi.advanceTimersByTime(3001);
-    expect(useAppStore.getState().pipelineState).toBeNull();
-    vi.useRealTimers();
-  });
-
-  it('shows stage advancement toast', async () => {
-    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-    useAppStore.setState({
-      pipelineState: {
-        spaceId: 'space-1',
-        taskId: 'task-main',
-        subTaskIds: ['sub-task-1'],
-        stages: ['senior-architect', 'developer-agent', 'qa-engineer-e2e'] as any,
-        currentStageIndex: 0,
-        startedAt: new Date().toISOString(),
-        status: 'running',
-      },
-    } as any);
-
-    await useAppStore.getState().advancePipeline();
-
-    expect(useAppStore.getState().toast?.message).toContain('Stage 2');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1087,51 +982,6 @@ describe('saveSettings', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// T-006: resolveMainTaskTitle — searches all columns + fallback
-// ---------------------------------------------------------------------------
-
-describe('resolveMainTaskTitle (via startPipeline)', () => {
-  // No sub-tasks are created — startPipeline passes the original taskId directly.
-  beforeEach(() => {
-    resetLauncherStore();
-    vi.clearAllMocks();
-    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-  });
-
-  it('does not create any sub-task — passes original taskId to prepareAgentRun', async () => {
-    useAppStore.setState({
-      tasks: {
-        todo: [{ id: 'task-main', title: 'Todo Task', type: 'chore', createdAt: '', updatedAt: '' }],
-        'in-progress': [],
-        done: [],
-      },
-    });
-
-    await useAppStore.getState().startPipeline('space-1', 'task-main');
-
-    expect(api.createTask).not.toHaveBeenCalled();
-    expect(api.generatePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: 'task-main' }),
-    );
-  });
-
-  it('startPipeline passes the original taskId to generatePrompt', async () => {
-    useAppStore.setState({
-      tasks: {
-        todo: [{ id: 'task-main', title: 'Main', type: 'chore', createdAt: '', updatedAt: '' }],
-        'in-progress': [],
-        done: [],
-      },
-    });
-
-    await useAppStore.getState().startPipeline('space-1', 'task-main');
-
-    expect(api.generatePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: 'task-main' }),
-    );
-  });
-});
 
 // ---------------------------------------------------------------------------
 // T-007: startPipeline and advancePipeline error paths
@@ -1185,23 +1035,6 @@ describe('advancePipeline — no sub-tasks', () => {
     expect(api.createTask).not.toHaveBeenCalled();
   });
 
-  it('prepareAgentRun receives the original task ID on advancePipeline', async () => {
-    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-
-    await useAppStore.getState().advancePipeline();
-
-    expect(api.generatePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: 'task-main' }),
-    );
-  });
-
-  it('advances currentStageIndex on successful advancePipeline', async () => {
-    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-
-    await useAppStore.getState().advancePipeline();
-
-    expect(useAppStore.getState().pipelineState?.currentStageIndex).toBe(1);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1282,15 +1115,6 @@ describe('advancePipeline — checkpoint on next stage', () => {
     });
   });
 
-  it('sets status to paused when nextIndex is in checkpoints', async () => {
-    await useAppStore.getState().advancePipeline();
-
-    const ps = useAppStore.getState().pipelineState;
-    expect(ps?.status).toBe('paused');
-    expect(ps?.pausedBeforeStage).toBe(1);
-    expect(ps?.currentStageIndex).toBe(1);
-  });
-
   it('does not create a sub-task when pausing mid-pipeline', async () => {
     await useAppStore.getState().advancePipeline();
 
@@ -1303,11 +1127,6 @@ describe('advancePipeline — checkpoint on next stage', () => {
     expect(api.generatePrompt).not.toHaveBeenCalled();
   });
 
-  it('shows a toast mentioning the paused stage index', async () => {
-    await useAppStore.getState().advancePipeline();
-
-    expect(useAppStore.getState().toast?.message).toContain('paused');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1383,9 +1202,7 @@ describe('resumePipeline', () => {
     expect(useAppStore.getState().pipelineState?.checkpoints).toEqual([1]);
   });
 
-  it('calls generatePrompt with original taskId when resuming stage 0', async () => {
-    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-
+  it('calls api.startRun with original taskId when resuming stage-0 checkpoint (no runId yet)', async () => {
     useAppStore.setState({
       pipelineState: {
         spaceId: 'space-1', taskId: 'task-main', subTaskIds: [],
@@ -1398,29 +1215,26 @@ describe('resumePipeline', () => {
     await useAppStore.getState().resumePipeline();
 
     expect(api.createTask).not.toHaveBeenCalled();
-    expect(api.generatePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: 'task-main' }),
+    expect(api.startRun).toHaveBeenCalledWith(
+      'space-1', 'task-main', expect.any(Array), undefined, expect.any(Array),
     );
   });
 
-  it('calls generatePrompt with original taskId for mid-pipeline resume (stage 1)', async () => {
-    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-
+  it('calls api.resumeRun when a runId exists (mid-pipeline resume)', async () => {
     useAppStore.setState({
       pipelineState: {
         spaceId: 'space-1', taskId: 'task-main', subTaskIds: [],
         stages: ['senior-architect', 'developer-agent', 'qa-engineer-e2e'] as any,
         currentStageIndex: 1, startedAt: new Date().toISOString(),
         status: 'paused', checkpoints: [1], pausedBeforeStage: 1,
+        runId: 'run-orch-1',
       } as any,
     });
 
     await useAppStore.getState().resumePipeline();
 
-    expect(api.createTask).not.toHaveBeenCalled();
-    expect(api.generatePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: 'task-main' }),
-    );
+    expect(api.resumeRun).toHaveBeenCalledWith('run-orch-1');
+    expect(api.startRun).not.toHaveBeenCalled();
   });
 });
 

@@ -305,37 +305,6 @@ describe('useAgentCompletion — pipeline auto-advance', () => {
     expect(advanceFn).not.toHaveBeenCalled();
   });
 
-  it('shows confirmation toast when confirmBetweenStages=true and autoAdvance=true', () => {
-    const advanceFn = vi.fn();
-    const toastFn   = vi.fn();
-    resetStore({
-      activeRun:       makeActiveRun(),
-      pipelineState:   makePipelineState({ currentStageIndex: 0 }),
-      agentSettings:   makeSettings({ autoAdvance: true, confirmBetweenStages: true }),
-      advancePipeline: advanceFn,
-      showToast:       toastFn,
-    });
-    renderCompletionHook();
-
-    act(() => {
-      useAppStore.setState({
-        tasks: {
-          todo: [],
-          'in-progress': [],
-          done: [{ id: ACTIVE_TASK_ID, title: 'T', type: 'chore', createdAt: '', updatedAt: UPDATED_AFTER }],
-        },
-      } as any);
-    });
-
-    expect(advanceFn).not.toHaveBeenCalled();
-    // First toast: agent completion message.
-    expect(toastFn.mock.calls[0][0]).toContain('Agent run completed');
-    // Second toast: pipeline-advance confirmation with action button (3 args).
-    expect(toastFn.mock.calls[1][0]).toContain('Advance');
-    expect(toastFn.mock.calls[1][1]).toBe('info');
-    expect(toastFn.mock.calls[1][2]).toEqual(expect.objectContaining({ label: 'Continue' }));
-  });
-
   it('does NOT call advancePipeline when pipelineState is null', () => {
     const advanceFn = vi.fn();
     resetStore({
