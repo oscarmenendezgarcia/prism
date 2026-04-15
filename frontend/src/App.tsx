@@ -8,7 +8,7 @@
  *   Portals: modals + Toast
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect } from 'react'; // useEffect kept for loadSpaces/loadSettings/loadSystemInfo
 import { Header } from '@/components/layout/Header';
 import { SpaceTabs } from '@/components/layout/SpaceTabs';
 import { Board } from '@/components/board/Board';
@@ -35,8 +35,6 @@ import { useAgentCompletion } from '@/hooks/useAgentCompletion';
 import { useRunHistoryPolling } from '@/hooks/useRunHistoryPolling';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
-import { listRuns, getBackendRun } from '@/api/client';
-import type { PipelineStage, PipelineState } from '@/types';
 
 /** React Error Boundary to prevent white-screen crashes. */
 class ErrorBoundary extends React.Component<
@@ -87,7 +85,6 @@ function AppContent() {
   const configPanelOpen        = useAppStore((s) => s.configPanelOpen);
   const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
   const pipelineState          = useAppStore((s) => s.pipelineState);
-  const attachRun              = useAppStore((s) => s.attachRun);
   const historyPanelOpen       = useRunHistoryStore((s) => s.historyPanelOpen);
   const logPanelOpen           = usePipelineLogStore((s) => s.logPanelOpen);
 
@@ -99,39 +96,7 @@ function AppContent() {
     loadSystemInfo();
   }, [loadSpaces, loadSettings, loadSystemInfo]);
 
-  // On mount: if no pipelineState is set, check for any active backend run
-  // and restore it so the log panel becomes accessible (e.g. after a page
-  // refresh or a backend resume).
-  useEffect(() => {
-    if (pipelineState !== null) return;
-    listRuns()
-      .then(async (runs) => {
-        const active = runs
-          .filter((r) => ['running', 'interrupted', 'failed'].includes(r.status))
-          .sort((a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime())[0];
-        if (!active) return;
-        const full = await getBackendRun(active.runId);
-        const psStatus: PipelineState['status'] =
-          full.status === 'interrupted' || full.status === 'failed' ? 'interrupted'
-          : full.status === 'completed'                             ? 'completed'
-          : 'running';
-        attachRun({
-          spaceId:           full.spaceId,
-          taskId:            full.taskId,
-          stages:            full.stages as PipelineStage[],
-          currentStageIndex: full.currentStage ?? 0,
-          startedAt:         full.createdAt,
-          finishedAt:        psStatus !== 'running' ? full.updatedAt : undefined,
-          status:            psStatus,
-          runId:             full.runId,
-          subTaskIds:        [],
-          checkpoints:       [],
-        });
-      })
-      .catch(() => {});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  usePolling();
+  usePolling(); // includes external-run detection on each idle tick
   useAgentCompletion();
   useRunHistoryPolling();
 

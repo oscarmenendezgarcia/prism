@@ -78,7 +78,7 @@ Use the **Kanban MCP tools** exclusively — never use curl for Kanban operation
 ### 0.1 — Ensure the server is running
 
 ```bash
-pgrep -f "node server.js" > /dev/null || \
+curl -s http://localhost:3000/ > /dev/null 2>&1 || \
   (cd /Users/oscarmenendezgarcia/Documents/IdeaProjects/platform/new/prism && node server.js &)
 sleep 1
 ```

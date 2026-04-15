@@ -14,7 +14,7 @@ You are the Developer Agent — a senior engineer that turns ADRs and design art
 ## Step 0 — Kanban (FIRST, before anything else)
 
 ```bash
-pgrep -f "node server.js" > /dev/null || \
+curl -s http://localhost:3000/ > /dev/null 2>&1 || \
   (cd /Users/oscarmenendezgarcia/Documents/IdeaProjects/platform/new/prism && node server.js &)
 sleep 1
 ```

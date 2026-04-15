@@ -777,6 +777,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       const pollId = setInterval(async () => {
         try {
           const run = await api.getBackendRun(backendRunId);
+          if (run.status === 'interrupted') {
+            // Surface the interrupted state so InterruptedBanner shows.
+            // The user can then Resume (re-runs the stage) or Abort.
+            clearInterval(pollId);
+            set({ _agentRunPollId: null });
+            get().clearActiveRun();
+            const ps = get().pipelineState;
+            if (ps && ps.runId === backendRunId && ps.status !== 'interrupted') {
+              set({ pipelineState: { ...ps, status: 'interrupted' } });
+            }
+            return;
+          }
           if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
             clearInterval(pollId);
             set({ _agentRunPollId: null });
@@ -1155,6 +1167,17 @@ export const useAppStore = create<AppState>((set, get) => ({
           const ps = get().pipelineState;
           if (ps && ps.runId === runIdToWatch && typeof run.currentStage === 'number') {
             set({ pipelineState: { ...ps, currentStageIndex: run.currentStage } });
+          }
+          // Surface interrupted state so InterruptedBanner shows.
+          if (run.status === 'interrupted') {
+            clearInterval(pollId);
+            set({ _agentRunPollId: null });
+            get().clearActiveRun();
+            const ps2 = get().pipelineState;
+            if (ps2 && ps2.runId === runIdToWatch && ps2.status !== 'interrupted') {
+              set({ pipelineState: { ...ps2, status: 'interrupted' } });
+            }
+            return;
           }
           // Part 2: surface paused state so the UI can show "Continue".
           if (run.status === 'paused') {
