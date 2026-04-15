@@ -735,13 +735,11 @@ async function spawnStage(dataDir, run, stageIndex) {
   // Build shell command: shell wrapper reads prompt from file, appends to log,
   // writes exit code to done-sentinel when finished.
   // spawn() with detached=true gives sh its own process group (PGID = child.pid).
-  // Kill uses -pid (negative) to send SIGTERM to the entire group: sh + claude + caffeinate.
+  // Kill uses -pid (negative) to send SIGTERM to the entire group (sh + claude).
   // NOTE: do NOT use `exec claude` here — exec replaces sh, so the trailing
   //       `echo $? > doneFile` would never run and the sentinel would never be written.
-  // caffeinate -i on macOS prevents idle sleep while the stage runs.
-  const escapedArgs  = finalArgs.map(shellEscape).join(' ');
-  const maybeCAFF    = process.platform === 'darwin' ? 'caffeinate -i ' : '';
-  const shellCmd     = `${maybeCAFF}${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+  const escapedArgs = finalArgs.map(shellEscape).join(' ');
+  const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
 
   const stageStartedAt = Date.now();
 
@@ -766,6 +764,15 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   // Decouple from server.js — child keeps running even if server restarts.
   child.unref();
+
+  // On macOS, prevent idle sleep while the stage runs.
+  // caffeinate -w <pid> watches the process and exits automatically when it finishes.
+  // It is a macOS system binary (/usr/bin/caffeinate) — no PATH issues.
+  // Non-critical: if it fails the pipeline still runs normally.
+  if (process.platform === 'darwin' && child.pid) {
+    const caff = spawn('caffeinate', ['-w', String(child.pid)], { stdio: 'ignore' });
+    caff.unref();
+  }
 
   // Persist PID so init() can re-attach after a server restart.
   persistStagePid(dataDir, run, stageIndex, child.pid);
