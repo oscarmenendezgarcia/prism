@@ -25,9 +25,31 @@
 const fs                        = require('fs');
 const path                      = require('path');
 const crypto                    = require('crypto');
-const { spawn }                 = require('child_process');
+const { spawn, execSync }       = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
+
+// Resolve the claude binary path once at startup so caffeinate (and sh) can
+// find it even when the server was launched from a shell with a different PATH.
+// Falls back through common install locations if `which` fails.
+let CLAUDE_BIN = 'claude';
+{
+  const home = process.env.HOME ?? '';
+  const candidates = [
+    // PATH lookup first (covers most cases)
+    () => execSync('which claude 2>/dev/null', { encoding: 'utf8', env: process.env }).trim(),
+    // Common install locations as fallback
+    () => `${home}/.local/bin/claude`,
+    () => '/usr/local/bin/claude',
+    () => '/opt/homebrew/bin/claude',
+  ];
+  for (const candidate of candidates) {
+    try {
+      const p = candidate();
+      if (p && fs.existsSync(p)) { CLAUDE_BIN = p; break; }
+    } catch { /* try next */ }
+  }
+}
 
 /**
  * Read a task from the kanban column files by ID.
@@ -719,7 +741,7 @@ async function spawnStage(dataDir, run, stageIndex) {
   // caffeinate -i on macOS prevents idle sleep while the stage runs.
   const escapedArgs  = finalArgs.map(shellEscape).join(' ');
   const maybeCAFF    = process.platform === 'darwin' ? 'caffeinate -i ' : '';
-  const shellCmd     = `${maybeCAFF}claude ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+  const shellCmd     = `${maybeCAFF}${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
 
   const stageStartedAt = Date.now();
 
