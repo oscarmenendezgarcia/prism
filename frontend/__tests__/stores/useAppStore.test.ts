@@ -1092,19 +1092,14 @@ describe('saveSettings', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveMainTaskTitle (via startPipeline)', () => {
-  // resolveMainTaskTitle is a private module function, exercised indirectly
-  // through startPipeline which uses it to build the sub-task title.
+  // No sub-tasks are created — startPipeline passes the original taskId directly.
   beforeEach(() => {
     resetLauncherStore();
     vi.clearAllMocks();
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-    vi.mocked(api.createTask).mockResolvedValue({
-      id: 'sub-task-1', title: '', type: 'chore',
-      createdAt: '', updatedAt: '',
-    });
   });
 
-  it('finds the main task title in the todo column', async () => {
+  it('does not create any sub-task — passes original taskId to prepareAgentRun', async () => {
     useAppStore.setState({
       tasks: {
         todo: [{ id: 'task-main', title: 'Todo Task', type: 'chore', createdAt: '', updatedAt: '' }],
@@ -1115,96 +1110,24 @@ describe('resolveMainTaskTitle (via startPipeline)', () => {
 
     await useAppStore.getState().startPipeline('space-1', 'task-main');
 
-    expect(api.createTask).toHaveBeenCalledWith(
-      'space-1',
-      expect.objectContaining({ title: expect.stringContaining('Todo Task') }),
-    );
-  });
-
-  it('finds the main task title in the in-progress column', async () => {
-    useAppStore.setState({
-      tasks: {
-        todo: [],
-        'in-progress': [{ id: 'task-main', title: 'InProgress Task', type: 'chore', createdAt: '', updatedAt: '' }],
-        done: [],
-      },
-    });
-
-    await useAppStore.getState().startPipeline('space-1', 'task-main');
-
-    expect(api.createTask).toHaveBeenCalledWith(
-      'space-1',
-      expect.objectContaining({ title: expect.stringContaining('InProgress Task') }),
-    );
-  });
-
-  it('finds the main task title in the done column', async () => {
-    useAppStore.setState({
-      tasks: {
-        todo: [],
-        'in-progress': [],
-        done: [{ id: 'task-main', title: 'Done Task', type: 'chore', createdAt: '', updatedAt: '' }],
-      },
-    });
-
-    await useAppStore.getState().startPipeline('space-1', 'task-main');
-
-    expect(api.createTask).toHaveBeenCalledWith(
-      'space-1',
-      expect.objectContaining({ title: expect.stringContaining('Done Task') }),
-    );
-  });
-
-  it('uses the fallback title "Task <id>" when task is not in any column', async () => {
-    useAppStore.setState({
-      tasks: { todo: [], 'in-progress': [], done: [] },
-    });
-
-    await useAppStore.getState().startPipeline('space-1', 'task-missing');
-
-    expect(api.createTask).toHaveBeenCalledWith(
-      'space-1',
-      expect.objectContaining({ title: expect.stringContaining('Task task-missing') }),
-    );
-  });
-
-  it('startPipeline initialises subTaskIds with the new sub-task ID', async () => {
-    vi.mocked(api.createTask).mockResolvedValue({
-      id: 'new-sub-001', title: '', type: 'chore', createdAt: '', updatedAt: '',
-    });
-    useAppStore.setState({
-      tasks: {
-        todo: [{ id: 'task-main', title: 'Main', type: 'chore', createdAt: '', updatedAt: '' }],
-        'in-progress': [],
-        done: [],
-      },
-    });
-
-    await useAppStore.getState().startPipeline('space-1', 'task-main');
-
-    expect(useAppStore.getState().pipelineState?.subTaskIds).toEqual(['new-sub-001']);
-  });
-
-  it('startPipeline calls prepareAgentRun with the sub-task ID, not the main task ID', async () => {
-    vi.mocked(api.createTask).mockResolvedValue({
-      id: 'sub-xyz', title: '', type: 'chore', createdAt: '', updatedAt: '',
-    });
-    useAppStore.setState({
-      tasks: {
-        todo: [{ id: 'task-main', title: 'Main', type: 'chore', createdAt: '', updatedAt: '' }],
-        'in-progress': [],
-        done: [],
-      },
-    });
-
-    await useAppStore.getState().startPipeline('space-1', 'task-main');
-
-    // prepareAgentRun is implemented via api.generatePrompt — verify it received sub-task ID
+    expect(api.createTask).not.toHaveBeenCalled();
     expect(api.generatePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: 'sub-xyz' }),
+      expect.objectContaining({ taskId: 'task-main' }),
     );
-    // It must NOT have been called with the main task ID
-    expect(api.generatePrompt).not.toHaveBeenCalledWith(
+  });
+
+  it('startPipeline passes the original taskId to generatePrompt', async () => {
+    useAppStore.setState({
+      tasks: {
+        todo: [{ id: 'task-main', title: 'Main', type: 'chore', createdAt: '', updatedAt: '' }],
+        'in-progress': [],
+        done: [],
+      },
+    });
+
+    await useAppStore.getState().startPipeline('space-1', 'task-main');
+
+    expect(api.generatePrompt).toHaveBeenCalledWith(
       expect.objectContaining({ taskId: 'task-main' }),
     );
   });
@@ -1214,7 +1137,8 @@ describe('resolveMainTaskTitle (via startPipeline)', () => {
 // T-007: startPipeline and advancePipeline error paths
 // ---------------------------------------------------------------------------
 
-describe('startPipeline — createTask failure', () => {
+describe('startPipeline — generatePrompt failure', () => {
+  // No createTask is called — failures come from generatePrompt itself.
   beforeEach(() => {
     resetLauncherStore();
     vi.clearAllMocks();
@@ -1227,34 +1151,16 @@ describe('startPipeline — createTask failure', () => {
     });
   });
 
-  it('sets pipelineState to null when createTask fails', async () => {
-    vi.mocked(api.createTask).mockRejectedValue(new Error('Network error'));
+  it('does not create any sub-task during startPipeline', async () => {
+    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
 
     await useAppStore.getState().startPipeline('space-1', 'task-main');
 
-    expect(useAppStore.getState().pipelineState).toBeNull();
-  });
-
-  it('shows an error toast with "stage 1" in the message when createTask fails', async () => {
-    vi.mocked(api.createTask).mockRejectedValue(new Error('Network error'));
-
-    await useAppStore.getState().startPipeline('space-1', 'task-main');
-
-    const { toast } = useAppStore.getState();
-    expect(toast?.type).toBe('error');
-    expect(toast?.message).toContain('stage 1');
-  });
-
-  it('does not call generatePrompt when createTask fails', async () => {
-    vi.mocked(api.createTask).mockRejectedValue(new Error('Network error'));
-
-    await useAppStore.getState().startPipeline('space-1', 'task-main');
-
-    expect(api.generatePrompt).not.toHaveBeenCalled();
+    expect(api.createTask).not.toHaveBeenCalled();
   });
 });
 
-describe('advancePipeline — createTask failure', () => {
+describe('advancePipeline — no sub-tasks', () => {
   beforeEach(() => {
     resetLauncherStore();
     vi.clearAllMocks();
@@ -1262,7 +1168,7 @@ describe('advancePipeline — createTask failure', () => {
       pipelineState: {
         spaceId: 'space-1',
         taskId: 'task-main',
-        subTaskIds: ['sub-task-1'],
+        subTaskIds: [],
         stages: ['senior-architect', 'developer-agent', 'qa-engineer-e2e'] as any,
         currentStageIndex: 0,
         startedAt: new Date().toISOString(),
@@ -1271,58 +1177,30 @@ describe('advancePipeline — createTask failure', () => {
     } as any);
   });
 
-  it('sets pipelineState to null when createTask fails in advancePipeline', async () => {
-    vi.mocked(api.createTask).mockRejectedValue(new Error('Server error'));
-
-    await useAppStore.getState().advancePipeline();
-
-    expect(useAppStore.getState().pipelineState).toBeNull();
-  });
-
-  it('shows an error toast containing the stage number when createTask fails', async () => {
-    vi.mocked(api.createTask).mockRejectedValue(new Error('Server error'));
-
-    await useAppStore.getState().advancePipeline();
-
-    const { toast } = useAppStore.getState();
-    expect(toast?.type).toBe('error');
-    // stage 2 = currentStageIndex 0 + 1 + 1
-    expect(toast?.message).toContain('stage 2');
-  });
-
-  it('does not call generatePrompt when createTask fails in advancePipeline', async () => {
-    vi.mocked(api.createTask).mockRejectedValue(new Error('Server error'));
-
-    await useAppStore.getState().advancePipeline();
-
-    expect(api.generatePrompt).not.toHaveBeenCalled();
-  });
-
-  it('subTaskIds grows by exactly one on successful advancePipeline', async () => {
+  it('does not create any sub-task on advancePipeline', async () => {
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-    vi.mocked(api.createTask).mockResolvedValue({
-      id: 'sub-task-2', title: '', type: 'chore', createdAt: '', updatedAt: '',
-    });
 
     await useAppStore.getState().advancePipeline();
 
-    expect(useAppStore.getState().pipelineState?.subTaskIds).toEqual(['sub-task-1', 'sub-task-2']);
+    expect(api.createTask).not.toHaveBeenCalled();
   });
 
-  it('prepareAgentRun receives the new sub-task ID, not the main task ID', async () => {
+  it('prepareAgentRun receives the original task ID on advancePipeline', async () => {
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
-    vi.mocked(api.createTask).mockResolvedValue({
-      id: 'sub-task-stage2', title: '', type: 'chore', createdAt: '', updatedAt: '',
-    });
 
     await useAppStore.getState().advancePipeline();
 
     expect(api.generatePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: 'sub-task-stage2' }),
-    );
-    expect(api.generatePrompt).not.toHaveBeenCalledWith(
       expect.objectContaining({ taskId: 'task-main' }),
     );
+  });
+
+  it('advances currentStageIndex on successful advancePipeline', async () => {
+    vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
+
+    await useAppStore.getState().advancePipeline();
+
+    expect(useAppStore.getState().pipelineState?.currentStageIndex).toBe(1);
   });
 });
 
@@ -1505,8 +1383,7 @@ describe('resumePipeline', () => {
     expect(useAppStore.getState().pipelineState?.checkpoints).toEqual([1]);
   });
 
-  it('creates a sub-task and calls generatePrompt when resuming stage 0', async () => {
-    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-resume-0', title: '', type: 'chore', createdAt: '', updatedAt: '' });
+  it('calls generatePrompt with original taskId when resuming stage 0', async () => {
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
 
     useAppStore.setState({
@@ -1520,19 +1397,18 @@ describe('resumePipeline', () => {
 
     await useAppStore.getState().resumePipeline();
 
-    expect(api.createTask).toHaveBeenCalledOnce();
+    expect(api.createTask).not.toHaveBeenCalled();
     expect(api.generatePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: 'sub-resume-0' }),
+      expect.objectContaining({ taskId: 'task-main' }),
     );
   });
 
-  it('creates a sub-task for mid-pipeline resume (stage 1)', async () => {
-    vi.mocked(api.createTask).mockResolvedValue({ id: 'sub-resume-mid', title: '', type: 'chore', createdAt: '', updatedAt: '' });
+  it('calls generatePrompt with original taskId for mid-pipeline resume (stage 1)', async () => {
     vi.mocked(api.generatePrompt).mockResolvedValue(MOCK_PROMPT_RESULT);
 
     useAppStore.setState({
       pipelineState: {
-        spaceId: 'space-1', taskId: 'task-main', subTaskIds: ['sub-0'],
+        spaceId: 'space-1', taskId: 'task-main', subTaskIds: [],
         stages: ['senior-architect', 'developer-agent', 'qa-engineer-e2e'] as any,
         currentStageIndex: 1, startedAt: new Date().toISOString(),
         status: 'paused', checkpoints: [1], pausedBeforeStage: 1,
@@ -1541,28 +1417,10 @@ describe('resumePipeline', () => {
 
     await useAppStore.getState().resumePipeline();
 
-    expect(api.createTask).toHaveBeenCalledOnce();
+    expect(api.createTask).not.toHaveBeenCalled();
     expect(api.generatePrompt).toHaveBeenCalledWith(
-      expect.objectContaining({ taskId: 'sub-resume-mid' }),
+      expect.objectContaining({ taskId: 'task-main' }),
     );
-  });
-
-  it('aborts and shows error toast when createTask fails during resume', async () => {
-    vi.mocked(api.createTask).mockRejectedValue(new Error('DB error'));
-
-    useAppStore.setState({
-      pipelineState: {
-        spaceId: 'space-1', taskId: 'task-main', subTaskIds: [],
-        stages: ['senior-architect'] as any,
-        currentStageIndex: 0, startedAt: new Date().toISOString(),
-        status: 'paused', checkpoints: [0], pausedBeforeStage: 0,
-      } as any,
-    });
-
-    await useAppStore.getState().resumePipeline();
-
-    expect(useAppStore.getState().pipelineState).toBeNull();
-    expect(useAppStore.getState().toast?.type).toBe('error');
   });
 });
 
