@@ -21,43 +21,15 @@ Use the **Kanban MCP tools** exclusively — never use curl for Kanban operation
 
 **This is mandatory. Do it before reading any files or starting any analysis.**
 
-### 0.0 — If no taskId was provided (terminal invocation)
-
-Check whether the user's request includes an explicit `taskId`. It may appear as:
-- A quoted ID in the message (e.g. `taskId: "abc-123"`)
-- A Kanban task context block in the prompt
-- A `## TASK CONTEXT` section in the system prompt
-
-**If no taskId is present**, create one now from the user's request:
-
-```
-mcp__prism__kanban_create_task({
-  title: "<user's request in one clear sentence>",
-  type: "feature",
-  spaceId: SPACE_ID,          ← resolve space first (step 0.2)
-  description: "Created automatically from terminal request."
-})
-→ save the returned `id` as PIPELINE_TASK_ID
-```
-
-Use `PIPELINE_TASK_ID` as the anchor task for all subsequent work and for the pipeline.
-This task represents the user's original request and is never moved by agents —
-sub-tasks per stage are created on top of it (as per pipeline design).
-
-**If a taskId was provided**, use it directly as `PIPELINE_TASK_ID`. Skip this step.
-
 ### 0.1 — Ensure the server is running
 
 ```bash
-# Start the Kanban server (Prism) if not already running:
 pgrep -f "node server.js" > /dev/null || \
   (cd /Users/oscarmenendezgarcia/Documents/IdeaProjects/platform/new/prism && node server.js &)
 sleep 1
 ```
 
 ### 0.2 — Resolve your space
-
-Find or create a space named after the **project** (not the feature). One space per project, reused across all features.
 
 ```
 mcp__prism__kanban_list_spaces()
@@ -66,36 +38,42 @@ mcp__prism__kanban_create_space({ name: "[project name]" })
 → save the returned `id` as SPACE_ID
 ```
 
-### 0.3 — Create ONE task for this stage
+### 0.3 — Resolve TASK_ID
 
-Create a single task representing the architect stage work. Do NOT create subtasks for each ADR, trade-off, or blueprint section.
+If the prompt contains a `TaskId` → `TASK_ID` = that value. Do NOT create any new task.
 
+If no `TaskId` is present (direct terminal invocation):
 ```
 mcp__prism__kanban_create_task({
   title: "Architecture: [feature name]",
   type: "feature",
   assigned: "senior-architect",
-  description: "[one-line description of what is being designed]",
+  description: "[one-line description]",
   spaceId: SPACE_ID
 })
-→ save the returned `id` as KANBAN_ID
+→ TASK_ID = returned id
 ```
 
-### 0.4 — Move the task through the board
+### 0.4 — Work the task
 
-Move to `in-progress` immediately. Attach all artifacts before closing. Move to `done` when finished.
+Same flow regardless of pipeline or terminal mode:
 
 ```
-mcp__prism__kanban_move_task({ id: KANBAN_ID, to: "in-progress", spaceId: SPACE_ID })
+# Claim:
+mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, assigned: "senior-architect" })
+mcp__prism__kanban_move_task({ id: TASK_ID, to: "in-progress", spaceId: SPACE_ID })
 
-# Before marking done — attach all produced artifacts:
-mcp__prism__kanban_update_task({ id: KANBAN_ID, spaceId: SPACE_ID, attachments: [
-  { name: "ADR.md", type: "file", content: "/absolute/path/to/ADR.md" },
+# ...do all your work...
+
+# Attach artifacts (accumulate across stages on the same task):
+mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, attachments: [
+  { name: "ADR.md",       type: "file", content: "/absolute/path/to/ADR.md" },
   { name: "blueprint.md", type: "file", content: "/absolute/path/to/blueprint.md" },
-  { name: "tasks.json", type: "file", content: "/absolute/path/to/tasks.json" }
+  { name: "tasks.json",   type: "file", content: "/absolute/path/to/tasks.json" }
 ] })
 
-mcp__prism__kanban_move_task({ id: KANBAN_ID, to: "done", spaceId: SPACE_ID })
+# Close — only if LastStage: true in the prompt, or if no TaskId was in the prompt (terminal mode):
+mcp__prism__kanban_move_task({ id: TASK_ID, to: "done", spaceId: SPACE_ID })
 ```
 
 If the server is still unreachable after the start attempt, log it and continue without blocking.

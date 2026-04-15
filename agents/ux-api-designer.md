@@ -78,15 +78,12 @@ Use the **Kanban MCP tools** exclusively — never use curl for Kanban operation
 ### 0.1 — Ensure the server is running
 
 ```bash
-# Start the Kanban server (Prism) if not already running:
 pgrep -f "node server.js" > /dev/null || \
   (cd /Users/oscarmenendezgarcia/Documents/IdeaProjects/platform/new/prism && node server.js &)
 sleep 1
 ```
 
 ### 0.2 — Resolve your space
-
-Find or create a space named after the **project** (not the feature). One space per project, reused across all features.
 
 ```
 mcp__prism__kanban_list_spaces()
@@ -95,36 +92,38 @@ mcp__prism__kanban_create_space({ name: "[project name]" })
 → save the returned `id` as SPACE_ID
 ```
 
-### 0.3 — Create ONE task for this stage
+### 0.3 — Resolve TASK_ID
 
-Create a single task representing the UX/API design stage work. Do NOT create subtasks for each wireframe, screen, or artifact.
+If the prompt contains a `TaskId` → `TASK_ID` = that value. Do NOT create any new task.
 
+If no `TaskId` is present (direct terminal invocation):
 ```
 mcp__prism__kanban_create_task({
   title: "UX/API Design: [feature name]",
   type: "feature",
   assigned: "ux-api-designer",
-  description: "[one-line description of what is being designed]",
+  description: "[one-line description]",
   spaceId: SPACE_ID
 })
-→ save the returned `id` as KANBAN_ID
+→ TASK_ID = returned id
 ```
 
-### 0.4 — Move the task through the board
-
-Move to `in-progress` immediately. Attach all artifacts before closing. Move to `done` when finished.
+### 0.4 — Work the task
 
 ```
-mcp__prism__kanban_move_task({ id: KANBAN_ID, to: "in-progress", spaceId: SPACE_ID })
+mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, assigned: "ux-api-designer" })
+mcp__prism__kanban_move_task({ id: TASK_ID, to: "in-progress", spaceId: SPACE_ID })
 
-# Before marking done — attach all produced artifacts:
-mcp__prism__kanban_update_task({ id: KANBAN_ID, spaceId: SPACE_ID, attachments: [
-  { name: "wireframes.md", type: "file", content: "/absolute/path/to/wireframes.md" },
-  { name: "api-spec.json", type: "file", content: "/absolute/path/to/api-spec.json" },
-  { name: "user-stories.md", type: "file", content: "/absolute/path/to/user-stories.md" }
+# Attach artifacts (accumulate across stages):
+mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, attachments: [
+  { name: "wireframes.md",        type: "file", content: "/absolute/path/to/wireframes.md" },
+  { name: "api-spec.json",        type: "file", content: "/absolute/path/to/api-spec.json" },
+  { name: "user-stories.md",      type: "file", content: "/absolute/path/to/user-stories.md" },
+  { name: "wireframes-stitch.md", type: "file", content: "/absolute/path/to/wireframes-stitch.md" }
 ] })
 
-mcp__prism__kanban_move_task({ id: KANBAN_ID, to: "done", spaceId: SPACE_ID })
+# Close — only if LastStage: true in the prompt, or terminal mode (no TaskId was given):
+mcp__prism__kanban_move_task({ id: TASK_ID, to: "done", spaceId: SPACE_ID })
 ```
 
 If the server is still unreachable after the start attempt, log it and continue without blocking.

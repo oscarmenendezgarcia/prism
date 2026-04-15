@@ -26,7 +26,7 @@ pgrep -f "node server.js" > /dev/null || \
 sleep 1
 ```
 
-### 0.2 — Resolve your space and create ONE task for this stage
+### 0.2 — Resolve your space
 
 ```
 mcp__prism__kanban_list_spaces()
@@ -35,8 +35,11 @@ mcp__prism__kanban_create_space({ name: "[project name]" })
 → save the returned `id` as SPACE_ID
 ```
 
-Create a single task representing the QA stage work. Do NOT create subtasks for each test level, test case, or artifact.
+### 0.3 — Resolve TASK_ID
 
+If the prompt contains a `TaskId` → `TASK_ID` = that value. Do NOT create any new task.
+
+If no `TaskId` is present (direct terminal invocation):
 ```
 mcp__prism__kanban_create_task({
   title: "QA: [feature name]",
@@ -45,24 +48,24 @@ mcp__prism__kanban_create_task({
   description: "[one-line description of what is being tested]",
   spaceId: SPACE_ID
 })
-→ save the returned `id` as KANBAN_ID
+→ TASK_ID = returned id
 ```
 
-### 0.3 — Move the task through the board
-
-Move to `in-progress` immediately. Attach all artifacts before closing. Move to `done` when finished.
+### 0.4 — Work the task
 
 ```
-mcp__prism__kanban_move_task({ id: KANBAN_ID, to: "in-progress", spaceId: SPACE_ID })
+mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, assigned: "qa-engineer-e2e" })
+mcp__prism__kanban_move_task({ id: TASK_ID, to: "in-progress", spaceId: SPACE_ID })
 
-# Before marking done — attach all produced artifacts:
-mcp__prism__kanban_update_task({ id: KANBAN_ID, spaceId: SPACE_ID, attachments: [
-  { name: "test-plan.md", type: "file", content: "/absolute/path/to/test-plan.md" },
+# Attach artifacts (accumulate across stages):
+mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, attachments: [
+  { name: "test-plan.md",      type: "file", content: "/absolute/path/to/test-plan.md" },
   { name: "test-results.json", type: "file", content: "/absolute/path/to/test-results.json" },
-  { name: "bugs.md", type: "file", content: "/absolute/path/to/bugs.md" }
+  { name: "bugs.md",           type: "file", content: "/absolute/path/to/bugs.md" }
 ] })
 
-mcp__prism__kanban_move_task({ id: KANBAN_ID, to: "done", spaceId: SPACE_ID })
+# Close — only if LastStage: true in the prompt, or terminal mode (no TaskId was given):
+mcp__prism__kanban_move_task({ id: TASK_ID, to: "done", spaceId: SPACE_ID })
 ```
 
 If the server is still unreachable after the start attempt, log it and continue without blocking.

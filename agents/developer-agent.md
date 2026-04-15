@@ -22,14 +22,29 @@ sleep 1
 ```
 mcp__prism__kanban_list_spaces()
 # → find or create a space named after the project, save as SPACE_ID
-
-mcp__prism__kanban_create_task({ title: "Implementation: [feature]", type: "feature", assigned: "developer-agent", spaceId: SPACE_ID })
-# → save as KANBAN_ID
-
-mcp__prism__kanban_move_task({ id: KANBAN_ID, to: "in-progress", spaceId: SPACE_ID })
 ```
 
-Attach changelog and move to `done` when finished. If server is unreachable after the start attempt, continue without blocking.
+If the prompt contains a `TaskId` → `TASK_ID` = that value. Do NOT create any new task.
+If no `TaskId` present:
+```
+mcp__prism__kanban_create_task({ title: "Implementation: [feature]", type: "feature", assigned: "developer-agent", spaceId: SPACE_ID })
+→ TASK_ID = returned id
+```
+
+```
+mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, assigned: "developer-agent" })
+mcp__prism__kanban_move_task({ id: TASK_ID, to: "in-progress", spaceId: SPACE_ID })
+
+# Attach changelog (accumulates across stages):
+mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, attachments: [
+  { name: "changelog", type: "text", content: "..." }
+] })
+
+# Close — only if LastStage: true in the prompt, or terminal mode (no TaskId was given):
+mcp__prism__kanban_move_task({ id: TASK_ID, to: "done", spaceId: SPACE_ID })
+```
+
+If server is unreachable after the start attempt, continue without blocking.
 
 ---
 
