@@ -266,6 +266,7 @@ export interface PreparedRun {
   promptPreview: string;
   promptFull: string;      // complete prompt text (T-006)
   estimatedTokens: number;
+  dangerouslySkipPermissions?: boolean;
 }
 
 /** One prompt entry in a pipeline prompt preview response. */
