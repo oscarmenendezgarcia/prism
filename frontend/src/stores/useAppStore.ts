@@ -903,43 +903,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
     });
 
-    const firstStage      = resolvedStages[0];
-    const mainTitle       = resolveMainTaskTitle(get, taskId);
-    const agentDisplayName =
-      availableAgents.find((a) => a.id === firstStage)?.displayName ?? firstStage;
+    const firstStage = resolvedStages[0];
 
-    let subTask;
-    try {
-      subTask = await api.createTask(spaceId, {
-        title:       `${mainTitle} / Stage 1: ${agentDisplayName}`,
-        type:        'chore',
-        assigned:    firstStage,
-        description: `Pipeline sub-task for stage 1. Parent task: ${taskId}`,
-      });
-    } catch (err) {
-      showToast(
-        `Pipeline aborted: could not create sub-task for stage 1 — ${(err as Error).message}`,
-        'error',
-      );
-      set({ pipelineState: null, activeRun: null });
-      return;
-    }
-
-    // Store the sub-task ID and pass it — not the main taskId — to the agent.
-    set({ pipelineState: { ...get().pipelineState!, subTaskIds: [subTask.id] } });
-
-    console.log(JSON.stringify({
-      timestamp:  new Date().toISOString(),
-      level:      'info',
-      component:  'agent-launcher',
-      event:      'pipeline_subtask_created',
-      stageIndex: 0,
-      subTaskId:  subTask.id,
-      mainTaskId: taskId,
-      agentId:    firstStage,
-    }));
-
-    await get().prepareAgentRun(subTask.id, firstStage, dangerouslySkipPermissions);
+    // Pass the original task ID directly to the agent — no sub-tasks created.
+    // The agent claims the task, attaches artifacts, and moves it through the board.
+    await get().prepareAgentRun(taskId, firstStage, dangerouslySkipPermissions);
   },
 
   advancePipeline: async () => {
@@ -973,47 +941,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const nextStage        = pipelineState.stages[nextIndex];
     const agentDisplayName =
       availableAgents.find((a) => a.id === nextStage)?.displayName ?? nextStage;
-    const mainTitle        = resolveMainTaskTitle(get, pipelineState.taskId);
 
-    let subTask;
-    try {
-      subTask = await api.createTask(pipelineState.spaceId, {
-        title:       `${mainTitle} / Stage ${nextIndex + 1}: ${agentDisplayName}`,
-        type:        'chore',
-        assigned:    nextStage,
-        description: `Pipeline sub-task for stage ${nextIndex + 1}. Parent task: ${pipelineState.taskId}`,
-      });
-    } catch (err) {
-      showToast(
-        `Pipeline aborted: could not create sub-task for stage ${nextIndex + 1} — ${(err as Error).message}`,
-        'error',
-      );
-      set({ pipelineState: null, activeRun: null });
-      return;
-    }
-
-    // Advance the stage index and append the new sub-task ID atomically.
-    set({
-      pipelineState: {
-        ...pipelineState,
-        currentStageIndex: nextIndex,
-        subTaskIds: [...pipelineState.subTaskIds, subTask.id],
-      },
-    });
-
-    console.log(JSON.stringify({
-      timestamp:  new Date().toISOString(),
-      level:      'info',
-      component:  'agent-launcher',
-      event:      'pipeline_subtask_created',
-      stageIndex: nextIndex,
-      subTaskId:  subTask.id,
-      mainTaskId: pipelineState.taskId,
-      agentId:    nextStage,
-    }));
+    set({ pipelineState: { ...pipelineState, currentStageIndex: nextIndex } });
 
     showToast(`Stage ${nextIndex + 1}: ${agentDisplayName}`);
-    await get().prepareAgentRun(subTask.id, nextStage, pipelineState.dangerouslySkipPermissions);
+    // Pass the original task ID — no sub-tasks created.
+    await get().prepareAgentRun(pipelineState.taskId, nextStage, pipelineState.dangerouslySkipPermissions);
 
     // Auto-execute: skip the prompt preview modal and run immediately.
     const autoAdvance = get().agentSettings?.pipeline?.autoAdvance ?? true;
@@ -1096,96 +1029,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
     set({ pipelineState: resumedState });
 
-    // If stage 0 was the paused one, we haven't created a sub-task yet — kick
-    // off from scratch for stage 0.  Otherwise we are resuming mid-pipeline
-    // after advancePipeline already set currentStageIndex to resumeIndex.
-    if (resumeIndex === 0 && resumedState.subTaskIds.length === 0) {
-      const mainTitle       = resolveMainTaskTitle(get, pipelineState.taskId);
-      const firstStage      = resumedState.stages[0];
-      const agentDisplayName =
-        availableAgents.find((a) => a.id === firstStage)?.displayName ?? firstStage;
-
-      let subTask;
-      try {
-        subTask = await api.createTask(pipelineState.spaceId, {
-          title:       `${mainTitle} / Stage 1: ${agentDisplayName}`,
-          type:        'chore',
-          assigned:    firstStage,
-          description: `Pipeline sub-task for stage 1. Parent task: ${pipelineState.taskId}`,
-        });
-      } catch (err) {
-        showToast(
-          `Pipeline aborted: could not create sub-task for stage 1 — ${(err as Error).message}`,
-          'error',
-        );
-        set({ pipelineState: null, activeRun: null });
-        return;
-      }
-
-      set({ pipelineState: { ...get().pipelineState!, subTaskIds: [subTask.id] } });
-
-      console.log(JSON.stringify({
-        timestamp:  new Date().toISOString(),
-        level:      'info',
-        component:  'agent-launcher',
-        event:      'pipeline_checkpoint_resumed',
-        stageIndex: 0,
-        subTaskId:  subTask.id,
-        mainTaskId: pipelineState.taskId,
-        agentId:    firstStage,
-      }));
-
-      showToast(`Pipeline resumed — Stage 1: ${agentDisplayName}`);
-      await get().prepareAgentRun(subTask.id, firstStage, pipelineState.dangerouslySkipPermissions);
-      return;
-    }
-
-    // Mid-pipeline resume: currentStageIndex already points to the paused stage;
-    // subTaskIds may or may not contain this stage's entry (it wasn't created yet
-    // because we bailed out before createTask in advancePipeline).  We need to
-    // create the sub-task and execute it.
-    const nextStage        = resumedState.stages[resumeIndex];
+    // Resume: pass the original task ID directly — no sub-tasks created.
+    const resumeStage      = resumedState.stages[resumeIndex];
     const agentDisplayName =
-      availableAgents.find((a) => a.id === nextStage)?.displayName ?? nextStage;
-    const mainTitle        = resolveMainTaskTitle(get, pipelineState.taskId);
-
-    let subTask;
-    try {
-      subTask = await api.createTask(pipelineState.spaceId, {
-        title:       `${mainTitle} / Stage ${resumeIndex + 1}: ${agentDisplayName}`,
-        type:        'chore',
-        assigned:    nextStage,
-        description: `Pipeline sub-task for stage ${resumeIndex + 1}. Parent task: ${pipelineState.taskId}`,
-      });
-    } catch (err) {
-      showToast(
-        `Pipeline aborted: could not create sub-task for stage ${resumeIndex + 1} — ${(err as Error).message}`,
-        'error',
-      );
-      set({ pipelineState: null, activeRun: null });
-      return;
-    }
-
-    set({
-      pipelineState: {
-        ...get().pipelineState!,
-        subTaskIds: [...pipelineState.subTaskIds, subTask.id],
-      },
-    });
-
-    console.log(JSON.stringify({
-      timestamp:  new Date().toISOString(),
-      level:      'info',
-      component:  'agent-launcher',
-      event:      'pipeline_checkpoint_resumed',
-      stageIndex: resumeIndex,
-      subTaskId:  subTask.id,
-      mainTaskId: pipelineState.taskId,
-      agentId:    nextStage,
-    }));
+      availableAgents.find((a) => a.id === resumeStage)?.displayName ?? resumeStage;
 
     showToast(`Pipeline resumed — Stage ${resumeIndex + 1}: ${agentDisplayName}`);
-    await get().prepareAgentRun(subTask.id, nextStage, pipelineState.dangerouslySkipPermissions);
+    await get().prepareAgentRun(pipelineState.taskId, resumeStage, pipelineState.dangerouslySkipPermissions);
   },
 
   /**

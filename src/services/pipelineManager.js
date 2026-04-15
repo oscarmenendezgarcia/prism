@@ -576,10 +576,16 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   // readTaskFromSpace uses path.join(baseDataDir, spaceId) for legacy layout.
   // The production data layout is data/spaces/<spaceId>/, so pass the spaces dir.
   const spacesDir = path.join(dataDir, 'spaces');
-  const task = readTaskFromSpace(spacesDir, spaceId, taskId);
+  const task      = readTaskFromSpace(spacesDir, spaceId, taskId);
+
+  const isLastStage = stageIndex === stages.length - 1;
+
   let promptText = task
     ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
     : `TaskId: ${taskId}\nSpaceId: ${spaceId}\n`;
+
+  // Tell the agent whether it is the last stage so it knows to move the task to done.
+  promptText += `LastStage: ${isLastStage}\n`;
 
   // Include working directory if set — tells the agent where to cd into.
   if (workingDirectory) {
@@ -587,8 +593,7 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     promptText += '⚠️ You MUST cd into this directory before starting work. All file paths should be relative to this directory.\n';
   }
 
-  // Include artifact paths from previous stages (attached to the task by earlier agents).
-  // This gives each stage full context of what was produced before it.
+  // Include artifact paths from previous stages (accumulated on the task by earlier agents).
   if (task && Array.isArray(task.attachments) && task.attachments.length > 0) {
     const fileArtifacts = task.attachments.filter((a) => a.type === 'file' && a.content);
     if (fileArtifacts.length > 0) {
