@@ -31,6 +31,7 @@ import type {
   ConfigFile,
   AgentInfo,
   AgentRun,
+  BackendRun,
   PipelineState,
   PipelineStage,
   PreparedRun,
@@ -62,6 +63,11 @@ const emptyBoard = (): BoardTasks => ({
 // ---------------------------------------------------------------------------
 
 interface AppState {
+  // System info (fetched once at startup)
+  /** OS platform string from the backend — 'darwin' | 'linux' | 'win32' | ... */
+  platform: string | null;
+  loadSystemInfo: () => Promise<void>;
+
   // Spaces
   spaces: Space[];
   activeSpaceId: string;
@@ -152,7 +158,7 @@ interface AppState {
 
   /** Prepared run waiting in the prompt preview modal. */
   preparedRun: PreparedRun | null;
-  prepareAgentRun: (taskId: string, agentId: string, dangerouslySkipPermissions?: boolean) => Promise<void>;
+  prepareAgentRun: (taskId: string, agentId: string, dangerouslySkipPermissions?: boolean, skipPreview?: boolean) => Promise<void>;
   clearPreparedRun: () => void;
 
   /** Execute the prepared run — injects command into the terminal PTY. */
@@ -293,6 +299,19 @@ function resolveMainTaskTitle(
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  // ── System info ─────────────────────────────────────────────────────────
+
+  platform: null,
+
+  loadSystemInfo: async () => {
+    try {
+      const info = await api.getSystemInfo();
+      set({ platform: info.platform });
+    } catch {
+      // Non-critical — caffeinate will simply not be applied if this fails.
+    }
+  },
+
   // ── Spaces ──────────────────────────────────────────────────────────────
 
   spaces: [],
@@ -618,7 +637,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   preparedRun:      null,
   promptPreviewOpen: false,
 
-  prepareAgentRun: async (taskId: string, agentId: string, dangerouslySkipPermissions = false) => {
+  prepareAgentRun: async (taskId: string, agentId: string, dangerouslySkipPermissions = false, skipPreview = false) => {
     const { activeSpaceId, agentSettings, showToast } = get();
     try {
       const result = await api.generatePrompt({
@@ -632,14 +651,15 @@ export const useAppStore = create<AppState>((set, get) => ({
         preparedRun: {
           taskId,
           agentId,
-          spaceId:         activeSpaceId,
-          promptPath:      result.promptPath,
-          cliCommand:      result.cliCommand,
-          promptPreview:   result.promptPreview,
-          promptFull:      result.promptFull,
-          estimatedTokens: result.estimatedTokens,
+          spaceId:                    activeSpaceId,
+          promptPath:                 result.promptPath,
+          cliCommand:                 result.cliCommand,
+          promptPreview:              result.promptPreview,
+          promptFull:                 result.promptFull,
+          estimatedTokens:            result.estimatedTokens,
+          dangerouslySkipPermissions,
         },
-        promptPreviewOpen: true,
+        promptPreviewOpen: !skipPreview,
       });
     } catch (err) {
       showToast(`Failed to prepare agent run: ${(err as Error).message}`, 'error');
@@ -649,148 +669,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearPreparedRun: () => set({ preparedRun: null, promptPreviewOpen: false }),
 
   executeAgentRun: async () => {
-    const { preparedRun, showToast } = get();
+    const { preparedRun } = get();
     if (!preparedRun) return;
-
-    const startedAt = new Date().toISOString();
-    const cmd       = preparedRun.cliCommand;
-
-    let backendRunId: string | undefined;
-
-    // Always dispatch through the pipeline backend (POST /api/v1/runs).
-    // A single-agent run is a pipeline run with one stage — this gives it
-    // full log capture via the stage log API regardless of terminal state.
-    try {
-      const run = await api.startRun(
-        preparedRun.spaceId,
-        preparedRun.taskId,
-        [preparedRun.agentId],
-      );
-      backendRunId = run.runId;
-    } catch (err) {
-      showToast(`Failed to start agent run: ${(err as Error).message}`, 'error');
-      return;
-    }
-
-    set({
-      activeRun: {
-        taskId:      preparedRun.taskId,
-        agentId:     preparedRun.agentId,
-        spaceId:     preparedRun.spaceId,
-        startedAt,
-        cliCommand:  cmd,
-        promptPath:  preparedRun.promptPath,
-        ...(backendRunId ? { backendRunId } : {}),
-      },
-      preparedRun:       null,
-      promptPreviewOpen: false,
-    });
-
-    // Wire backend runId into pipelineState so PipelineLogPanel can poll stage logs.
-    // If a pipelineState is already set (multi-stage run), update it in place.
-    // Otherwise create a minimal single-stage pipelineState so the log panel opens.
-    //
-    // stageRunIds maps each pipeline stage index to its own backend run ID.
-    // Each stage creates a 1-stage backend run (stage-0.log), so the log panel
-    // must use stageRunIds[i] + stageIndex=0 instead of the global stage index.
-    const existingPs = get().pipelineState;
-    if (existingPs) {
-      const stageIdx = existingPs.currentStageIndex;
-      set({
-        pipelineState: {
-          ...existingPs,
-          runId: backendRunId,
-          stageRunIds: { ...(existingPs.stageRunIds ?? {}), [stageIdx]: backendRunId },
-        },
-      });
-    } else {
-      set({
-        pipelineState: {
-          spaceId:           preparedRun.spaceId,
-          taskId:            preparedRun.taskId,
-          stages:            [preparedRun.agentId as PipelineStage],
-          currentStageIndex: 0,
-          startedAt,
-          status:            'running',
-          runId:             backendRunId,
-          stageRunIds:       { 0: backendRunId },
-          subTaskIds:        [],
-          checkpoints:       [],
-        },
-      });
-    }
-    usePipelineLogStore.getState().clearStageLogs();
-    usePipelineLogStore.getState().setSelectedStageIndex(0);
-    usePipelineLogStore.getState().setLogPanelOpen(true);
-
-    // Record run start in history store.
-    const { tasks, spaces, availableAgents } = get();
-    const allTasks         = [...tasks['todo'], ...tasks['in-progress'], ...tasks['done']];
-    const task             = allTasks.find((t) => t.id === preparedRun.taskId);
-    const space            = spaces.find((s) => s.id === preparedRun.spaceId);
-    const historyRunId     = `run_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const agentDisplayName =
-      availableAgents.find((a) => a.id === preparedRun.agentId)?.displayName ??
-      preparedRun.agentId;
-
-    // Show "Pipeline started" toast only when the user clicks Execute in the preview modal,
-    // and only on stage 0 (not on subsequent stage advances).
-    if (existingPs && existingPs.currentStageIndex === 0) {
-      showToast(`Pipeline started — Stage 1: ${agentDisplayName}`);
-    }
-
-    useRunHistoryStore.getState().recordRunStarted({
-      id:               historyRunId,
-      taskId:           preparedRun.taskId,
-      taskTitle:        task?.title ?? `Task ${preparedRun.taskId}`,
-      agentId:          preparedRun.agentId,
-      agentDisplayName,
-      spaceId:          preparedRun.spaceId,
-      spaceName:        space?.name ?? preparedRun.spaceId,
-      startedAt,
-      cliCommand:       cmd,
-      promptPath:       preparedRun.promptPath,
-    });
-
-    // Poll for completion and clear activeRun + pipelineState when done.
-    // Only poll if backend run (no PTY injection).
-    if (backendRunId) {
-      const POLL_MS = 5000;
-      const pollId = setInterval(async () => {
-        try {
-          const run = await api.getBackendRun(backendRunId);
-          if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
-            clearInterval(pollId);
-            set({ _agentRunPollId: null });
-            const durationMs = Date.now() - Date.parse(startedAt);
-            useRunHistoryStore.getState().recordRunFinished(
-              historyRunId,
-              run.status === 'completed' ? 'completed' : 'failed',
-              durationMs,
-            );
-            get().clearActiveRun();
-            const ps = get().pipelineState;
-            if (ps && ps.stages.length > 1 && ps.status === 'running' && run.status === 'completed') {
-              // Multi-stage pipeline: advance to the next stage automatically.
-              get().advancePipeline();
-            } else if (ps && ps.stages.length === 1 && ps.runId === backendRunId) {
-              // Single-stage run — clear pipelineState.
-              set({ pipelineState: null });
-            }
-            get().loadBoard();
-          }
-        } catch {
-          clearInterval(pollId);
-          set({ _agentRunPollId: null });
-          get().clearActiveRun();
-          const ps = get().pipelineState;
-          if (ps && ps.stages.length === 1 && ps.runId === backendRunId) {
-            set({ pipelineState: null });
-          }
-        }
-      }, POLL_MS);
-      set({ _agentRunPollId: pollId });
-    }
+    // Treat a single-agent run as a 1-stage pipeline — same code path for all runs.
+    const { spaceId, taskId, agentId, dangerouslySkipPermissions } = preparedRun;
+    set({ preparedRun: null, promptPreviewOpen: false });
+    await get().startPipeline(spaceId, taskId, [agentId as PipelineStage], [], dangerouslySkipPermissions ?? false);
   },
 
   // ── Pipeline ──────────────────────────────────────────────────────────────
@@ -838,7 +722,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   startPipeline: async (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints: number[] = [], dangerouslySkipPermissions = false) => {
-    const { agentSettings, availableAgents, showToast, spaces } = get();
+    const { agentSettings, availableAgents, showToast, spaces, tasks } = get();
     const space = spaces.find((s) => s.id === spaceId);
     const resolvedStages: PipelineStage[] = stages && stages.length > 0
       ? stages
@@ -848,7 +732,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e']
         ) as PipelineStage[];
 
-    // T-3: check if stage 0 has a checkpoint — pause immediately before starting.
+    // T-3: pause at stage 0 before creating any backend run.
     if (checkpoints.includes(0)) {
       set({
         pipelineState: {
@@ -868,140 +752,80 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
-    // Initialise pipeline state with an empty subTaskIds array.
-    // taskId is the main anchor task — it is never moved by the pipeline.
-    // ADR-1 (pipeline-subtasks): each stage gets its own dedicated sub-task.
+    // Launch ALL stages at once — backend manages stage transitions.
+    let run: BackendRun;
+    try {
+      run = await api.startRun(spaceId, taskId, resolvedStages, undefined, checkpoints);
+    } catch (err) {
+      showToast(`Failed to start pipeline: ${(err as Error).message}`, 'error');
+      return;
+    }
+
+    const startedAt        = run.createdAt;
+    const firstAgent       = availableAgents.find((a) => a.id === resolvedStages[0]);
+    const firstDisplayName = firstAgent?.displayName ?? resolvedStages[0];
+
     set({
       pipelineState: {
         spaceId,
         stages: resolvedStages,
         currentStageIndex: 0,
-        startedAt: new Date().toISOString(),
-        status:    'running',
+        startedAt,
+        status: 'running',
         taskId,
         subTaskIds: [],
         checkpoints,
         dangerouslySkipPermissions,
+        runId: run.runId,
+      },
+      // Keep activeRun set so task-card indicator and abort buttons work.
+      activeRun: {
+        taskId,
+        agentId:      resolvedStages[0],
+        spaceId,
+        startedAt,
+        cliCommand:   '',
+        promptPath:   '',
+        backendRunId: run.runId,
       },
     });
 
-    const firstStage      = resolvedStages[0];
-    const mainTitle       = resolveMainTaskTitle(get, taskId);
-    const agentDisplayName =
-      availableAgents.find((a) => a.id === firstStage)?.displayName ?? firstStage;
+    usePipelineLogStore.getState().clearStageLogs();
+    usePipelineLogStore.getState().setSelectedStageIndex(0);
+    usePipelineLogStore.getState().setLogPanelOpen(true);
 
-    let subTask;
-    try {
-      subTask = await api.createTask(spaceId, {
-        title:       `${mainTitle} / Stage 1: ${agentDisplayName}`,
-        type:        'chore',
-        assigned:    firstStage,
-        description: `Pipeline sub-task for stage 1. Parent task: ${taskId}`,
-      });
-    } catch (err) {
-      showToast(
-        `Pipeline aborted: could not create sub-task for stage 1 — ${(err as Error).message}`,
-        'error',
-      );
-      set({ pipelineState: null, activeRun: null });
-      return;
-    }
+    // Record in run history.
+    const allTasks  = [...tasks['todo'], ...tasks['in-progress'], ...tasks['done']];
+    const task      = allTasks.find((t) => t.id === taskId);
+    const displayLabel = resolvedStages.length > 1
+      ? `Pipeline: ${resolvedStages.map((s) => availableAgents.find((a) => a.id === s)?.displayName ?? s).join(' → ')}`
+      : firstDisplayName;
 
-    // Store the sub-task ID and pass it — not the main taskId — to the agent.
-    set({ pipelineState: { ...get().pipelineState!, subTaskIds: [subTask.id] } });
+    useRunHistoryStore.getState().recordRunStarted({
+      id:               run.runId,
+      taskId,
+      taskTitle:        task?.title ?? `Task ${taskId}`,
+      agentId:          resolvedStages.length > 1 ? 'pipeline' : resolvedStages[0],
+      agentDisplayName: displayLabel,
+      spaceId,
+      spaceName:        space?.name ?? spaceId,
+      startedAt,
+      cliCommand:       '',
+      promptPath:       '',
+    });
 
-    console.log(JSON.stringify({
-      timestamp:  new Date().toISOString(),
-      level:      'info',
-      component:  'agent-launcher',
-      event:      'pipeline_subtask_created',
-      stageIndex: 0,
-      subTaskId:  subTask.id,
-      mainTaskId: taskId,
-      agentId:    firstStage,
-    }));
-
-    await get().prepareAgentRun(subTask.id, firstStage, dangerouslySkipPermissions);
+    const stageLabel = resolvedStages.length > 1
+      ? `${resolvedStages.length} stages`
+      : firstDisplayName;
+    showToast(`Pipeline started — ${stageLabel}`);
   },
 
   advancePipeline: async () => {
-    const { pipelineState, availableAgents, showToast } = get();
+    const { pipelineState } = get();
     if (!pipelineState || pipelineState.status !== 'running') return;
-
-    const nextIndex = pipelineState.currentStageIndex + 1;
-
-    if (nextIndex >= pipelineState.stages.length) {
-      set({ pipelineState: { ...pipelineState, status: 'completed' } });
-      showToast('Pipeline complete. All stages finished.');
-      setTimeout(() => set({ pipelineState: null }), 3000);
-      return;
-    }
-
-    // T-3: pause before this stage if it is in the checkpoints list.
-    if ((pipelineState.checkpoints ?? []).includes(nextIndex)) {
-      set({
-        pipelineState: {
-          ...pipelineState,
-          currentStageIndex: nextIndex,
-          status: 'paused',
-          pausedBeforeStage: nextIndex,
-        },
-      });
-      const stageName = pipelineState.stages[nextIndex];
-      showToast(`Pipeline paused before stage ${nextIndex + 1}: ${stageName}. Click Continue to proceed.`);
-      return;
-    }
-
-    const nextStage        = pipelineState.stages[nextIndex];
-    const agentDisplayName =
-      availableAgents.find((a) => a.id === nextStage)?.displayName ?? nextStage;
-    const mainTitle        = resolveMainTaskTitle(get, pipelineState.taskId);
-
-    let subTask;
-    try {
-      subTask = await api.createTask(pipelineState.spaceId, {
-        title:       `${mainTitle} / Stage ${nextIndex + 1}: ${agentDisplayName}`,
-        type:        'chore',
-        assigned:    nextStage,
-        description: `Pipeline sub-task for stage ${nextIndex + 1}. Parent task: ${pipelineState.taskId}`,
-      });
-    } catch (err) {
-      showToast(
-        `Pipeline aborted: could not create sub-task for stage ${nextIndex + 1} — ${(err as Error).message}`,
-        'error',
-      );
-      set({ pipelineState: null, activeRun: null });
-      return;
-    }
-
-    // Advance the stage index and append the new sub-task ID atomically.
-    set({
-      pipelineState: {
-        ...pipelineState,
-        currentStageIndex: nextIndex,
-        subTaskIds: [...pipelineState.subTaskIds, subTask.id],
-      },
-    });
-
-    console.log(JSON.stringify({
-      timestamp:  new Date().toISOString(),
-      level:      'info',
-      component:  'agent-launcher',
-      event:      'pipeline_subtask_created',
-      stageIndex: nextIndex,
-      subTaskId:  subTask.id,
-      mainTaskId: pipelineState.taskId,
-      agentId:    nextStage,
-    }));
-
-    showToast(`Stage ${nextIndex + 1}: ${agentDisplayName}`);
-    await get().prepareAgentRun(subTask.id, nextStage, pipelineState.dangerouslySkipPermissions);
-
-    // Auto-execute: skip the prompt preview modal and run immediately.
-    const autoAdvance = get().agentSettings?.pipeline?.autoAdvance ?? true;
-    if (autoAdvance) {
-      await get().executeAgentRun();
-    }
+    // Backend-managed runs: the backend handles stage transitions automatically.
+    // syncPipelineState() in usePolling keeps the frontend in sync.
+    if (pipelineState.runId) return;
   },
 
   abortPipeline: () => {
@@ -1038,10 +862,18 @@ export const useAppStore = create<AppState>((set, get) => ({
    */
   resumeInterruptedRun: async () => {
     const { pipelineState, showToast } = get();
-    if (!pipelineState?.runId || pipelineState.status !== 'interrupted') return;
+    if (!pipelineState?.runId) return;
+    if (pipelineState.status !== 'interrupted' && pipelineState.status !== 'paused') return;
     try {
       await api.resumeRun(pipelineState.runId);
-      set({ pipelineState: { ...pipelineState, status: 'running', finishedAt: undefined } });
+      set({
+        pipelineState: {
+          ...pipelineState,
+          status: 'running',
+          pausedBeforeStage: undefined,
+          finishedAt: undefined,
+        },
+      });
     } catch {
       showToast('Failed to resume run.', 'error');
     }
@@ -1053,113 +885,49 @@ export const useAppStore = create<AppState>((set, get) => ({
    * does not pause again on the next run, then executes the paused stage.
    */
   resumePipeline: async () => {
-    const { pipelineState, availableAgents, showToast } = get();
+    const { pipelineState, showToast } = get();
     if (!pipelineState || pipelineState.status !== 'paused') return;
 
-    const { pausedBeforeStage, checkpoints } = pipelineState;
-    const resumeIndex = pausedBeforeStage ?? pipelineState.currentStageIndex;
-
-    // Consume the checkpoint so it doesn't block again on a second pass.
-    const remainingCheckpoints = checkpoints.filter((c) => c !== resumeIndex);
-
-    const resumedState: PipelineState = {
-      ...pipelineState,
-      status: 'running',
-      checkpoints: remainingCheckpoints,
-      pausedBeforeStage: undefined,
-    };
-    set({ pipelineState: resumedState });
-
-    // If stage 0 was the paused one, we haven't created a sub-task yet — kick
-    // off from scratch for stage 0.  Otherwise we are resuming mid-pipeline
-    // after advancePipeline already set currentStageIndex to resumeIndex.
-    if (resumeIndex === 0 && resumedState.subTaskIds.length === 0) {
-      const mainTitle       = resolveMainTaskTitle(get, pipelineState.taskId);
-      const firstStage      = resumedState.stages[0];
-      const agentDisplayName =
-        availableAgents.find((a) => a.id === firstStage)?.displayName ?? firstStage;
-
-      let subTask;
+    // Backend run already created — just tell it to resume.
+    if (pipelineState.runId) {
       try {
-        subTask = await api.createTask(pipelineState.spaceId, {
-          title:       `${mainTitle} / Stage 1: ${agentDisplayName}`,
-          type:        'chore',
-          assigned:    firstStage,
-          description: `Pipeline sub-task for stage 1. Parent task: ${pipelineState.taskId}`,
-        });
+        await api.resumeRun(pipelineState.runId);
+        set({ pipelineState: { ...pipelineState, status: 'running', pausedBeforeStage: undefined } });
+        showToast('Pipeline resumed.');
       } catch (err) {
-        showToast(
-          `Pipeline aborted: could not create sub-task for stage 1 — ${(err as Error).message}`,
-          'error',
-        );
-        set({ pipelineState: null, activeRun: null });
-        return;
+        showToast(`Failed to resume: ${(err as Error).message}`, 'error');
       }
-
-      set({ pipelineState: { ...get().pipelineState!, subTaskIds: [subTask.id] } });
-
-      console.log(JSON.stringify({
-        timestamp:  new Date().toISOString(),
-        level:      'info',
-        component:  'agent-launcher',
-        event:      'pipeline_checkpoint_resumed',
-        stageIndex: 0,
-        subTaskId:  subTask.id,
-        mainTaskId: pipelineState.taskId,
-        agentId:    firstStage,
-      }));
-
-      showToast(`Pipeline resumed — Stage 1: ${agentDisplayName}`);
-      await get().prepareAgentRun(subTask.id, firstStage, pipelineState.dangerouslySkipPermissions);
       return;
     }
 
-    // Mid-pipeline resume: currentStageIndex already points to the paused stage;
-    // subTaskIds may or may not contain this stage's entry (it wasn't created yet
-    // because we bailed out before createTask in advancePipeline).  We need to
-    // create the sub-task and execute it.
-    const nextStage        = resumedState.stages[resumeIndex];
-    const agentDisplayName =
-      availableAgents.find((a) => a.id === nextStage)?.displayName ?? nextStage;
-    const mainTitle        = resolveMainTaskTitle(get, pipelineState.taskId);
-
-    let subTask;
+    // Stage-0 pause (before any backend run was created) — now launch the backend run.
+    const remainingCheckpoints = (pipelineState.checkpoints ?? []).filter((c) => c !== 0);
     try {
-      subTask = await api.createTask(pipelineState.spaceId, {
-        title:       `${mainTitle} / Stage ${resumeIndex + 1}: ${agentDisplayName}`,
-        type:        'chore',
-        assigned:    nextStage,
-        description: `Pipeline sub-task for stage ${resumeIndex + 1}. Parent task: ${pipelineState.taskId}`,
+      const run = await api.startRun(pipelineState.spaceId, pipelineState.taskId, pipelineState.stages, undefined, remainingCheckpoints);
+      set({
+        pipelineState: {
+          ...pipelineState,
+          status: 'running',
+          pausedBeforeStage: undefined,
+          checkpoints: remainingCheckpoints,
+          runId: run.runId,
+        },
+        activeRun: {
+          taskId:       pipelineState.taskId,
+          agentId:      pipelineState.stages[0],
+          spaceId:      pipelineState.spaceId,
+          startedAt:    run.createdAt,
+          cliCommand:   '',
+          promptPath:   '',
+          backendRunId: run.runId,
+        },
       });
+      usePipelineLogStore.getState().clearStageLogs();
+      usePipelineLogStore.getState().setLogPanelOpen(true);
+      showToast('Pipeline started.');
     } catch (err) {
-      showToast(
-        `Pipeline aborted: could not create sub-task for stage ${resumeIndex + 1} — ${(err as Error).message}`,
-        'error',
-      );
-      set({ pipelineState: null, activeRun: null });
-      return;
+      showToast(`Failed to start pipeline: ${(err as Error).message}`, 'error');
     }
-
-    set({
-      pipelineState: {
-        ...get().pipelineState!,
-        subTaskIds: [...pipelineState.subTaskIds, subTask.id],
-      },
-    });
-
-    console.log(JSON.stringify({
-      timestamp:  new Date().toISOString(),
-      level:      'info',
-      component:  'agent-launcher',
-      event:      'pipeline_checkpoint_resumed',
-      stageIndex: resumeIndex,
-      subTaskId:  subTask.id,
-      mainTaskId: pipelineState.taskId,
-      agentId:    nextStage,
-    }));
-
-    showToast(`Pipeline resumed — Stage ${resumeIndex + 1}: ${agentDisplayName}`);
-    await get().prepareAgentRun(subTask.id, nextStage, pipelineState.dangerouslySkipPermissions);
   },
 
   /**
@@ -1170,7 +938,7 @@ export const useAppStore = create<AppState>((set, get) => ({
    * PipelineState).
    */
   executeOrchestratorRun: async (spaceId: string, taskId: string, stages: PipelineStage[], dangerouslySkipPermissions = false) => {
-    const { showToast, tasks, spaces, availableAgents } = get();
+    const { showToast, tasks, spaces, availableAgents, platform, pipelineConfirmModal } = get();
     const terminalSender = useTerminalSessionStore.getState().activeSendInput();
     const startedAt = new Date().toISOString();
 
@@ -1195,17 +963,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       cliCommand = generated.cliCommand;
       promptPath = generated.promptPath;
-      const sent = terminalSender(cliCommand + '\r');
+      // Part 3: caffeinate -i on macOS prevents idle sleep during long runs.
+      const finalCmd = platform === 'darwin' ? `caffeinate -i ${cliCommand}` : cliCommand;
+      const sent = terminalSender(finalCmd + '\r');
       if (!sent) {
         showToast('Could not send to terminal. Please try again.', 'error');
         return;
       }
     } else {
+      const checkpoints = pipelineConfirmModal?.checkpoints ?? [];
       // No terminal — spawn in backend.
       promptPath = '~/.claude/agents/orchestrator.md';
       cliCommand = `orchestrator (${stages.join(' → ')})`;
       try {
-        const run = await api.startRun(spaceId, taskId, ['orchestrator'], { stages, dangerouslySkipPermissions });
+        const run = await api.startRun(spaceId, taskId, ['orchestrator'], { stages, dangerouslySkipPermissions }, checkpoints);
         backendRunId = run.runId;
       } catch (err) {
         showToast(`Failed to start orchestrator run: ${(err as Error).message}`, 'error');
@@ -1276,6 +1047,32 @@ export const useAppStore = create<AppState>((set, get) => ({
           const ps = get().pipelineState;
           if (ps && ps.runId === runIdToWatch && typeof run.currentStage === 'number') {
             set({ pipelineState: { ...ps, currentStageIndex: run.currentStage } });
+          }
+          // Surface interrupted state so InterruptedBanner shows.
+          if (run.status === 'interrupted') {
+            clearInterval(pollId);
+            set({ _agentRunPollId: null });
+            get().clearActiveRun();
+            const ps2 = get().pipelineState;
+            if (ps2 && ps2.runId === runIdToWatch && ps2.status !== 'interrupted') {
+              set({ pipelineState: { ...ps2, status: 'interrupted' } });
+            }
+            return;
+          }
+          // Part 2: surface paused state so the UI can show "Continue".
+          if (run.status === 'paused') {
+            const ps = get().pipelineState;
+            if (ps && ps.runId === runIdToWatch && ps.status !== 'paused') {
+              set({
+                pipelineState: {
+                  ...ps,
+                  status: 'paused',
+                  ...(typeof run.pausedBeforeStage === 'number'
+                    ? { currentStageIndex: run.pausedBeforeStage, pausedBeforeStage: run.pausedBeforeStage }
+                    : {}),
+                },
+              });
+            }
           }
           if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
             clearInterval(pollId);

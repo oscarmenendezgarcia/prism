@@ -352,6 +352,7 @@ export const startRun = (
   taskId: string,
   stages?: string[],
   context?: Record<string, unknown>,
+  checkpoints?: number[],
 ): Promise<BackendRun> =>
   apiFetch<BackendRun>('/runs', {
     method: 'POST',
@@ -361,8 +362,13 @@ export const startRun = (
       taskId,
       ...(stages ? { stages } : {}),
       ...(context ? { context } : {}),
+      ...(checkpoints && checkpoints.length > 0 ? { checkpoints } : {}),
     }),
   });
+
+/** Fetch platform info from the backend (used to determine caffeinate support). */
+export const getSystemInfo = (): Promise<{ platform: string }> =>
+  apiFetch<{ platform: string }>('/system/info');
 
 /** List all pipeline run summaries. */
 export const listRuns = (): Promise<BackendRun[]> =>

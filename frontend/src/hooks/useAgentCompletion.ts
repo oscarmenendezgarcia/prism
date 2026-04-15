@@ -59,22 +59,13 @@ export function useAgentCompletion(): void {
       // Pipeline mode: decide whether to advance or confirm.
       if (!pipelineState || pipelineState.status !== 'running') return;
 
-      const confirmBetween = agentSettings?.pipeline.confirmBetweenStages ?? true;
-      const autoAdvance    = agentSettings?.pipeline.autoAdvance ?? true;
+      const autoAdvance = agentSettings?.pipeline.autoAdvance ?? true;
 
       if (!autoAdvance) return;
 
-      if (confirmBetween) {
-        state.showToast(
-          `Stage ${pipelineState.currentStageIndex + 1} complete. Advance to next stage?`,
-          'info',
-          { label: 'Continue', onClick: () => useAppStore.getState().advancePipeline() },
-        );
-        return;
-      }
-
-      // advancePipeline checks the checkpoints array and pauses if needed,
-      // or auto-advances if there is no checkpoint for the next stage.
+      // advancePipeline checks the checkpoints array and pauses (shows PausedBanner)
+      // only if the next stage index is in pipelineState.checkpoints — i.e. the user
+      // ticked "Pause before this stage" in the Run Pipeline modal.
       state.advancePipeline();
     });
   }, []);

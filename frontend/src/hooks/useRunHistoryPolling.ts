@@ -20,16 +20,17 @@ const POLL_INTERVAL_IDLE_MS   = 3000;
  */
 export function useRunHistoryPolling(): void {
   // Derive initial cadence from current store state to avoid a double-render.
-  const [intervalMs, setIntervalMs] = useState<number>(() =>
-    useAppStore.getState().activeRun !== null
+  const [intervalMs, setIntervalMs] = useState<number>(() => {
+    const s = useAppStore.getState();
+    return (s.activeRun !== null || s.pipelineState?.status === 'running')
       ? POLL_INTERVAL_ACTIVE_MS
-      : POLL_INTERVAL_IDLE_MS
-  );
+      : POLL_INTERVAL_IDLE_MS;
+  });
 
-  // Subscribe to activeRun changes to switch cadence dynamically.
+  // Subscribe to activeRun / pipelineState changes to switch cadence dynamically.
   useEffect(() => {
     return useAppStore.subscribe((state) => {
-      const next = state.activeRun !== null
+      const next = (state.activeRun !== null || state.pipelineState?.status === 'running')
         ? POLL_INTERVAL_ACTIVE_MS
         : POLL_INTERVAL_IDLE_MS;
       setIntervalMs((prev) => (prev === next ? prev : next));

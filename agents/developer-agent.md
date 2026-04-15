@@ -14,7 +14,7 @@ You are the Developer Agent — a senior engineer that turns ADRs and design art
 ## Step 0 — Kanban (FIRST, before anything else)
 
 ```bash
-pgrep -f "node server.js" > /dev/null || \
+curl -s http://localhost:3000/ > /dev/null 2>&1 || \
   (cd /Users/oscarmenendezgarcia/Documents/IdeaProjects/platform/new/prism && node server.js &)
 sleep 1
 ```
@@ -22,14 +22,29 @@ sleep 1
 ```
 mcp__prism__kanban_list_spaces()
 # → find or create a space named after the project, save as SPACE_ID
-
-mcp__prism__kanban_create_task({ title: "Implementation: [feature]", type: "feature", assigned: "developer-agent", spaceId: SPACE_ID })
-# → save as KANBAN_ID
-
-mcp__prism__kanban_move_task({ id: KANBAN_ID, to: "in-progress", spaceId: SPACE_ID })
 ```
 
-Attach changelog and move to `done` when finished. If server is unreachable after the start attempt, continue without blocking.
+If the prompt contains a `TaskId` → `TASK_ID` = that value. Do NOT create any new task.
+If no `TaskId` present:
+```
+mcp__prism__kanban_create_task({ title: "Implementation: [feature]", type: "feature", assigned: "developer-agent", spaceId: SPACE_ID })
+→ TASK_ID = returned id
+```
+
+```
+mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, assigned: "developer-agent" })
+mcp__prism__kanban_move_task({ id: TASK_ID, to: "in-progress", spaceId: SPACE_ID })
+
+# Attach changelog (accumulates across stages):
+mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, attachments: [
+  { name: "changelog", type: "text", content: "..." }
+] })
+
+# Close — only if LastStage: true in the prompt, or terminal mode (no TaskId was given):
+mcp__prism__kanban_move_task({ id: TASK_ID, to: "done", spaceId: SPACE_ID })
+```
+
+If server is unreachable after the start attempt, continue without blocking.
 
 ---
 
@@ -98,6 +113,40 @@ Write or update tests alongside implementation. Never write a test that duplicat
 
 ---
 
+## Step 5 — Push branch and open PR (MANDATORY, always last)
+
+After all commits and tests pass:
+
+```bash
+git push -u origin <branch>
+```
+
+Then create the PR:
+```bash
+gh pr create --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
+## Summary
+- bullet-point list of what was implemented
+
+## Artifacts
+- ADR: agent-docs/<feature>/ADR-N.md
+- Blueprint: agent-docs/<feature>/blueprint.md
+
+## Test plan
+- [ ] All existing tests pass
+- [ ] New tests cover >90% of changed code
+- [ ] [specific manual checks if needed]
+
+🤖 Generated with Claude Code
+EOF
+)"
+```
+
+Report the PR URL in the task output and attach it to the Kanban task.
+
+**Never skip this step.** The PR is the user's review gate — they approve and merge; you never merge directly.
+
+---
+
 ## Output format
 
 ```
@@ -151,6 +200,11 @@ A task is only `done` when every item is checked.
 - [ ] Diffs are atomic (one commit per task)
 - [ ] Changelog complete
 - [ ] "Open Questions / Risks" filled in (even if "none")
+
+**PR**
+- [ ] Branch pushed: `git push -u origin <branch>`
+- [ ] PR created with `gh pr create` and URL reported
+- [ ] PR URL attached to Kanban task
 
 ---
 

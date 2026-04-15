@@ -16,7 +16,7 @@ import React from 'react';
 export interface StageStatus {
   index: number;
   agentId: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout' | 'interrupted';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout' | 'stall' | 'interrupted';
   startedAt: string | null;
   finishedAt: string | null;
   exitCode: number | null;

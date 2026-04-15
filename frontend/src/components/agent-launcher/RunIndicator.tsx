@@ -10,7 +10,7 @@
  *   stages.length > 1       → StepNodes (step nodes + elapsed + Abort + Dismiss)
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useAppStore, usePipelineState, useAvailableAgents } from '@/stores/useAppStore';
 
 // ---------------------------------------------------------------------------
@@ -242,6 +242,21 @@ interface StepNodesProps {
 }
 
 function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDismiss }: StepNodesProps) {
+  // Track which indices were injected via loop so we can animate them in.
+  const prevLengthRef = useRef(stages.length);
+  const [injectedFrom, setInjectedFrom] = useState<number | null>(null);
+
+  useEffect(() => {
+    const prev = prevLengthRef.current;
+    if (stages.length > prev) {
+      setInjectedFrom(prev);
+      const t = setTimeout(() => setInjectedFrom(null), 1500);
+      prevLengthRef.current = stages.length;
+      return () => clearTimeout(t);
+    }
+    prevLengthRef.current = stages.length;
+  }, [stages.length]);
+
   return (
     <div
       className="flex items-center gap-3 px-3 py-1.5 rounded-sm bg-surface-variant border border-border"
@@ -255,32 +270,35 @@ function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDism
         {stages.map((stage, idx) => {
           const isActive    = idx === currentStageIndex && status === 'running';
           const isCompleted = idx < currentStageIndex || status === 'completed';
+          const isInjected  = injectedFrom !== null && idx >= injectedFrom;
 
           return (
-            <React.Fragment key={stage}>
+            <React.Fragment key={`${stage}-${idx}`}>
               {/* Connector line */}
               {idx > 0 && (
                 <div
-                  className={`w-4 h-px ${isCompleted || idx <= currentStageIndex ? 'bg-primary' : 'bg-border'}`}
+                  className={`w-4 h-px ${isCompleted || idx <= currentStageIndex ? 'bg-primary' : isInjected ? 'bg-warning/50' : 'bg-border'}`}
                   aria-hidden="true"
                 />
               )}
 
               {/* Step node */}
               <div
-                className={`flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold transition-colors duration-200 ${
-                  isActive
+                className={`flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold transition-colors duration-300 ${
+                  isInjected
+                    ? 'animate-loop-pop bg-warning/20 text-warning border border-warning/50'
+                    : isActive
                     ? 'bg-primary text-on-primary animate-pulse'
                     : isCompleted
                     ? 'bg-success/[0.15] text-success border border-success/30'
                     : 'bg-surface text-text-disabled border border-border'
                 }`}
-                title={stage}
+                title={isInjected ? `${stage} (loop injected)` : stage}
                 aria-label={`${STAGE_LABELS[stage] ?? stage}: ${
-                  isCompleted ? 'done' : isActive ? 'running' : 'pending'
+                  isInjected ? 'loop injected' : isCompleted ? 'done' : isActive ? 'running' : 'pending'
                 }`}
               >
-                {isCompleted ? (
+                {isCompleted && !isInjected ? (
                   <span className="material-symbols-outlined text-xs leading-none" aria-hidden="true">
                     check
                   </span>
@@ -363,6 +381,13 @@ export function RunIndicator() {
     }, 1000);
     return () => clearInterval(id);
   }, [pipelineState?.startedAt, pipelineState?.status, pipelineState?.finishedAt]);
+
+  // Auto-dismiss on completion after a brief moment so the user sees the checkmarks.
+  useEffect(() => {
+    if (pipelineState?.status !== 'completed') return;
+    const t = setTimeout(() => clearPipeline(), 2000);
+    return () => clearTimeout(t);
+  }, [pipelineState?.status, clearPipeline]);
 
   if (!pipelineState) return null;
 

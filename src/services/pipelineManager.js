@@ -12,8 +12,8 @@
  * listing without reading individual run directories.
  *
  * Environment variables:
- *   PIPELINE_STAGE_TIMEOUT_MS  - Kill timeout per stage (default: 3600000)
- *   PIPELINE_STALL_TIMEOUT_MS  - Kill if no output for this long (default: 90000)
+ *   PIPELINE_STAGE_TIMEOUT_MS  - Kill timeout per stage (default: 3600000 = 1h)
+ *   PIPELINE_STALL_TIMEOUT_MS  - Kill if no output for this long (default: 300000 = 5min)
  *   PIPELINE_MAX_CONCURRENT    - Max active runs (default: 5)
  *   PIPELINE_RUNS_DIR          - Override runs directory
  *   PIPELINE_AGENT_MODE        - 'subagent' (default) or 'headless'
@@ -25,10 +25,31 @@
 const fs                        = require('fs');
 const path                      = require('path');
 const crypto                    = require('crypto');
-const { spawn }                 = require('child_process');
-const { Transform }             = require('stream');
+const { spawn, execSync }       = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
+
+// Resolve the claude binary path once at startup so caffeinate (and sh) can
+// find it even when the server was launched from a shell with a different PATH.
+// Falls back through common install locations if `which` fails.
+let CLAUDE_BIN = 'claude';
+{
+  const home = process.env.HOME ?? '';
+  const candidates = [
+    // PATH lookup first (covers most cases)
+    () => execSync('which claude 2>/dev/null', { encoding: 'utf8', env: process.env }).trim(),
+    // Common install locations as fallback
+    () => `${home}/.local/bin/claude`,
+    () => '/usr/local/bin/claude',
+    () => '/opt/homebrew/bin/claude',
+  ];
+  for (const candidate of candidates) {
+    try {
+      const p = candidate();
+      if (p && fs.existsSync(p)) { CLAUDE_BIN = p; break; }
+    } catch { /* try next */ }
+  }
+}
 
 /**
  * Read a task from the kanban column files by ID.
@@ -77,8 +98,11 @@ const DEFAULT_STALL_TIMEOUT_MS = 300_000;   // 5 min without any output → kill
 // Module-level state (in-process registry of active child processes)
 // ---------------------------------------------------------------------------
 
-/** Map<runId, { process: ChildProcess, stageIndex: number }> */
+/** Map<runId, { interval: ReturnType<setInterval>, stageIndex: number }> */
 const activeProcesses = new Map();
+
+/** Timestamp when this Node.js process was started (used as a PID stale guard). */
+const BOOT_TIME = Date.now();
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -148,6 +172,298 @@ function stageLogPath(dataDir, runId, stageIndex) {
  */
 function stagePromptPath(dataDir, runId, stageIndex) {
   return path.join(runDir(dataDir, runId), `stage-${stageIndex}-prompt.md`);
+}
+
+/**
+ * Path to the done-sentinel file written by the shell wrapper when the stage exits.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {number} stageIndex
+ * @returns {string}
+ */
+function stageDonePath(dataDir, runId, stageIndex) {
+  return path.join(runDir(dataDir, runId), `stage-${stageIndex}.done`);
+}
+
+/**
+ * POSIX single-quote escaping for shell arguments.
+ * Wraps s in single quotes and escapes embedded single quotes as '\''
+ *
+ * @param {string} s
+ * @returns {string}
+ */
+function shellEscape(s) {
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+// ---------------------------------------------------------------------------
+// Loop injection helpers
+// ---------------------------------------------------------------------------
+
+const DEFAULT_MAX_LOOPS = 5;
+
+/**
+ * Path to the inject-signal file written by an agent to request stage injection.
+ *
+ * An agent writes this file (JSON array of agent IDs) before exiting to ask the
+ * pipeline to insert those stages immediately after the current one.  The manager
+ * reads it after detecting the done-sentinel and injects accordingly.
+ *
+ * Example content:  ["developer-agent", "code-reviewer"]
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {number} stageIndex
+ * @returns {string}
+ */
+function stageInjectPath(dataDir, runId, stageIndex) {
+  return path.join(runDir(dataDir, runId), `stage-${stageIndex}.inject`);
+}
+
+/**
+ * Read the inject-signal file for a completed stage.
+ * Returns the array of agent IDs to inject, or [] if the file is absent/invalid.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {number} stageIndex
+ * @param {string} agentId     - The agent that just completed (used for loop-cap tracking).
+ * @param {object} run         - Current run state (read-only here).
+ * @returns {string[]}
+ */
+function readInjectSignal(dataDir, runId, stageIndex, agentId, run) {
+  const injectFile = stageInjectPath(dataDir, runId, stageIndex);
+  if (!fs.existsSync(injectFile)) return [];
+
+  let stages;
+  try {
+    stages = JSON.parse(fs.readFileSync(injectFile, 'utf8'));
+  } catch {
+    pipelineLog('run.inject_parse_error', { runId, stageIndex, agentId });
+    return [];
+  }
+
+  if (!Array.isArray(stages) || stages.length === 0) return [];
+
+  // Enforce loop cap: count how many times this agent has already triggered a loop.
+  const maxLoops   = parseInt(process.env.PIPELINE_MAX_LOOPS || String(DEFAULT_MAX_LOOPS), 10);
+  const loopCounts = run.loopCounts || {};
+  if ((loopCounts[agentId] || 0) >= maxLoops) {
+    pipelineLog('run.loop_cap_reached', { runId, stageIndex, agentId, loopCounts });
+    return [];
+  }
+
+  return stages;
+}
+
+/**
+ * Return true if a process with the given PID is alive.
+ * Uses kill(pid, 0) — signal 0 does not kill but checks existence.
+ *
+ * @param {number} pid
+ * @returns {boolean}
+ */
+function isProcessAlive(pid) {
+  if (!pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Write the child PID into stageStatuses[stageIndex].pid in run.json.
+ *
+ * @param {string} dataDir
+ * @param {object} run        - Current run state (mutated in place and written).
+ * @param {number} stageIndex
+ * @param {number} pid
+ */
+function persistStagePid(dataDir, run, stageIndex, pid) {
+  run.stageStatuses[stageIndex].pid = pid;
+  writeRun(dataDir, run);
+}
+
+/**
+ * Kill the stage process by PID and mark the run as failed.
+ * Safe to call even when the process is already gone.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {number} stageIndex
+ * @param {string} reason  - 'timeout' | 'stall'
+ */
+async function killStage(dataDir, runId, stageIndex, reason) {
+  const run = readRun(dataDir, runId);
+  if (!run) return;
+
+  // Guard: only act on stages that are still running.
+  if (run.stageStatuses[stageIndex].status !== 'running') return;
+
+  const pid = run.stageStatuses[stageIndex].pid;
+  if (pid && pid !== process.pid) {
+    pipelineLog('stage.kill', { runId, stageIndex, agentId: run.stages[stageIndex], pid, reason });
+    // Negative pid kills the entire process group (sh + claude + caffeinate).
+    try { process.kill(-pid, 'SIGTERM'); } catch { /* already gone */ }
+  }
+
+  // Clear the polling interval and remove from activeProcesses.
+  if (activeProcesses.has(runId)) {
+    const { interval } = activeProcesses.get(runId);
+    clearInterval(interval);
+    activeProcesses.delete(runId);
+  }
+
+  run.stageStatuses[stageIndex].status     = reason;   // 'timeout' or 'stall'
+  run.stageStatuses[stageIndex].exitCode   = null;
+  run.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
+  run.status = 'failed';
+  writeRun(dataDir, run);
+  pipelineLog(`stage.${reason}`, { runId, stageIndex, agentId: run.stages[stageIndex] });
+}
+
+/**
+ * Handle stage completion once the done-sentinel is detected.
+ * Extracted from the old child.on('close') handler.
+ * Guard: if the stage is no longer 'running' (e.g. was stopped externally), returns early.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {number} stageIndex
+ * @param {number} exitCode - Integer exit code from the done-sentinel file.
+ */
+async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
+  const run = readRun(dataDir, runId);
+  if (!run) return;
+
+  const stage = run.stageStatuses[stageIndex];
+
+  // Guard: stop, timeout, stall, or external deletion already processed this stage.
+  if (stage.status !== 'running') return;
+
+  const agentId    = run.stages[stageIndex];
+  const durationMs = stage.startedAt ? Date.now() - new Date(stage.startedAt).getTime() : 0;
+
+  stage.exitCode   = exitCode;
+  stage.finishedAt = new Date().toISOString();
+
+  if (exitCode !== 0) {
+    stage.status = 'failed';
+    run.status   = 'failed';
+    writeRun(dataDir, run);
+    pipelineLog('run.failed', { runId, stageIndex, agentId, exitCode });
+    return;
+  }
+
+  stage.status       = 'completed';
+  run.currentStage   = stageIndex + 1;
+  pipelineLog('stage.done', { runId, stageIndex, agentId, exitCode, durationMs });
+
+  // Part 2: inject stages requested by the agent via the stage-N.inject signal file.
+  const stagesToInject = readInjectSignal(dataDir, runId, stageIndex, agentId, run);
+  if (stagesToInject.length > 0) {
+    const insertAt = run.currentStage;
+    run.stages.splice(insertAt, 0, ...stagesToInject);
+    run.stageStatuses.splice(insertAt, 0, ...stagesToInject.map((id) => ({
+      agentId:    id,
+      status:     'pending',
+      exitCode:   null,
+      startedAt:  null,
+      finishedAt: null,
+    })));
+    // Re-index every entry so index === position in array.
+    run.stageStatuses.forEach((s, i) => { s.index = i; });
+    run.loopCounts = run.loopCounts || {};
+    run.loopCounts[agentId] = (run.loopCounts[agentId] || 0) + 1;
+    pipelineLog('run.loop_injected', { runId, agentId, stagesToInject, loopCount: run.loopCounts[agentId] });
+  }
+
+  writeRun(dataDir, run);
+
+  // Part 3: pause before the next stage if it is a checkpoint.
+  const nextStage = stageIndex + 1;
+  if (nextStage < run.stages.length && (run.checkpoints ?? []).includes(nextStage)) {
+    const freshRun = readRun(dataDir, runId);
+    if (!freshRun) return;
+    freshRun.status            = 'paused';
+    freshRun.pausedBeforeStage = nextStage;
+    freshRun.currentStage      = nextStage;
+    writeRun(dataDir, freshRun);
+    pipelineLog('run.paused', { runId, pausedBeforeStage: nextStage });
+    return;
+  }
+
+  await executeNextStage(dataDir, runId);
+}
+
+/**
+ * Start a poll loop that watches the done-sentinel file for stage completion.
+ * Also enforces the stage timeout and stall watchdog.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {number} stageIndex
+ * @param {string} doneFile       - Path to stage-N.done sentinel.
+ * @param {number} stageStartedAt - Date.now() when the stage was spawned.
+ * @param {number} timeoutMs      - Maximum stage duration before kill.
+ */
+function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, timeoutMs) {
+  const stallMs      = Number(process.env.PIPELINE_STALL_TIMEOUT_MS) || DEFAULT_STALL_TIMEOUT_MS;
+  const logPath      = stageLogPath(dataDir, runId, stageIndex);
+  let   lastLogMtime = stageStartedAt;
+
+  const interval = setInterval(async () => {
+    // --- Done sentinel check ---
+    if (fs.existsSync(doneFile)) {
+      clearInterval(interval);
+      activeProcesses.delete(runId);
+
+      let exitCode = 1;
+      try {
+        const raw = fs.readFileSync(doneFile, 'utf8').trim();
+        exitCode = parseInt(raw, 10);
+        if (isNaN(exitCode)) exitCode = 1;
+      } catch { /* read error — treat as failure */ }
+
+      pipelineLog('stage.sentinel_detected', { runId, stageIndex, exitCode });
+      await handleStageClose(dataDir, runId, stageIndex, exitCode);
+      return;
+    }
+
+    const elapsed = Date.now() - stageStartedAt;
+
+    // --- Timeout check ---
+    if (elapsed >= timeoutMs) {
+      clearInterval(interval);
+      activeProcesses.delete(runId);
+      await killStage(dataDir, runId, stageIndex, 'timeout');
+      return;
+    }
+
+    // --- Stall check (no new log output) ---
+    try {
+      const stat = fs.statSync(logPath);
+      lastLogMtime = stat.mtimeMs;
+    } catch {
+      // Log not yet created — use stageStartedAt as baseline.
+    }
+
+    if (Date.now() - lastLogMtime >= stallMs) {
+      clearInterval(interval);
+      activeProcesses.delete(runId);
+      await killStage(dataDir, runId, stageIndex, 'stall');
+    }
+  }, 2000);
+
+  // Unref so this interval does not prevent the Node event loop from exiting
+  // cleanly during test teardown (server.close resolves even when a poll tick
+  // is outstanding).
+  interval.unref();
+
+  return interval;
 }
 
 // ---------------------------------------------------------------------------
@@ -328,22 +644,35 @@ async function moveKanbanTask(spaceId, taskId, column) {
  * This is the single source of truth used by both spawnStage() (actual
  * execution) and handlePreviewPrompts() (dry-run preview endpoint).
  *
- * @param {string}   dataDir    - Root data directory.
- * @param {string}   spaceId    - Kanban space containing the task.
- * @param {string}   taskId     - Task ID to build the prompt for.
- * @param {number}   stageIndex - Zero-based index of this stage in the run.
- * @param {string}   agentId    - Agent ID for this stage.
- * @param {string[]} stages     - Full ordered list of agent IDs in the pipeline.
+ * @param {string}   dataDir          - Root data directory.
+ * @param {string}   spaceId          - Kanban space containing the task.
+ * @param {string}   taskId           - Task ID to build the prompt for.
+ * @param {number}   stageIndex       - Zero-based index of this stage in the run.
+ * @param {string}   agentId          - Agent ID for this stage.
+ * @param {string[]} stages           - Full ordered list of agent IDs in the pipeline.
+ * @param {string}   [workingDirectory]
+ * @param {string}   [runId]          - Run ID, included so agents can write stage-N.inject.
  * @returns {{ promptText: string, estimatedTokens: number }}
  */
-function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages, workingDirectory) {
+function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages, workingDirectory, runId) {
   // readTaskFromSpace uses path.join(baseDataDir, spaceId) for legacy layout.
   // The production data layout is data/spaces/<spaceId>/, so pass the spaces dir.
   const spacesDir = path.join(dataDir, 'spaces');
-  const task = readTaskFromSpace(spacesDir, spaceId, taskId);
+  const task      = readTaskFromSpace(spacesDir, spaceId, taskId);
+
+  const isLastStage = stageIndex === stages.length - 1;
+
   let promptText = task
     ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
     : `TaskId: ${taskId}\nSpaceId: ${spaceId}\n`;
+
+  // Tell the agent whether it is the last stage so it knows to move the task to done.
+  promptText += `LastStage: ${isLastStage}\n`;
+
+  // Provide run context so agents can write the loop-inject signal file if needed.
+  if (runId) {
+    promptText += `RunId: ${runId}\nStageIndex: ${stageIndex}\n`;
+  }
 
   // Include working directory if set — tells the agent where to cd into.
   if (workingDirectory) {
@@ -351,8 +680,7 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     promptText += '⚠️ You MUST cd into this directory before starting work. All file paths should be relative to this directory.\n';
   }
 
-  // Include artifact paths from previous stages (attached to the task by earlier agents).
-  // This gives each stage full context of what was produced before it.
+  // Include artifact paths from previous stages (accumulated on the task by earlier agents).
   if (task && Array.isArray(task.attachments) && task.attachments.length > 0) {
     const fileArtifacts = task.attachments.filter((a) => a.type === 'file' && a.content);
     if (fileArtifacts.length > 0) {
@@ -466,7 +794,7 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   // Build the task prompt to pass via stdin.
   const { promptText: taskPrompt } = buildStagePrompt(
-    dataDir, run.spaceId, run.taskId, stageIndex, agentId, run.stages, run.workingDirectory,
+    dataDir, run.spaceId, run.taskId, stageIndex, agentId, run.stages, run.workingDirectory, run.runId,
   );
 
   // T-002: Persist the prompt to disk before piping it to the child process.
@@ -485,187 +813,82 @@ async function spawnStage(dataDir, run, stageIndex) {
     console.warn(`[pipelineManager] WARN: could not persist prompt for stage ${stageIndex}:`, writeErr.message);
   }
 
-  const logPath   = stageLogPath(dataDir, run.runId, stageIndex);
-  const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+  const logPath  = stageLogPath(dataDir, run.runId, stageIndex);
+  const doneFile = stageDonePath(dataDir, run.runId, stageIndex);
 
   // Backend spawns always get --permission-mode bypassPermissions: there is no user
   // present to respond to permission prompts, so any interactive pause would
   // hang the stage until the stall watchdog kills it.
   const hasPermissionMode = agentSpec.spawnArgs.includes('--permission-mode');
-  const spawnArgs = hasPermissionMode
+  const finalArgs = hasPermissionMode
     ? agentSpec.spawnArgs
     : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
-  const child = spawn('claude', spawnArgs, {
-    stdio:    ['pipe', 'pipe', 'pipe'],
+  // Build shell command: shell wrapper reads prompt from file, appends to log,
+  // writes exit code to done-sentinel when finished.
+  // spawn() with detached=true gives sh its own process group (PGID = child.pid).
+  // Kill uses -pid (negative) to send SIGTERM to the entire group (sh + claude).
+  // NOTE: do NOT use `exec claude` here — exec replaces sh, so the trailing
+  //       `echo $? > doneFile` would never run and the sentinel would never be written.
+  const escapedArgs = finalArgs.map(shellEscape).join(' ');
+  const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+
+  const stageStartedAt = Date.now();
+
+  // Test hook: when PIPELINE_NO_SPAWN=1, skip the real spawn and immediately
+  // write the done sentinel so tests do not launch real claude processes.
+  if (process.env.PIPELINE_NO_SPAWN === '1') {
+    fs.writeFileSync(doneFile, '0', 'utf8');
+    // null PID: no real process — deleteRun/abortAll will skip the kill() call
+    // and avoid accidentally sending SIGTERM to the current process (e.g. test runner).
+    persistStagePid(dataDir, run, stageIndex, null);
+    const interval = startPolling(dataDir, run.runId, stageIndex, doneFile, stageStartedAt, timeoutMs);
+    activeProcesses.set(run.runId, { interval, stageIndex });
+    pipelineLog('stage.spawned', { runId: run.runId, stageIndex, agentId, pid: null, mock: true });
+    return;
+  }
+
+  const child = spawn('sh', ['-c', shellCmd], {
+    stdio:    'ignore',
     detached: true,
     env:      { ...process.env },
   });
 
-  // Write task context to stdin and close so claude receives the prompt.
-  child.stdin.write(taskPrompt);
-  child.stdin.end();
+  // Decouple from server.js — child keeps running even if server restarts.
+  child.unref();
 
-  activeProcesses.set(run.runId, { process: child, stageIndex });
-
-  // Pipe stdout and stderr into the log file via a timestamp-tracking Transform.
-  // Using pipe() preserves backpressure semantics; the Transform only updates
-  // lastOutputAt and passes chunks through unchanged.
-  const stageStartMs = Date.now();
-  let   lastOutputAt = Date.now();
-
-  function makeStallTracker() {
-    return new Transform({
-      transform(chunk, _enc, cb) { lastOutputAt = Date.now(); cb(null, chunk); },
-    });
+  // On macOS, prevent idle sleep while the stage runs.
+  // caffeinate -w <pid> watches the process and exits automatically when it finishes.
+  // It is a macOS system binary (/usr/bin/caffeinate) — no PATH issues.
+  // Non-critical: if it fails the pipeline still runs normally.
+  if (process.platform === 'darwin' && child.pid) {
+    const caff = spawn('caffeinate', ['-w', String(child.pid)], { stdio: 'ignore' });
+    caff.unref();
   }
 
-  // Filter stream-json stdout: only write assistant text content to the log.
-  // Each line from --output-format=stream-json is a JSON object; we extract
-  // the text from assistant messages and discard system/tool/result events.
-  let lineBuffer = '';
-  function makeAssistantFilter() {
-    return new Transform({
-      transform(chunk, _enc, cb) {
-        lastOutputAt = Date.now();
-        lineBuffer += chunk.toString();
-        const lines = lineBuffer.split('\n');
-        lineBuffer = lines.pop(); // keep incomplete last line
-        let out = '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const event = JSON.parse(line);
-            if (event.type === 'assistant') {
-              const content = event.message?.content ?? [];
-              for (const block of content) {
-                if (block.type === 'text' && block.text) {
-                  out += block.text;
-                }
-              }
-            }
-          } catch {
-            // Non-JSON line (e.g. stderr) — pass through as-is
-            out += line + '\n';
-          }
-        }
-        cb(null, out);
-      },
-      flush(cb) {
-        // Handle any remaining buffered line
-        if (lineBuffer.trim()) {
-          try {
-            const event = JSON.parse(lineBuffer);
-            if (event.type === 'assistant') {
-              const content = event.message?.content ?? [];
-              let out = '';
-              for (const block of content) {
-                if (block.type === 'text' && block.text) out += block.text;
-              }
-              cb(null, out);
-              return;
-            }
-          } catch { /* ignore */ }
-        }
-        cb();
-      },
-    });
-  }
+  // Persist PID so init() can re-attach after a server restart.
+  persistStagePid(dataDir, run, stageIndex, child.pid);
 
-  child.stdout.pipe(makeAssistantFilter()).pipe(logStream, { end: false });
-  child.stderr.pipe(makeStallTracker()).pipe(logStream, { end: false });
+  // Start polling loop that watches the done-sentinel, timeout, and stall.
+  const interval = startPolling(dataDir, run.runId, stageIndex, doneFile, stageStartedAt, timeoutMs);
+  activeProcesses.set(run.runId, { interval, stageIndex });
 
-  // Stall watchdog: kill the stage if it produces no output for PIPELINE_STALL_TIMEOUT_MS.
-  // This catches AskUserQuestion hangs and any other interactive prompts that slip through.
-  const stallMs      = Number(process.env.PIPELINE_STALL_TIMEOUT_MS) || DEFAULT_STALL_TIMEOUT_MS;
-  const stallWatcher = setInterval(() => {
-    if (Date.now() - lastOutputAt >= stallMs) {
-      clearInterval(stallWatcher);
-      pipelineLog('stage.kill', { runId: run.runId, stageIndex, agentId, pid: child.pid, reason: 'stall', stallMs });
-      try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already gone */ }
-      const stalledRun = readRun(dataDir, run.runId);
-      if (stalledRun && stalledRun.stageStatuses[stageIndex].status === 'running') {
-        stalledRun.stageStatuses[stageIndex].status     = 'stalled';
-        stalledRun.stageStatuses[stageIndex].exitCode   = null;
-        stalledRun.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
-        stalledRun.status = 'failed';
-        writeRun(dataDir, stalledRun);
-      }
-      pipelineLog('stage.stalled', { runId: run.runId, stageIndex, agentId, stallMs });
-    }
-  }, 15_000);
+  pipelineLog('stage.spawned', { runId: run.runId, stageIndex, agentId, pid: child.pid });
 
-  // Enforce stage timeout.
-  const timer = setTimeout(() => {
-    clearInterval(stallWatcher);
-    pipelineLog('stage.kill', { runId: run.runId, stageIndex, agentId, pid: child.pid, pgid: child.pid, reason: 'timeout' });
-    try { process.kill(-child.pid, 'SIGTERM'); } catch { /* process group may already be gone */ }
-    const currentRun = readRun(dataDir, run.runId);
-    if (currentRun) {
-      currentRun.stageStatuses[stageIndex].status     = 'timeout';
-      currentRun.stageStatuses[stageIndex].exitCode   = null;
-      currentRun.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
-      currentRun.status = 'failed';
-      writeRun(dataDir, currentRun);
-    }
-    pipelineLog('stage.timeout', { runId: run.runId, stageIndex, agentId, timeoutMs });
-  }, timeoutMs);
-
+  // Handle spawn errors (e.g. sh not found — very unlikely but safe to handle).
   child.on('error', (err) => {
-    clearTimeout(timer);
-    clearInterval(stallWatcher);
-    logStream.end();
+    clearInterval(interval);
     activeProcesses.delete(run.runId);
 
     const currentRun = readRun(dataDir, run.runId);
     if (!currentRun) return;
-
-    // Guard: if an explicit stop already fired, don't overwrite that status.
-    if (currentRun.stageStatuses[stageIndex].status === 'interrupted') return;
-    if (currentRun.status === 'interrupted') return;
+    if (currentRun.stageStatuses[stageIndex].status !== 'running') return;
 
     currentRun.stageStatuses[stageIndex].status     = 'failed';
     currentRun.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
     currentRun.status = 'failed';
     writeRun(dataDir, currentRun);
     pipelineLog('stage.spawn_error', { runId: run.runId, stageIndex, agentId, error: err.message });
-  });
-
-  child.on('close', async (code) => {
-    clearTimeout(timer);
-    clearInterval(stallWatcher);
-    logStream.end();
-    activeProcesses.delete(run.runId);
-
-    const durationMs    = Date.now() - stageStartMs;
-    const currentRun    = readRun(dataDir, run.runId);
-
-    // Guard: run may have been deleted or interrupted while the stage ran.
-    if (!currentRun) return;
-
-    // Guard: if timeout, stall, explicit stop, or the error handler already
-    // set the stage to failed, don't overwrite that status.
-    if (currentRun.stageStatuses[stageIndex].status === 'timeout')      return;
-    if (currentRun.stageStatuses[stageIndex].status === 'stalled')      return;
-    if (currentRun.stageStatuses[stageIndex].status === 'interrupted')  return;
-    if (currentRun.stageStatuses[stageIndex].status === 'failed')       return;
-    if (currentRun.status === 'interrupted') return;
-
-    currentRun.stageStatuses[stageIndex].exitCode   = code;
-    currentRun.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
-
-    if (code !== 0) {
-      currentRun.stageStatuses[stageIndex].status = 'failed';
-      currentRun.status = 'failed';
-      writeRun(dataDir, currentRun);
-      pipelineLog('run.failed', { runId: run.runId, stageIndex, agentId, exitCode: code });
-    } else {
-      currentRun.stageStatuses[stageIndex].status = 'completed';
-      currentRun.currentStage = stageIndex + 1;
-      writeRun(dataDir, currentRun);
-      pipelineLog('stage.done', { runId: run.runId, stageIndex, agentId, exitCode: code, durationMs });
-      await executeNextStage(dataDir, run.runId);
-    }
   });
 }
 
@@ -697,22 +920,57 @@ function init(dataDir) {
   for (const entry of entries) {
     const runJsonFile = path.join(dir, entry, 'run.json');
     if (!fs.existsSync(runJsonFile)) continue;
+
     try {
       const run = JSON.parse(fs.readFileSync(runJsonFile, 'utf8'));
-      if (run && run.status === 'running') {
+      if (!run || run.status !== 'running') continue;
+
+      // Find the currently-running stage.
+      const runningStageIdx = Array.isArray(run.stageStatuses)
+        ? run.stageStatuses.findIndex((s) => s.status === 'running')
+        : -1;
+
+      if (runningStageIdx === -1) {
+        // No stage is marked running — interrupt at run level.
         run.status    = 'interrupted';
         run.updatedAt = new Date().toISOString();
-        if (Array.isArray(run.stageStatuses)) {
-          for (const s of run.stageStatuses) {
-            if (s.status === 'running') {
-              s.status     = 'interrupted';
-              s.finishedAt = run.updatedAt;
-            }
+        writeJSON(runJsonFile, run);
+        upsertRegistryEntry(dataDir, { runId: run.runId, spaceId: run.spaceId, taskId: run.taskId, status: 'interrupted', createdAt: run.createdAt, updatedAt: run.updatedAt });
+        console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart)`);
+        continue;
+      }
+
+      const stage      = run.stageStatuses[runningStageIdx];
+      const pid        = stage.pid;
+      const startedAt  = stage.startedAt ? new Date(stage.startedAt).getTime() : 0;
+
+      // Boot-time guard: if the stage started before this server booted,
+      // treat the PID as stale even if another process with the same PID is alive.
+      const pidIsStale = startedAt < BOOT_TIME;
+
+      if (!pidIsStale && pid && isProcessAlive(pid)) {
+        // Process is still running — re-attach polling so completion is detected.
+        const agentId     = run.stages[runningStageIdx];
+        const baseTimeout = parseInt(process.env.PIPELINE_STAGE_TIMEOUT_MS || String(DEFAULT_STAGE_TIMEOUT_MS), 10);
+        const timeoutMs   = agentId === 'orchestrator' ? baseTimeout * 6 : baseTimeout;
+        const doneFile    = stageDonePath(dataDir, run.runId, runningStageIdx);
+
+        const interval = startPolling(dataDir, run.runId, runningStageIdx, doneFile, startedAt || BOOT_TIME, timeoutMs);
+        activeProcesses.set(run.runId, { interval, stageIndex: runningStageIdx });
+        pipelineLog('run.reattached', { runId: run.runId, runningStageIdx, pid });
+      } else {
+        // PID is dead or stale — mark interrupted.
+        run.status    = 'interrupted';
+        run.updatedAt = new Date().toISOString();
+        for (const s of run.stageStatuses) {
+          if (s.status === 'running') {
+            s.status     = 'interrupted';
+            s.finishedAt = run.updatedAt;
           }
         }
         writeJSON(runJsonFile, run);
         upsertRegistryEntry(dataDir, { runId: run.runId, spaceId: run.spaceId, taskId: run.taskId, status: 'interrupted', createdAt: run.createdAt, updatedAt: run.updatedAt });
-        console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart)`);
+        console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart, PID dead)`);
       }
     } catch (err) {
       console.warn(`[pipelineManager] WARN: could not process run entry '${entry}':`, err.message);
@@ -738,7 +996,7 @@ function init(dataDir) {
  * @returns {Promise<object>} Initial run state.
  * @throws On validation failure (TASK_NOT_FOUND, TASK_NOT_IN_TODO, MAX_CONCURRENT_REACHED, AGENT_NOT_FOUND).
  */
-async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, dangerouslySkipPermissions = false }) {
+async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, dangerouslySkipPermissions = false, checkpoints = [] }) {
   const stageList = stages && stages.length > 0 ? stages : DEFAULT_STAGES;
 
   // --- Validate task exists and is in 'todo'. ---
@@ -794,6 +1052,7 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
     createdAt: now,
     updatedAt: now,
     dangerouslySkipPermissions,
+    checkpoints: Array.isArray(checkpoints) ? checkpoints : [],
     ...(workingDirectory ? { workingDirectory } : {}),
   };
 
@@ -858,8 +1117,8 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
     throw err;
   }
 
-  if (!['interrupted', 'failed'].includes(run.status)) {
-    const err = new Error(`Run '${runId}' has status '${run.status}' and cannot be resumed. Only interrupted or failed runs can be resumed.`);
+  if (!['interrupted', 'failed', 'paused'].includes(run.status)) {
+    const err = new Error(`Run '${runId}' has status '${run.status}' and cannot be resumed. Only interrupted, failed, or paused runs can be resumed.`);
     err.code = 'RUN_NOT_RESUMABLE';
     throw err;
   }
@@ -896,8 +1155,9 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
     run.stageStatuses[i].finishedAt = null;
   }
 
-  run.currentStage = resumeIndex;
-  run.status       = 'running';
+  run.currentStage       = resumeIndex;
+  run.status             = 'running';
+  delete run.pausedBeforeStage;
   writeRun(dataDir, run);
 
   pipelineLog('run.resumed', { runId, resumeIndex, agentId: run.stages[resumeIndex] });
@@ -944,15 +1204,21 @@ async function stopRun(runId, dataDir) {
   if (!run) return null;
 
   if (activeProcesses.has(runId)) {
-    const { process: child, stageIndex } = activeProcesses.get(runId);
-    pipelineLog('run.stopped', { runId, pid: child.pid, pgid: child.pid, stageIndex });
-    try { process.kill(-child.pid, 'SIGTERM'); } catch { /* process group may already be gone */ }
+    const { interval, stageIndex } = activeProcesses.get(runId);
+    clearInterval(interval);
     activeProcesses.delete(runId);
+
+    // Kill by PID stored in run.json (never signal the current process itself).
+    const pid = run.stageStatuses[stageIndex] && run.stageStatuses[stageIndex].pid;
+    if (pid && pid !== process.pid) {
+      pipelineLog('run.stopped', { runId, pid, stageIndex });
+      try { process.kill(-pid, 'SIGTERM'); } catch { /* process may already be gone */ }
+    }
 
     // Mark the currently-running stage as interrupted.
     if (run.stageStatuses[stageIndex] && run.stageStatuses[stageIndex].status === 'running') {
-      run.stageStatuses[stageIndex].status = 'interrupted';
-      run.stageStatuses[stageIndex].endedAt = new Date().toISOString();
+      run.stageStatuses[stageIndex].status     = 'interrupted';
+      run.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
     }
   }
 
@@ -970,12 +1236,18 @@ async function stopRun(runId, dataDir) {
  * @returns {Promise<void>}
  */
 async function deleteRun(runId, dataDir) {
-  // Send SIGTERM to active process group if running.
+  // Clear polling interval and kill by PID if running.
   if (activeProcesses.has(runId)) {
-    const { process: child, stageIndex } = activeProcesses.get(runId);
-    pipelineLog('run.aborted', { runId, pid: child.pid, pgid: child.pid, stageIndex });
-    try { process.kill(-child.pid, 'SIGTERM'); } catch { /* process group may already be gone */ }
+    const { interval, stageIndex } = activeProcesses.get(runId);
+    clearInterval(interval);
     activeProcesses.delete(runId);
+
+    const run = readRun(dataDir, runId);
+    const pid = run && run.stageStatuses[stageIndex] && run.stageStatuses[stageIndex].pid;
+    if (pid && pid !== process.pid) {
+      pipelineLog('run.aborted', { runId, pid, stageIndex });
+      try { process.kill(-pid, 'SIGTERM'); } catch { /* process may already be gone */ }
+    }
   }
 
   // Remove run directory.
@@ -1026,6 +1298,10 @@ module.exports = {
   runDir,
   stageLogPath,
   stagePromptPath,
+  stageDonePath,
+  stageInjectPath,
+  readInjectSignal,
   buildStagePrompt,
+  shellEscape,
   DEFAULT_STAGES,
 };

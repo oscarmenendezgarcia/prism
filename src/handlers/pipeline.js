@@ -57,7 +57,7 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
     return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
   }
 
-  const { spaceId, taskId, stages, dangerouslySkipPermissions } = body;
+  const { spaceId, taskId, stages, dangerouslySkipPermissions, checkpoints } = body;
 
   if (!spaceId || typeof spaceId !== 'string') {
     return sendError(res, 400, 'VALIDATION_ERROR', "The 'spaceId' field is required.");
@@ -67,6 +67,9 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
   }
   if (stages !== undefined && !Array.isArray(stages)) {
     return sendError(res, 400, 'VALIDATION_ERROR', "The 'stages' field must be an array when provided.");
+  }
+  if (checkpoints !== undefined && !Array.isArray(checkpoints)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', "The 'checkpoints' field must be an array when provided.");
   }
 
   // T-004: Resolve stages — explicit body > task.pipeline > space.pipeline > DEFAULT_STAGES
@@ -119,7 +122,7 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
   }) + '\n');
 
   try {
-    const run = await pipelineManager.createRun({ spaceId, taskId, stages: resolvedStages, dataDir, workingDirectory, dangerouslySkipPermissions: dangerouslySkipPermissions === true });
+    const run = await pipelineManager.createRun({ spaceId, taskId, stages: resolvedStages, dataDir, workingDirectory, dangerouslySkipPermissions: dangerouslySkipPermissions === true, checkpoints: Array.isArray(checkpoints) ? checkpoints : [] });
     // Include resolvedFrom in the response when stages were not explicitly provided (MCP path).
     const responseBody = resolvedFrom && resolvedFrom !== 'explicit'
       ? { ...run, resolvedFrom, stages: run.stages }
@@ -247,8 +250,8 @@ async function handleStopRun(req, res, runId, dataDir) {
     return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
   }
 
-  const terminalStatuses = new Set(['completed', 'failed', 'interrupted']);
-  if (terminalStatuses.has(run.status)) {
+  const stoppableStatuses = new Set(['pending', 'running', 'paused']);
+  if (!stoppableStatuses.has(run.status)) {
     return sendError(
       res,
       422,
