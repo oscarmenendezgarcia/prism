@@ -1289,10 +1289,117 @@ async function runCrossAgentResolverTests() {
   }
 }
 
+async function runT010RestartTests() {
+  suite('Unit: T-010 resolver restart recovery');
+
+  const fs   = require('fs');
+  const path = require('path');
+  const os   = require('os');
+  const crypto = require('crypto');
+
+  // T-010-B: server restart with dead resolver PID → needsHuman=true
+  await test('T-010-B: restart with dead resolver PID marks comment needsHuman', () => {
+    const tmpPath  = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-t010-'));
+    const runsDir  = path.join(tmpPath, 'runs');
+    const spaceDir = path.join(tmpPath, 'spaces', 'sp-t010');
+    const runId    = crypto.randomUUID();
+    const taskId   = 'task-t010-b';
+    const commentId = 'c-t010-b';
+
+    fs.mkdirSync(path.join(runsDir, runId), { recursive: true });
+    fs.mkdirSync(spaceDir, { recursive: true });
+
+    const comment = {
+      id: commentId, type: 'question', author: 'developer-agent',
+      text: 'What color?', targetAgent: 'ux-api-designer',
+      resolved: false, needsHuman: false, createdAt: new Date().toISOString(),
+    };
+    const task = { id: taskId, title: 'T010', comments: [comment] };
+    fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([task]), 'utf8');
+
+    const run = {
+      runId, taskId, spaceId: 'sp-t010', status: 'blocked',
+      stages: ['developer-agent', 'ux-api-designer'], currentStage: 0,
+      resolverActive: true,
+      blockedReason: {
+        commentId, taskId, author: 'developer-agent', text: 'What color?',
+        targetAgent: 'ux-api-designer', resolverPid: 99999999, // dead PID
+        resolverStartedAt: new Date(Date.now() - 10000).toISOString(),
+        blockedAt: new Date().toISOString(),
+      },
+      stageStatuses: [{ index: 0, agentId: 'developer-agent', status: 'running', exitCode: null, startedAt: new Date().toISOString(), finishedAt: null, pid: 99999998 }],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(runsDir, runId, 'run.json'), JSON.stringify(run), 'utf8');
+    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId, spaceId: 'sp-t010', status: 'blocked', createdAt: run.createdAt },
+    ]), 'utf8');
+
+    // Simulate server restart by clearing require cache and re-init
+    for (const key of Object.keys(require.cache)) {
+      if (key.includes('pipelineManager')) delete require.cache[key];
+    }
+    const pm = require('../src/services/pipelineManager');
+    pm.init(tmpPath);
+
+    // Give init() a tick to process
+    const persisted = JSON.parse(fs.readFileSync(path.join(runsDir, runId, 'run.json'), 'utf8'));
+    assert(persisted.resolverActive === false, `resolverActive should be false, got ${persisted.resolverActive}`);
+
+    const tasks = JSON.parse(fs.readFileSync(path.join(spaceDir, 'in-progress.json'), 'utf8'));
+    const c = tasks[0].comments.find((x) => x.id === commentId);
+    assert(c, 'comment should still exist');
+    assert(c.needsHuman === true, `needsHuman should be true after dead resolver recovery, got ${c.needsHuman}`);
+
+    fs.rmSync(tmpPath, { recursive: true, force: true });
+  });
+
+  // T-010-C: restart with blocked run but resolverActive=false → no changes
+  await test('T-010-C: restart with blocked run without resolverActive leaves run unchanged', () => {
+    const tmpPath  = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-t010c-'));
+    const runsDir  = path.join(tmpPath, 'runs');
+    const runId    = crypto.randomUUID();
+    const taskId   = 'task-t010-c';
+    const commentId = 'c-t010-c';
+
+    fs.mkdirSync(path.join(runsDir, runId), { recursive: true });
+
+    const run = {
+      runId, taskId, spaceId: 'sp-t010c', status: 'blocked',
+      stages: ['developer-agent'], currentStage: 0,
+      resolverActive: false,
+      blockedReason: {
+        commentId, taskId, author: 'developer-agent', text: 'Who approves?',
+        blockedAt: new Date().toISOString(),
+      },
+      stageStatuses: [],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(runsDir, runId, 'run.json'), JSON.stringify(run), 'utf8');
+    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId, spaceId: 'sp-t010c', status: 'blocked', createdAt: run.createdAt },
+    ]), 'utf8');
+
+    for (const key of Object.keys(require.cache)) {
+      if (key.includes('pipelineManager')) delete require.cache[key];
+    }
+    const pm = require('../src/services/pipelineManager');
+    pm.init(tmpPath);
+
+    const persisted = JSON.parse(fs.readFileSync(path.join(runsDir, runId, 'run.json'), 'utf8'));
+    assert(persisted.status === 'blocked', `run should still be blocked, got ${persisted.status}`);
+    assert(persisted.resolverActive === false, `resolverActive should remain false`);
+    assert(persisted.blockedReason?.commentId === commentId, 'blockedReason should be unchanged');
+
+    fs.rmSync(tmpPath, { recursive: true, force: true });
+  });
+}
+
 run()
   .then(() => runUnitTests())
   .then(() => runCommentDrivenTests())
   .then(() => runCrossAgentResolverTests())
+  .then(() => runT010RestartTests())
   .then(() => {
     console.log(`\n${passed + failed} tests total: ${passed} passed, ${failed} failed`);
     if (failures.length > 0) {

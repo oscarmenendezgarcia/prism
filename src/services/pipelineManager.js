@@ -1351,6 +1351,9 @@ function handleResolverClose(dataDir, runId, comment, exitCode, startedAt, reaso
   const run = readRun(dataDir, runId);
   if (!run) return;
 
+  // Capture PID before clearing (BUG-002: needed for resolver.timeout log below).
+  const resolverPid = run.blockedReason?.resolverPid;
+
   // Clear the resolver-active flag regardless of outcome.
   run.resolverActive = false;
   if (run.blockedReason) {
@@ -1377,7 +1380,7 @@ function handleResolverClose(dataDir, runId, comment, exitCode, startedAt, reaso
         runId,
         commentId: comment.id,
         targetAgent: comment.targetAgent,
-        pid: run.blockedReason?.resolverPid,
+        pid: resolverPid,
         timeoutMs: parseInt(process.env.PIPELINE_RESOLVER_TIMEOUT_MS || String(DEFAULT_RESOLVER_TIMEOUT_MS), 10),
       });
     } else {
@@ -1699,6 +1702,7 @@ function unblockRunByComment(dataDir, taskId, commentId) {
       taskId,
       author:    next.author,
       text:      next.text,
+      ...(next.targetAgent && { targetAgent: next.targetAgent }),
       blockedAt: run.blockedReason?.blockedAt || new Date().toISOString(),
     };
     writeRun(dataDir, run);
@@ -1707,6 +1711,11 @@ function unblockRunByComment(dataDir, taskId, commentId) {
       resolvedCommentId:  commentId,
       remainingQuestions: unresolvedQuestions.length,
     });
+    // BUG-001: if the next question also has a targetAgent, spawn its resolver.
+    if (next.targetAgent && !run.resolverActive) {
+      const freshRun = readRun(dataDir, run.runId);
+      if (freshRun) attemptCrossAgentResolution(dataDir, freshRun, next);
+    }
   }
 }
 
