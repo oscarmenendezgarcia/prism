@@ -25,6 +25,7 @@ import type {
   PipelinePromptPreview,
   TaggerOptions,
   TaggerResult,
+  Comment,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -155,6 +156,54 @@ export const getAttachmentContent = (
   index: number
 ): Promise<AttachmentContent> =>
   apiFetch<AttachmentContent>(`/spaces/${spaceId}/tasks/${taskId}/attachments/${index}`);
+
+// ---------------------------------------------------------------------------
+// Task comments (ADR-1: task-comments)
+// ---------------------------------------------------------------------------
+
+/** Payload for POST /spaces/:spaceId/tasks/:taskId/comments */
+export interface CreateCommentPayload {
+  author: string;
+  text: string;
+  type: 'note' | 'question' | 'answer';
+  parentId?: string;
+}
+
+/** Payload for PATCH /spaces/:spaceId/tasks/:taskId/comments/:commentId */
+export interface UpdateCommentPayload {
+  text?: string;
+  type?: 'note' | 'question' | 'answer';
+  resolved?: boolean;
+}
+
+/**
+ * Create a new comment on a task.
+ * POST /api/v1/spaces/:spaceId/tasks/:taskId/comments
+ */
+export const createComment = (
+  spaceId: string,
+  taskId: string,
+  payload: CreateCommentPayload,
+): Promise<Comment> =>
+  apiFetch<Comment>(`/spaces/${spaceId}/tasks/${taskId}/comments`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+/**
+ * Update an existing comment (resolve, edit text, or change type).
+ * PATCH /api/v1/spaces/:spaceId/tasks/:taskId/comments/:commentId
+ */
+export const updateComment = (
+  spaceId: string,
+  taskId: string,
+  commentId: string,
+  payload: UpdateCommentPayload,
+): Promise<Comment> =>
+  apiFetch<Comment>(`/spaces/${spaceId}/tasks/${taskId}/comments/${commentId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
 
 // ---------------------------------------------------------------------------
 // Auto-task generation

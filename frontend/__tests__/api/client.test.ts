@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { apiFetch, getSpaces, createSpace, getTasks, createTask, moveTask, deleteTask, getAttachmentContent } from '../../src/api/client';
+import { apiFetch, getSpaces, createSpace, getTasks, createTask, moveTask, deleteTask, getAttachmentContent, createComment, updateComment } from '../../src/api/client';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -149,6 +149,77 @@ describe('getAttachmentContent', () => {
     expect(mockFetch).toHaveBeenCalledWith(
       '/api/v1/spaces/s1/tasks/t1/attachments/0',
       expect.any(Object)
+    );
+  });
+});
+
+describe('createComment', () => {
+  it('calls POST .../comments with payload and returns Comment', async () => {
+    const comment = {
+      id: 'c1',
+      author: 'developer-agent',
+      text: 'Is this the right approach?',
+      type: 'question' as const,
+      resolved: false,
+      createdAt: '2026-04-16T07:00:00.000Z',
+    };
+    mockFetch.mockResolvedValue(makeResponse(comment, 201));
+    const payload = { author: 'developer-agent', text: 'Is this the right approach?', type: 'question' as const };
+    const result = await createComment('s1', 't1', payload);
+    expect(result).toEqual(comment);
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/v1/spaces/s1/tasks/t1/comments',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+    );
+  });
+
+  it('includes optional parentId in payload when provided', async () => {
+    const comment = { id: 'c2', author: 'qa-engineer-e2e', text: 'Yes.', type: 'answer' as const, parentId: 'c1', resolved: false, createdAt: '' };
+    mockFetch.mockResolvedValue(makeResponse(comment, 201));
+    const payload = { author: 'qa-engineer-e2e', text: 'Yes.', type: 'answer' as const, parentId: 'c1' };
+    await createComment('s1', 't1', payload);
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/v1/spaces/s1/tasks/t1/comments',
+      expect.objectContaining({ body: JSON.stringify(payload) })
+    );
+  });
+});
+
+describe('updateComment', () => {
+  it('calls PATCH .../comments/:commentId with payload and returns updated Comment', async () => {
+    const updated = {
+      id: 'c1',
+      author: 'developer-agent',
+      text: 'Is this the right approach?',
+      type: 'question' as const,
+      resolved: true,
+      createdAt: '2026-04-16T07:00:00.000Z',
+      updatedAt: '2026-04-16T08:00:00.000Z',
+    };
+    mockFetch.mockResolvedValue(makeResponse(updated));
+    const payload = { resolved: true };
+    const result = await updateComment('s1', 't1', 'c1', payload);
+    expect(result).toEqual(updated);
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/v1/spaces/s1/tasks/t1/comments/c1',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      })
+    );
+  });
+
+  it('supports partial updates (text only)', async () => {
+    const updated = { id: 'c1', author: 'dev', text: 'Updated text', type: 'note' as const, resolved: false, createdAt: '' };
+    mockFetch.mockResolvedValue(makeResponse(updated));
+    const payload = { text: 'Updated text' };
+    await updateComment('s1', 't1', 'c1', payload);
+    expect(mockFetch).toHaveBeenCalledWith(
+      '/api/v1/spaces/s1/tasks/t1/comments/c1',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify(payload) })
     );
   });
 });
