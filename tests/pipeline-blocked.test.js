@@ -267,6 +267,41 @@ async function run() {
     assert(res.body.status === 'running', `Expected status=running, got ${res.body.status}`);
   });
 
+  // GT-001 regression: unblockRun (REST) must clear blockedReason from run state
+  await test('GT-001 POST /unblock clears blockedReason from response and persisted run', async () => {
+    const runWithReason = crypto.randomUUID();
+    const blockedReason = {
+      commentId: 'c-regression-gt001',
+      taskId:    tid,
+      author:    'senior-architect',
+      text:      'What is the SLA?',
+      blockedAt: new Date().toISOString(),
+    };
+    seedRun(dataDir, runWithReason, {
+      spaceId:      sid,
+      taskId:       tid,
+      status:       'blocked',
+      stage0Status: 'pending',
+      blockedReason,
+    });
+
+    const res = await req2('POST', `/api/v1/runs/${runWithReason}/unblock`, {});
+    assert(res.status === 200, `Expected 200, got ${res.status}: ${JSON.stringify(res.body)}`);
+    assert(res.body.status === 'running', `Expected status=running, got ${res.body.status}`);
+    assert(
+      res.body.blockedReason == null,
+      `BUG-001 regression: blockedReason should be absent after unblock, got ${JSON.stringify(res.body.blockedReason)}`,
+    );
+
+    // Also verify on disk
+    const runJsonPath = path.join(dataDir, 'runs', runWithReason, 'run.json');
+    const persisted   = JSON.parse(fs.readFileSync(runJsonPath, 'utf8'));
+    assert(
+      persisted.blockedReason == null,
+      `BUG-001 regression: persisted blockedReason should be absent, got ${JSON.stringify(persisted.blockedReason)}`,
+    );
+  });
+
   await test('422 unblocking a non-blocked run returns RUN_NOT_BLOCKED', async () => {
     // Run is now 'running' again — unblocking should fail.
     const res = await req2('POST', `/api/v1/runs/${runId}/unblock`, {});
@@ -565,6 +600,98 @@ async function runUnitTests() {
     catch { threw = true; }
     assert(!threw, 'unblockRunByComment should not throw when run is not blocked');
 
+    require('fs').rmSync(tmpPath, { recursive: true, force: true });
+  });
+
+  // GT-003 regression: bypassQuestionCheck must NOT persist across a non-blocked resume
+  suite('Unit: GT-003 — bypassQuestionCheck cleared on non-blocked resume');
+
+  await test('GT-003 resumeRun from interrupted clears bypassQuestionCheck set by prior blocked resume', async () => {
+    const tmpPath = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'pm-gt003-'));
+    const runsDir = require('path').join(tmpPath, 'runs');
+    const runId   = 'gt003-run';
+    require('fs').mkdirSync(require('path').join(runsDir, runId), { recursive: true });
+
+    // Simulate a run that was previously blocked-and-resumed (bypassQuestionCheck=true)
+    // then became interrupted again.
+    const run = {
+      runId,
+      taskId:  'task-gt003',
+      spaceId: 'sp-gt003',
+      status:  'interrupted',
+      bypassQuestionCheck: true,  // leaked from prior blocked-resume
+      stages: ['senior-architect', 'developer-agent'],
+      currentStage: 0,
+      stageStatuses: [
+        { index: 0, agentId: 'senior-architect', status: 'interrupted', exitCode: null, startedAt: null, finishedAt: null },
+        { index: 1, agentId: 'developer-agent',  status: 'pending',     exitCode: null, startedAt: null, finishedAt: null },
+      ],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const runJsonPath = require('path').join(runsDir, runId, 'run.json');
+    require('fs').writeFileSync(runJsonPath, JSON.stringify(run), 'utf8');
+    require('fs').writeFileSync(require('path').join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId: run.taskId, spaceId: run.spaceId, status: run.status, createdAt: run.createdAt },
+    ]), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    // Resume from interrupted (not from blocked) — bypassQuestionCheck should be cleared.
+    await pm.resumeRun(runId, tmpPath);
+
+    const persisted = JSON.parse(require('fs').readFileSync(runJsonPath, 'utf8'));
+    assert(
+      persisted.bypassQuestionCheck == null,
+      `BUG-003 regression: bypassQuestionCheck should be cleared on non-blocked resume, got ${persisted.bypassQuestionCheck}`,
+    );
+    assert(persisted.status === 'running', `Expected running, got ${persisted.status}`);
+
+    // Drain setImmediate so executeNextStage does not bleed into subsequent tests
+    await new Promise((r) => setTimeout(r, 20));
+    require('fs').rmSync(tmpPath, { recursive: true, force: true });
+  });
+
+  await test('GT-003 resumeRun from blocked sets bypassQuestionCheck=true', async () => {
+    const tmpPath = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'pm-gt003b-'));
+    const runsDir = require('path').join(tmpPath, 'runs');
+    const runId   = 'gt003-blocked-run';
+    require('fs').mkdirSync(require('path').join(runsDir, runId), { recursive: true });
+
+    const run = {
+      runId,
+      taskId:  'task-gt003b',
+      spaceId: 'sp-gt003b',
+      status:  'blocked',
+      stages: ['senior-architect'],
+      currentStage: 0,
+      stageStatuses: [
+        { index: 0, agentId: 'senior-architect', status: 'pending', exitCode: null, startedAt: null, finishedAt: null },
+      ],
+      blockedReason: { commentId: 'c1', taskId: 'task-gt003b', author: 'a', text: 'Q?', blockedAt: new Date().toISOString() },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const runJsonPath = require('path').join(runsDir, runId, 'run.json');
+    require('fs').writeFileSync(runJsonPath, JSON.stringify(run), 'utf8');
+    require('fs').writeFileSync(require('path').join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId: run.taskId, spaceId: run.spaceId, status: run.status, createdAt: run.createdAt },
+    ]), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    await pm.resumeRun(runId, tmpPath);
+
+    const persisted = JSON.parse(require('fs').readFileSync(runJsonPath, 'utf8'));
+    assert(
+      persisted.bypassQuestionCheck === true,
+      `Expected bypassQuestionCheck=true when resuming from blocked, got ${persisted.bypassQuestionCheck}`,
+    );
+    assert(persisted.blockedReason == null, 'blockedReason should be cleared on resume from blocked');
+
+    await new Promise((r) => setTimeout(r, 20));
     require('fs').rmSync(tmpPath, { recursive: true, force: true });
   });
 }

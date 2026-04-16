@@ -1,10 +1,13 @@
 /**
- * Task detail & edit side panel.
+ * Task detail & edit panel — responsive.
  *
- * Slides in from the right when detailTask is non-null in the store.
- * Renders editable fields for title, type, assigned, and description.
- * Auto-saves title and assigned on blur; type on change; description
- * only on explicit button press.
+ * Desktop (≥768px): centered modal with a 2-column grid layout.
+ *   Left column (55%): fields (title, type, assigned, description, pipeline,
+ *   attachments) + timestamps. Right column (45%): threaded comment section
+ *   with independent scroll.
+ *
+ * Mobile (<768px): slide-in panel from the right (original behavior).
+ *   Single-column vertical scroll for all fields + comments.
  *
  * ADR-1 (task-detail-edit):
  *  - App-level render prevents z-index stacking issues with column containers.
@@ -20,8 +23,10 @@ import React, {
 } from 'react';
 import { useAppStore, useActiveRun, useAvailableAgents } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
+import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
-import type { Column } from '@/types';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import type { Column, Comment } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Copy-to-clipboard helper
@@ -379,6 +384,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const detailTask           = useAppStore((s) => s.detailTask);
   const closeDetailPanel     = useAppStore((s) => s.closeDetailPanel);
   const updateTask           = useAppStore((s) => s.updateTask);
+  const addComment           = useAppStore((s) => s.addComment);
+  const patchComment         = useAppStore((s) => s.patchComment);
   const isMutating           = useAppStore((s) => s.isMutating);
   const tasks                = useAppStore((s) => s.tasks);
   const showToast            = useAppStore((s) => s.showToast);
@@ -387,6 +394,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const activeSpaceId        = useAppStore((s) => s.activeSpaceId);
   const activeRun            = useActiveRun();
   const availableAgents      = useAvailableAgents();
+
+  /** True when the viewport is ≥768px — switches from mobile-slider to desktop-modal. */
+  const isDesktop = useMediaQuery('(min-width: 768px)');
 
   // ── Local field state ────────────────────────────────────────────────────
 
@@ -519,6 +529,23 @@ export function TaskDetailPanel(): React.ReactElement | null {
     updateTask(detailTask.id, { pipeline });
   }, [detailTask, updateTask]);
 
+  // Comment handlers — delegate to the store so the board badge refreshes.
+  const handleCommentCreated = useCallback(
+    async (payload: { author: string; text: string; type: Comment['type']; parentId?: string }) => {
+      if (!detailTask) return;
+      await addComment(detailTask.id, payload);
+    },
+    [detailTask, addComment],
+  );
+
+  const handleCommentUpdated = useCallback(
+    async (commentId: string, patch: { resolved?: boolean; text?: string }) => {
+      if (!detailTask) return;
+      await patchComment(detailTask.id, commentId, patch);
+    },
+    [detailTask, patchComment],
+  );
+
   const handleCopyId = useCallback(async () => {
     if (!detailTask) return;
     try {
@@ -544,6 +571,320 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const isActiveRun = activeRun?.taskId === detailTask.id;
   const fieldDisabled = isReadOnly;
 
+  // ── Shared sub-elements ──────────────────────────────────────────────────
+
+  const columnBadge = column && (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium leading-none uppercase tracking-wide flex-shrink-0 ${
+        column === 'done'
+          ? 'bg-[rgba(36,138,61,0.12)] dark:bg-[rgba(48,209,88,0.14)] text-badge-done-text'
+          : column === 'in-progress'
+          ? 'bg-[rgba(10,132,255,0.12)] dark:bg-[rgba(10,132,255,0.14)] text-badge-research-text'
+          : 'bg-[rgba(232,104,0,0.12)] dark:bg-[rgba(255,159,10,0.14)] text-badge-task-text'
+      }`}
+    >
+      {columnLabel}
+    </span>
+  );
+
+  const closeButton = (
+    <button
+      onClick={closeDetailPanel}
+      aria-label="Close task detail"
+      className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150 flex-shrink-0"
+    >
+      <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+        close
+      </span>
+    </button>
+  );
+
+  /** All editable fields (title, type, assigned, description, pipeline, attachments). */
+  const fieldsContent = (
+    <>
+      {/* Active run warning banner */}
+      {isActiveRun && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-warning/10 border border-warning/30">
+          <span className="material-symbols-outlined text-warning text-base leading-none" aria-hidden="true">
+            warning
+          </span>
+          <p className="text-xs text-warning leading-snug">
+            Agent pipeline is running — editing disabled
+          </p>
+        </div>
+      )}
+
+      {/* ── ID ──────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+          ID
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="flex-1 font-mono text-xs text-text-secondary bg-surface-elevated border border-border rounded-md px-3 py-2 select-all overflow-x-auto whitespace-nowrap">
+            {detailTask.id}
+          </span>
+          <button
+            type="button"
+            onClick={handleCopyId}
+            aria-label="Copy task ID"
+            title="Copy task ID"
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150"
+          >
+            <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+              {isCopied ? 'check' : 'content_copy'}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* ── Title ───────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="detail-title" className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+          Title
+        </label>
+        <input
+          id="detail-title"
+          ref={titleInputRef}
+          type="text"
+          value={localTitle}
+          onChange={(e) => setLocalTitle(e.target.value)}
+          onBlur={handleTitleBlur}
+          disabled={fieldDisabled}
+          aria-disabled={fieldDisabled}
+          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
+          placeholder="Task title"
+        />
+      </div>
+
+      {/* ── Type ────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+          Type
+        </span>
+        <div
+          role="group"
+          aria-label="Task type"
+          className="flex rounded-md overflow-hidden border border-border"
+        >
+          {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="radio"
+              aria-checked={localType === t}
+              onClick={() => handleTypeChange(t)}
+              disabled={fieldDisabled}
+              aria-disabled={fieldDisabled}
+              className={`flex-1 py-1.5 text-xs font-medium capitalize transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
+                localType === t
+                  ? 'bg-primary text-on-primary'
+                  : 'bg-surface-elevated text-text-secondary hover:bg-surface-variant'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Assigned ────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="detail-assigned" className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+          Assigned
+        </label>
+        <input
+          id="detail-assigned"
+          type="text"
+          value={localAssigned}
+          onChange={(e) => setLocalAssigned(e.target.value)}
+          onBlur={handleAssignedBlur}
+          disabled={fieldDisabled}
+          aria-disabled={fieldDisabled}
+          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
+          placeholder="Assign to someone..."
+        />
+      </div>
+
+      {/* ── Description ─────────────────────────────────────────── */}
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="detail-description" className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+          Description
+        </label>
+        <textarea
+          id="detail-description"
+          value={localDescription}
+          onChange={(e) => setLocalDescription(e.target.value)}
+          disabled={fieldDisabled}
+          aria-disabled={fieldDisabled}
+          rows={6}
+          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-150"
+          placeholder="Add a description..."
+        />
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            onClick={handleSaveDescription}
+            disabled={fieldDisabled}
+            className="text-xs px-3 py-1.5"
+          >
+            {isMutating ? (
+              <>
+                <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">
+                  progress_activity
+                </span>
+                Saving...
+              </>
+            ) : (
+              'Save description'
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* ── Pipeline (T-009) ────────────────────────────────────── */}
+      <PipelineFieldEditor
+        pipeline={detailTask.pipeline}
+        availableAgentIds={availableAgents.map((a) => a.id)}
+        onSave={handlePipelineSave}
+        disabled={fieldDisabled}
+      />
+
+      {/* ── Attachments ──────────────────────────────────────────── */}
+      {detailTask.attachments && detailTask.attachments.length > 0 && (
+        <div className="flex flex-col gap-1.5" data-testid="attachments-section">
+          <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+            Attachments
+          </span>
+          <ul className="flex flex-col gap-1" aria-label="Task attachments">
+            {detailTask.attachments.map((att, index) => (
+              <li key={index}>
+                <button
+                  type="button"
+                  data-testid="attachment-row"
+                  onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
+                  aria-label={`Open attachment ${att.name}`}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150"
+                >
+                  <span
+                    className="material-symbols-outlined text-base leading-none text-text-secondary flex-shrink-0"
+                    aria-hidden="true"
+                  >
+                    {att.type === 'file' ? 'folder' : 'attach_file'}
+                  </span>
+                  <span className="flex-1 truncate font-mono text-xs text-text-primary">
+                    {att.name}
+                  </span>
+                  <span
+                    className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0"
+                    aria-hidden="true"
+                  >
+                    open_in_new
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+
+  const commentsContent = (
+    <div className="flex flex-col gap-1.5" data-testid="comments-panel">
+      <CommentsSection
+        spaceId={activeSpaceId}
+        taskId={detailTask.id}
+        comments={detailTask.comments ?? []}
+        onCommentCreated={handleCommentCreated}
+        onCommentUpdated={handleCommentUpdated}
+        disabled={fieldDisabled}
+      />
+    </div>
+  );
+
+  const timestampsContent = (
+    <>
+      <span className="text-xs text-text-disabled">
+        Created: {formatTimestamp(detailTask.createdAt)}
+      </span>
+      <span className="text-xs text-text-disabled">
+        Updated: {formatTimestamp(detailTask.updatedAt)}
+      </span>
+    </>
+  );
+
+  // ── Desktop: centered modal with 2-column grid ────────────────────────────
+
+  if (isDesktop) {
+    return (
+      <>
+        {/* Backdrop — z-[105] to sit above the sticky header */}
+        <div
+          className="fixed inset-0 z-[105] bg-black/35"
+          aria-hidden="true"
+          onClick={closeDetailPanel}
+        />
+
+        {/*
+          Centering wrapper — pointer-events-none so backdrop clicks pass through.
+          The inner modal restores pointer events.
+        */}
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 md:p-6 pointer-events-none">
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Task detail"
+            data-testid="task-detail-modal"
+            className="pointer-events-auto bg-surface border border-border rounded-modal shadow-modal w-full max-w-[600px] lg:max-w-[800px] max-h-[90vh] flex flex-col animate-scale-in"
+          >
+            {/* ── Modal header ──────────────────────────────────── */}
+            <div className="flex items-center justify-between gap-2 px-6 py-4 border-b border-border flex-shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs font-mono text-text-secondary bg-surface-variant px-1.5 py-0.5 rounded-sm flex-shrink-0">
+                  {shortId}
+                </span>
+                {columnBadge}
+              </div>
+              {closeButton}
+            </div>
+
+            {/*
+              ── Modal body — 2-column grid ──────────────────────
+              Left column (55%): editable fields + timestamps.
+              Right column (45%): threaded comments with independent scroll.
+              Both columns overflow-y-auto for independent scrolling.
+            */}
+            <div className="flex flex-1 overflow-hidden min-h-0">
+              {/* Left: fields */}
+              <div
+                className="w-[55%] overflow-y-auto px-6 py-5 flex flex-col gap-5 border-r border-border min-w-0"
+                aria-label="Task fields"
+              >
+                {fieldsContent}
+
+                {/* Timestamps at the bottom of the left column */}
+                <div className="flex flex-col gap-1 pt-2 mt-auto">
+                  {timestampsContent}
+                </div>
+              </div>
+
+              {/* Right: comments */}
+              <div
+                className="w-[45%] overflow-y-auto px-6 py-5 min-w-0"
+                aria-label="Comments"
+              >
+                {commentsContent}
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  // ── Mobile: slide-in panel from the right ────────────────────────────────
+
   return (
     <>
       {/* Backdrop — z-[105] to sit above the sticky header (z-[100]) */}
@@ -567,228 +908,20 @@ export function TaskDetailPanel(): React.ReactElement | null {
             <span className="text-xs font-mono text-text-secondary bg-surface-variant px-1.5 py-0.5 rounded-sm flex-shrink-0">
               {shortId}
             </span>
-            {column && (
-              <span
-                className={`inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium leading-none uppercase tracking-wide flex-shrink-0 ${
-                  column === 'done'
-                    ? 'bg-[rgba(36,138,61,0.12)] dark:bg-[rgba(48,209,88,0.14)] text-badge-done-text'
-                    : column === 'in-progress'
-                    ? 'bg-[rgba(10,132,255,0.12)] dark:bg-[rgba(10,132,255,0.14)] text-badge-research-text'
-                    : 'bg-[rgba(232,104,0,0.12)] dark:bg-[rgba(255,159,10,0.14)] text-badge-task-text'
-                }`}
-              >
-                {columnLabel}
-              </span>
-            )}
+            {columnBadge}
           </div>
-          <button
-            onClick={closeDetailPanel}
-            aria-label="Close task detail"
-            className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150 flex-shrink-0"
-          >
-            <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
-              close
-            </span>
-          </button>
+          {closeButton}
         </div>
 
         {/* ── Scrollable body ──────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-5">
-
-          {/* Active run warning banner */}
-          {isActiveRun && (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-warning/10 border border-warning/30">
-              <span className="material-symbols-outlined text-warning text-base leading-none" aria-hidden="true">
-                warning
-              </span>
-              <p className="text-xs text-warning leading-snug">
-                Agent pipeline is running — editing disabled
-              </p>
-            </div>
-          )}
-
-          {/* ── ID ──────────────────────────────────────────────────── */}
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
-              ID
-            </span>
-            <div className="flex items-center gap-2">
-              <span className="flex-1 font-mono text-xs text-text-secondary bg-surface-elevated border border-border rounded-md px-3 py-2 select-all overflow-x-auto whitespace-nowrap">
-                {detailTask.id}
-              </span>
-              <button
-                type="button"
-                onClick={handleCopyId}
-                aria-label="Copy task ID"
-                title="Copy task ID"
-                className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150"
-              >
-                <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
-                  {isCopied ? 'check' : 'content_copy'}
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* ── Title ───────────────────────────────────────────────── */}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="detail-title" className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
-              Title
-            </label>
-            <input
-              id="detail-title"
-              ref={titleInputRef}
-              type="text"
-              value={localTitle}
-              onChange={(e) => setLocalTitle(e.target.value)}
-              onBlur={handleTitleBlur}
-              disabled={fieldDisabled}
-              aria-disabled={fieldDisabled}
-              className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
-              placeholder="Task title"
-            />
-          </div>
-
-          {/* ── Type ────────────────────────────────────────────────── */}
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
-              Type
-            </span>
-            <div
-              role="group"
-              aria-label="Task type"
-              className="flex rounded-md overflow-hidden border border-border"
-            >
-              {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  role="radio"
-                  aria-checked={localType === t}
-                  onClick={() => handleTypeChange(t)}
-                  disabled={fieldDisabled}
-                  aria-disabled={fieldDisabled}
-                  className={`flex-1 py-1.5 text-xs font-medium capitalize transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
-                    localType === t
-                      ? 'bg-primary text-on-primary'
-                      : 'bg-surface-elevated text-text-secondary hover:bg-surface-variant'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Assigned ────────────────────────────────────────────── */}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="detail-assigned" className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
-              Assigned
-            </label>
-            <input
-              id="detail-assigned"
-              type="text"
-              value={localAssigned}
-              onChange={(e) => setLocalAssigned(e.target.value)}
-              onBlur={handleAssignedBlur}
-              disabled={fieldDisabled}
-              aria-disabled={fieldDisabled}
-              className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
-              placeholder="Assign to someone..."
-            />
-          </div>
-
-          {/* ── Description ─────────────────────────────────────────── */}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="detail-description" className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
-              Description
-            </label>
-            <textarea
-              id="detail-description"
-              value={localDescription}
-              onChange={(e) => setLocalDescription(e.target.value)}
-              disabled={fieldDisabled}
-              aria-disabled={fieldDisabled}
-              rows={6}
-              className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-150"
-              placeholder="Add a description..."
-            />
-            <div className="flex justify-end">
-              <Button
-                variant="primary"
-                onClick={handleSaveDescription}
-                disabled={fieldDisabled}
-                className="text-xs px-3 py-1.5"
-              >
-                {isMutating ? (
-                  <>
-                    <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">
-                      progress_activity
-                    </span>
-                    Saving...
-                  </>
-                ) : (
-                  'Save description'
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {/* ── Pipeline (T-009) ────────────────────────────────────── */}
-          <PipelineFieldEditor
-            pipeline={detailTask.pipeline}
-            availableAgentIds={availableAgents.map((a) => a.id)}
-            onSave={handlePipelineSave}
-            disabled={fieldDisabled}
-          />
-
-          {/* ── Attachments ──────────────────────────────────────────── */}
-          {detailTask.attachments && detailTask.attachments.length > 0 && (
-            <div className="flex flex-col gap-1.5" data-testid="attachments-section">
-              <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
-                Attachments
-              </span>
-              <ul className="flex flex-col gap-1" aria-label="Task attachments">
-                {detailTask.attachments.map((att, index) => (
-                  <li key={index}>
-                    <button
-                      type="button"
-                      data-testid="attachment-row"
-                      onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
-                      aria-label={`Open attachment ${att.name}`}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150"
-                    >
-                      <span
-                        className="material-symbols-outlined text-base leading-none text-text-secondary flex-shrink-0"
-                        aria-hidden="true"
-                      >
-                        {att.type === 'file' ? 'folder' : 'attach_file'}
-                      </span>
-                      <span className="flex-1 truncate font-mono text-xs text-text-primary">
-                        {att.name}
-                      </span>
-                      <span
-                        className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0"
-                        aria-hidden="true"
-                      >
-                        open_in_new
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {fieldsContent}
+          {commentsContent}
         </div>
 
         {/* ── Footer — read-only metadata ──────────────────────────────── */}
         <div className="flex-shrink-0 px-4 py-3 border-t border-border flex flex-col gap-1">
-          <span className="text-xs text-text-disabled">
-            Created: {formatTimestamp(detailTask.createdAt)}
-          </span>
-          <span className="text-xs text-text-disabled">
-            Updated: {formatTimestamp(detailTask.updatedAt)}
-          </span>
+          {timestampsContent}
         </div>
       </div>
     </>

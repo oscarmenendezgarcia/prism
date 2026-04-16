@@ -566,6 +566,15 @@ server.tool(
       .describe("Author name. Defaults to 'user'."),
   },
   withTiming('kanban_answer_comment', async ({ spaceId, taskId, commentId, answer, author }) => {
+    // 0. Snapshot run status BEFORE answering. The server-side hook
+    //    (unblockRunByComment) fires synchronously during the PATCH that
+    //    answerComment issues, so by the time the HTTP response returns the run
+    //    status has already transitioned blocked → running. We must capture
+    //    wasBlocked now or we will always see status='running' and report
+    //    pipelineUnblocked: false even though the pipeline was unblocked.
+    const runBefore  = await findActiveRunForTask({ spaceId, taskId });
+    const wasBlocked = runBefore && !runBefore.error && runBefore.status === 'blocked';
+
     // 1. Create answer comment + mark question resolved (atomic pair).
     const result = await answerComment({ spaceId, taskId, commentId, answer, author: author ?? 'user' });
     if (result && result.error) return result;
@@ -577,17 +586,26 @@ server.tool(
       return { ...result, pipelineUnblocked: false };
     }
 
-    const comments       = Array.isArray(task.comments) ? task.comments : [];
-    const openQuestions  = comments.filter((c) => c.type === 'question' && !c.resolved);
+    const comments      = Array.isArray(task.comments) ? task.comments : [];
+    const openQuestions = comments.filter((c) => c.type === 'question' && !c.resolved);
 
     if (openQuestions.length === 0) {
-      // All questions resolved — find the blocked run and unblock it.
+      if (wasBlocked) {
+        // Server-side hook already unblocked the run during the PATCH above.
+        // Report the outcome correctly even though status is now 'running'.
+        return { ...result, pipelineUnblocked: true, runId: runBefore.runId };
+      }
+
+      // Run was not blocked when we answered — maybe it became blocked after our
+      // pre-check. Try an explicit REST unblock as a fallback.
       const run = await findActiveRunForTask({ spaceId, taskId });
       if (run && !run.error && run.status === 'blocked') {
         const unblockResult = await unblockRun(run.runId);
         const unblocked     = !unblockResult?.error;
         return { ...result, pipelineUnblocked: unblocked, runId: run.runId };
       }
+
+      return { ...result, pipelineUnblocked: false, openQuestionsRemaining: 0 };
     }
 
     return { ...result, pipelineUnblocked: false, openQuestionsRemaining: openQuestions.length };

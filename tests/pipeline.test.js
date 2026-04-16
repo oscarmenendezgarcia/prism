@@ -14,7 +14,8 @@
  *     - createRun: AGENT_NOT_FOUND when stage agent file missing
  *     - getRun: returns null for unknown runId
  *     - deleteRun: removes run directory and registry entry
- *     - init: marks running runs as interrupted
+ *     - init: marks running runs as interrupted (no sentinel)
+     - init: processes done-sentinel on reattach (exitCode 0 → completed, exitCode 1 → failed)
  *
  *   Pipeline resilience (unit):
  *     - shellEscape: single-quote wrapping, space handling, embedded quotes, wildcards
@@ -624,6 +625,110 @@ describe('pipelineManager — init() startup recovery', () => {
     pm.init(dataDir);
 
     assert.ok(fs.existsSync(runsDir), 'runs dir should be created by init');
+
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  test('init processes done-sentinel on reattach when PID is dead (exitCode 0) → run completes', async () => {
+    const dataDir = tmpDir();
+    const runsDir = path.join(dataDir, 'runs');
+    const runId   = 'run-sentinel-success';
+    const runDir  = path.join(runsDir, runId);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    const runState = {
+      runId,
+      spaceId:      'fake-space',
+      taskId:       'fake-task',
+      stages:       ['developer-agent'],
+      currentStage: 0,
+      status:       'running',
+      stageStatuses: [{
+        index: 0, agentId: 'developer-agent', status: 'running',
+        pid: null, exitCode: null,
+        startedAt: new Date(Date.now() - 60_000).toISOString(),
+        finishedAt: null,
+      }],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(runState), 'utf8');
+
+    const registry = [{ runId, spaceId: 'fake-space', taskId: 'fake-task', status: 'running', createdAt: runState.createdAt }];
+    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify(registry), 'utf8');
+
+    // Write the done-sentinel with exit code 0.
+    fs.writeFileSync(path.join(runDir, 'stage-0.done'), '0', 'utf8');
+
+    // Point moveKanbanTask at a dead port so it fails fast (ECONNREFUSED).
+    const savedUrl = process.env.KANBAN_API_URL;
+    process.env.KANBAN_API_URL = 'http://localhost:19999/api/v1';
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+    pm.init(dataDir);
+
+    // Give handleStageClose time to run asynchronously.
+    await new Promise((r) => setTimeout(r, 300));
+
+    const recovered = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
+    assert.notEqual(recovered.status, 'interrupted', 'run should NOT be interrupted when sentinel exists');
+    assert.equal(recovered.status, 'completed', 'run should be completed after sentinel with exitCode=0');
+    assert.equal(recovered.stageStatuses[0].status, 'completed', 'stage should be completed');
+
+    if (savedUrl !== undefined) process.env.KANBAN_API_URL = savedUrl;
+    else delete process.env.KANBAN_API_URL;
+
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  test('init processes done-sentinel on reattach when PID is dead (exitCode 1) → run fails', async () => {
+    const dataDir = tmpDir();
+    const runsDir = path.join(dataDir, 'runs');
+    const runId   = 'run-sentinel-failure';
+    const runDir  = path.join(runsDir, runId);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    const runState = {
+      runId,
+      spaceId:      'fake-space',
+      taskId:       'fake-task',
+      stages:       ['developer-agent'],
+      currentStage: 0,
+      status:       'running',
+      stageStatuses: [{
+        index: 0, agentId: 'developer-agent', status: 'running',
+        pid: null, exitCode: null,
+        startedAt: new Date(Date.now() - 60_000).toISOString(),
+        finishedAt: null,
+      }],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(runState), 'utf8');
+
+    const registry = [{ runId, spaceId: 'fake-space', taskId: 'fake-task', status: 'running', createdAt: runState.createdAt }];
+    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify(registry), 'utf8');
+
+    // Write the done-sentinel with non-zero exit code.
+    fs.writeFileSync(path.join(runDir, 'stage-0.done'), '1', 'utf8');
+
+    const savedUrl = process.env.KANBAN_API_URL;
+    process.env.KANBAN_API_URL = 'http://localhost:19999/api/v1';
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+    pm.init(dataDir);
+
+    await new Promise((r) => setTimeout(r, 300));
+
+    const recovered = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
+    assert.notEqual(recovered.status, 'interrupted', 'run should NOT be interrupted when sentinel exists');
+    assert.equal(recovered.status, 'failed', 'run should be failed after sentinel with exitCode=1');
+    assert.equal(recovered.stageStatuses[0].status, 'failed', 'stage should be failed');
+
+    if (savedUrl !== undefined) process.env.KANBAN_API_URL = savedUrl;
+    else delete process.env.KANBAN_API_URL;
 
     fs.rmSync(dataDir, { recursive: true, force: true });
   });

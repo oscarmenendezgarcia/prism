@@ -4,6 +4,23 @@ import '@testing-library/jest-dom';
 // Global browser API stubs for jsdom
 // ---------------------------------------------------------------------------
 
+// window.matchMedia is not implemented in jsdom.
+// useMediaQuery falls back to false when matchMedia is unavailable, but this
+// stub lets tests mock specific breakpoints via Object.defineProperty overrides.
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }),
+});
+
 // ResizeObserver is not implemented in jsdom.
 // CardGrid and any other component that creates a ResizeObserver will use this.
 (globalThis as typeof globalThis & { ResizeObserver: typeof ResizeObserver }).ResizeObserver =

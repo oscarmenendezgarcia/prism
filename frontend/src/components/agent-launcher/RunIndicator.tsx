@@ -12,6 +12,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useAppStore, usePipelineState, useAvailableAgents } from '@/stores/useAppStore';
+import type { BlockedReason } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Stage label maps — includes code-reviewer (ADR-1 §3.4)
@@ -173,6 +174,86 @@ function InterruptedBanner({ elapsed, onResume, onCancel, onDismiss }: Interrupt
           stop
         </span>
         Cancel
+      </button>
+
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss pipeline indicator"
+        title="Dismiss"
+        className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-150 flex-shrink-0"
+      >
+        <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+          close
+        </span>
+      </button>
+    </div>
+  );
+}
+
+interface BlockedBannerProps {
+  blockedReason: BlockedReason;
+  elapsed: number;
+  onOpenTask: () => void;
+  onAbort: () => void;
+  onDismiss: () => void;
+}
+
+/**
+ * Shown when a backend pipeline run is in the `blocked` status —
+ * it posted a question and is waiting for a human to resolve it before
+ * the next stage can start.
+ */
+function BlockedBanner({ blockedReason, elapsed, onOpenTask, onAbort, onDismiss }: BlockedBannerProps) {
+  // Truncate long question text for the inline chip.
+  const preview = blockedReason.text.length > 60
+    ? `${blockedReason.text.slice(0, 57)}…`
+    : blockedReason.text;
+
+  return (
+    <div
+      className="flex items-center gap-3 px-3 py-1.5 rounded-sm bg-warning/10 border border-warning/40"
+      role="status"
+      aria-live="polite"
+      aria-label={`Pipeline blocked: ${blockedReason.text}`}
+      data-testid="run-indicator-blocked"
+    >
+      <span
+        className="material-symbols-outlined text-base text-warning leading-none flex-shrink-0"
+        aria-hidden="true"
+      >
+        pause_circle
+      </span>
+
+      <span className="text-xs text-text-primary flex-1 truncate" title={blockedReason.text}>
+        Blocked — <em className="not-italic text-warning">{preview}</em>
+      </span>
+
+      <span className="text-xs text-text-secondary tabular-nums flex-shrink-0">
+        {formatElapsed(elapsed)}
+      </span>
+
+      <button
+        onClick={onOpenTask}
+        aria-label="Open task to resolve blocking question"
+        title="Resolve question"
+        className="text-xs text-primary hover:text-primary/80 transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+      >
+        <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+          open_in_new
+        </span>
+        Resolve
+      </button>
+
+      <button
+        onClick={onAbort}
+        aria-label="Abort pipeline"
+        title="Abort pipeline"
+        className="text-xs text-error hover:text-error-hover transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+      >
+        <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+          stop
+        </span>
+        Abort
       </button>
 
       <button
@@ -357,6 +438,8 @@ export function RunIndicator() {
   const clearPipeline         = useAppStore((s) => s.clearPipeline);
   const resumePipeline        = useAppStore((s) => s.resumePipeline);
   const resumeInterruptedRun  = useAppStore((s) => s.resumeInterruptedRun);
+  const openDetailPanel       = useAppStore((s) => s.openDetailPanel);
+  const tasks                 = useAppStore((s) => s.tasks);
 
   const [elapsedSecs, setElapsedSecs] = useState(0);
 
@@ -367,7 +450,9 @@ export function RunIndicator() {
       return;
     }
     const startMs    = new Date(pipelineState.startedAt).getTime();
-    const isTerminal = pipelineState.status !== 'running' && pipelineState.status !== 'paused';
+    const isTerminal = pipelineState.status !== 'running'
+      && pipelineState.status !== 'paused'
+      && pipelineState.status !== 'blocked';
     if (isTerminal) {
       const endMs = pipelineState.finishedAt
         ? new Date(pipelineState.finishedAt).getTime()
@@ -391,7 +476,27 @@ export function RunIndicator() {
 
   if (!pipelineState) return null;
 
-  const { stages, currentStageIndex, status, pausedBeforeStage } = pipelineState;
+  const { stages, currentStageIndex, status, pausedBeforeStage, blockedReason } = pipelineState;
+
+  /** Find the task in the board so we can open the detail panel. */
+  const findTaskById = (id: string) =>
+    tasks['todo'].find((t) => t.id === id) ??
+    tasks['in-progress'].find((t) => t.id === id) ??
+    tasks['done'].find((t) => t.id === id);
+
+  // --- Blocked mode ---
+  if (status === 'blocked' && blockedReason) {
+    const task = findTaskById(pipelineState.taskId);
+    return (
+      <BlockedBanner
+        blockedReason={blockedReason}
+        elapsed={elapsedSecs}
+        onOpenTask={() => { if (task) openDetailPanel(task); }}
+        onAbort={abortPipeline}
+        onDismiss={clearPipeline}
+      />
+    );
+  }
 
   // --- Interrupted mode ---
   if (status === 'interrupted') {

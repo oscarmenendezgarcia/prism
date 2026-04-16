@@ -734,3 +734,180 @@ describe('TaskDetailPanel — attachments section', () => {
     expect(screen.getByRole('button', { name: 'Open attachment notes.txt' })).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Responsive layout: desktop modal vs mobile slider
+// ---------------------------------------------------------------------------
+
+/** Helper — simulates a desktop viewport by making matchMedia return true for min-width queries. */
+function mockDesktopViewport() {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: query.includes('min-width'),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+/** Helper — restores the default mobile matchMedia stub from test-setup.ts. */
+function mockMobileViewport() {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
+
+describe('TaskDetailPanel — responsive layout: mobile slider (default)', () => {
+  it('renders a fixed slide-in panel (not a centered modal) on mobile', () => {
+    mockMobileViewport();
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+
+    const dialog = screen.getByRole('dialog');
+    // Mobile panel uses slide-in-right animation class
+    expect(dialog.className).toMatch(/animate-slide-in-right/);
+    // Mobile panel does NOT have the desktop modal test id
+    expect(document.body.querySelector('[data-testid="task-detail-modal"]')).toBeNull();
+  });
+
+  it('renders comments inline (below fields) in mobile layout', () => {
+    mockMobileViewport();
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+
+    const commentsPanel = document.body.querySelector('[data-testid="comments-panel"]');
+    expect(commentsPanel).not.toBeNull();
+  });
+});
+
+describe('TaskDetailPanel — responsive layout: desktop modal (≥768px)', () => {
+  beforeEach(() => mockDesktopViewport());
+  afterEach(() => mockMobileViewport());
+
+  it('renders as a centered modal with data-testid="task-detail-modal" on desktop', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+
+    const modal = document.body.querySelector('[data-testid="task-detail-modal"]');
+    expect(modal).not.toBeNull();
+  });
+
+  it('desktop modal has role="dialog" and aria-modal="true"', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAttribute('aria-label', 'Task detail');
+  });
+
+  it('desktop modal uses scale-in animation (not slide-in-right)', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.className).toMatch(/animate-scale-in/);
+    expect(dialog.className).not.toMatch(/animate-slide-in-right/);
+  });
+
+  it('renders all editable fields inside the desktop modal', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+
+    expect(screen.getByLabelText(/title/i)).toHaveValue(TASK.title);
+    expect(screen.getByLabelText(/assigned/i)).toHaveValue(TASK.assigned);
+    expect(screen.getByLabelText(/description/i)).toHaveValue(TASK.description);
+  });
+
+  it('renders a left-column fields section on desktop', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+
+    const fieldsCol = document.body.querySelector('[aria-label="Task fields"]');
+    expect(fieldsCol).not.toBeNull();
+  });
+
+  it('renders a right-column comments section on desktop', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+
+    const commentsCol = document.body.querySelector('[aria-label="Comments"]');
+    expect(commentsCol).not.toBeNull();
+    // CommentsSection empty state is inside the right column
+    expect(commentsCol!.querySelector('[data-testid="comments-section"]')).not.toBeNull();
+  });
+
+  it('renders timestamps inside the left column (not a separate footer) on desktop', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+
+    const fieldsCol = document.body.querySelector('[aria-label="Task fields"]');
+    expect(fieldsCol!.textContent).toMatch(/created/i);
+    expect(fieldsCol!.textContent).toMatch(/updated/i);
+  });
+
+  it('close button calls closeDetailPanel on desktop', () => {
+    const closeDetailPanel = vi.fn();
+    useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /close task detail/i }));
+    expect(closeDetailPanel).toHaveBeenCalled();
+  });
+
+  it('backdrop click calls closeDetailPanel on desktop', () => {
+    const closeDetailPanel = vi.fn();
+    useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
+    render(<TaskDetailPanel />);
+
+    const backdrop = document.body.querySelector('[aria-hidden="true"]') as HTMLElement;
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop!);
+    expect(closeDetailPanel).toHaveBeenCalled();
+  });
+
+  it('Escape key closes the desktop modal', () => {
+    const closeDetailPanel = vi.fn();
+    useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(closeDetailPanel).toHaveBeenCalled();
+  });
+
+  it('renders null when detailTask is null (desktop mode)', () => {
+    useAppStore.setState({ detailTask: null } as any);
+    const { container } = render(<TaskDetailPanel />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('shows the task short ID in the desktop modal header', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByText(`#${TASK.id.slice(-7)}`)).toBeInTheDocument();
+  });
+
+  it('disables all inputs on desktop when isMutating is true', () => {
+    useAppStore.setState({ detailTask: TASK, isMutating: true } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByLabelText(/title/i)).toBeDisabled();
+    expect(screen.getByLabelText(/assigned/i)).toBeDisabled();
+    expect(screen.getByLabelText(/description/i)).toBeDisabled();
+  });
+});

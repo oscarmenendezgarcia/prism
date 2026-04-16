@@ -102,10 +102,14 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const showLeft = idx > 0;
   const showRight = idx < COLUMNS.length - 1;
 
+  const pendingQuestions =
+    task.comments?.filter((c) => c.type === 'question' && !c.resolved).length ?? 0;
+
   const hasMetadata =
     !!task.assigned ||
     (task.attachments && task.attachments.length > 0) ||
-    !!task.description;
+    !!task.description ||
+    pendingQuestions > 0;
 
   return (
     <article
@@ -217,6 +221,19 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
               </span>
               {task.attachments.length}
             </button>
+          )}
+
+          {pendingQuestions > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-warning/[0.15] text-warning leading-none"
+              data-testid="pending-questions-badge"
+              aria-label={`${pendingQuestions} pending question${pendingQuestions !== 1 ? 's' : ''}`}
+            >
+              <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">
+                help
+              </span>
+              {pendingQuestions} pending
+            </span>
           )}
 
           {task.description && (
