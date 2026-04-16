@@ -482,11 +482,16 @@ async function runUnitTests() {
     const pm = require('../src/services/pipelineManager');
 
     pm.unblockRunByComment(tmpPath, taskId, 'q-resolved');
-    await new Promise((r) => setTimeout(r, 50)); // allow setImmediate to fire
-
+    // Read immediately — writeRun() inside unblockRunByComment is synchronous and
+    // runs before the setImmediate(executeNextStage) fires.  Reading here captures
+    // the 'running' state before executeNextStage can change it (executeNextStage
+    // will fail in this unit-test context since there are no real agent files, but
+    // that is orthogonal to what unblockRunByComment is responsible for).
     const persisted = JSON.parse(require('fs').readFileSync(runJsonPath, 'utf8'));
     assert(persisted.status === 'running', `Expected running, got ${persisted.status}`);
     assert(persisted.blockedReason == null, 'blockedReason should be cleared');
+    // Drain the event loop so the setImmediate does not bleed into subsequent tests.
+    await new Promise((r) => setTimeout(r, 20));
 
     require('fs').rmSync(tmpPath, { recursive: true, force: true });
   });

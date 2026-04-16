@@ -805,28 +805,10 @@ async function executeNextStage(dataDir, runId) {
  * @param {number} stageIndex
  */
 async function spawnStage(dataDir, run, stageIndex) {
-  const agentId   = run.stages[stageIndex];
-  const agentsDir = process.env.PIPELINE_AGENTS_DIR;
+  const agentId     = run.stages[stageIndex];
   const baseTimeout = parseInt(process.env.PIPELINE_STAGE_TIMEOUT_MS || String(DEFAULT_STAGE_TIMEOUT_MS), 10);
   // Orchestrator coordinates the full pipeline internally — give it 6× the per-stage timeout.
   const timeoutMs = agentId === 'orchestrator' ? baseTimeout * 6 : baseTimeout;
-
-  // Resolve spawn args — may throw AgentNotFoundError.
-  let agentSpec;
-  try {
-    agentSpec = resolveAgent(agentId, agentsDir);
-  } catch (err) {
-    if (err instanceof AgentNotFoundError) {
-      run.status = 'failed';
-      run.stageStatuses[stageIndex].status   = 'failed';
-      run.stageStatuses[stageIndex].exitCode = -1;
-      run.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
-      writeRun(dataDir, run);
-      pipelineLog('run.failed', { runId: run.runId, stageIndex, agentId, reason: 'AGENT_NOT_FOUND' });
-      return;
-    }
-    throw err;
-  }
 
   // Update stage state to running.
   run.status = 'running';
@@ -860,6 +842,41 @@ async function spawnStage(dataDir, run, stageIndex) {
   const logPath  = stageLogPath(dataDir, run.runId, stageIndex);
   const doneFile = stageDonePath(dataDir, run.runId, stageIndex);
 
+  const stageStartedAt = Date.now();
+
+  // Test hook: when PIPELINE_NO_SPAWN=1, skip agent resolution and real spawning.
+  // This allows unit/integration tests to exercise block/unblock flows without
+  // needing real agent files on disk or launching actual claude processes.
+  if (process.env.PIPELINE_NO_SPAWN === '1') {
+    fs.writeFileSync(doneFile, '0', 'utf8');
+    // null PID: no real process — deleteRun/abortAll will skip the kill() call
+    // and avoid accidentally sending SIGTERM to the current process (e.g. test runner).
+    persistStagePid(dataDir, run, stageIndex, null);
+    const interval = startPolling(dataDir, run.runId, stageIndex, doneFile, stageStartedAt, timeoutMs);
+    activeProcesses.set(run.runId, { interval, stageIndex });
+    pipelineLog('stage.spawned', { runId: run.runId, stageIndex, agentId, pid: null, mock: true });
+    return;
+  }
+
+  // Resolve spawn args — may throw AgentNotFoundError.
+  // Placed after the PIPELINE_NO_SPAWN guard so test-mode bypasses agent resolution.
+  const agentsDir = process.env.PIPELINE_AGENTS_DIR;
+  let agentSpec;
+  try {
+    agentSpec = resolveAgent(agentId, agentsDir);
+  } catch (err) {
+    if (err instanceof AgentNotFoundError) {
+      run.status = 'failed';
+      run.stageStatuses[stageIndex].status   = 'failed';
+      run.stageStatuses[stageIndex].exitCode = -1;
+      run.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
+      writeRun(dataDir, run);
+      pipelineLog('run.failed', { runId: run.runId, stageIndex, agentId, reason: 'AGENT_NOT_FOUND' });
+      return;
+    }
+    throw err;
+  }
+
   // Backend spawns always get --permission-mode bypassPermissions: there is no user
   // present to respond to permission prompts, so any interactive pause would
   // hang the stage until the stall watchdog kills it.
@@ -876,21 +893,6 @@ async function spawnStage(dataDir, run, stageIndex) {
   //       `echo $? > doneFile` would never run and the sentinel would never be written.
   const escapedArgs = finalArgs.map(shellEscape).join(' ');
   const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
-
-  const stageStartedAt = Date.now();
-
-  // Test hook: when PIPELINE_NO_SPAWN=1, skip the real spawn and immediately
-  // write the done sentinel so tests do not launch real claude processes.
-  if (process.env.PIPELINE_NO_SPAWN === '1') {
-    fs.writeFileSync(doneFile, '0', 'utf8');
-    // null PID: no real process — deleteRun/abortAll will skip the kill() call
-    // and avoid accidentally sending SIGTERM to the current process (e.g. test runner).
-    persistStagePid(dataDir, run, stageIndex, null);
-    const interval = startPolling(dataDir, run.runId, stageIndex, doneFile, stageStartedAt, timeoutMs);
-    activeProcesses.set(run.runId, { interval, stageIndex });
-    pipelineLog('stage.spawned', { runId: run.runId, stageIndex, agentId, pid: null, mock: true });
-    return;
-  }
 
   const child = spawn('sh', ['-c', shellCmd], {
     stdio:    'ignore',
