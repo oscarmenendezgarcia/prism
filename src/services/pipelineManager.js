@@ -396,6 +396,41 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
     return;
   }
 
+  // Part 3b: check for unresolved questions before advancing to the next stage.
+  // Reads the task from disk after stage completion so agents can post questions
+  // and the pipeline will pause until they are resolved.
+  {
+    const spacesDir = path.join(dataDir, 'spaces');
+    const task = readTaskFromSpace(spacesDir, run.spaceId, run.taskId);
+    if (task) {
+      const unresolvedQuestions = (task.comments || []).filter(
+        (c) => c.type === 'question' && !c.resolved
+      );
+      if (unresolvedQuestions.length > 0) {
+        const q = unresolvedQuestions[0];
+        const freshRun = readRun(dataDir, runId);
+        if (!freshRun) return;
+        freshRun.status = 'blocked';
+        freshRun.blockedReason = {
+          commentId: q.id,
+          taskId:    freshRun.taskId,
+          author:    q.author,
+          text:      q.text,
+          blockedAt: new Date().toISOString(),
+        };
+        writeRun(dataDir, freshRun);
+        pipelineLog('run.blocked', { runId, stageIndex, commentId: q.id, author: q.author });
+        return;
+      }
+    }
+    // Also handle a concurrent blockRun call (e.g. via direct API).
+    const freshRun = readRun(dataDir, runId);
+    if (freshRun && freshRun.status === 'blocked') {
+      pipelineLog('run.blocked', { runId, blockedBeforeStage: run.currentStage });
+      return;
+    }
+  }
+
   await executeNextStage(dataDir, runId);
 }
 
@@ -740,6 +775,12 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
 async function executeNextStage(dataDir, runId) {
   const run = readRun(dataDir, runId);
   if (!run) return;
+
+  // Guard: don't advance if the pipeline is blocked (agent asked a question).
+  if (run.status === 'blocked') {
+    pipelineLog('run.blocked_guard', { runId, currentStage: run.currentStage });
+    return;
+  }
 
   // Check if all stages have completed.
   if (run.currentStage >= run.stages.length) {
@@ -1095,6 +1136,111 @@ function findTaskInDataDir(spaceId, taskId, dataDir) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Comment-driven block/unblock helpers — T-001 (pipeline-blocked)
+// ---------------------------------------------------------------------------
+
+/**
+ * Search the registry for an active run (pending/running/paused/blocked) for a given taskId.
+ * Returns the full run object from disk, or null if no active run exists.
+ *
+ * @param {string} dataDir
+ * @param {string} taskId
+ * @returns {object|null}
+ */
+function findActiveRunByTaskId(dataDir, taskId) {
+  const registry = readRegistry(dataDir);
+  const ACTIVE_STATUSES = ['pending', 'running', 'paused', 'blocked'];
+  const entry = registry.find(
+    (r) => r.taskId === taskId && ACTIVE_STATUSES.includes(r.status)
+  );
+  if (!entry) return null;
+  return readRun(dataDir, entry.runId);
+}
+
+/**
+ * Called from comments handler when a type=question comment is created.
+ * Transitions an active run to 'blocked' with blockedReason if the run is
+ * between stages (the current stage is not actively running). If the stage is
+ * still executing, the guard in handleStageClose will catch it on exit.
+ *
+ * @param {string} dataDir
+ * @param {string} taskId
+ * @param {object} comment - The newly created comment object.
+ */
+function blockRunByComment(dataDir, taskId, comment) {
+  const run = findActiveRunByTaskId(dataDir, taskId);
+  if (!run) return;
+  if (run.status === 'blocked') return; // already blocked — second question, guard handles it
+
+  // Only block between stages (not mid-execution).
+  // "Between stages" means the current stage is pending (not actively running).
+  const currentStageStatus = run.stageStatuses[run.currentStage]?.status;
+  if (currentStageStatus === 'running') return; // handleStageClose will catch it on exit
+
+  run.status = 'blocked';
+  run.blockedReason = {
+    commentId: comment.id,
+    taskId,
+    author:    comment.author,
+    text:      comment.text,
+    blockedAt: new Date().toISOString(),
+  };
+  writeRun(dataDir, run);
+  pipelineLog('run.blocked', { runId: run.runId, commentId: comment.id, author: comment.author });
+}
+
+/**
+ * Called from comments handler when PATCH resolved=true on a question comment.
+ * Checks whether all questions on the task are now resolved. If so, resumes
+ * the pipeline. If more remain, updates blockedReason to the next question.
+ *
+ * @param {string} dataDir
+ * @param {string} taskId
+ * @param {string} commentId - The ID of the comment that was just resolved.
+ */
+function unblockRunByComment(dataDir, taskId, commentId) {
+  const run = findActiveRunByTaskId(dataDir, taskId);
+  if (!run) return;
+  if (run.status !== 'blocked') return;
+
+  // Read the task from disk to check remaining unresolved questions.
+  const spacesDir = path.join(dataDir, 'spaces');
+  const task = readTaskFromSpace(spacesDir, run.spaceId, taskId);
+  if (!task) return;
+
+  const unresolvedQuestions = (task.comments || []).filter(
+    (c) => c.type === 'question' && !c.resolved
+  );
+
+  if (unresolvedQuestions.length === 0) {
+    // All questions resolved — resume the pipeline.
+    run.status = 'running';
+    delete run.blockedReason;
+    writeRun(dataDir, run);
+    pipelineLog('run.unblocked', { runId: run.runId, commentId, reason: 'all_questions_resolved' });
+    setImmediate(() => executeNextStage(dataDir, run.runId));
+  } else {
+    // More questions remain — update blockedReason to the first unresolved one.
+    const next = unresolvedQuestions[0];
+    run.blockedReason = {
+      commentId: next.id,
+      taskId,
+      author:    next.author,
+      text:      next.text,
+      blockedAt: run.blockedReason?.blockedAt || new Date().toISOString(),
+    };
+    writeRun(dataDir, run);
+    pipelineLog('run.still_blocked', {
+      runId:              run.runId,
+      resolvedCommentId:  commentId,
+      remainingQuestions: unresolvedQuestions.length,
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 /**
  * Resume an interrupted or failed pipeline run from a given stage.
  *
@@ -1117,8 +1263,8 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
     throw err;
   }
 
-  if (!['interrupted', 'failed', 'paused'].includes(run.status)) {
-    const err = new Error(`Run '${runId}' has status '${run.status}' and cannot be resumed. Only interrupted, failed, or paused runs can be resumed.`);
+  if (!['interrupted', 'failed', 'paused', 'blocked'].includes(run.status)) {
+    const err = new Error(`Run '${runId}' has status '${run.status}' and cannot be resumed. Only interrupted, failed, paused, or blocked runs can be resumed.`);
     err.code = 'RUN_NOT_RESUMABLE';
     throw err;
   }
@@ -1158,6 +1304,7 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
   run.currentStage       = resumeIndex;
   run.status             = 'running';
   delete run.pausedBeforeStage;
+  delete run.blockedReason;
   writeRun(dataDir, run);
 
   pipelineLog('run.resumed', { runId, resumeIndex, agentId: run.stages[resumeIndex] });
@@ -1228,6 +1375,83 @@ async function stopRun(runId, dataDir) {
 }
 
 /**
+ * Block a pipeline run due to an open question comment.
+ *
+ * Sets run.status = 'blocked'. The current stage subprocess continues running
+ * (it is NOT killed). When the stage finishes, handleStageClose will see
+ * 'blocked' status and will not advance to the next stage.
+ *
+ * Valid transition: running/pending/paused → blocked.
+ * Terminal states (completed, failed, interrupted) cannot be blocked.
+ *
+ * @param {string} runId
+ * @param {string} dataDir
+ * @returns {object|null} Updated run, or null if not found.
+ */
+async function blockRun(runId, dataDir) {
+  const run = readRun(dataDir, runId);
+  if (!run) return null;
+
+  const TERMINAL_STATES = ['completed', 'failed', 'interrupted'];
+  if (TERMINAL_STATES.includes(run.status)) {
+    const err = new Error(`Run '${runId}' is in terminal state '${run.status}' and cannot be blocked.`);
+    err.code = 'RUN_IN_TERMINAL_STATE';
+    throw err;
+  }
+
+  if (run.status === 'blocked') {
+    // Already blocked — idempotent success.
+    return run;
+  }
+
+  run.status = 'blocked';
+  writeRun(dataDir, run);
+  pipelineLog('run.blocked', { runId, spaceId: run.spaceId, taskId: run.taskId });
+  return run;
+}
+
+/**
+ * Unblock a pipeline run after all question comments have been resolved.
+ *
+ * Sets run.status back to 'running' and, if the current stage has already
+ * completed (status 'completed'), calls executeNextStage to advance the
+ * pipeline. If the current stage is still running, just unblocking the
+ * status is enough — handleStageClose will advance naturally when it finishes.
+ *
+ * Valid transition: blocked → running.
+ *
+ * @param {string} runId
+ * @param {string} dataDir
+ * @returns {object|null} Updated run, or null if not found.
+ */
+async function unblockRun(runId, dataDir) {
+  const run = readRun(dataDir, runId);
+  if (!run) return null;
+
+  if (run.status !== 'blocked') {
+    const err = new Error(`Run '${runId}' is not blocked (status: '${run.status}').`);
+    err.code = 'RUN_NOT_BLOCKED';
+    throw err;
+  }
+
+  run.status = 'running';
+  writeRun(dataDir, run);
+  pipelineLog('run.unblocked', { runId, spaceId: run.spaceId, taskId: run.taskId, currentStage: run.currentStage });
+
+  // If the current stage has already completed (e.g. the agent exited before the
+  // question was answered), resume the pipeline from the next stage.
+  const currentStageStatus = run.stageStatuses[run.currentStage];
+  const stageAlreadyDone = !currentStageStatus || currentStageStatus.status === 'completed';
+  if (stageAlreadyDone) {
+    await executeNextStage(dataDir, runId);
+  }
+  // Otherwise the stage is still running — it will call handleStageClose when
+  // it exits and executeNextStage will be called then.
+
+  return run;
+}
+
+/**
  * Delete a run: send SIGTERM to active process, remove run directory,
  * and remove entry from runs.json.
  *
@@ -1287,6 +1511,12 @@ module.exports = {
   init,
   createRun,
   resumeRun,
+  blockRun,
+  unblockRun,
+  // Comment-driven block/unblock (pipeline-blocked feature):
+  findActiveRunByTaskId,
+  blockRunByComment,
+  unblockRunByComment,
   getRun,
   listRuns,
   stopRun,
