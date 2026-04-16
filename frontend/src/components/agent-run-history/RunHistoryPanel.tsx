@@ -107,15 +107,15 @@ export function RunHistoryPanel() {
 
       {/* Task ID filter chip — shown when opened from a task card indicator */}
       {taskIdFilter && (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 bg-[#3b82f6]/5">
-          <span className="material-symbols-outlined text-sm text-[#3b82f6] leading-none" aria-hidden="true">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 bg-info-container">
+          <span className="material-symbols-outlined text-sm text-info leading-none" aria-hidden="true">
             filter_alt
           </span>
-          <span className="text-xs text-[#3b82f6] flex-1 truncate">Filtering by task</span>
+          <span className="text-xs text-info flex-1 truncate">Filtering by task</span>
           <button
             onClick={clearTaskIdFilter}
             aria-label="Clear task filter"
-            className="w-5 h-5 flex items-center justify-center rounded text-[#3b82f6] hover:bg-[#3b82f6]/20 transition-colors duration-150"
+            className="w-5 h-5 flex items-center justify-center rounded text-info hover:bg-info/[0.20] transition-colors duration-150"
           >
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">close</span>
           </button>

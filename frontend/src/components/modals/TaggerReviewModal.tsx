@@ -27,11 +27,11 @@ import type { TaggerSuggestion } from '@/types';
 // ---------------------------------------------------------------------------
 
 const TYPE_COLORS: Record<string, { bg: string; text: string }> = {
-  feature:    { bg: 'bg-[#6C39C0]/10',   text: 'text-[#6C39C0]' },
-  bug:        { bg: 'bg-[#FF3B30]/10',   text: 'text-[#FF3B30]' },
-  'tech-debt': { bg: 'bg-[#E65100]/10',  text: 'text-[#E65100]' },
-  chore:      { bg: 'bg-surface-variant', text: 'text-text-secondary' },
-  unknown:    { bg: 'bg-surface-variant', text: 'text-text-secondary' },
+  feature:     { bg: 'bg-primary-container',  text: 'text-badge-feature-text' },
+  bug:         { bg: 'bg-error-container',    text: 'text-badge-bug-text' },
+  'tech-debt': { bg: 'bg-warning-container',  text: 'text-badge-tech-debt-text' },
+  chore:       { bg: 'bg-surface-variant',    text: 'text-text-secondary' },
+  unknown:     { bg: 'bg-surface-variant',    text: 'text-text-secondary' },
 };
 
 function TypeBadge({ type, dim = false }: { type: string; dim?: boolean }) {
@@ -50,9 +50,9 @@ function TypeBadge({ type, dim = false }: { type: string; dim?: boolean }) {
 // ---------------------------------------------------------------------------
 
 const CONFIDENCE_DOT_COLORS = {
-  high:   ['bg-[#34C759]', 'bg-[#34C759]', 'bg-[#34C759]'],
-  medium: ['bg-[#FF9500]', 'bg-[#FF9500]', 'bg-surface-variant'],
-  low:    ['bg-[#FF3B30]', 'bg-surface-variant', 'bg-surface-variant'],
+  high:   ['bg-success', 'bg-success', 'bg-success'],
+  medium: ['bg-warning', 'bg-warning', 'bg-surface-variant'],
+  low:    ['bg-error',   'bg-surface-variant', 'bg-surface-variant'],
 } as const;
 
 const CONFIDENCE_LABELS = { high: 'HIGH', medium: 'MED', low: 'LOW' } as const;
@@ -126,7 +126,7 @@ function SuggestionRow({ suggestion, accepted, onToggle, error }: SuggestionRowP
       <div
         className={`px-6 py-4 flex items-center gap-4 transition-colors ${
           isLow
-            ? 'bg-[#FF9500]/5 border-l-2 border-[#FF3B30]'
+            ? 'bg-warning/[0.05] border-l-2 border-error'
             : 'hover:bg-surface-elevated/40'
         }`}
       >
@@ -164,7 +164,7 @@ function SuggestionRow({ suggestion, accepted, onToggle, error }: SuggestionRowP
 
           {/* Per-card error */}
           {error && (
-            <p className="text-[12px] text-[#FF3B30] mt-0.5">{error}</p>
+            <p className="text-[12px] text-error mt-0.5">{error}</p>
           )}
         </div>
 

@@ -1,110 +1,125 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   DARK MODE — preserve html.dark class-based switcher from v3.
+   DARK MODE — preserve html.dark class-based switcher.
    Must come before @theme so the variant is available throughout the file.
 ───────────────────────────────────────────────────────────────────────────── */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ─────────────────────────────────────────────────────────────────────────────
    THEME — CSS-first token declaration (Tailwind v4)
-   Light-mode values live here. html.dark overrides below.
-   Naming: --color-* → bg-*, text-*, border-* utilities
-           --shadow-* → shadow-* utilities
-           --radius-* → rounded-* utilities
-           --font-*   → font-* utilities
-           --ease-*   → ease-* utilities
-           --animate-* → animate-* utilities
+   Light-mode baseline values. html.dark overrides below with the new
+   Trend-A dark palette (violet accent, near-black surfaces, rich motion).
+
+   Naming convention (unchanged):
+     --color-* → bg-*, text-*, border-* utilities
+     --shadow-* → shadow-* utilities
+     --radius-* → rounded-* utilities
+     --font-*   → font-* utilities
+     --ease-*   → ease-* utilities
+     --duration-* → duration-* utilities
+     --animate-* → animate-* utilities
 ───────────────────────────────────────────────────────────────────────────── */
 
 @theme {
-  /* ── Surfaces ──────────────────────────────────────────────────────────── */
-  --color-background:        #F5F5F7;
+  /* ── Surfaces (light mode — violet-tinted whites) ───────────────────────── */
+  --color-background:        #F3F3F8;
   --color-surface:           #FFFFFF;
   --color-surface-variant:   rgba(0, 0, 0, 0.04);
-  --color-surface-elevated:  #E8E8ED;
+  --color-surface-elevated:  #EAEAF2;
+  --color-surface-sunken:    #EBEBF0;
 
   /* ── Text ─────────────────────────────────────────────────────────────── */
-  --color-text-primary:   #1D1D1F;
-  --color-text-secondary: #6E6E73;
-  --color-text-disabled:  #AEAEB2;
+  --color-text-primary:    #1A1A2E;
+  --color-text-secondary:  rgba(26, 26, 46, 0.60);
+  --color-text-tertiary:   rgba(26, 26, 46, 0.40);
+  --color-text-disabled:   rgba(26, 26, 46, 0.30);
 
   /* ── On-surface ───────────────────────────────────────────────────────── */
-  --color-on-surface:            #1D1D1F;
+  --color-on-surface:            #1A1A2E;
   --color-on-primary:            #FFFFFF;
-  --color-on-primary-container:  #003A8C;
+  --color-on-primary-container:  #3B2E9E;
 
-  /* ── Primary accent — Apple Blue ─────────────────────────────────────── */
-  --color-primary:           #0A84FF;
-  --color-primary-hover:     #0071E3;
-  --color-primary-active:    #005BB5;
-  --color-primary-container: rgba(10, 132, 255, 0.10);
+  /* ── Primary accent — Indigo-Violet ────────────────────────────────────── */
+  --color-primary:           #6C60E0;
+  --color-primary-hover:     #5B50C8;
+  --color-primary-active:    #4A40B0;
+  --color-primary-container: rgba(108, 96, 224, 0.10);
 
   /* ── Secondary ───────────────────────────────────────────────────────── */
-  --color-secondary:       #6E6E73;
-  --color-secondary-hover: #48484A;
+  --color-secondary:       rgba(26, 26, 46, 0.60);
+  --color-secondary-hover: rgba(26, 26, 46, 0.80);
 
   /* ── Borders ─────────────────────────────────────────────────────────── */
-  --color-border:          #D1D1D6;
-  --color-border-disabled: #E5E5EA;
+  --color-border:          rgba(26, 26, 46, 0.12);
+  --color-border-subtle:   rgba(26, 26, 46, 0.06);
+  --color-border-focus:    #6C60E0;
+  --color-border-disabled: rgba(26, 26, 46, 0.06);
 
   /* ── Semantic ────────────────────────────────────────────────────────── */
-  --color-error:             #FF3B30;
-  --color-error-hover:       #E5332A;
-  --color-error-container:   rgba(255, 59, 48, 0.10);
-  --color-success:           #28CD41;
-  --color-success-container: rgba(40, 205, 65, 0.10);
-  --color-warning:           #FF9500;
-  --color-warning-container: rgba(255, 149, 0, 0.10);
-  --color-warning-on:        #E65100;
-  --color-info:              #0A84FF;
-  --color-info-container:    rgba(10, 132, 255, 0.10);
-  --color-info-on:           #003A8C;
+  --color-error:             #D93025;
+  --color-error-hover:       #C22820;
+  --color-error-container:   rgba(217, 48, 37, 0.10);
+  --color-success:           #1E8E3E;
+  --color-success-container: rgba(30, 142, 62, 0.10);
+  --color-warning:           #F29900;
+  --color-warning-container: rgba(242, 153, 0, 0.10);
+  --color-warning-on:        #7A4F00;
+  --color-info:              #1A73E8;
+  --color-info-container:    rgba(26, 115, 232, 0.10);
+  --color-info-on:           #174EA6;
 
   /* ── Glass effects ───────────────────────────────────────────────────── */
   --color-glass-surface-bg: rgba(255, 255, 255, 0.72);
   --color-glass-heavy-bg:   rgba(255, 255, 255, 0.85);
 
   /* ── Column accents ──────────────────────────────────────────────────── */
-  --color-col-todo:            #D1D1D6;
-  --color-col-in-progress:     #0A84FF;
-  --color-col-done:            #28CD41;
-  --color-col-in-progress-pill: rgba(10, 132, 255, 0.10);
-  --color-col-done-pill:       rgba(40, 205, 65, 0.10);
+  --color-col-todo:             rgba(26, 26, 46, 0.15);
+  --color-col-in-progress:      #6C60E0;
+  --color-col-done:             #1E8E3E;
+  --color-col-in-progress-pill: rgba(108, 96, 224, 0.10);
+  --color-col-done-pill:        rgba(30, 142, 62, 0.10);
 
   /* ── Badge text colors ───────────────────────────────────────────────── */
-  --color-badge-feature-text:   #6C39C0;
-  --color-badge-bug-text:       #FF3B30;
-  --color-badge-tech-debt-text: #E65100;
-  --color-badge-chore-text:     #6E6E73;
-  --color-badge-done-text:      #248A3D;
+  --color-badge-feature-text:   #6C60E0;
+  --color-badge-bug-text:       #D93025;
+  --color-badge-tech-debt-text: #E37400;
+  --color-badge-chore-text:     rgba(26, 26, 46, 0.55);
+  --color-badge-done-text:      #1E8E3E;
+
+  /* ── Agent accent colors ─────────────────────────────────────────────── */
+  --color-agent-architect: #9B5CF6;
+  --color-agent-ux:        #EC4899;
+  --color-agent-dev:       #3B82F6;
+  --color-agent-reviewer:  #F59E0B;
+  --color-agent-qa:        #10B981;
 
   /* ── Terminal colors ─────────────────────────────────────────────────── */
   --color-terminal-bg:              #FFFFFF;
-  --color-terminal-text:            #1F1F1F;
+  --color-terminal-text:            #1A1A2E;
   --color-terminal-input-bg:        rgba(0, 0, 0, 0.04);
-  --color-terminal-stderr:          #C5221F;
-  --color-terminal-prompt:          #1A73E8;
+  --color-terminal-stderr:          #D93025;
+  --color-terminal-prompt:          #6C60E0;
   --color-terminal-tab-active:      rgba(0, 0, 0, 0.08);
   --color-terminal-tab-hover:       rgba(0, 0, 0, 0.04);
   --color-terminal-tab-close-hover: rgba(0, 0, 0, 0.10);
 
   /* ── Shadows (light mode) ────────────────────────────────────────────── */
   --shadow-card:       0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  --shadow-card-hover: 0 8px 24px rgba(10, 132, 255, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-card-hover: 0 8px 24px rgba(108, 96, 224, 0.12), 0 0 0 1px rgba(108, 96, 224, 0.15);
   --shadow-sm:         0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md:         0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
   --shadow-lg:         0 12px 32px rgba(0, 0, 0, 0.10), 0 0 0 1px rgba(0, 0, 0, 0.04);
-  --shadow-modal:      0 24px 80px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-modal:      0 24px 80px rgba(0, 0, 0, 0.14), 0 0 0 1px rgba(0, 0, 0, 0.06);
 
   /* ── Border radius ───────────────────────────────────────────────────── */
-  --radius:       0.25rem;  /* bare rounded — matches v3 default (4px) */
+  --radius:       0.25rem;
   --radius-xs:    6px;
   --radius-sm:    8px;
   --radius-md:    12px;
   --radius-lg:    16px;
-  --radius-card:  14px;
-  --radius-modal: 20px;
+  --radius-card:  12px;
+  --radius-modal: 16px;
   --radius-full:  9999px;
 
   /* ── Font families ───────────────────────────────────────────────────── */
@@ -112,106 +127,137 @@
   --font-mono: "JetBrains Mono", Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
   --font-slab: "Roboto Slab", Georgia, serif;
 
-  /* ── Transition timing functions ─────────────────────────────────────── */
-  --ease-apple:  cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* ── Motion duration scale (Trend A) ────────────────────────────────── */
+  --duration-instant: 80ms;
+  --duration-fast:    150ms;
+  --duration-base:    220ms;
+  --duration-slow:    350ms;
+  --duration-slower:  500ms;
 
-  /* ── Animations ──────────────────────────────────────────────────────── */
-  --animate-fade-in-up:        fade-in-up 300ms cubic-bezier(0.4, 0, 0.2, 1);
-  --animate-scale-in:          scale-in 280ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  --animate-slide-in-bottom:   slide-in-bottom 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  --animate-slide-in-right:    slide-in-right 200ms cubic-bezier(0.4, 0, 0.2, 1);
-  --animate-modal-out:         modal-out 180ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  --animate-toast-out:         toast-out 200ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  --animate-empty-pulse:       empty-pulse 3s ease-in-out infinite;
-  --animate-hover-overlay-in:  hover-overlay-in 150ms cubic-bezier(0.34, 1.56, 0.64, 1);
-  --animate-loop-pop:          loop-pop 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* ── Transition timing functions ─────────────────────────────────────── */
+  --ease-apple:      cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-default:    cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter:      cubic-bezier(0.0, 0, 0.2, 1);
+  --ease-exit:       cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth:     cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ── Animation tokens ────────────────────────────────────────────────── */
+  --animate-fade-in-up:       fade-in-up 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
+  --animate-scale-in:         scale-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-slide-in-bottom:  slide-in-bottom 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
+  --animate-slide-in-right:   slide-in-right 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
+  --animate-slide-out-right:  slide-out-right 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  --animate-modal-out:        modal-out 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  --animate-toast-in:         toast-in 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
+  --animate-toast-out:        toast-out 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  --animate-empty-pulse:      empty-pulse 3s ease-in-out infinite;
+  --animate-hover-overlay-in: hover-overlay-in 150ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-loop-pop:         loop-pop 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-log-line-in:      log-line-in 80ms linear both;
+  --animate-run-pulse:        run-pulse 2s ease-in-out infinite;
+  --animate-stagger-in:       stagger-in 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
+  --animate-drop-pulse:       drop-pulse 350ms ease-in-out;
+  --animate-tab-slide:        tab-slide 150ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  --animate-panel-in:         slide-in-right 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
+  --animate-panel-out:        slide-out-right 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   DARK MODE OVERRIDES
-   Switching html.dark updates all CSS variables → all utilities update instantly.
+   DARK MODE OVERRIDES — Trend A: near-black surfaces, violet accent, rich motion
+   Applied when html.dark class is present on <html>.
 ───────────────────────────────────────────────────────────────────────────── */
 
 html.dark {
   /* Base surfaces */
-  --color-background:       #0D0D0F;
-  --color-surface:          rgba(30, 30, 35, 0.72);
-  --color-surface-variant:  rgba(255, 255, 255, 0.06);
-  --color-surface-elevated: rgba(44, 44, 49, 0.80);
+  --color-background:        #0A0A0F;
+  --color-surface:           #111118;
+  --color-surface-variant:   rgba(255, 255, 255, 0.05);
+  --color-surface-elevated:  #1A1A24;
+  --color-surface-sunken:    #07070B;
 
   /* Text */
-  --color-text-primary:   #F5F5F7;
-  --color-text-secondary: rgba(245, 245, 247, 0.55);
-  --color-text-disabled:  rgba(245, 245, 247, 0.30);
+  --color-text-primary:    rgba(245, 245, 250, 0.96);
+  --color-text-secondary:  rgba(245, 245, 250, 0.60);
+  --color-text-tertiary:   rgba(245, 245, 250, 0.40);
+  --color-text-disabled:   rgba(245, 245, 250, 0.30);
 
   /* On-surface */
-  --color-on-surface:           #F5F5F7;
-  --color-on-primary:           #FFFFFF;
-  --color-on-primary-container: #C5D8FF;
+  --color-on-surface:            rgba(245, 245, 250, 0.96);
+  --color-on-primary:            #FFFFFF;
+  --color-on-primary-container:  rgba(245, 245, 250, 0.90);
 
-  /* Primary accent — Apple Blue (same in both modes) */
-  --color-primary:           #0A84FF;
-  --color-primary-hover:     #409CFF;
-  --color-primary-active:    #0071E3;
-  --color-primary-container: rgba(10, 132, 255, 0.16);
+  /* Primary accent — Indigo-Violet #7C6DFA */
+  --color-primary:           #7C6DFA;
+  --color-primary-hover:     #8B7DFB;
+  --color-primary-active:    #6B5CE7;
+  --color-primary-container: rgba(124, 109, 250, 0.15);
 
   /* Secondary */
-  --color-secondary:       rgba(245, 245, 247, 0.55);
-  --color-secondary-hover: rgba(245, 245, 247, 0.70);
+  --color-secondary:       rgba(245, 245, 250, 0.60);
+  --color-secondary-hover: rgba(245, 245, 250, 0.80);
 
   /* Borders */
   --color-border:          rgba(255, 255, 255, 0.08);
+  --color-border-subtle:   rgba(255, 255, 255, 0.04);
+  --color-border-focus:    #7C6DFA;
   --color-border-disabled: rgba(255, 255, 255, 0.04);
 
   /* Semantic */
-  --color-error:             #FF453A;
-  --color-error-hover:       #E5392F;
-  --color-error-container:   rgba(255, 69, 58, 0.12);
-  --color-success:           #30D158;
-  --color-success-container: rgba(48, 209, 88, 0.12);
-  --color-warning:           #FFD60A;
-  --color-warning-container: rgba(255, 214, 10, 0.12);
-  --color-warning-on:        #FFD60A;
-  --color-info:              #0A84FF;
-  --color-info-container:    rgba(10, 132, 255, 0.12);
-  --color-info-on:           #64D2FF;
+  --color-error:             #FF5A5F;
+  --color-error-hover:       #E5474C;
+  --color-error-container:   rgba(255, 90, 95, 0.12);
+  --color-success:           #3BD671;
+  --color-success-container: rgba(59, 214, 113, 0.12);
+  --color-warning:           #FFB454;
+  --color-warning-container: rgba(255, 180, 84, 0.12);
+  --color-warning-on:        #FFB454;
+  --color-info:              #55C2FF;
+  --color-info-container:    rgba(85, 194, 255, 0.12);
+  --color-info-on:           #55C2FF;
 
   /* Glass effect backgrounds */
-  --color-glass-surface-bg: rgba(30, 30, 35, 0.72);
-  --color-glass-heavy-bg:   rgba(44, 44, 49, 0.80);
+  --color-glass-surface-bg: rgba(17, 17, 24, 0.82);
+  --color-glass-heavy-bg:   rgba(26, 26, 36, 0.90);
 
   /* Column accents */
-  --color-col-todo:             rgba(255, 255, 255, 0.15);
-  --color-col-in-progress:      #0A84FF;
-  --color-col-done:             #30D158;
-  --color-col-in-progress-pill: rgba(10, 132, 255, 0.16);
-  --color-col-done-pill:        rgba(48, 209, 88, 0.16);
+  --color-col-todo:             rgba(255, 255, 255, 0.10);
+  --color-col-in-progress:      #7C6DFA;
+  --color-col-done:             #3BD671;
+  --color-col-in-progress-pill: rgba(124, 109, 250, 0.12);
+  --color-col-done-pill:        rgba(59, 214, 113, 0.12);
 
   /* Badge text colors */
-  --color-badge-feature-text:   #BF5AF2;
-  --color-badge-bug-text:       #FF453A;
-  --color-badge-tech-debt-text: #FFD60A;
-  --color-badge-chore-text:     rgba(245, 245, 247, 0.55);
-  --color-badge-done-text:      #30D158;
+  --color-badge-feature-text:   #9B8BFF;
+  --color-badge-bug-text:       #FF5A5F;
+  --color-badge-tech-debt-text: #FFB454;
+  --color-badge-chore-text:     rgba(245, 245, 250, 0.50);
+  --color-badge-done-text:      #3BD671;
 
-  /* Shadows — dark mode (stronger opacity + white inner rings for depth) */
-  --shadow-card:       0 1px 3px rgba(0, 0, 0, 0.30), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  --shadow-card-hover: 0 8px 24px rgba(10, 132, 255, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  --shadow-sm:         0 1px 2px rgba(0, 0, 0, 0.30);
-  --shadow-md:         0 4px 12px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --shadow-lg:         0 12px 32px rgba(0, 0, 0, 0.50), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --shadow-modal:      0 24px 80px rgba(0, 0, 0, 0.60), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  /* Agent accent colors — same in both modes */
+  --color-agent-architect: #A78BFA;
+  --color-agent-ux:        #F472B6;
+  --color-agent-dev:       #60A5FA;
+  --color-agent-reviewer:  #FBBF24;
+  --color-agent-qa:        #34D399;
 
-  /* Terminal — dark mode overrides */
-  --color-terminal-bg:              #0D0D0F;
-  --color-terminal-text:            #E0E0E0;
+  /* Shadows — dark mode (violet bloom on hover) */
+  --shadow-card:       0 1px 3px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-card-hover: 0 8px 24px rgba(124, 109, 250, 0.20), 0 0 0 1px rgba(124, 109, 250, 0.25);
+  --shadow-sm:         0 1px 2px rgba(0, 0, 0, 0.50);
+  --shadow-md:         0 4px 12px rgba(0, 0, 0, 0.50), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-lg:         0 12px 32px rgba(0, 0, 0, 0.60), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-modal:      0 24px 80px rgba(0, 0, 0, 0.70), 0 0 0 1px rgba(255, 255, 255, 0.08);
+
+  /* Terminal — dark theme */
+  --color-terminal-bg:              #07070B;
+  --color-terminal-text:            #E4E4EB;
   --color-terminal-input-bg:        rgba(255, 255, 255, 0.06);
-  --color-terminal-stderr:          #FF6961;
-  --color-terminal-prompt:          #0A84FF;
-  --color-terminal-tab-active:      rgba(255, 255, 255, 0.12);
+  --color-terminal-stderr:          #FF5A5F;
+  --color-terminal-prompt:          #7C6DFA;
+  --color-terminal-tab-active:      rgba(255, 255, 255, 0.10);
   --color-terminal-tab-hover:       rgba(255, 255, 255, 0.06);
-  --color-terminal-tab-close-hover: rgba(255, 255, 255, 0.15);
+  --color-terminal-tab-close-hover: rgba(255, 255, 255, 0.12);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -223,8 +269,6 @@ html.dark {
     box-sizing: border-box;
     margin: 0;
     padding: 0;
-    /* T-004: v4 changed default border color from gray-200 to currentColor.
-       Restore previous behavior by defaulting to the design token. */
     border-color: var(--color-border);
   }
 
@@ -259,22 +303,17 @@ html.dark {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   BASE — thin scrollbars
+   BASE — thin scrollbars (invisible at rest, subtle on hover)
 ───────────────────────────────────────────────────────────────────────────── */
 
 @layer base {
-  /*
-   * Global thin scrollbars — invisible at rest, subtle on hover/active.
-   * Applies to all scrollable containers (columns, space tabs, terminal, etc.)
-   */
-
   /* Firefox */
   * {
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
   }
 
-  /* WebKit (Chrome, Safari, Electron) */
+  /* WebKit */
   *::-webkit-scrollbar {
     width: 4px;
     height: 4px;
@@ -287,15 +326,14 @@ html.dark {
     border-radius: 9999px;
   }
 
-  /* Show on hover of the scrollable container */
   *:hover {
-    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
   }
   *:hover::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.12);
   }
   *:hover::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.22);
   }
 }
 
@@ -304,25 +342,23 @@ html.dark {
 ───────────────────────────────────────────────────────────────────────────── */
 
 @layer utilities {
-  /* MB-2: FAB bottom position respects iOS safe-area-inset-bottom */
+  /* iOS safe-area bottom inset for FAB */
   .bottom-safe-6 {
     bottom: max(1.5rem, env(safe-area-inset-bottom, 1.5rem));
   }
 
-  /* BUG-005: replaces style={{ fontVariationSettings: "'FILL' 1" }} inline styles */
+  /* Filled material icon variant (replaces inline style) */
   .icon-filled {
     font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   }
 
-  /* Apple-inspired tight tracking for body copy (-0.01em) */
+  /* Tight tracking for body copy */
   .tracking-snug {
     letter-spacing: -0.01em;
   }
 
   /*
    * Glass surface — translucent frosted background.
-   * Background color comes from CSS custom property so it adapts to light/dark mode.
-   * Apply to: SpaceTabs, ContextMenu, Toast.
    */
   .glass-surface {
     background-color: var(--color-glass-surface-bg);
@@ -331,13 +367,18 @@ html.dark {
   }
 
   /*
-   * Heavy glass — more aggressive blur for foreground panels.
-   * Apply to: Header, Modal overlay, Modal container.
+   * Heavy glass — for header, modal overlays.
    */
   .glass-heavy {
     background-color: var(--color-glass-heavy-bg);
     backdrop-filter: blur(40px) saturate(200%);
     -webkit-backdrop-filter: blur(40px) saturate(200%);
+  }
+
+  /* ── Focus ring shorthand ─────────────────────────────────────────────── */
+  .focus-ring {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
   }
 }
 
@@ -353,62 +394,105 @@ html.dark {
    KEYFRAMES — referenced by --animate-* in @theme
 ───────────────────────────────────────────────────────────────────────────── */
 
+/* Card / element entrance — fade + slight rise */
 @keyframes fade-in-up {
-  0%   { opacity: 0; transform: translateY(8px); }
-  100% { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Modal / popover spring entrance */
 @keyframes scale-in {
-  0%   { opacity: 0; transform: scale(0.95); }
-  100% { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
+/* Sheet slide in from bottom */
 @keyframes slide-in-bottom {
-  0%   { opacity: 0; transform: translateY(16px); }
-  100% { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ADR-1 (task-detail-edit): right-side panel entry animation ≤ 200ms. */
+/* Right-side panel slide in */
 @keyframes slide-in-right {
-  0%   { transform: translateX(100%); }
-  100% { transform: translateX(0); }
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
 }
 
-/* M-1: modal spring close exit */
+/* Right-side panel slide out */
+@keyframes slide-out-right {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
+}
+
+/* Modal spring close exit */
 @keyframes modal-out {
-  0%   { opacity: 1; transform: scale(1); }
-  100% { opacity: 0; transform: scale(0.97); }
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.97); }
 }
 
-/* T-1: toast exit slide-down */
+/* Toast entrance — slide up + fade */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* Toast exit — slide down + fade */
 @keyframes toast-out {
-  0%   { opacity: 1; transform: translateX(-50%) translateY(0); }
-  100% { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  from { opacity: 1; transform: translateX(-50%) translateY(0); }
+  to   { opacity: 0; transform: translateX(-50%) translateY(8px); }
 }
 
-/* A-2: hover overlay entrance */
+/* Hover overlay entrance */
 @keyframes hover-overlay-in {
-  0%   { opacity: 0; transform: scale(0.95); }
-  100% { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
-/* Loop-inject: new stage node pops in from right with spring */
+/* Loop-inject: new stage node pops in */
 @keyframes loop-pop {
   0%   { opacity: 0; transform: translateX(12px) scale(0.7); }
-  70%  { transform: translateX(-2px) scale(1.08); }
+  70%  { transform: translateX(-2px) scale(1.06); }
   100% { opacity: 1; transform: translateX(0) scale(1); }
 }
 
-/* S-3: empty state ambient pulse */
+/* S-1 / S-2: empty state ambient pulse */
 @keyframes empty-pulse {
-  0%, 100% { opacity: 0.4; transform: scale(1); }
-  50%       { opacity: 0.7; transform: scale(1.04); }
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%       { opacity: 0.65; transform: scale(1.05); }
+}
+
+/* S-07: pipeline log line fade-in (instant, 80ms) */
+@keyframes log-line-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* S-08: running run status — pulsing dot */
+@keyframes run-pulse {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* S-06/S-08: staggered entrance for list items */
+@keyframes stagger-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Drag drop-target column border pulse */
+@keyframes drop-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1; }
+}
+
+/* Tab indicator slide */
+@keyframes tab-slide {
+  from { opacity: 0; transform: scaleX(0.7); }
+  to   { opacity: 1; transform: scaleX(1); }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
    AUTO-TASK FAB — conic-gradient border rotation animation
-   The ::before pseudo-element on .autotask-fab-border carries the gradient.
-   Rotate it via a CSS custom property on the parent so hover can ramp speed.
 ───────────────────────────────────────────────────────────────────────────── */
 
 @property --autotask-angle {
@@ -426,40 +510,33 @@ html.dark {
   right: 24px;
   bottom: 24px;
   z-index: 40;
-  /* pill shape */
   height: 48px;
   padding: 0 20px;
   border-radius: 9999px;
   /* glass background */
-  background: rgba(30, 30, 35, 0.85);
+  background: rgba(17, 17, 24, 0.88);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  /* glow */
-  box-shadow: 0 0 20px rgba(124, 58, 237, 0.20), 0 0 40px rgba(6, 182, 212, 0.08);
-  /* layout */
+  /* violet glow */
+  box-shadow: 0 0 20px rgba(124, 109, 250, 0.25), 0 0 40px rgba(124, 109, 250, 0.08);
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  /* text */
-  color: #F5F5F7;
+  color: rgba(245, 245, 250, 0.96);
   font-size: 14px;
   font-weight: 500;
   font-family: 'Inter', sans-serif;
-  /* border from ::before — keep border transparent so it doesn't double */
   border: none;
   outline: none;
   cursor: pointer;
-  /* smooth transitions */
   transition: transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 200ms ease,
               background 150ms ease;
-  /* the ::before must be clipped to the rounded pill */
   isolation: isolate;
-  /* gradient border rotation speed variable (default 4s, hover 2s) */
   animation: autotask-spin 4s linear infinite;
 }
 
-/* The conic-gradient border ring */
+/* The conic-gradient violet/indigo border ring */
 .autotask-fab::before {
   content: '';
   position: absolute;
@@ -467,14 +544,13 @@ html.dark {
   border-radius: 9999px;
   background: conic-gradient(
     from var(--autotask-angle),
-    #7C3AED,
-    #2563EB,
-    #06B6D4,
-    #2563EB,
-    #7C3AED
+    #7C6DFA,
+    #A78BFA,
+    #60A5FA,
+    #A78BFA,
+    #7C6DFA
   );
   z-index: -1;
-  /* mask inner area so only the 1.5px ring is visible */
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask-composite: exclude;
   padding: 1.5px;
@@ -484,8 +560,8 @@ html.dark {
 
 .autotask-fab:hover {
   transform: scale(1.04);
-  background: rgba(44, 44, 49, 0.90);
-  box-shadow: 0 0 28px rgba(124, 58, 237, 0.35), 0 0 56px rgba(6, 182, 212, 0.15);
+  background: rgba(26, 26, 36, 0.92);
+  box-shadow: 0 0 28px rgba(124, 109, 250, 0.40), 0 0 56px rgba(124, 109, 250, 0.15);
   animation-duration: 2s;
 }
 
@@ -494,20 +570,20 @@ html.dark {
 }
 
 .autotask-fab:focus-visible {
-  outline: 2px solid rgba(10, 132, 255, 0.70);
+  outline: 2px solid rgba(124, 109, 250, 0.70);
   outline-offset: 3px;
 }
 
 /* Light mode overrides */
 html:not(.dark) .autotask-fab {
-  background: rgba(255, 255, 255, 0.88);
-  color: #1F1F1F;
-  box-shadow: 0 0 20px rgba(124, 58, 237, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.90);
+  color: #1A1A2E;
+  box-shadow: 0 0 20px rgba(108, 96, 224, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
 html:not(.dark) .autotask-fab:hover {
-  background: rgba(245, 245, 247, 0.96);
-  box-shadow: 0 0 28px rgba(124, 58, 237, 0.22), 0 4px 12px rgba(0, 0, 0, 0.10);
+  background: rgba(240, 240, 248, 0.96);
+  box-shadow: 0 0 28px rgba(108, 96, 224, 0.24), 0 4px 12px rgba(0, 0, 0, 0.10);
 }
 
 /* Mobile: icon-only circle */
@@ -525,8 +601,7 @@ html:not(.dark) .autotask-fab:hover {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   XTERM.JS — override hardcoded #000 backgrounds so the terminal adapts to
-   both light and dark themes via the --color-terminal-bg token.
+   XTERM.JS — override hardcoded backgrounds to match design token
 ───────────────────────────────────────────────────────────────────────────── */
 
 .xterm .xterm-viewport {
@@ -539,7 +614,6 @@ html:not(.dark) .autotask-fab:hover {
 
 /* ─────────────────────────────────────────────────────────────────────────────
    ACCESSIBILITY — reduce motion
-   Honoring prefers-reduced-motion: all animations collapsed to near-instant.
 ───────────────────────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
