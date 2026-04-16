@@ -12,12 +12,13 @@
  * listing without reading individual run directories.
  *
  * Environment variables:
- *   PIPELINE_STAGE_TIMEOUT_MS  - Kill timeout per stage (default: 3600000 = 1h)
- *   PIPELINE_STALL_TIMEOUT_MS  - Kill if no output for this long (default: 300000 = 5min)
- *   PIPELINE_MAX_CONCURRENT    - Max active runs (default: 5)
- *   PIPELINE_RUNS_DIR          - Override runs directory
- *   PIPELINE_AGENT_MODE        - 'subagent' (default) or 'headless'
- *   PIPELINE_AGENTS_DIR        - Override agents directory
+ *   PIPELINE_STAGE_TIMEOUT_MS    - Kill timeout per stage (default: 3600000 = 1h)
+ *   PIPELINE_STALL_TIMEOUT_MS    - Kill if no output for this long (default: 300000 = 5min)
+ *   PIPELINE_MAX_CONCURRENT      - Max active runs (default: 5)
+ *   PIPELINE_RUNS_DIR            - Override runs directory
+ *   PIPELINE_AGENT_MODE          - 'subagent' (default) or 'headless'
+ *   PIPELINE_AGENTS_DIR          - Override agents directory
+ *   PIPELINE_RESOLVER_TIMEOUT_MS - Kill timeout for resolver agents (default: 300000 = 5min)
  */
 
 'use strict';
@@ -87,12 +88,14 @@ const DEFAULT_STAGES = [
   'qa-engineer-e2e',
 ];
 
-const DEFAULT_STAGE_TIMEOUT_MS = 3_600_000; // 1 hour
-const DEFAULT_MAX_CONCURRENT   = 5;
+const DEFAULT_STAGE_TIMEOUT_MS    = 3_600_000; // 1 hour
+const DEFAULT_MAX_CONCURRENT      = 5;
 // Stall watchdog: kill if no output for this long.  5 min is conservative —
 // tool calls (Bash builds, WebSearch) can be silent for a while, but AskUserQuestion
 // and permission prompts produce no output forever, so we still need a ceiling.
-const DEFAULT_STALL_TIMEOUT_MS = 300_000;   // 5 min without any output → kill
+const DEFAULT_STALL_TIMEOUT_MS    = 300_000;   // 5 min without any output → kill
+// Resolver agent gets a shorter timeout: it only needs to answer one question.
+const DEFAULT_RESOLVER_TIMEOUT_MS = 300_000;   // 5 min
 
 // ---------------------------------------------------------------------------
 // Module-level state (in-process registry of active child processes)
@@ -184,6 +187,19 @@ function stagePromptPath(dataDir, runId, stageIndex) {
  */
 function stageDonePath(dataDir, runId, stageIndex) {
   return path.join(runDir(dataDir, runId), `stage-${stageIndex}.done`);
+}
+
+/**
+ * Path to the done-sentinel file for a resolver agent process.
+ * Named after the commentId so multiple resolvers per run are distinguishable.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {string} commentId
+ * @returns {string}
+ */
+function resolverDonePath(dataDir, runId, commentId) {
+  return path.join(runDir(dataDir, runId), `resolver-${commentId}.done`);
 }
 
 /**
@@ -415,14 +431,20 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
         if (!freshRun) return;
         freshRun.status = 'blocked';
         freshRun.blockedReason = {
-          commentId: q.id,
-          taskId:    freshRun.taskId,
-          author:    q.author,
-          text:      q.text,
-          blockedAt: new Date().toISOString(),
+          commentId:   q.id,
+          taskId:      freshRun.taskId,
+          author:      q.author,
+          text:        q.text,
+          ...(q.targetAgent && { targetAgent: q.targetAgent }),
+          blockedAt:   new Date().toISOString(),
         };
         writeRun(dataDir, freshRun);
         pipelineLog('run.blocked', { runId, stageIndex, commentId: q.id, author: q.author });
+
+        // Attempt cross-agent resolution if the question has a targetAgent.
+        if (q.targetAgent) {
+          attemptCrossAgentResolution(dataDir, freshRun, q);
+        }
         return;
       }
     }
@@ -969,7 +991,53 @@ function init(dataDir) {
 
     try {
       const run = JSON.parse(fs.readFileSync(runJsonFile, 'utf8'));
-      if (!run || run.status !== 'running') continue;
+      if (!run) continue;
+
+      // T-010: Handle blocked runs with an active resolver on restart.
+      if (run.status === 'blocked' && run.resolverActive === true) {
+        const resolverPid        = run.blockedReason?.resolverPid;
+        const resolverStartedAt  = run.blockedReason?.resolverStartedAt
+          ? new Date(run.blockedReason.resolverStartedAt).getTime()
+          : 0;
+        const commentId          = run.blockedReason?.commentId;
+        const pidIsStale         = resolverStartedAt < BOOT_TIME;
+
+        if (!pidIsStale && resolverPid && isProcessAlive(resolverPid)) {
+          // Resolver still alive — reattach polling.
+          const timeoutMs = parseInt(
+            process.env.PIPELINE_RESOLVER_TIMEOUT_MS || String(DEFAULT_RESOLVER_TIMEOUT_MS),
+            10
+          );
+          const doneFile = resolverDonePath(dataDir, run.runId, commentId);
+          // Reconstruct a minimal comment object for handleResolverClose.
+          const comment = {
+            id:          commentId,
+            targetAgent: run.blockedReason?.targetAgent,
+            author:      run.blockedReason?.author,
+            text:        run.blockedReason?.text,
+          };
+          startResolverPolling(dataDir, run.runId, comment, doneFile, resolverStartedAt || BOOT_TIME, timeoutMs, resolverPid);
+          pipelineLog('resolver.reattached', { runId: run.runId, commentId, resolverPid });
+        } else if (commentId) {
+          // Resolver PID dead or stale — mark needsHuman and clear resolverActive.
+          run.resolverActive = false;
+          if (run.blockedReason) {
+            delete run.blockedReason.resolverPid;
+            delete run.blockedReason.resolverStartedAt;
+          }
+          run.updatedAt = new Date().toISOString();
+          writeJSON(runJsonFile, run);
+          upsertRegistryEntry(dataDir, {
+            runId: run.runId, spaceId: run.spaceId, taskId: run.taskId,
+            status: run.status, createdAt: run.createdAt, updatedAt: run.updatedAt,
+          });
+          markCommentNeedsHuman(dataDir, run.spaceId, run.taskId, commentId);
+          pipelineLog('resolver.dead_on_restart', { runId: run.runId, commentId });
+        }
+        continue;
+      }
+
+      if (run.status !== 'running') continue;
 
       // Find the currently-running stage.
       const runningStageIdx = Array.isArray(run.stageStatuses)
@@ -1161,6 +1229,367 @@ function findTaskInDataDir(spaceId, taskId, dataDir) {
 }
 
 // ---------------------------------------------------------------------------
+// Resolver helpers — cross-agent question resolver (ADR-1 cross-agent-questions)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mark a comment as needsHuman=true by directly patching the task's column JSON.
+ * Used by pipelineManager to escalate unresolvable questions without an HTTP round-trip.
+ *
+ * @param {string} dataDir
+ * @param {string} spaceId
+ * @param {string} taskId
+ * @param {string} commentId
+ */
+function markCommentNeedsHuman(dataDir, spaceId, taskId, commentId) {
+  const spaceDir = path.join(dataDir, 'spaces', spaceId);
+  for (const col of ['todo', 'in-progress', 'done']) {
+    const filePath = path.join(spaceDir, `${col}.json`);
+    if (!fs.existsSync(filePath)) continue;
+    let tasks;
+    try {
+      tasks = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(tasks)) continue;
+
+    const taskIdx = tasks.findIndex((t) => t.id === taskId);
+    if (taskIdx === -1) continue;
+
+    const task     = tasks[taskIdx];
+    const comments = Array.isArray(task.comments) ? task.comments : [];
+    const cIdx     = comments.findIndex((c) => c.id === commentId);
+    if (cIdx === -1) continue;
+
+    comments[cIdx] = { ...comments[cIdx], needsHuman: true, updatedAt: new Date().toISOString() };
+    tasks[taskIdx] = { ...task, comments, updatedAt: new Date().toISOString() };
+
+    const tmpPath = filePath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(tasks, null, 2), 'utf8');
+    fs.renameSync(tmpPath, filePath);
+    pipelineLog('comment.needs_human', { taskId, commentId, spaceId, reason: 'resolver_failed' });
+    return;
+  }
+  console.warn(`[pipelineManager] WARN: markCommentNeedsHuman — comment ${commentId} not found in task ${taskId}`);
+}
+
+/**
+ * Build a minimal resolver prompt for a cross-agent question.
+ *
+ * @param {object} run    - Current run state.
+ * @param {object} task   - The task object (may be null).
+ * @param {object} comment - The question comment.
+ * @param {string} dataDir
+ * @returns {string}
+ */
+function buildResolverPrompt(run, task, comment, dataDir) {
+  const spaceId   = run.spaceId;
+  const taskId    = run.taskId;
+  const commentId = comment.id;
+
+  let prompt = `You are answering a question from another agent in the pipeline.\n\n`;
+
+  prompt += `## Question\n`;
+  prompt += `Author: ${comment.author}\n`;
+  prompt += `Text: ${comment.text}\n\n`;
+
+  prompt += `## Task Context\n`;
+  prompt += `Title: ${task ? task.title : taskId}\n`;
+  if (task && task.description) {
+    prompt += `Description: ${task.description}\n`;
+  }
+  prompt += `SpaceId: ${spaceId}\n`;
+  prompt += `TaskId: ${taskId}\n`;
+  prompt += `CommentId: ${commentId}\n\n`;
+
+  // Include file attachments so the resolver can read ADR/blueprint etc.
+  if (task && Array.isArray(task.attachments) && task.attachments.length > 0) {
+    const fileArtifacts = task.attachments.filter((a) => a.type === 'file' && a.content);
+    if (fileArtifacts.length > 0) {
+      prompt += `## Available Artifacts\n`;
+      for (const att of fileArtifacts) {
+        prompt += `- ${att.name}: ${att.content}\n`;
+      }
+      prompt += '\n';
+    }
+  }
+
+  if (run.workingDirectory) {
+    prompt += `## Working Directory\n${run.workingDirectory}\n\n`;
+  }
+
+  prompt += `## Instructions\n`;
+  prompt += `1. Read any relevant artifacts (ADR, blueprint, code) to understand the context.\n`;
+  prompt += `2. Formulate a clear, actionable answer.\n`;
+  prompt += `3. Call kanban_answer_comment with your answer:\n`;
+  prompt += `   kanban_answer_comment({ spaceId: "${spaceId}", taskId: "${taskId}", commentId: "${commentId}", answer: "your answer here" })\n`;
+  prompt += `4. Do NOT create new files or modify code. Your only job is to answer the question.\n\n`;
+  prompt += `IMPORTANT: You must call kanban_answer_comment before exiting. `;
+  prompt += `If you cannot answer, call it with "I cannot answer this question — it requires human expertise" so the pipeline can proceed.\n`;
+
+  return prompt;
+}
+
+/**
+ * Handle resolver agent exit: success or failure.
+ *
+ * On exit 0: log completion — the resolver called kanban_answer_comment which
+ *   already triggered unblockRunByComment. We just clear resolverActive.
+ * On exit != 0 or timeout: mark the comment needsHuman=true, clear resolverActive.
+ *   The pipeline stays blocked until human intervention.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {object} comment    - The question comment that triggered the resolver.
+ * @param {number} exitCode   - Resolver process exit code (1 for timeout/forced kill).
+ * @param {number} startedAt  - Date.now() when the resolver was spawned.
+ * @param {string} [reason]   - 'timeout' if killed by watchdog, otherwise omitted.
+ */
+function handleResolverClose(dataDir, runId, comment, exitCode, startedAt, reason) {
+  const durationMs = Date.now() - startedAt;
+  const run = readRun(dataDir, runId);
+  if (!run) return;
+
+  // Clear the resolver-active flag regardless of outcome.
+  run.resolverActive = false;
+  if (run.blockedReason) {
+    delete run.blockedReason.resolverPid;
+    delete run.blockedReason.resolverStartedAt;
+  }
+  writeRun(dataDir, run);
+
+  if (exitCode === 0 && reason !== 'timeout') {
+    pipelineLog('resolver.completed', {
+      runId,
+      commentId: comment.id,
+      targetAgent: comment.targetAgent,
+      exitCode,
+      durationMs,
+      success: true,
+    });
+    // The resolver called kanban_answer_comment → unblockRunByComment already fired.
+    // Nothing more to do here.
+  } else {
+    // Failure or timeout — escalate to human.
+    if (reason === 'timeout') {
+      pipelineLog('resolver.timeout', {
+        runId,
+        commentId: comment.id,
+        targetAgent: comment.targetAgent,
+        pid: run.blockedReason?.resolverPid,
+        timeoutMs: parseInt(process.env.PIPELINE_RESOLVER_TIMEOUT_MS || String(DEFAULT_RESOLVER_TIMEOUT_MS), 10),
+      });
+    } else {
+      pipelineLog('resolver.completed', {
+        runId,
+        commentId: comment.id,
+        targetAgent: comment.targetAgent,
+        exitCode,
+        durationMs,
+        success: false,
+      });
+    }
+    markCommentNeedsHuman(dataDir, run.spaceId, run.taskId, comment.id);
+    // Pipeline stays blocked — human must answer via kanban_answer_comment.
+  }
+}
+
+/**
+ * Start polling for resolver agent completion using the done-sentinel pattern.
+ * A stripped-down version of startPolling with no stall watchdog (resolvers
+ * have no log file to watch) and a shorter default timeout.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {object} comment      - The question comment being resolved.
+ * @param {string} doneFile     - Path to resolver-<commentId>.done sentinel.
+ * @param {number} startedAt    - Date.now() when the resolver was spawned.
+ * @param {number} timeoutMs    - Maximum resolver duration before kill.
+ * @param {number|null} pid     - Resolver PID (for killing on timeout).
+ * @returns {ReturnType<setInterval>}
+ */
+function startResolverPolling(dataDir, runId, comment, doneFile, startedAt, timeoutMs, pid) {
+  const interval = setInterval(() => {
+    // --- Done sentinel check ---
+    if (fs.existsSync(doneFile)) {
+      clearInterval(interval);
+
+      let exitCode = 1;
+      try {
+        const raw = fs.readFileSync(doneFile, 'utf8').trim();
+        exitCode = parseInt(raw, 10);
+        if (isNaN(exitCode)) exitCode = 1;
+      } catch { /* read error — treat as failure */ }
+
+      pipelineLog('resolver.sentinel_detected', { runId, commentId: comment.id, exitCode });
+      handleResolverClose(dataDir, runId, comment, exitCode, startedAt);
+      return;
+    }
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed >= timeoutMs) {
+      clearInterval(interval);
+
+      // Kill resolver process group on timeout.
+      if (pid && pid !== process.pid) {
+        pipelineLog('resolver.kill', { runId, commentId: comment.id, pid, reason: 'timeout' });
+        try { process.kill(-pid, 'SIGTERM'); } catch { /* already gone */ }
+      }
+
+      handleResolverClose(dataDir, runId, comment, 1, startedAt, 'timeout');
+    }
+  }, 2000);
+
+  interval.unref();
+  return interval;
+}
+
+/**
+ * Attempt to resolve a question comment by spawning a target agent.
+ * Called from blockRunByComment after the run transitions to 'blocked'.
+ *
+ * Guards:
+ *   1. comment.targetAgent must be present.
+ *   2. run.resolverActive must be false (no resolver already running).
+ *   3. targetAgent must be in run.stages[].
+ *
+ * On success: spawns the resolver and sets run.resolverActive=true.
+ * On invalid targetAgent: marks comment.needsHuman=true.
+ *
+ * @param {string} dataDir
+ * @param {object} run     - Current run state.
+ * @param {object} comment - The question comment with optional targetAgent.
+ */
+function attemptCrossAgentResolution(dataDir, run, comment) {
+  if (!comment.targetAgent) return; // no resolver needed
+
+  // Guard: only one resolver per run at a time.
+  if (run.resolverActive === true) {
+    pipelineLog('resolver.skipped_already_running', {
+      runId:     run.runId,
+      commentId: comment.id,
+    });
+    return;
+  }
+
+  // Validate targetAgent is in the pipeline.
+  if (!Array.isArray(run.stages) || !run.stages.includes(comment.targetAgent)) {
+    pipelineLog('resolver.skipped_invalid_agent', {
+      runId:       run.runId,
+      commentId:   comment.id,
+      targetAgent: comment.targetAgent,
+      stages:      run.stages,
+    });
+    markCommentNeedsHuman(dataDir, run.spaceId, run.taskId, comment.id);
+    return;
+  }
+
+  const timeoutMs = parseInt(
+    process.env.PIPELINE_RESOLVER_TIMEOUT_MS || String(DEFAULT_RESOLVER_TIMEOUT_MS),
+    10
+  );
+
+  // In test-mode (PIPELINE_NO_SPAWN=1), write the done-sentinel immediately.
+  if (process.env.PIPELINE_NO_SPAWN === '1') {
+    const doneFile   = resolverDonePath(dataDir, run.runId, comment.id);
+    fs.writeFileSync(doneFile, '0', 'utf8');
+
+    // Mark resolver active and persist.
+    const freshRun = readRun(dataDir, run.runId);
+    if (!freshRun) return;
+    freshRun.resolverActive                      = true;
+    freshRun.blockedReason                       = freshRun.blockedReason || {};
+    freshRun.blockedReason.targetAgent           = comment.targetAgent;
+    freshRun.blockedReason.resolverStartedAt     = new Date().toISOString();
+    writeRun(dataDir, freshRun);
+
+    const startedAt = Date.now();
+    startResolverPolling(dataDir, run.runId, comment, doneFile, startedAt, timeoutMs, null);
+    pipelineLog('resolver.started', {
+      runId: run.runId, commentId: comment.id, targetAgent: comment.targetAgent, pid: null, mock: true,
+    });
+    return;
+  }
+
+  // Resolve agent spec — may throw AgentNotFoundError.
+  const agentsDir = process.env.PIPELINE_AGENTS_DIR;
+  let agentSpec;
+  try {
+    agentSpec = resolveAgent(comment.targetAgent, agentsDir);
+  } catch (err) {
+    if (err instanceof AgentNotFoundError) {
+      pipelineLog('resolver.skipped_invalid_agent', {
+        runId: run.runId, commentId: comment.id, targetAgent: comment.targetAgent, reason: 'AGENT_NOT_FOUND',
+      });
+      markCommentNeedsHuman(dataDir, run.spaceId, run.taskId, comment.id);
+      return;
+    }
+    throw err;
+  }
+
+  // Build the resolver prompt.
+  const spacesDir = path.join(dataDir, 'spaces');
+  const task      = readTaskFromSpace(spacesDir, run.spaceId, run.taskId);
+  const promptText = buildResolverPrompt(run, task, comment, dataDir);
+
+  // Persist prompt to disk.
+  const promptFilePath = path.join(runDir(dataDir, run.runId), `resolver-${comment.id}-prompt.md`);
+  try {
+    const tmpPath = promptFilePath + '.tmp';
+    fs.writeFileSync(tmpPath, promptText, 'utf8');
+    fs.renameSync(tmpPath, promptFilePath);
+  } catch (err) {
+    console.warn(`[pipelineManager] WARN: could not persist resolver prompt:`, err.message);
+  }
+
+  const logPath  = path.join(runDir(dataDir, run.runId), `resolver-${comment.id}.log`);
+  const doneFile = resolverDonePath(dataDir, run.runId, comment.id);
+
+  const hasPermissionMode = agentSpec.spawnArgs.includes('--permission-mode');
+  const finalArgs = hasPermissionMode
+    ? agentSpec.spawnArgs
+    : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
+
+  const escapedArgs = finalArgs.map(shellEscape).join(' ');
+  const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+
+  const child = spawn('sh', ['-c', shellCmd], {
+    stdio:    'ignore',
+    detached: true,
+    env:      { ...process.env },
+  });
+  child.unref();
+
+  if (process.platform === 'darwin' && child.pid) {
+    const caff = spawn('caffeinate', ['-w', String(child.pid)], { stdio: 'ignore' });
+    caff.unref();
+  }
+
+  const startedAt = Date.now();
+
+  // Persist resolver state.
+  const freshRun = readRun(dataDir, run.runId);
+  if (!freshRun) return;
+  freshRun.resolverActive                    = true;
+  freshRun.blockedReason                     = freshRun.blockedReason || {};
+  freshRun.blockedReason.targetAgent         = comment.targetAgent;
+  freshRun.blockedReason.resolverPid         = child.pid;
+  freshRun.blockedReason.resolverStartedAt   = new Date().toISOString();
+  writeRun(dataDir, freshRun);
+
+  startResolverPolling(dataDir, run.runId, comment, doneFile, startedAt, timeoutMs, child.pid);
+  pipelineLog('resolver.started', {
+    runId: run.runId, commentId: comment.id, targetAgent: comment.targetAgent, pid: child.pid,
+  });
+
+  child.on('error', (err) => {
+    pipelineLog('resolver.spawn_error', { runId: run.runId, commentId: comment.id, error: err.message });
+    handleResolverClose(dataDir, run.runId, comment, 1, startedAt);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Comment-driven block/unblock helpers — T-001 (pipeline-blocked)
 // ---------------------------------------------------------------------------
 
@@ -1195,7 +1624,19 @@ function findActiveRunByTaskId(dataDir, taskId) {
 function blockRunByComment(dataDir, taskId, comment) {
   const run = findActiveRunByTaskId(dataDir, taskId);
   if (!run) return;
-  if (run.status === 'blocked') return; // already blocked — second question, guard handles it
+  if (run.status === 'blocked') {
+    // Already blocked — anti-recursion guard: if a resolver is active and the
+    // new question has a targetAgent, do NOT spawn another resolver.
+    if (run.resolverActive === true && comment.targetAgent) {
+      pipelineLog('resolver.recursion_blocked', {
+        runId:       run.runId,
+        commentId:   comment.id,
+        targetAgent: comment.targetAgent,
+      });
+      return; // question persisted but no second resolver spawned
+    }
+    return;
+  }
 
   // Only block between stages (not mid-execution).
   // "Between stages" means the current stage is pending (not actively running).
@@ -1204,14 +1645,20 @@ function blockRunByComment(dataDir, taskId, comment) {
 
   run.status = 'blocked';
   run.blockedReason = {
-    commentId: comment.id,
+    commentId:   comment.id,
     taskId,
-    author:    comment.author,
-    text:      comment.text,
-    blockedAt: new Date().toISOString(),
+    author:      comment.author,
+    text:        comment.text,
+    ...(comment.targetAgent && { targetAgent: comment.targetAgent }),
+    blockedAt:   new Date().toISOString(),
   };
   writeRun(dataDir, run);
   pipelineLog('run.blocked', { runId: run.runId, commentId: comment.id, author: comment.author });
+
+  // Attempt cross-agent resolution if the question has a targetAgent.
+  if (comment.targetAgent) {
+    attemptCrossAgentResolution(dataDir, run, comment);
+  }
 }
 
 /**
@@ -1558,15 +2005,21 @@ module.exports = {
   deleteRun,
   abortAll,
   getActiveProcessCount,
+  // Cross-agent question resolver (cross-agent-questions feature):
+  attemptCrossAgentResolution,
+  handleResolverClose,
+  markCommentNeedsHuman,
   // Exported for testing and preview endpoint:
   runsDir,
   runDir,
   stageLogPath,
   stagePromptPath,
   stageDonePath,
+  resolverDonePath,
   stageInjectPath,
   readInjectSignal,
   buildStagePrompt,
+  buildResolverPrompt,
   shellEscape,
   DEFAULT_STAGES,
 };

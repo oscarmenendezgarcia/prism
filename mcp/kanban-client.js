@@ -359,12 +359,13 @@ export async function stopPipeline(runId) {
 /**
  * Create a comment on a task.
  *
- * @param {{ spaceId: string, taskId: string, text: string, type: 'note'|'question'|'answer', author?: string, parentId?: string }} params
+ * @param {{ spaceId: string, taskId: string, text: string, type: 'note'|'question'|'answer', author?: string, parentId?: string, targetAgent?: string }} params
  * @returns {Promise<object|{ error: true, code: string, message: string }>}
  */
-export async function addComment({ spaceId, taskId, text, type, author = 'user', parentId }) {
+export async function addComment({ spaceId, taskId, text, type, author = 'user', parentId, targetAgent }) {
   const body = { text, type, author };
-  if (parentId !== undefined) body.parentId = parentId;
+  if (parentId    !== undefined) body.parentId    = parentId;
+  if (targetAgent !== undefined) body.targetAgent = targetAgent;
   return request('POST', `/spaces/${spaceId}/tasks/${taskId}/comments`, body);
 }
 

@@ -415,6 +415,120 @@ async function run() {
   });
 
   // ---------------------------------------------------------------------------
+  suite('POST /comments — targetAgent field (cross-agent-questions)')
+  // ---------------------------------------------------------------------------
+
+  let targetAgentQuestionId;
+
+  await test('crea question con targetAgent válido → 201, targetAgent en respuesta', async () => {
+    const res = await request('POST', BASE, {
+      author:      'developer-agent',
+      text:        '¿Cuál es la paleta de colores del diseño?',
+      type:        'question',
+      targetAgent: 'senior-architect',
+    });
+    assert(res.status === 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`);
+    assert(res.body.targetAgent === 'senior-architect', `Expected targetAgent='senior-architect', got '${res.body.targetAgent}'`);
+    assert(res.body.needsHuman === false, `Expected needsHuman=false, got ${res.body.needsHuman}`);
+    assert(res.body.type === 'question', 'type debe ser question');
+    targetAgentQuestionId = res.body.id;
+  });
+
+  await test('crea question sin targetAgent → 201, backward compat (needsHuman=false)', async () => {
+    const res = await request('POST', BASE, {
+      author: 'developer-agent',
+      text:   '¿Qué SLA tiene el endpoint?',
+      type:   'question',
+    });
+    assert(res.status === 201, `Expected 201, got ${res.status}`);
+    assert(res.body.targetAgent === undefined, 'targetAgent no debe estar presente');
+    assert(res.body.needsHuman === false, `Expected needsHuman=false, got ${res.body.needsHuman}`);
+  });
+
+  await test('devuelve 400 si targetAgent se usa con type=note', async () => {
+    const res = await request('POST', BASE, {
+      author:      'developer-agent',
+      text:        'Nota con targetAgent inválido',
+      type:        'note',
+      targetAgent: 'senior-architect',
+    });
+    assert(res.status === 400, `Expected 400, got ${res.status}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${res.body.error.code}`);
+    assert(res.body.error.message.includes('targetAgent'), 'mensaje debe mencionar targetAgent');
+    assert(res.body.error.message.includes('question'), 'mensaje debe mencionar question');
+  });
+
+  await test('devuelve 400 si targetAgent se usa con type=answer', async () => {
+    const res = await request('POST', BASE, {
+      author:      'senior-architect',
+      text:        'Respuesta con targetAgent inválido',
+      type:        'answer',
+      targetAgent: 'developer-agent',
+    });
+    assert(res.status === 400, `Expected 400, got ${res.status}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${res.body.error.code}`);
+  });
+
+  await test('devuelve 400 si targetAgent es string vacío', async () => {
+    const res = await request('POST', BASE, {
+      author:      'developer-agent',
+      text:        '¿Algo?',
+      type:        'question',
+      targetAgent: '',
+    });
+    assert(res.status === 400, `Expected 400, got ${res.status}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${res.body.error.code}`);
+    assert(res.body.error.message.includes('targetAgent'), 'mensaje debe mencionar targetAgent');
+  });
+
+  await test('devuelve 400 si targetAgent supera 100 chars', async () => {
+    const res = await request('POST', BASE, {
+      author:      'developer-agent',
+      text:        '¿Algo?',
+      type:        'question',
+      targetAgent: 'x'.repeat(101),
+    });
+    assert(res.status === 400, `Expected 400, got ${res.status}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${res.body.error.code}`);
+    assert(res.body.error.message.includes('100'), 'mensaje debe mencionar el límite 100');
+  });
+
+  // ---------------------------------------------------------------------------
+  suite('PATCH /comments/:commentId — campo needsHuman (cross-agent-questions)')
+  // ---------------------------------------------------------------------------
+
+  await test('PATCH needsHuman=true → 200, needsHuman persiste', async () => {
+    assert(targetAgentQuestionId, 'targetAgentQuestionId debe estar definido');
+    const res = await request('PATCH', `${BASE}/${targetAgentQuestionId}`, { needsHuman: true });
+    assert(res.status === 200, `Expected 200, got ${res.status}: ${JSON.stringify(res.body)}`);
+    assert(res.body.needsHuman === true, `Expected needsHuman=true, got ${res.body.needsHuman}`);
+    assert(typeof res.body.updatedAt === 'string', 'updatedAt debe estar presente');
+  });
+
+  await test('PATCH needsHuman=false → 200, needsHuman se puede resetear', async () => {
+    assert(targetAgentQuestionId, 'targetAgentQuestionId debe estar definido');
+    const res = await request('PATCH', `${BASE}/${targetAgentQuestionId}`, { needsHuman: false });
+    assert(res.status === 200, `Expected 200, got ${res.status}`);
+    assert(res.body.needsHuman === false, `Expected needsHuman=false, got ${res.body.needsHuman}`);
+  });
+
+  await test('devuelve 400 si needsHuman no es boolean en PATCH', async () => {
+    assert(targetAgentQuestionId, 'targetAgentQuestionId debe estar definido');
+    const res = await request('PATCH', `${BASE}/${targetAgentQuestionId}`, { needsHuman: 'yes' });
+    assert(res.status === 400, `Expected 400, got ${res.status}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${res.body.error.code}`);
+    assert(res.body.error.message.includes('boolean'), 'mensaje debe mencionar boolean');
+  });
+
+  await test('PATCH body vacío sigue devolviendo 400 (backward compat)', async () => {
+    assert(targetAgentQuestionId, 'targetAgentQuestionId debe estar definido');
+    const res = await request('PATCH', `${BASE}/${targetAgentQuestionId}`, {});
+    assert(res.status === 400, `Expected 400, got ${res.status}`);
+    assert(res.body.error.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${res.body.error.code}`);
+    assert(res.body.error.message.includes('text, type, resolved'), 'debe listar campos requeridos (backward compat)');
+  });
+
+  // ---------------------------------------------------------------------------
   // Summary
   // ---------------------------------------------------------------------------
 

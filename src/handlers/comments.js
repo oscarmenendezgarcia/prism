@@ -13,7 +13,11 @@
  *
  * Schema of a Comment:
  *   { id, author, text, type: 'note'|'question'|'answer',
- *     parentId?: string, resolved: boolean, createdAt: ISO8601, updatedAt?: ISO8601 }
+ *     parentId?: string,
+ *     targetAgent?: string,   — agent ID to route the question to (type=question only)
+ *     needsHuman: boolean,    — set by pipelineManager when resolver fails; default false
+ *     resolved: boolean,
+ *     createdAt: ISO8601, updatedAt?: ISO8601 }
  */
 
 const fs   = require('fs');
@@ -30,6 +34,7 @@ const VALID_COMMENT_TYPES   = ['note', 'question', 'answer'];
 const AUTHOR_MAX_LEN        = 100;
 const TEXT_MAX_LEN          = 5000;
 const COMMENT_MAX_COUNT     = 200;
+const TARGET_AGENT_MAX_LEN  = 100;
 
 // ---------------------------------------------------------------------------
 // Persistence helpers — mirror of the pattern in tasks.js
@@ -92,7 +97,7 @@ async function handleCreateComment(req, res, spaceDataDir, taskId) {
   }
 
   const errors = [];
-  const { author, text, type, parentId } = body;
+  const { author, text, type, parentId, targetAgent } = body;
 
   if (!author || typeof author !== 'string' || author.trim().length === 0) {
     errors.push('author is required and must be a non-empty string');
@@ -113,6 +118,17 @@ async function handleCreateComment(req, res, spaceDataDir, taskId) {
   if (parentId !== undefined) {
     if (typeof parentId !== 'string' || parentId.trim().length === 0) {
       errors.push('parentId must be a non-empty string when provided');
+    }
+  }
+
+  if (targetAgent !== undefined) {
+    if (type && type !== 'question') {
+      errors.push('targetAgent is only valid when type is "question"');
+    }
+    if (typeof targetAgent !== 'string' || targetAgent.trim().length === 0) {
+      errors.push('targetAgent must be a non-empty string when provided');
+    } else if (targetAgent.trim().length > TARGET_AGENT_MAX_LEN) {
+      errors.push(`targetAgent must not exceed ${TARGET_AGENT_MAX_LEN} characters`);
     }
   }
 
@@ -152,7 +168,9 @@ async function handleCreateComment(req, res, spaceDataDir, taskId) {
       author:   author.trim(),
       text:     text.trim(),
       type,
-      ...(parentId !== undefined && { parentId: parentId.trim() }),
+      ...(parentId     !== undefined && { parentId:     parentId.trim() }),
+      ...(targetAgent  !== undefined && { targetAgent:  targetAgent.trim() }),
+      needsHuman: false,
       resolved: false,
       createdAt: now,
     };
@@ -205,13 +223,13 @@ async function handleUpdateComment(req, res, spaceDataDir, taskId, commentId) {
     return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
   }
 
-  const PATCHABLE = ['text', 'type', 'resolved'];
+  const PATCHABLE = ['text', 'type', 'resolved', 'needsHuman'];
   const provided  = PATCHABLE.filter((f) => f in body);
 
   if (provided.length === 0) {
     return sendError(
       res, 400, 'VALIDATION_ERROR',
-      `At least one of the following fields is required: ${PATCHABLE.join(', ')}`
+      `At least one of the following fields is required: ${['text', 'type', 'resolved'].join(', ')}`
     );
   }
 
@@ -234,6 +252,12 @@ async function handleUpdateComment(req, res, spaceDataDir, taskId, commentId) {
   if ('resolved' in body) {
     if (typeof body.resolved !== 'boolean') {
       errors.push('resolved must be a boolean when provided');
+    }
+  }
+
+  if ('needsHuman' in body) {
+    if (typeof body.needsHuman !== 'boolean') {
+      errors.push('needsHuman must be a boolean when provided');
     }
   }
 
@@ -260,9 +284,10 @@ async function handleUpdateComment(req, res, spaceDataDir, taskId, commentId) {
     const existingComment = comments[commentIndex];
     const updatedComment = {
       ...existingComment,
-      ...('text'     in body && { text:     body.text.trim() }),
-      ...('type'     in body && { type:     body.type }),
-      ...('resolved' in body && { resolved: body.resolved }),
+      ...('text'       in body && { text:       body.text.trim() }),
+      ...('type'       in body && { type:       body.type }),
+      ...('resolved'   in body && { resolved:   body.resolved }),
+      ...('needsHuman' in body && { needsHuman: body.needsHuman }),
       updatedAt: now,
     };
 
