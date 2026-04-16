@@ -399,9 +399,12 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
   // Part 3b: check for unresolved questions before advancing to the next stage.
   // Reads the task from disk after stage completion so agents can post questions
   // and the pipeline will pause until they are resolved.
+  // Skip the check if the run was manually resumed (bypassQuestionCheck = true).
   {
     const spacesDir = path.join(dataDir, 'spaces');
-    const task = readTaskFromSpace(spacesDir, run.spaceId, run.taskId);
+    const task = !run.bypassQuestionCheck
+      ? readTaskFromSpace(spacesDir, run.spaceId, run.taskId)
+      : null;
     if (task) {
       const unresolvedQuestions = (task.comments || []).filter(
         (c) => c.type === 'question' && !c.resolved
@@ -1269,6 +1272,8 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
     throw err;
   }
 
+  const wasBlocked = run.status === 'blocked';
+
   // Determine resume index.
   let resumeIndex;
   if (fromStage !== undefined) {
@@ -1305,6 +1310,11 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
   run.status             = 'running';
   delete run.pausedBeforeStage;
   delete run.blockedReason;
+  // When manually resuming a previously-blocked run, skip future question checks
+  // so the pipeline runs to completion regardless of any remaining open questions.
+  if (wasBlocked) {
+    run.bypassQuestionCheck = true;
+  }
   writeRun(dataDir, run);
 
   pipelineLog('run.resumed', { runId, resumeIndex, agentId: run.stages[resumeIndex] });
