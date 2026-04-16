@@ -128,3 +128,20 @@ describe('RunHistoryEntry — duration', () => {
     expect(screen.getByText('1:05')).toBeInTheDocument();
   });
 });
+
+describe('RunHistoryEntry — stageLabel prop', () => {
+  it('renders agent name alone when stageLabel is not provided', () => {
+    render(<RunHistoryEntry run={makeRun()} />);
+    expect(screen.getByText('Developer Agent')).toBeInTheDocument();
+  });
+
+  it('prepends stageLabel to agent display name when provided', () => {
+    render(<RunHistoryEntry run={makeRun()} stageLabel="Stage 1" />);
+    expect(screen.getByText('Stage 1: Developer Agent')).toBeInTheDocument();
+  });
+
+  it('handles multi-word stage labels correctly', () => {
+    render(<RunHistoryEntry run={makeRun({ agentDisplayName: 'Senior Architect' })} stageLabel="Stage 2" />);
+    expect(screen.getByText('Stage 2: Senior Architect')).toBeInTheDocument();
+  });
+});

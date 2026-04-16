@@ -71,13 +71,18 @@ function relativeTime(isoTimestamp: string): string {
 
 interface RunHistoryEntryProps {
   run: AgentRunRecord;
+  /**
+   * When set, prepends a stage label to the agent display name.
+   * Used inside PipelineRunGroup: "Stage 1: Senior Architect".
+   */
+  stageLabel?: string;
 }
 
 /**
  * Renders a single agent run record as a list row.
  * Memoized to prevent re-renders when unrelated runs update.
  */
-export const RunHistoryEntry = memo(function RunHistoryEntry({ run }: RunHistoryEntryProps) {
+export const RunHistoryEntry = memo(function RunHistoryEntry({ run, stageLabel }: RunHistoryEntryProps) {
   const status = run.status;
 
   return (
@@ -96,9 +101,9 @@ export const RunHistoryEntry = memo(function RunHistoryEntry({ run }: RunHistory
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        {/* Agent name */}
+        {/* Agent name — optionally prefixed with stage label */}
         <p className="text-sm font-medium text-text-primary leading-snug truncate">
-          {run.agentDisplayName}
+          {stageLabel ? `${stageLabel}: ${run.agentDisplayName}` : run.agentDisplayName}
         </p>
 
         {/* Task title */}

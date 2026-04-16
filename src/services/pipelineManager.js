@@ -29,6 +29,7 @@ const crypto                    = require('crypto');
 const { spawn, execSync }       = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
+const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
 
 // Resolve the claude binary path once at startup so caffeinate (and sh) can
 // find it even when the server was launched from a shell with a different PATH.
@@ -339,6 +340,12 @@ async function killStage(dataDir, runId, stageIndex, reason) {
   run.status = 'failed';
   writeRun(dataDir, run);
   pipelineLog(`stage.${reason}`, { runId, stageIndex, agentId: run.stages[stageIndex] });
+
+  // T-003 (pipeline-run-history-bridge): update the agent-runs entry to 'failed'.
+  const killDurationMs = run.stageStatuses[stageIndex].startedAt
+    ? Date.now() - new Date(run.stageStatuses[stageIndex].startedAt).getTime()
+    : 0;
+  bridgeUpdateRunFinished(dataDir, runId, stageIndex, 'failed', run.stageStatuses[stageIndex].finishedAt, killDurationMs);
 }
 
 /**
@@ -371,12 +378,18 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
     run.status   = 'failed';
     writeRun(dataDir, run);
     pipelineLog('run.failed', { runId, stageIndex, agentId, exitCode });
+
+    // T-003 (pipeline-run-history-bridge): update history entry to 'failed'.
+    bridgeUpdateRunFinished(dataDir, runId, stageIndex, 'failed', stage.finishedAt, durationMs);
     return;
   }
 
   stage.status       = 'completed';
   run.currentStage   = stageIndex + 1;
   pipelineLog('stage.done', { runId, stageIndex, agentId, exitCode, durationMs });
+
+  // T-003 (pipeline-run-history-bridge): update history entry to 'completed'.
+  bridgeUpdateRunFinished(dataDir, runId, stageIndex, 'completed', stage.finishedAt, durationMs);
 
   // Part 2: inject stages requested by the agent via the stage-N.inject signal file.
   const stagesToInject = readInjectSignal(dataDir, runId, stageIndex, agentId, run);
@@ -651,6 +664,123 @@ function pipelineLog(event, payload = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Agent-runs bridge helpers (ADR-1: pipeline-run-history-bridge)
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the name of a space from data/spaces.json.
+ * Returns spaceId as fallback when the file is missing or the space is not found.
+ *
+ * @param {string} dataDir
+ * @param {string} spaceId
+ * @returns {string}
+ */
+function readSpaceName(dataDir, spaceId) {
+  try {
+    const spaces = JSON.parse(fs.readFileSync(path.join(dataDir, 'spaces.json'), 'utf8'));
+    return spaces.find((s) => s.id === spaceId)?.name ?? spaceId;
+  } catch {
+    return spaceId;
+  }
+}
+
+/**
+ * Convert a kebab-case agent ID to a human-readable display name.
+ * Example: 'senior-architect' → 'Senior Architect'
+ *
+ * @param {string} agentId
+ * @returns {string}
+ */
+function toDisplayName(agentId) {
+  return agentId.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+/**
+ * Append a new "running" entry to agent-runs.jsonl for a pipeline stage.
+ * Prunes to AGENT_RUNS_MAX_ENTRIES if needed.
+ * Non-fatal: logs a warning and returns on any error.
+ *
+ * @param {string} dataDir
+ * @param {object} run         - Current run state.
+ * @param {number} stageIndex
+ * @param {string} taskTitle
+ * @param {string} spaceName
+ * @param {string} cliCommand
+ * @param {string} promptPath
+ */
+function bridgeWriteRunStarted(dataDir, run, stageIndex, taskTitle, spaceName, cliCommand, promptPath) {
+  try {
+    const agentId  = run.stages[stageIndex];
+    const entryId  = `${run.runId}-${stageIndex}`;
+    const entry = {
+      id:               entryId,
+      pipelineRunId:    run.runId,
+      stageIndex,
+      taskId:           run.taskId,
+      taskTitle,
+      agentId,
+      agentDisplayName: toDisplayName(agentId),
+      spaceId:          run.spaceId,
+      spaceName,
+      status:           'running',
+      startedAt:        run.stageStatuses[stageIndex].startedAt ?? new Date().toISOString(),
+      completedAt:      null,
+      durationMs:       null,
+      cliCommand,
+      promptPath,
+    };
+
+    const filePath = path.join(dataDir, 'agent-runs.jsonl');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf8');
+
+    // Prune to 500 entries.
+    const MAX_ENTRIES = 500;
+    const allLines = fs.readFileSync(filePath, 'utf8')
+      .split('\n')
+      .filter((l) => l.trim().length > 0);
+    if (allLines.length > MAX_ENTRIES) {
+      const pruned  = allLines.slice(allLines.length - MAX_ENTRIES);
+      const tmpPath = filePath + '.tmp';
+      fs.writeFileSync(tmpPath, pruned.join('\n') + '\n', 'utf8');
+      fs.renameSync(tmpPath, filePath);
+    }
+
+    pipelineLog('agent_run_entry.created', { runId: run.runId, stageIndex, entryId });
+  } catch (err) {
+    console.warn(`[pipelineManager] WARN: could not write agent-run entry for stage ${stageIndex}:`, err.message);
+  }
+}
+
+/**
+ * Update an existing agent-runs.jsonl entry for a stage that has completed, failed,
+ * or been killed. Non-fatal.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {number} stageIndex
+ * @param {string} status     - 'completed' | 'failed' | 'cancelled'
+ * @param {string} completedAt - ISO timestamp
+ * @param {number} durationMs
+ */
+function bridgeUpdateRunFinished(dataDir, runId, stageIndex, status, completedAt, durationMs) {
+  try {
+    const entryId = `${runId}-${stageIndex}`;
+    const records = readAgentRuns(dataDir);
+    const idx     = records.findIndex((r) => r.id === entryId);
+    if (idx === -1) return; // entry may not exist (e.g. PIPELINE_NO_SPAWN=1 without bridgeWrite)
+
+    records[idx] = { ...records[idx], status, completedAt, durationMs };
+    writeAgentRuns(dataDir, records);
+    pipelineLog('agent_run_entry.updated', { runId, stageIndex, entryId, status });
+  } catch (err) {
+    console.warn(`[pipelineManager] WARN: could not update agent-run entry for stage ${stageIndex}:`, err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Kanban integration — thin HTTP client calls via child http
 // ---------------------------------------------------------------------------
 
@@ -880,6 +1010,17 @@ async function spawnStage(dataDir, run, stageIndex) {
     });
   } catch (writeErr) {
     console.warn(`[pipelineManager] WARN: could not persist prompt for stage ${stageIndex}:`, writeErr.message);
+  }
+
+  // T-002 (pipeline-run-history-bridge): write a 'running' entry to agent-runs.jsonl.
+  // Runs after the prompt file is persisted so promptPath is ready.
+  // Non-fatal — see bridgeWriteRunStarted.
+  {
+    const spacesDir  = path.join(dataDir, 'spaces');
+    const task       = readTaskFromSpace(spacesDir, run.spaceId, run.taskId);
+    const taskTitle  = task?.title ?? `Task ${run.taskId}`;
+    const spaceName  = readSpaceName(dataDir, run.spaceId);
+    bridgeWriteRunStarted(dataDir, run, stageIndex, taskTitle, spaceName, '', promptFilePath);
   }
 
   const logPath  = stageLogPath(dataDir, run.runId, stageIndex);
