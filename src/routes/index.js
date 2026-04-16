@@ -53,6 +53,11 @@ const {
   handleDeleteTemplate,
 } = require('../handlers/templates');
 const {
+  handleCreateComment,
+  handleUpdateComment,
+} = require('../handlers/comments');
+
+const {
   PIPELINE_RUNS_LIST_ROUTE,
   PIPELINE_RUNS_SINGLE_ROUTE,
   PIPELINE_RUNS_LOG_ROUTE,
@@ -74,6 +79,9 @@ const {
 // ---------------------------------------------------------------------------
 // Route patterns
 // ---------------------------------------------------------------------------
+
+const COMMENTS_LIST_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments$/;
+const COMMENTS_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments\/([^/]+)$/;
 
 const SYSTEM_INFO_ROUTE   = /^\/api\/v1\/system\/info$/;
 const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
@@ -181,6 +189,52 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
       if (method === 'POST') {
         const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
         return handleAutoTaskConfirm(req, res, spaceId, spaceDataDir);
+      }
+
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Comment routes — BEFORE SPACES_TASKS_ROUTE to avoid regex swallowing.
+    // POST  /api/v1/spaces/:spaceId/tasks/:taskId/comments
+    // PATCH /api/v1/spaces/:spaceId/tasks/:taskId/comments/:commentId
+    // -------------------------------------------------------------------------
+    const commentsSingleMatch = COMMENTS_SINGLE_ROUTE.exec(urlPath);
+    if (commentsSingleMatch) {
+      const spaceId   = commentsSingleMatch[1];
+      const taskId    = commentsSingleMatch[2];
+      const commentId = commentsSingleMatch[3];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
+
+      if (method === 'PATCH') {
+        return handleUpdateComment(req, res, spaceDataDir, taskId, commentId);
+      }
+
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    const commentsListMatch = COMMENTS_LIST_ROUTE.exec(urlPath);
+    if (commentsListMatch) {
+      const spaceId = commentsListMatch[1];
+      const taskId  = commentsListMatch[2];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
+
+      if (method === 'POST') {
+        return handleCreateComment(req, res, spaceDataDir, taskId);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
