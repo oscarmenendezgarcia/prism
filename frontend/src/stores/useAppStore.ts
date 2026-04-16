@@ -816,25 +816,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     usePipelineLogStore.getState().setSelectedStageIndex(0);
     usePipelineLogStore.getState().setLogPanelOpen(true);
 
-    // Record in run history.
-    const allTasks  = [...tasks['todo'], ...tasks['in-progress'], ...tasks['done']];
-    const task      = allTasks.find((t) => t.id === taskId);
-    const displayLabel = resolvedStages.length > 1
-      ? `Pipeline: ${resolvedStages.map((s) => availableAgents.find((a) => a.id === s)?.displayName ?? s).join(' → ')}`
-      : firstDisplayName;
-
-    useRunHistoryStore.getState().recordRunStarted({
-      id:               run.runId,
-      taskId,
-      taskTitle:        task?.title ?? `Task ${taskId}`,
-      agentId:          resolvedStages.length > 1 ? 'pipeline' : resolvedStages[0],
-      agentDisplayName: displayLabel,
-      spaceId,
-      spaceName:        space?.name ?? spaceId,
-      startedAt,
-      cliCommand:       '',
-      promptPath:       '',
-    });
+    // NOTE (pipeline-run-history-bridge): recordRunStarted() removed here.
+    // The backend (pipelineManager.js) now writes per-stage entries to agent-runs.jsonl
+    // at spawnStage() time, so the frontend no longer needs to create a single
+    // 'pipeline' entry. Entries appear in Run History on the next poll.
 
     const stageLabel = resolvedStages.length > 1
       ? `${resolvedStages.length} stages`
@@ -1038,23 +1023,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       usePipelineLogStore.getState().setLogPanelOpen(true);
     }
 
-    // Register in run history so it appears in the history panel.
-    const allTasks     = [...tasks['todo'], ...tasks['in-progress'], ...tasks['done']];
-    const task         = allTasks.find((t) => t.id === taskId);
-    const space        = spaces.find((s) => s.id === spaceId);
-    const historyRunId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    useRunHistoryStore.getState().recordRunStarted({
-      id:               historyRunId,
-      taskId,
-      taskTitle:        task?.title ?? `Task ${taskId}`,
-      agentId:          'orchestrator',
-      agentDisplayName: availableAgents.find((a) => a.id === 'orchestrator')?.displayName ?? 'Orchestrator',
-      spaceId,
-      spaceName:        space?.name ?? spaceId,
-      startedAt,
-      cliCommand,
-      promptPath,
-    });
+    // NOTE (pipeline-run-history-bridge): recordRunStarted() removed here.
+    // The backend (pipelineManager.js) now writes per-stage entries to agent-runs.jsonl,
+    // so the orchestrator launch no longer needs to create a frontend history record.
 
     showToast(`Orchestrator started — ${stages.length} stages queued.`);
 
@@ -1099,12 +1070,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
             clearInterval(pollId);
             set({ _agentRunPollId: null });
-            const durationMs = Date.now() - Date.parse(startedAt);
-            useRunHistoryStore.getState().recordRunFinished(
-              historyRunId,
-              run.status === 'completed' ? 'completed' : 'failed',
-              durationMs,
-            );
+            // NOTE (pipeline-run-history-bridge): recordRunFinished() removed here.
+            // The backend writes per-stage history entries directly; no frontend-side
+            // recordRunFinished call is needed for orchestrator/pipeline runs.
             const finalPs = get().pipelineState;
             if (finalPs && finalPs.runId === runIdToWatch) {
               const terminalStatus = run.status === 'completed' ? 'completed' : 'aborted';

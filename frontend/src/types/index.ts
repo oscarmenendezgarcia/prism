@@ -469,6 +469,18 @@ export interface AgentRunRecord {
   cliCommand: string;
   promptPath: string;
   reason?: 'stale';            // only on status=failed stale runs (not persisted)
+  /**
+   * Set when this run was created by the pipeline engine.
+   * Groups sibling stage entries under the same pipeline run.
+   * Absent for legacy entries created by MCP tools or manual API calls.
+   */
+  pipelineRunId?: string;
+  /**
+   * Zero-based stage index within the pipeline.
+   * Used to order sibling entries inside a PipelineRunGroup.
+   * Absent for legacy entries.
+   */
+  stageIndex?: number;
 }
 
 /** Payload for PATCH /api/v1/agent-runs/:runId — transitions run to a terminal status. */

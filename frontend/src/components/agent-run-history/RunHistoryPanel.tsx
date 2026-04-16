@@ -14,6 +14,8 @@ import React from 'react';
 import { useRunHistoryStore, useFilteredRuns } from '@/stores/useRunHistoryStore';
 import { usePanelResize } from '@/hooks/usePanelResize';
 import { RunHistoryEntry } from './RunHistoryEntry';
+import { PipelineRunGroup } from './PipelineRunGroup';
+import { groupRuns } from './groupRuns';
 import type { RunStatus } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -170,9 +172,18 @@ export function RunHistoryPanel() {
           </div>
         ) : (
           <ul role="list" aria-label="Agent run history list">
-            {filteredRuns.map((run) => (
-              <RunHistoryEntry key={run.id} run={run} />
-            ))}
+            {groupRuns(filteredRuns).map((group) =>
+              group.type === 'pipeline' ? (
+                <PipelineRunGroup
+                  key={group.pipelineRunId}
+                  pipelineRunId={group.pipelineRunId}
+                  stages={group.stages}
+                  aggregateStatus={group.aggregateStatus}
+                />
+              ) : (
+                <RunHistoryEntry key={group.run.id} run={group.run} />
+              )
+            )}
           </ul>
         )}
       </div>
