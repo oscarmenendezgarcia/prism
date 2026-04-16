@@ -782,6 +782,21 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     promptText += 'If compilation fails, fix the errors before closing the task. Do NOT advance to QA with broken code.\n';
   }
 
+  // Inject cross-agent question guidance into every stage prompt.
+  promptText += '\n## ASKING QUESTIONS DURING THIS STAGE\n';
+  promptText += 'If you hit a genuine blocker — missing context, ambiguous requirement, or a decision that requires expertise from another agent — do NOT assume. Instead, post a question:\n';
+  promptText += '```\n';
+  promptText += `mcp__prism__kanban_add_comment({\n`;
+  promptText += `  spaceId: "${spaceId}", taskId: "${taskId}",\n`;
+  promptText += `  author: "${agentId}",\n`;
+  promptText += `  text: "<your specific question>",\n`;
+  promptText += `  type: "question",\n`;
+  promptText += `  // targetAgent: "<agent-id>"  ← add only if another pipeline agent is best placed to answer\n`;
+  promptText += `})\n`;
+  promptText += '```\n';
+  promptText += `Pipeline agents available in this run: ${stages.join(', ')}.\n`;
+  promptText += 'The pipeline will pause until the question is answered. Only use this for real blockers — not for decisions you can make yourself.\n';
+
   const estimatedTokens = Math.ceil(promptText.length / 4);
   return { promptText, estimatedTokens };
 }
