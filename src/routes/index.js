@@ -65,6 +65,8 @@ const {
   PIPELINE_RUNS_PREVIEW_ROUTE,
   PIPELINE_RUNS_RESUME_ROUTE,
   PIPELINE_RUNS_STOP_ROUTE,
+  PIPELINE_RUNS_BLOCK_ROUTE,
+  PIPELINE_RUNS_UNBLOCK_ROUTE,
   handleCreateRun,
   handleListRuns,
   handleGetRun,
@@ -74,6 +76,8 @@ const {
   handleDeleteRun,
   handleResumeRun,
   handleStopRun,
+  handleBlockRun,
+  handleUnblockRun,
 } = require('../handlers/pipeline');
 
 // ---------------------------------------------------------------------------
@@ -415,10 +419,12 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
     //   1. PREVIEW_ROUTE  (/runs/preview-prompts)          — before LIST_ROUTE
     //   2. RESUME_ROUTE   (/runs/:id/resume)               — before SINGLE_ROUTE
     //   3. STOP_ROUTE     (/runs/:id/stop)                 — before SINGLE_ROUTE
-    //   4. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
-    //   5. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
-    //   6. LIST_ROUTE     (/runs)
-    //   7. SINGLE_ROUTE   (/runs/:id)
+    //   4. BLOCK_ROUTE    (/runs/:id/block)                — before SINGLE_ROUTE
+    //   5. UNBLOCK_ROUTE  (/runs/:id/unblock)              — before SINGLE_ROUTE
+    //   6. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
+    //   7. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
+    //   8. LIST_ROUTE     (/runs)
+    //   9. SINGLE_ROUTE   (/runs/:id)
     // -------------------------------------------------------------------------
     if (PIPELINE_RUNS_PREVIEW_ROUTE.test(urlPath)) {
       if (method === 'POST') return handlePreviewPrompts(req, res, dataDir, spaceManager);
@@ -436,6 +442,20 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
     if (pipelineStopMatch) {
       const runId = pipelineStopMatch[1];
       if (method === 'POST') return handleStopRun(req, res, runId, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const pipelineBlockMatch = PIPELINE_RUNS_BLOCK_ROUTE.exec(urlPath);
+    if (pipelineBlockMatch) {
+      const runId = pipelineBlockMatch[1];
+      if (method === 'POST') return handleBlockRun(req, res, runId, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const pipelineUnblockMatch = PIPELINE_RUNS_UNBLOCK_ROUTE.exec(urlPath);
+    if (pipelineUnblockMatch) {
+      const runId = pipelineUnblockMatch[1];
+      if (method === 'POST') return handleUnblockRun(req, res, runId, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

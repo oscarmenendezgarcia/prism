@@ -353,6 +353,100 @@ export async function stopPipeline(runId) {
 }
 
 // ---------------------------------------------------------------------------
+// Comments — T-001 / T-002 (task-comments feature)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a comment on a task.
+ *
+ * @param {{ spaceId: string, taskId: string, text: string, type: 'note'|'question'|'answer', author?: string, parentId?: string }} params
+ * @returns {Promise<object|{ error: true, code: string, message: string }>}
+ */
+export async function addComment({ spaceId, taskId, text, type, author = 'user', parentId }) {
+  const body = { text, type, author };
+  if (parentId !== undefined) body.parentId = parentId;
+  return request('POST', `/spaces/${spaceId}/tasks/${taskId}/comments`, body);
+}
+
+/**
+ * Answer an existing question comment.
+ *
+ * Steps:
+ *   1. Creates a new 'answer' comment with parentId = commentId.
+ *   2. Marks the original question as resolved=true via PATCH.
+ *
+ * @param {{ spaceId: string, taskId: string, commentId: string, answer: string, author?: string }} params
+ * @returns {Promise<{ answerComment: object, resolvedQuestion: object }|{ error: true, code: string, message: string }>}
+ */
+export async function answerComment({ spaceId, taskId, commentId, answer, author = 'user' }) {
+  // 1. Create the answer comment.
+  const answerComment = await request(
+    'POST',
+    `/spaces/${spaceId}/tasks/${taskId}/comments`,
+    { text: answer, type: 'answer', author, parentId: commentId },
+  );
+  if (answerComment.error) return answerComment;
+
+  // 2. Mark the original question as resolved.
+  const resolvedQuestion = await request(
+    'PATCH',
+    `/spaces/${spaceId}/tasks/${taskId}/comments/${commentId}`,
+    { resolved: true },
+  );
+  if (resolvedQuestion.error) return resolvedQuestion;
+
+  return { answerComment, resolvedQuestion };
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline block/unblock — pipeline-blocked feature
+// ---------------------------------------------------------------------------
+
+/**
+ * Block a pipeline run (set status = 'blocked'). Called automatically
+ * when an agent adds a question comment.
+ *
+ * @param {string} runId
+ * @returns {Promise<object|{ error: true, code: string, message: string }>}
+ */
+export async function blockRun(runId) {
+  return request('POST', `/runs/${runId}/block`, {});
+}
+
+/**
+ * Unblock a pipeline run (set status = 'running'). Called automatically
+ * when all question comments on a task are resolved.
+ *
+ * @param {string} runId
+ * @returns {Promise<object|{ error: true, code: string, message: string }>}
+ */
+export async function unblockRun(runId) {
+  return request('POST', `/runs/${runId}/unblock`, {});
+}
+
+/**
+ * Find the most-recent active pipeline run for a (spaceId, taskId) pair.
+ * Returns the registry summary object, or null when no active run is found.
+ *
+ * "Active" = status is one of: pending, running, blocked, paused.
+ *
+ * @param {{ spaceId: string, taskId: string }} params
+ * @returns {Promise<object|null|{ error: true, code: string, message: string }>}
+ */
+export async function findActiveRunForTask({ spaceId, taskId }) {
+  const result = await request('GET', '/runs');
+  if (result && result.error) return result;
+
+  const ACTIVE_STATUSES = new Set(['pending', 'running', 'blocked', 'paused']);
+  const runs = Array.isArray(result) ? result : [];
+  const match = runs
+    .filter((r) => r.spaceId === spaceId && r.taskId === taskId && ACTIVE_STATUSES.has(r.status))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
+
+  return match ?? null;
+}
+
+// ---------------------------------------------------------------------------
 // Activity feed — ADR-1 (Activity Feed) §T-008
 // ---------------------------------------------------------------------------
 

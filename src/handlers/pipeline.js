@@ -33,6 +33,8 @@ const PIPELINE_RUNS_PROMPT_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/p
 const PIPELINE_RUNS_PREVIEW_ROUTE = /^\/api\/v1\/runs\/preview-prompts$/;
 const PIPELINE_RUNS_RESUME_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/resume$/;
 const PIPELINE_RUNS_STOP_ROUTE    = /^\/api\/v1\/runs\/([^/]+)\/stop$/;
+const PIPELINE_RUNS_BLOCK_ROUTE   = /^\/api\/v1\/runs\/([^/]+)\/block$/;
+const PIPELINE_RUNS_UNBLOCK_ROUTE = /^\/api\/v1\/runs\/([^/]+)\/unblock$/;
 
 // ---------------------------------------------------------------------------
 // Route handlers
@@ -250,7 +252,7 @@ async function handleStopRun(req, res, runId, dataDir) {
     return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
   }
 
-  const stoppableStatuses = new Set(['pending', 'running', 'paused']);
+  const stoppableStatuses = new Set(['pending', 'running', 'paused', 'blocked']);
   if (!stoppableStatuses.has(run.status)) {
     return sendError(
       res,
@@ -266,6 +268,48 @@ async function handleStopRun(req, res, runId, dataDir) {
   } catch (err) {
     console.error(`[pipeline] ERROR stopping run ${runId}:`, err.message);
     return sendError(res, 500, 'INTERNAL_ERROR', err.message);
+  }
+}
+
+/**
+ * POST /api/v1/runs/:runId/block
+ * Block a pipeline run — set status to 'blocked' so it will not advance to
+ * the next stage when the current stage subprocess finishes.
+ * Called automatically by kanban_add_comment when type='question'.
+ */
+async function handleBlockRun(req, res, runId, dataDir) {
+  const run = await pipelineManager.getRun(runId, dataDir);
+  if (!run) {
+    return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
+  }
+
+  try {
+    const updated = await pipelineManager.blockRun(runId, dataDir);
+    return sendJSON(res, 200, updated);
+  } catch (err) {
+    const status = err.code === 'RUN_IN_TERMINAL_STATE' ? 422 : 500;
+    return sendError(res, status, err.code ?? 'INTERNAL_ERROR', err.message);
+  }
+}
+
+/**
+ * POST /api/v1/runs/:runId/unblock
+ * Unblock a pipeline run — set status back to 'running' and resume execution
+ * if the current stage has already completed.
+ * Called automatically by kanban_answer_comment when all questions are resolved.
+ */
+async function handleUnblockRun(req, res, runId, dataDir) {
+  const run = await pipelineManager.getRun(runId, dataDir);
+  if (!run) {
+    return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
+  }
+
+  try {
+    const updated = await pipelineManager.unblockRun(runId, dataDir);
+    return sendJSON(res, 200, updated);
+  } catch (err) {
+    const status = err.code === 'RUN_NOT_BLOCKED' ? 422 : 500;
+    return sendError(res, status, err.code ?? 'INTERNAL_ERROR', err.message);
   }
 }
 
@@ -407,6 +451,8 @@ module.exports = {
   PIPELINE_RUNS_PREVIEW_ROUTE,
   PIPELINE_RUNS_RESUME_ROUTE,
   PIPELINE_RUNS_STOP_ROUTE,
+  PIPELINE_RUNS_BLOCK_ROUTE,
+  PIPELINE_RUNS_UNBLOCK_ROUTE,
   handleCreateRun,
   handleListRuns,
   handleGetRun,
@@ -416,4 +462,6 @@ module.exports = {
   handleDeleteRun,
   handleResumeRun,
   handleStopRun,
+  handleBlockRun,
+  handleUnblockRun,
 };
