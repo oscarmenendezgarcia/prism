@@ -166,6 +166,19 @@ async function handleCreateComment(req, res, spaceDataDir, taskId) {
     tasks[index] = updatedTask;
     writeColumn(spaceDataDir, column, tasks);
 
+    // Notify pipeline manager when a question is posted — may block an active run.
+    // Best-effort: errors are logged but do not prevent the HTTP response.
+    if (comment.type === 'question') {
+      try {
+        const pipelineManager = require('../services/pipelineManager');
+        // spaceDataDir is data/spaces/<spaceId>; dataDir is data/
+        const dataDir = path.resolve(spaceDataDir, '..', '..');
+        pipelineManager.blockRunByComment(dataDir, taskId, comment);
+      } catch (err) {
+        console.warn('[comments] WARN: could not notify pipelineManager (create question):', err.message);
+      }
+    }
+
     return sendJSON(res, 201, comment);
   } catch (err) {
     console.error(`POST comments for task ${taskId} error:`, err);
@@ -264,6 +277,18 @@ async function handleUpdateComment(req, res, spaceDataDir, taskId, commentId) {
 
     tasks[index] = updatedTask;
     writeColumn(spaceDataDir, column, tasks);
+
+    // Notify pipeline manager when a question is resolved — may unblock an active run.
+    // Best-effort: errors are logged but do not prevent the HTTP response.
+    if (body.resolved === true && existingComment.type === 'question') {
+      try {
+        const pipelineManager = require('../services/pipelineManager');
+        const dataDir = path.resolve(spaceDataDir, '..', '..');
+        pipelineManager.unblockRunByComment(dataDir, taskId, commentId);
+      } catch (err) {
+        console.warn('[comments] WARN: could not notify pipelineManager (resolve question):', err.message);
+      }
+    }
 
     return sendJSON(res, 200, updatedComment);
   } catch (err) {
