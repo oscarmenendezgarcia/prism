@@ -25,7 +25,7 @@ interface CommentsSectionProps {
   taskId: string;
   comments: Comment[];
   /** Called after a new comment is submitted so the parent can refresh the task. */
-  onCommentCreated: (payload: { author: string; text: string; type: Comment['type']; parentId?: string }) => Promise<void>;
+  onCommentCreated: (payload: { author: string; text: string; type: Comment['type']; parentId?: string; targetAgent?: string }) => Promise<void>;
   /** Called when a question is resolved/un-resolved. */
   onCommentUpdated: (commentId: string, patch: { resolved?: boolean; text?: string }) => Promise<void>;
   /** Whether interactions are disabled (e.g. while an agent pipeline is running). */
@@ -96,10 +96,30 @@ function CommentBubble({ comment, isAnswer, onResolveToggle, disabled }: Comment
           </span>
         )}
 
+        {/* needs-human badge */}
+        {comment.needsHuman && (
+          <span
+            data-testid="needs-human-badge"
+            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide leading-none bg-error/[0.15] text-error"
+          >
+            needs human
+          </span>
+        )}
+
         {/* Author */}
         <span className="text-[11px] font-medium text-text-secondary truncate">
           {comment.author}
         </span>
+
+        {/* targetAgent routing indicator */}
+        {comment.targetAgent && (
+          <span
+            data-testid="comment-target-agent"
+            className="text-[10px] text-text-disabled"
+          >
+            → {comment.targetAgent}
+          </span>
+        )}
 
         {/* Timestamp */}
         <span className="text-[10px] text-text-disabled ml-auto flex-shrink-0">
@@ -135,26 +155,29 @@ function CommentBubble({ comment, isAnswer, onResolveToggle, disabled }: Comment
 // ---------------------------------------------------------------------------
 
 interface AddCommentFormProps {
-  onSubmit: (type: Comment['type'], text: string) => Promise<void>;
+  onSubmit: (type: Comment['type'], text: string, targetAgent?: string) => Promise<void>;
   disabled?: boolean;
 }
 
 function AddCommentForm({ onSubmit, disabled }: AddCommentFormProps) {
-  const [type, setType]         = useState<Comment['type']>('note');
-  const [text, setText]         = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [type, setType]               = useState<Comment['type']>('note');
+  const [text, setText]               = useState('');
+  const [targetAgent, setTargetAgent] = useState('');
+  const [submitting, setSubmitting]   = useState(false);
 
   const handleSubmit = useCallback(async () => {
     const trimmed = text.trim();
     if (!trimmed || submitting || disabled) return;
     setSubmitting(true);
     try {
-      await onSubmit(type, trimmed);
+      const agent = type === 'question' ? targetAgent.trim() || undefined : undefined;
+      await onSubmit(type, trimmed, agent);
       setText('');
+      setTargetAgent('');
     } finally {
       setSubmitting(false);
     }
-  }, [type, text, onSubmit, submitting, disabled]);
+  }, [type, text, targetAgent, onSubmit, submitting, disabled]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -185,6 +208,20 @@ function AddCommentForm({ onSubmit, disabled }: AddCommentFormProps) {
           </button>
         ))}
       </div>
+
+      {/* Route-to-agent input (questions only) */}
+      {type === 'question' && (
+        <input
+          type="text"
+          value={targetAgent}
+          onChange={(e) => setTargetAgent(e.target.value)}
+          disabled={disabled || submitting}
+          placeholder="Route to agent (optional)"
+          aria-label="Route to agent"
+          data-testid="target-agent-input"
+          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
+        />
+      )}
 
       {/* Textarea */}
       <textarea
@@ -244,8 +281,8 @@ export function CommentsSection({
   const author = 'user';
 
   const handleSubmit = useCallback(
-    (type: Comment['type'], text: string) =>
-      onCommentCreated({ author, text, type }),
+    (type: Comment['type'], text: string, targetAgent?: string) =>
+      onCommentCreated({ author, text, type, targetAgent }),
     [onCommentCreated],
   );
 

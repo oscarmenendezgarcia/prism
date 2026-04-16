@@ -508,7 +508,10 @@ server.tool(
   'Add a comment to a kanban task. ' +
   "When type='question', the active pipeline run for this task is automatically " +
   "blocked so it will not advance to the next stage until the question is answered. " +
-  "Use kanban_answer_comment to provide an answer and unblock the pipeline.",
+  "Use kanban_answer_comment to provide an answer and unblock the pipeline. " +
+  "Set targetAgent to route the question to a specific pipeline agent for automatic resolution " +
+  "(e.g. 'ux-api-designer' for wireframe questions, 'senior-architect' for ADR questions). " +
+  "The agent must be in the task's pipeline; otherwise the question is escalated to a human.",
   {
     spaceId: z.string().describe('Space ID containing the task.'),
     taskId:  z.string().describe('Task ID to comment on.'),
@@ -524,10 +527,19 @@ server.tool(
       .string()
       .optional()
       .describe("Author name. Defaults to 'user'."),
+    targetAgent: z
+      .string()
+      .optional()
+      .describe(
+        "Agent ID to route this question to (e.g. 'ux-api-designer', 'senior-architect'). " +
+        "Only valid for type='question'. The agent must be in the task's pipeline. " +
+        "If set, pipelineManager spawns the target agent to answer automatically. " +
+        "If the agent cannot resolve it, the question is escalated to a human (needsHuman=true).",
+      ),
   },
-  withTiming('kanban_add_comment', async ({ spaceId, taskId, text, type, author }) => {
+  withTiming('kanban_add_comment', async ({ spaceId, taskId, text, type, author, targetAgent }) => {
     // 1. Create the comment via REST.
-    const comment = await addComment({ spaceId, taskId, text, type, author: author ?? 'user' });
+    const comment = await addComment({ spaceId, taskId, text, type, author: author ?? 'user', targetAgent });
     if (comment && comment.error) return comment;
 
     // 2. When it's a question, find the active run and block it.

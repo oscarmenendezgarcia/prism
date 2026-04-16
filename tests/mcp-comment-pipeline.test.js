@@ -572,6 +572,144 @@ async function run() {
     assert(run.status === 'running', `Expected running (deferred block), got ${run.status}`);
   });
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TC-027–TC-033: targetAgent field — cross-agent-questions (T-009)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  suite('TC-027–TC-033: targetAgent field on comments (cross-agent-questions)');
+
+  // Create a fresh task for targetAgent tests
+  const tkTargetAgent = await req('POST', `/api/v1/spaces/${spaceId}/tasks`, {
+    title: 'Task for targetAgent tests',
+    type:  'feature',
+    pipeline: ['developer-agent', 'qa-engineer-e2e'],
+  });
+  assert(tkTargetAgent.status === 201, `task create: ${tkTargetAgent.status}`);
+  const taskId_ta  = tkTargetAgent.body.id;
+  const commUrl_ta = `/api/v1/spaces/${spaceId}/tasks/${taskId_ta}/comments`;
+
+  await test('TC-027 POST question + valid targetAgent → 201, targetAgent in response', async () => {
+    const res = await req('POST', commUrl_ta, {
+      text:        'What is the primary color token?',
+      type:        'question',
+      author:      'developer-agent',
+      targetAgent: 'developer-agent',
+    });
+    assert(res.status === 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`);
+    assert(res.body.targetAgent === 'developer-agent', `Expected targetAgent='developer-agent', got '${res.body.targetAgent}'`);
+    assert(res.body.needsHuman === false, `Expected needsHuman=false, got ${res.body.needsHuman}`);
+    assert(res.body.type === 'question', 'Expected type=question');
+  });
+
+  await test('TC-028 POST note + targetAgent → 400 VALIDATION_ERROR', async () => {
+    const res = await req('POST', commUrl_ta, {
+      text:        'A note with targetAgent (invalid)',
+      type:        'note',
+      author:      'developer-agent',
+      targetAgent: 'qa-engineer-e2e',
+    });
+    assert(res.status === 400, `Expected 400, got ${res.status}`);
+    assert(res.body.error?.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${JSON.stringify(res.body.error)}`);
+    assert(res.body.error.message.includes('targetAgent'), 'Error message should mention targetAgent');
+  });
+
+  await test('TC-029 POST answer + targetAgent → 400 VALIDATION_ERROR', async () => {
+    const res = await req('POST', commUrl_ta, {
+      text:        'An answer with targetAgent (invalid)',
+      type:        'answer',
+      author:      'qa-engineer-e2e',
+      targetAgent: 'developer-agent',
+    });
+    assert(res.status === 400, `Expected 400, got ${res.status}`);
+    assert(res.body.error?.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${JSON.stringify(res.body.error)}`);
+  });
+
+  await test('TC-030 POST question + empty targetAgent → 400 VALIDATION_ERROR', async () => {
+    const res = await req('POST', commUrl_ta, {
+      text:        'Question with empty targetAgent',
+      type:        'question',
+      author:      'developer-agent',
+      targetAgent: '',
+    });
+    assert(res.status === 400, `Expected 400, got ${res.status}`);
+    assert(res.body.error?.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${JSON.stringify(res.body.error)}`);
+  });
+
+  await test('TC-031 POST question without targetAgent → 201, backward compat, needsHuman=false', async () => {
+    const res = await req('POST', commUrl_ta, {
+      text:   'A question without targetAgent',
+      type:   'question',
+      author: 'developer-agent',
+    });
+    assert(res.status === 201, `Expected 201, got ${res.status}`);
+    assert(res.body.targetAgent === undefined, 'targetAgent should be absent');
+    assert(res.body.needsHuman === false, `Expected needsHuman=false, got ${res.body.needsHuman}`);
+  });
+
+  await test('TC-032 PATCH needsHuman=true → 200, field persisted', async () => {
+    // Create a question comment first
+    const cRes = await req('POST', commUrl_ta, {
+      text:        'A question to escalate to human',
+      type:        'question',
+      author:      'developer-agent',
+      targetAgent: 'qa-engineer-e2e',
+    });
+    assert(cRes.status === 201, `Create comment: ${cRes.status}`);
+    const needsHumanCommentId = cRes.body.id;
+
+    const res = await req('PATCH', `${commUrl_ta}/${needsHumanCommentId}`, { needsHuman: true });
+    assert(res.status === 200, `Expected 200, got ${res.status}: ${JSON.stringify(res.body)}`);
+    assert(res.body.needsHuman === true, `Expected needsHuman=true, got ${res.body.needsHuman}`);
+    assert(typeof res.body.updatedAt === 'string', 'updatedAt should be set');
+  });
+
+  await test('TC-033 end-to-end: question + targetAgent not in run.stages → comment.targetAgent persists', async () => {
+    // Create a task and seed a run where targetAgent (ux-api-designer) is NOT in stages
+    const taskRes2 = await req('POST', `/api/v1/spaces/${spaceId}/tasks`, {
+      title: 'E2E targetAgent validation task',
+      type:  'feature',
+      pipeline: ['developer-agent'],
+    });
+    assert(taskRes2.status === 201, `task create: ${taskRes2.status}`);
+    const taskId_e2e  = taskRes2.body.id;
+    const commUrl_e2e = `/api/v1/spaces/${spaceId}/tasks/${taskId_e2e}/comments`;
+
+    // Seed a run with only developer-agent in stages
+    const runId_e2e = crypto.randomUUID();
+    seedRun(dataDir, runId_e2e, {
+      spaceId,
+      taskId:       taskId_e2e,
+      status:       'running',
+      stage0Status: 'pending',
+      stages:       ['developer-agent'],
+      stageStatuses: [{
+        index: 0, agentId: 'developer-agent', status: 'pending',
+        exitCode: null, startedAt: null, finishedAt: null,
+      }],
+      currentStage: 0,
+    });
+
+    // Post question with targetAgent that's NOT in the run's stages
+    const questionRes = await req('POST', commUrl_e2e, {
+      text:        'What font does the wireframe use?',
+      type:        'question',
+      author:      'developer-agent',
+      targetAgent: 'ux-api-designer',  // NOT in ['developer-agent']
+    });
+    assert(questionRes.status === 201, `question create: ${questionRes.status}`);
+    assert(questionRes.body.targetAgent === 'ux-api-designer', 'targetAgent should be in response');
+    assert(questionRes.body.needsHuman === false, 'needsHuman starts as false');
+
+    // Allow pipelineManager time to process block + resolver validation
+    await new Promise((r) => setTimeout(r, 600));
+
+    // Verify run is now blocked
+    const runState = await req('GET', `/api/v1/runs/${runId_e2e}`);
+    assert(runState.status === 200, `GET run: ${runState.status}`);
+    assert(runState.body.status === 'blocked', `Expected blocked, got ${runState.body.status}`);
+    assert(runState.body.blockedReason?.commentId === questionRes.body.id, 'blockedReason should point to the question');
+  });
+
   // ─────────────────────────────────────────────────────────────────────────
   // Teardown
   // ─────────────────────────────────────────────────────────────────────────

@@ -47,6 +47,18 @@ const ANSWER: Comment = {
   createdAt: '2026-04-16T11:30:00.000Z',
 };
 
+const QUESTION_WITH_TARGET: Comment = {
+  ...QUESTION,
+  id: 'c-q-target',
+  targetAgent: 'senior-architect',
+};
+
+const QUESTION_NEEDS_HUMAN: Comment = {
+  ...QUESTION,
+  id: 'c-q-human',
+  needsHuman: true,
+};
+
 // ---------------------------------------------------------------------------
 // Default props factory
 // ---------------------------------------------------------------------------
@@ -253,6 +265,132 @@ describe('CommentsSection — add-comment form', () => {
     render(<CommentsSection {...makeProps()} />);
     const submitBtn = screen.getByRole('button', { name: /post comment/i });
     expect(submitBtn).toBeDisabled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// targetAgent in form (feature 1)
+// ---------------------------------------------------------------------------
+
+describe('CommentsSection — targetAgent input in form', () => {
+  it('does not show route-to-agent input when type is "note"', () => {
+    render(<CommentsSection {...makeProps()} />);
+    expect(screen.queryByTestId('target-agent-input')).toBeNull();
+  });
+
+  it('shows route-to-agent input when type is "question"', () => {
+    render(<CommentsSection {...makeProps()} />);
+    fireEvent.click(screen.getByRole('radio', { name: /question/i }));
+    expect(screen.getByTestId('target-agent-input')).toBeInTheDocument();
+  });
+
+  it('hides route-to-agent input again when switching back to "note"', () => {
+    render(<CommentsSection {...makeProps()} />);
+    fireEvent.click(screen.getByRole('radio', { name: /question/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /note/i }));
+    expect(screen.queryByTestId('target-agent-input')).toBeNull();
+  });
+
+  it('passes targetAgent in the onCommentCreated payload when filled in', async () => {
+    const onCommentCreated = vi.fn().mockResolvedValue(undefined);
+    render(<CommentsSection {...makeProps([], { onCommentCreated })} />);
+
+    fireEvent.click(screen.getByRole('radio', { name: /question/i }));
+    fireEvent.change(screen.getByTestId('target-agent-input'), {
+      target: { value: 'senior-architect' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /comment text/i }), {
+      target: { value: 'Is the SLA defined?' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /post comment/i }));
+
+    await waitFor(() => {
+      expect(onCommentCreated).toHaveBeenCalledWith(
+        expect.objectContaining({ targetAgent: 'senior-architect', type: 'question' }),
+      );
+    });
+  });
+
+  it('omits targetAgent from payload when input is left blank', async () => {
+    const onCommentCreated = vi.fn().mockResolvedValue(undefined);
+    render(<CommentsSection {...makeProps([], { onCommentCreated })} />);
+
+    fireEvent.click(screen.getByRole('radio', { name: /question/i }));
+    fireEvent.change(screen.getByRole('textbox', { name: /comment text/i }), {
+      target: { value: 'What is the SLA?' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /post comment/i }));
+
+    await waitFor(() => {
+      expect(onCommentCreated).toHaveBeenCalledWith(
+        expect.not.objectContaining({ targetAgent: expect.anything() }),
+      );
+    });
+  });
+
+  it('clears the route-to-agent input after successful submit', async () => {
+    const onCommentCreated = vi.fn().mockResolvedValue(undefined);
+    render(<CommentsSection {...makeProps([], { onCommentCreated })} />);
+
+    fireEvent.click(screen.getByRole('radio', { name: /question/i }));
+    const agentInput = screen.getByTestId('target-agent-input');
+    fireEvent.change(agentInput, { target: { value: 'qa-engineer-e2e' } });
+    fireEvent.change(screen.getByRole('textbox', { name: /comment text/i }), {
+      target: { value: 'Is coverage >90%?' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /post comment/i }));
+
+    await waitFor(() => {
+      expect((agentInput as HTMLInputElement).value).toBe('');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NEEDS_HUMAN badge (feature 2)
+// ---------------------------------------------------------------------------
+
+describe('CommentsSection — NEEDS_HUMAN badge', () => {
+  it('does not show needs-human badge when needsHuman is false/undefined', () => {
+    render(<CommentsSection {...makeProps([QUESTION])} />);
+    expect(screen.queryByTestId('needs-human-badge')).toBeNull();
+  });
+
+  it('shows needs-human badge when needsHuman===true', () => {
+    render(<CommentsSection {...makeProps([QUESTION_NEEDS_HUMAN])} />);
+    const badge = screen.getByTestId('needs-human-badge');
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveTextContent('needs human');
+  });
+
+  it('needs-human badge is visible alongside the question type badge', () => {
+    render(<CommentsSection {...makeProps([QUESTION_NEEDS_HUMAN])} />);
+    expect(screen.getByTestId('comment-type-badge')).toBeInTheDocument();
+    expect(screen.getByTestId('needs-human-badge')).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// targetAgent display in bubble (feature 3)
+// ---------------------------------------------------------------------------
+
+describe('CommentsSection — targetAgent display in bubble', () => {
+  it('does not render target-agent indicator when targetAgent is absent', () => {
+    render(<CommentsSection {...makeProps([QUESTION])} />);
+    expect(screen.queryByTestId('comment-target-agent')).toBeNull();
+  });
+
+  it('renders "→ <targetAgent>" when targetAgent is set', () => {
+    render(<CommentsSection {...makeProps([QUESTION_WITH_TARGET])} />);
+    const indicator = screen.getByTestId('comment-target-agent');
+    expect(indicator).toBeInTheDocument();
+    expect(indicator).toHaveTextContent('→ senior-architect');
+  });
+
+  it('target-agent indicator appears in the header row', () => {
+    render(<CommentsSection {...makeProps([QUESTION_WITH_TARGET])} />);
+    const bubble = screen.getByTestId('comment-bubble');
+    expect(bubble.querySelector('[data-testid="comment-target-agent"]')).not.toBeNull();
   });
 });
 

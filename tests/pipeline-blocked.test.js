@@ -980,9 +980,426 @@ async function runCommentDrivenTests() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Cross-agent resolver tests (T-008 cross-agent-questions)
+// ---------------------------------------------------------------------------
+
+async function runCrossAgentResolverTests() {
+  suite('Cross-agent resolver: PIPELINE_NO_SPAWN=1 unit tests');
+
+  // Setup isolated server with PIPELINE_NO_SPAWN=1
+  const tmpDir2 = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'prism-resolver-'));
+  const agentsDir2 = require('path').join(tmpDir2, 'agents');
+  require('fs').mkdirSync(agentsDir2);
+  for (const id of ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e']) {
+    require('fs').writeFileSync(require('path').join(agentsDir2, `${id}.md`), `# ${id}\nStub.\n`, 'utf8');
+  }
+
+  const prevEnvs2 = {
+    PIPELINE_AGENTS_DIR:      process.env.PIPELINE_AGENTS_DIR,
+    PIPELINE_MAX_CONCURRENT:  process.env.PIPELINE_MAX_CONCURRENT,
+    KANBAN_API_URL:            process.env.KANBAN_API_URL,
+    PIPELINE_NO_SPAWN:         process.env.PIPELINE_NO_SPAWN,
+    PIPELINE_RESOLVER_TIMEOUT_MS: process.env.PIPELINE_RESOLVER_TIMEOUT_MS,
+  };
+  process.env.PIPELINE_AGENTS_DIR     = agentsDir2;
+  process.env.PIPELINE_MAX_CONCURRENT = '20';
+  process.env.KANBAN_API_URL          = 'http://localhost:19998/api/v1';
+  process.env.PIPELINE_NO_SPAWN       = '1';
+
+  // Clear module cache so env vars are picked up fresh
+  for (const key of Object.keys(require.cache)) {
+    if (key.includes('pipelineManager') || key.includes('agentResolver')) {
+      delete require.cache[key];
+    }
+  }
+
+  const { startServer } = require('../server');
+  let rsvServer, rsvPort;
+  await new Promise((resolve, reject) => {
+    rsvServer = startServer({ port: 0, dataDir: tmpDir2, silent: true });
+    rsvServer.once('listening', () => { rsvPort = rsvServer.address().port; resolve(); });
+    rsvServer.once('error', reject);
+  });
+
+  const req = makeRequest(rsvPort);
+
+  /** Poll for run status */
+  async function waitStatus(runId, predicate, maxMs = 5000) {
+    const deadline = Date.now() + maxMs;
+    while (Date.now() < deadline) {
+      const r = await req('GET', `/api/v1/runs/${runId}`);
+      if (r.status === 200 && predicate(r.body)) return r.body;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return null;
+  }
+
+  /** Create space + task with pipeline override */
+  async function mkSpaceTaskR(suffix = '', stages = ['senior-architect', 'ux-api-designer', 'developer-agent']) {
+    const sp = await req('POST', '/api/v1/spaces', { name: `rsv-space-${suffix || Date.now()}` });
+    assert(sp.status === 201, `Space create: ${sp.status}`);
+    const tk = await req('POST', `/api/v1/spaces/${sp.body.id}/tasks`, {
+      title: 'Test Resolver Task', type: 'feature', pipeline: stages,
+    });
+    assert(tk.status === 201, `Task create: ${tk.status}`);
+    return { spaceId: sp.body.id, taskId: tk.body.id };
+  }
+
+  /** Read run.json directly from disk */
+  function readRunJson(runId) {
+    const runPath = require('path').join(tmpDir2, 'runs', runId, 'run.json');
+    return JSON.parse(require('fs').readFileSync(runPath, 'utf8'));
+  }
+
+  /** Read comment from task on disk */
+  function readTaskComments(spaceId, taskId) {
+    const spaceDir = require('path').join(tmpDir2, 'spaces', spaceId);
+    for (const col of ['todo', 'in-progress', 'done']) {
+      const f = require('path').join(spaceDir, `${col}.json`);
+      if (!require('fs').existsSync(f)) continue;
+      const tasks = JSON.parse(require('fs').readFileSync(f, 'utf8'));
+      const t = tasks.find((x) => x.id === taskId);
+      if (t) return t.comments || [];
+    }
+    return [];
+  }
+
+  // ── Helper: seed a run in 'running' state between stages (stage 0 done, stage 1 pending) ─────
+  function seedRunBetweenStages(spaceId, taskId, stages, opts = {}) {
+    const runId = require('crypto').randomUUID();
+    const now = new Date().toISOString();
+    const runsDir2 = require('path').join(tmpDir2, 'runs');
+    const runDirPath = require('path').join(runsDir2, runId);
+    require('fs').mkdirSync(runDirPath, { recursive: true });
+
+    const stageStatuses = stages.map((agentId, i) => ({
+      index: i, agentId,
+      status:     i === 0 ? 'completed' : 'pending',
+      exitCode:   i === 0 ? 0 : null,
+      startedAt:  i === 0 ? now : null,
+      finishedAt: i === 0 ? now : null,
+      pid: null,
+    }));
+
+    const run = {
+      runId,
+      spaceId,
+      taskId,
+      stages,
+      currentStage: 1,    // between stage 0 (done) and stage 1 (pending)
+      status: opts.status || 'running',
+      stageStatuses,
+      createdAt: now,
+      updatedAt: now,
+      resolverActive: opts.resolverActive || false,
+      ...opts,
+    };
+
+    require('fs').writeFileSync(
+      require('path').join(runDirPath, 'run.json'),
+      JSON.stringify(run, null, 2), 'utf8',
+    );
+
+    // Registry
+    const registryPath = require('path').join(runsDir2, 'runs.json');
+    let registry = [];
+    if (require('fs').existsSync(registryPath)) {
+      try { registry = JSON.parse(require('fs').readFileSync(registryPath, 'utf8')); } catch {}
+    }
+    const idx = registry.findIndex((r) => r.runId === runId);
+    const summary = { runId, spaceId, taskId, status: run.status, createdAt: run.createdAt };
+    if (idx === -1) registry.push(summary);
+    else registry[idx] = summary;
+    require('fs').writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
+
+    return runId;
+  }
+
+  // ── Test R-1: valid targetAgent → resolver spawned (resolverActive=true) ───
+  await test('R-1: valid targetAgent → resolver spawned, resolverActive=true in run.json', async () => {
+    const stages = ['senior-architect', 'ux-api-designer', 'developer-agent'];
+    const { spaceId, taskId } = await mkSpaceTaskR('r1', stages);
+
+    // Seed a run between stages (stage 0 done, stage 1 pending)
+    const runId = seedRunBetweenStages(spaceId, taskId, stages);
+
+    // Post a question with a valid targetAgent while run is between stages
+    const commentRes = await req('POST', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`, {
+      author: 'senior-architect',
+      text: 'What is the primary color?',
+      type: 'question',
+      targetAgent: 'ux-api-designer',  // IS in stages[]
+    });
+    assert(commentRes.status === 201, `postQuestion: ${commentRes.status}`);
+
+    // Allow blockRunByComment → attemptCrossAgentResolution to run
+    await new Promise((r) => setTimeout(r, 500));
+
+    const run = readRunJson(runId);
+    // resolverActive may be true (if polling hasn't fired yet) or cleared (if polling fired immediately)
+    // Either way, blockedReason.targetAgent should be set
+    assert(run.status === 'blocked' || run.resolverActive === true || run.blockedReason?.targetAgent === 'ux-api-designer',
+      `Expected blocked with resolver: status=${run.status}, resolverActive=${run.resolverActive}, blockedReason=${JSON.stringify(run.blockedReason)}`);
+    assert(run.blockedReason?.targetAgent === 'ux-api-designer',
+      `Expected targetAgent='ux-api-designer' in blockedReason, got '${run.blockedReason?.targetAgent}'`);
+  });
+
+  // ── Test R-2: invalid targetAgent NOT in stages[] → needsHuman=true ─────────
+  await test('R-2: targetAgent not in stages[] → needsHuman=true on comment, no resolver spawned', async () => {
+    const stages = ['senior-architect', 'developer-agent'];
+    const { spaceId, taskId } = await mkSpaceTaskR('r2', stages);
+
+    // Seed a run between stages
+    const runId = seedRunBetweenStages(spaceId, taskId, stages);
+
+    // Post question with targetAgent that's NOT in stages[]
+    const commentRes = await req('POST', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`, {
+      author: 'developer-agent',
+      text: 'Which wireframe layout to use?',
+      type: 'question',
+      targetAgent: 'ux-api-designer',  // NOT in stages (only senior-architect, developer-agent)
+    });
+    assert(commentRes.status === 201, `postQuestion: ${commentRes.status}`);
+    const commentId = commentRes.body.id;
+
+    // Allow processing
+    await new Promise((r) => setTimeout(r, 400));
+
+    // resolverActive should NOT be set (no resolver spawned for invalid agent)
+    const run = readRunJson(runId);
+    assert(run.resolverActive !== true, `resolver should NOT be active for invalid targetAgent, got resolverActive=${run.resolverActive}`);
+
+    // Comment should have needsHuman=true
+    const comments = readTaskComments(spaceId, taskId);
+    const theComment = comments.find((c) => c.id === commentId);
+    assert(theComment, 'Comment should exist');
+    assert(theComment.needsHuman === true, `Expected needsHuman=true, got ${theComment.needsHuman}`);
+  });
+
+  // ── Test R-3: question without targetAgent → normal block, no resolver ────────
+  await test('R-3: question without targetAgent → normal block, no resolverActive', async () => {
+    const stages = ['senior-architect', 'developer-agent'];
+    const { spaceId, taskId } = await mkSpaceTaskR('r3', stages);
+
+    // Seed a run between stages
+    const runId = seedRunBetweenStages(spaceId, taskId, stages);
+
+    // Post question WITHOUT targetAgent
+    const commentRes = await req('POST', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`, {
+      author: 'developer-agent',
+      text: 'What is the SLA?',
+      type: 'question',
+      // no targetAgent
+    });
+    assert(commentRes.status === 201, `postQuestion: ${commentRes.status}`);
+    assert(!commentRes.body.targetAgent, 'targetAgent should not be present');
+
+    await new Promise((r) => setTimeout(r, 400));
+
+    const run = readRunJson(runId);
+    assert(run.resolverActive !== true, `resolverActive should be absent/false for question without targetAgent`);
+  });
+
+  // ── Test R-4: PIPELINE_NO_SPAWN → resolver exit 0 → resolverActive cleared ──
+  await test('R-4: PIPELINE_NO_SPAWN=1 resolver exit 0 → resolverActive cleared after polling', async () => {
+    const stages = ['senior-architect', 'developer-agent'];
+    const { spaceId, taskId } = await mkSpaceTaskR('r4', stages);
+
+    // Seed a run between stages
+    const runId = seedRunBetweenStages(spaceId, taskId, stages);
+
+    // Post question with valid targetAgent
+    const commentRes = await req('POST', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`, {
+      author: 'developer-agent',
+      text: 'What is the auth pattern?',
+      type: 'question',
+      targetAgent: 'senior-architect', // IS in stages[]
+    });
+    assert(commentRes.status === 201, `postQuestion: ${commentRes.status}`);
+
+    // With NO_SPAWN=1, resolver done sentinel is written immediately with exit code 0.
+    // Wait for 2 polling cycles (2s each) + margin to pick it up and clear resolverActive.
+    await new Promise((r) => setTimeout(r, 5500));
+
+    const run = readRunJson(runId);
+    // resolverActive should be cleared after successful exit 0
+    assert(run.resolverActive !== true,
+      `resolverActive should be cleared after exit 0, got ${run.resolverActive}`);
+  });
+
+  // ── Test R-5: anti-recursion guard ────────────────────────────────────────────
+  await test('R-5: anti-recursion guard — second question with targetAgent while resolver active does not spawn second resolver', async () => {
+    const stages = ['senior-architect', 'developer-agent'];
+    const { spaceId, taskId } = await mkSpaceTaskR('r5', stages);
+
+    const runRes = await req('POST', '/api/v1/runs', { spaceId, taskId, stages });
+    assert(runRes.status === 201, `POST /runs: ${runRes.status}`);
+    const { runId } = runRes.body;
+
+    await waitStatus(runId, (r) => r.currentStage >= 1 || r.status === 'blocked', 5000);
+
+    // Manually set resolverActive=true in run.json to simulate an in-flight resolver
+    const runPath = require('path').join(tmpDir2, 'runs', runId, 'run.json');
+    let runState = JSON.parse(require('fs').readFileSync(runPath, 'utf8'));
+    // Ensure the run is in blocked state first
+    if (runState.status !== 'blocked') {
+      // Block it manually
+      await req('POST', `/api/v1/runs/${runId}/block`, {});
+      runState = JSON.parse(require('fs').readFileSync(runPath, 'utf8'));
+    }
+    runState.resolverActive = true;
+    require('fs').writeFileSync(runPath, JSON.stringify(runState, null, 2), 'utf8');
+
+    // Post a second question with targetAgent — should be blocked by anti-recursion guard
+    const q2Res = await req('POST', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`, {
+      author: 'senior-architect',
+      text: 'Second recursive question?',
+      type: 'question',
+      targetAgent: 'developer-agent',
+    });
+    assert(q2Res.status === 201, `second postQuestion: ${q2Res.status}`);
+
+    await new Promise((r) => setTimeout(r, 400));
+
+    // resolverActive should still be true (not spawned a second resolver)
+    const run = readRunJson(runId);
+    assert(run.resolverActive === true, 'resolverActive should remain true (anti-recursion prevented second spawn)');
+    // The comment should NOT have needsHuman set by the anti-recursion path
+    const comments = readTaskComments(spaceId, taskId);
+    const q2 = comments.find((c) => c.id === q2Res.body.id);
+    assert(q2, 'second question comment should be persisted');
+    // needsHuman stays false because the guard path just returns without marking it
+    assert(q2.needsHuman === false, `Expected needsHuman=false (anti-recursion returns early), got ${q2.needsHuman}`);
+  });
+
+  // ── Teardown ──────────────────────────────────────────────────────────────────
+  try { const pm = require('../src/services/pipelineManager'); await pm.abortAll(tmpDir2); } catch {}
+  if (typeof rsvServer.closeAllConnections === 'function') rsvServer.closeAllConnections();
+  await new Promise((resolve) => {
+    const t = setTimeout(resolve, 300);
+    rsvServer.close(() => { clearTimeout(t); resolve(); });
+  });
+  require('fs').rmSync(tmpDir2, { recursive: true, force: true });
+
+  // Restore env
+  for (const [k, v] of Object.entries(prevEnvs2)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+}
+
+async function runT010RestartTests() {
+  suite('Unit: T-010 resolver restart recovery');
+
+  const fs   = require('fs');
+  const path = require('path');
+  const os   = require('os');
+  const crypto = require('crypto');
+
+  // T-010-B: server restart with dead resolver PID → needsHuman=true
+  await test('T-010-B: restart with dead resolver PID marks comment needsHuman', () => {
+    const tmpPath  = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-t010-'));
+    const runsDir  = path.join(tmpPath, 'runs');
+    const spaceDir = path.join(tmpPath, 'spaces', 'sp-t010');
+    const runId    = crypto.randomUUID();
+    const taskId   = 'task-t010-b';
+    const commentId = 'c-t010-b';
+
+    fs.mkdirSync(path.join(runsDir, runId), { recursive: true });
+    fs.mkdirSync(spaceDir, { recursive: true });
+
+    const comment = {
+      id: commentId, type: 'question', author: 'developer-agent',
+      text: 'What color?', targetAgent: 'ux-api-designer',
+      resolved: false, needsHuman: false, createdAt: new Date().toISOString(),
+    };
+    const task = { id: taskId, title: 'T010', comments: [comment] };
+    fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([task]), 'utf8');
+
+    const run = {
+      runId, taskId, spaceId: 'sp-t010', status: 'blocked',
+      stages: ['developer-agent', 'ux-api-designer'], currentStage: 0,
+      resolverActive: true,
+      blockedReason: {
+        commentId, taskId, author: 'developer-agent', text: 'What color?',
+        targetAgent: 'ux-api-designer', resolverPid: 99999999, // dead PID
+        resolverStartedAt: new Date(Date.now() - 10000).toISOString(),
+        blockedAt: new Date().toISOString(),
+      },
+      stageStatuses: [{ index: 0, agentId: 'developer-agent', status: 'running', exitCode: null, startedAt: new Date().toISOString(), finishedAt: null, pid: 99999998 }],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(runsDir, runId, 'run.json'), JSON.stringify(run), 'utf8');
+    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId, spaceId: 'sp-t010', status: 'blocked', createdAt: run.createdAt },
+    ]), 'utf8');
+
+    // Simulate server restart by clearing require cache and re-init
+    for (const key of Object.keys(require.cache)) {
+      if (key.includes('pipelineManager')) delete require.cache[key];
+    }
+    const pm = require('../src/services/pipelineManager');
+    pm.init(tmpPath);
+
+    // Give init() a tick to process
+    const persisted = JSON.parse(fs.readFileSync(path.join(runsDir, runId, 'run.json'), 'utf8'));
+    assert(persisted.resolverActive === false, `resolverActive should be false, got ${persisted.resolverActive}`);
+
+    const tasks = JSON.parse(fs.readFileSync(path.join(spaceDir, 'in-progress.json'), 'utf8'));
+    const c = tasks[0].comments.find((x) => x.id === commentId);
+    assert(c, 'comment should still exist');
+    assert(c.needsHuman === true, `needsHuman should be true after dead resolver recovery, got ${c.needsHuman}`);
+
+    fs.rmSync(tmpPath, { recursive: true, force: true });
+  });
+
+  // T-010-C: restart with blocked run but resolverActive=false → no changes
+  await test('T-010-C: restart with blocked run without resolverActive leaves run unchanged', () => {
+    const tmpPath  = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-t010c-'));
+    const runsDir  = path.join(tmpPath, 'runs');
+    const runId    = crypto.randomUUID();
+    const taskId   = 'task-t010-c';
+    const commentId = 'c-t010-c';
+
+    fs.mkdirSync(path.join(runsDir, runId), { recursive: true });
+
+    const run = {
+      runId, taskId, spaceId: 'sp-t010c', status: 'blocked',
+      stages: ['developer-agent'], currentStage: 0,
+      resolverActive: false,
+      blockedReason: {
+        commentId, taskId, author: 'developer-agent', text: 'Who approves?',
+        blockedAt: new Date().toISOString(),
+      },
+      stageStatuses: [],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(runsDir, runId, 'run.json'), JSON.stringify(run), 'utf8');
+    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId, spaceId: 'sp-t010c', status: 'blocked', createdAt: run.createdAt },
+    ]), 'utf8');
+
+    for (const key of Object.keys(require.cache)) {
+      if (key.includes('pipelineManager')) delete require.cache[key];
+    }
+    const pm = require('../src/services/pipelineManager');
+    pm.init(tmpPath);
+
+    const persisted = JSON.parse(fs.readFileSync(path.join(runsDir, runId, 'run.json'), 'utf8'));
+    assert(persisted.status === 'blocked', `run should still be blocked, got ${persisted.status}`);
+    assert(persisted.resolverActive === false, `resolverActive should remain false`);
+    assert(persisted.blockedReason?.commentId === commentId, 'blockedReason should be unchanged');
+
+    fs.rmSync(tmpPath, { recursive: true, force: true });
+  });
+}
+
 run()
   .then(() => runUnitTests())
   .then(() => runCommentDrivenTests())
+  .then(() => runCrossAgentResolverTests())
+  .then(() => runT010RestartTests())
   .then(() => {
     console.log(`\n${passed + failed} tests total: ${passed} passed, ${failed} failed`);
     if (failures.length > 0) {

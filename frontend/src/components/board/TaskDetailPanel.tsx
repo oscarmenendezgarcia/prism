@@ -531,7 +531,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   // Comment handlers — delegate to the store so the board badge refreshes.
   const handleCommentCreated = useCallback(
-    async (payload: { author: string; text: string; type: Comment['type']; parentId?: string }) => {
+    async (payload: { author: string; text: string; type: Comment['type']; parentId?: string; targetAgent?: string }) => {
       if (!detailTask) return;
       await addComment(detailTask.id, payload);
     },
