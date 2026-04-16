@@ -771,6 +771,27 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     // git not available or directory doesn't exist - skip
   }
 
+  // Kanban instructions — always included so agents can move tasks and post questions.
+  promptText += '\n## KANBAN INSTRUCTIONS\n';
+  promptText += `Prism Kanban server is running at http://localhost:3000\n`;
+  promptText += `Space ID: ${spaceId}\n`;
+  promptText += `Task ID: ${taskId}  ← this task already exists. Do NOT create a new kanban task.\n`;
+  promptText += `Move THIS task through the board: todo → in-progress (immediately) → done (when finished).\n`;
+  promptText += 'Use the MCP tools (mcp__prism__kanban_*) to manage the board:\n';
+  promptText += '  - kanban_list_spaces: list all spaces\n';
+  promptText += '  - kanban_list_tasks: list tasks in a column\n';
+  promptText += '  - kanban_get_task: get a single task by ID\n';
+  promptText += '  - kanban_move_task: move a task between columns (todo → in-progress → done)\n';
+  promptText += '  - kanban_update_task: update task fields or attach artifacts\n';
+  promptText += '  - kanban_create_task: create new tasks (only if genuinely needed for a sub-task)\n';
+  promptText += '  - kanban_add_comment: post a note or question on the task\n';
+  promptText += '  - kanban_answer_comment: answer an existing question comment\n';
+  promptText += '  - kanban_get_run_status: check pipeline run status\n';
+  promptText += '\n';
+  promptText += 'If you hit a genuine blocker (missing context, ambiguous requirement, decision requiring another agent\'s expertise) do NOT assume — post a question:\n';
+  promptText += `  kanban_add_comment({ spaceId: "${spaceId}", taskId: "${taskId}", author: "<your-agent-id>", text: "<question>", type: "question", targetAgent: "<agent-id>" /* optional */ })\n`;
+  promptText += 'The pipeline will pause until the question is answered. Only use this for real blockers.\n';
+
   // For the developer stage: require compilation gate before closing.
   // Prevents QA from launching against code that does not compile.
   if (agentId === 'developer-agent') {
