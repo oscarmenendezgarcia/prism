@@ -1005,18 +1005,37 @@ function init(dataDir) {
         activeProcesses.set(run.runId, { interval, stageIndex: runningStageIdx });
         pipelineLog('run.reattached', { runId: run.runId, runningStageIdx, pid });
       } else {
-        // PID is dead or stale — mark interrupted.
-        run.status    = 'interrupted';
-        run.updatedAt = new Date().toISOString();
-        for (const s of run.stageStatuses) {
-          if (s.status === 'running') {
-            s.status     = 'interrupted';
-            s.finishedAt = run.updatedAt;
+        // PID is dead or stale — but check if the done-sentinel was written
+        // before we mark as interrupted. The stage may have completed cleanly
+        // while the server was down (e.g. code-reviewer writing its sentinel
+        // after the server restarted and lost the polling interval).
+        const doneFile = stageDonePath(dataDir, run.runId, runningStageIdx);
+        if (fs.existsSync(doneFile)) {
+          let exitCode = 1;
+          try {
+            const raw = fs.readFileSync(doneFile, 'utf8').trim();
+            exitCode = parseInt(raw, 10);
+            if (isNaN(exitCode)) exitCode = 1;
+          } catch { /* read error — treat as failure */ }
+          pipelineLog('stage.sentinel_detected_on_reattach', { runId: run.runId, runningStageIdx, exitCode });
+          // Process the completed stage asynchronously.
+          handleStageClose(dataDir, run.runId, runningStageIdx, exitCode).catch((err) => {
+            console.warn(`[pipelineManager] WARN: handleStageClose on reattach failed for run ${run.runId}:`, err.message);
+          });
+        } else {
+          // No sentinel — stage truly did not complete. Mark interrupted.
+          run.status    = 'interrupted';
+          run.updatedAt = new Date().toISOString();
+          for (const s of run.stageStatuses) {
+            if (s.status === 'running') {
+              s.status     = 'interrupted';
+              s.finishedAt = run.updatedAt;
+            }
           }
+          writeJSON(runJsonFile, run);
+          upsertRegistryEntry(dataDir, { runId: run.runId, spaceId: run.spaceId, taskId: run.taskId, status: 'interrupted', createdAt: run.createdAt, updatedAt: run.updatedAt });
+          console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart, PID dead)`);
         }
-        writeJSON(runJsonFile, run);
-        upsertRegistryEntry(dataDir, { runId: run.runId, spaceId: run.spaceId, taskId: run.taskId, status: 'interrupted', createdAt: run.createdAt, updatedAt: run.updatedAt });
-        console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart, PID dead)`);
       }
     } catch (err) {
       console.warn(`[pipelineManager] WARN: could not process run entry '${entry}':`, err.message);
