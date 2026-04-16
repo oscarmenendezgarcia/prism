@@ -1331,6 +1331,9 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
   run.status             = 'running';
   delete run.pausedBeforeStage;
   delete run.blockedReason;
+  // Always clear bypassQuestionCheck first so it cannot leak from a prior blocked resume
+  // into a subsequent non-blocked resume (e.g. blocked → resumed → interrupted → resumed).
+  delete run.bypassQuestionCheck;
   // When manually resuming a previously-blocked run, skip future question checks
   // so the pipeline runs to completion regardless of any remaining open questions.
   if (wasBlocked) {
@@ -1466,6 +1469,7 @@ async function unblockRun(runId, dataDir) {
   }
 
   run.status = 'running';
+  delete run.blockedReason;
   writeRun(dataDir, run);
   pipelineLog('run.unblocked', { runId, spaceId: run.spaceId, taskId: run.taskId, currentStage: run.currentStage });
 
