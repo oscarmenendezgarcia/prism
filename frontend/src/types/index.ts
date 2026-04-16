@@ -37,6 +37,22 @@ export interface AttachmentContent {
  */
 export type TaskType = 'feature' | 'bug' | 'tech-debt' | 'chore';
 
+/**
+ * A comment on a task (note, question, or answer).
+ * ADR-1 (task-comments): embedded in task.comments[].
+ */
+export interface Comment {
+  id: string;
+  author: string;
+  text: string;
+  type: 'note' | 'question' | 'answer';
+  /** UUID of the parent comment (for threading answers under questions). */
+  parentId?: string;
+  resolved: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 /** A Kanban task. */
 export interface Task {
   id: string;
@@ -51,6 +67,8 @@ export interface Task {
    */
   pipeline?: string[];
   attachments?: Attachment[];
+  /** Thread of comments (notes, questions, answers). Aditively returned by GET task. */
+  comments?: Comment[];
   createdAt: string;
   updatedAt: string;
 }
@@ -187,10 +205,19 @@ export interface BackendStageStatus {
   exitCode: number | null;
 }
 
+/** Reason a pipeline run is blocked (waiting for a question to be resolved). */
+export interface BlockedReason {
+  commentId: string;
+  taskId: string;
+  author: string;
+  text: string;
+  blockedAt: string; // ISO8601
+}
+
 /** Run object returned by the backend pipeline API. */
 export interface BackendRun {
   runId: string;
-  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
+  status: 'pending' | 'running' | 'paused' | 'blocked' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   stages: string[];
   stageStatuses?: BackendStageStatus[];
   spaceId: string;
@@ -202,6 +229,8 @@ export interface BackendRun {
   checkpoints?: number[];
   /** Set when status === 'paused' to indicate which stage is waiting. */
   pausedBeforeStage?: number;
+  /** Set when status === 'blocked' — which comment is blocking the run. */
+  blockedReason?: BlockedReason;
 }
 
 /** The four canonical pipeline stage agent IDs. */
@@ -221,7 +250,9 @@ export interface PipelineState {
   startedAt: string;  // ISO timestamp
   /** ISO timestamp when the run finished (completed, aborted, or interrupted). */
   finishedAt?: string;
-  status: 'running' | 'paused' | 'completed' | 'aborted' | 'interrupted';
+  status: 'running' | 'paused' | 'blocked' | 'completed' | 'aborted' | 'interrupted';
+  /** Set when status === 'blocked'. Which comment is preventing the pipeline from advancing. */
+  blockedReason?: BlockedReason;
   /**
    * Backend run ID returned by POST /api/v1/runs when the pipeline is launched
    * via backend spawn. Tracks the most-recent run (last stage started).

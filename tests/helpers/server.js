@@ -33,9 +33,15 @@ function startTestServer() {
       );
     }
 
-    // Point pipelineManager at the stub agents directory.
+    const runsDir = path.join(tmpDir, 'runs');
+
+    // Point pipelineManager at the stub agents and runs directories.
+    // Both env vars are saved and restored on close so leaked values from
+    // previous test runs don't cause path mismatches (seedRun vs. server).
     const prevAgentsDir = process.env.PIPELINE_AGENTS_DIR;
+    const prevRunsDir   = process.env.PIPELINE_RUNS_DIR;
     process.env.PIPELINE_AGENTS_DIR = agentsDir;
+    process.env.PIPELINE_RUNS_DIR   = runsDir;
 
     const server = startServer({ port: 0, dataDir: tmpDir, silent: true });
 
@@ -51,11 +57,16 @@ function startTestServer() {
           }
           server.close(() => {
             fs.rmSync(tmpDir, { recursive: true, force: true });
-            // Restore env var so parallel test files don't interfere.
+            // Restore env vars so parallel test files don't interfere.
             if (prevAgentsDir === undefined) {
               delete process.env.PIPELINE_AGENTS_DIR;
             } else {
               process.env.PIPELINE_AGENTS_DIR = prevAgentsDir;
+            }
+            if (prevRunsDir === undefined) {
+              delete process.env.PIPELINE_RUNS_DIR;
+            } else {
+              process.env.PIPELINE_RUNS_DIR = prevRunsDir;
             }
             res();
           });

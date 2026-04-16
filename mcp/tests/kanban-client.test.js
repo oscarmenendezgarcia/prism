@@ -42,6 +42,11 @@ const {
   moveTask,
   deleteTask,
   clearBoard,
+  addComment,
+  answerComment,
+  blockRun,
+  unblockRun,
+  findActiveRunForTask,
 } = await import('../kanban-client.js');
 
 // ---------------------------------------------------------------------------
@@ -467,5 +472,215 @@ describe('error paths', () => {
     const result = await listTasks();
     assert.equal(result.error, true);
     assert.equal(result.code, 'API_ERROR');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// addComment
+// ---------------------------------------------------------------------------
+
+describe('addComment', () => {
+  before(async () => { if (!mockServer.listening) await new Promise((r) => mockServer.listen(TEST_PORT, r)); });
+
+  it('POST /spaces/:spaceId/tasks/:taskId/comments with correct body', async () => {
+    let captured = {};
+    mockHandler = async (req, res) => {
+      captured.method = req.method;
+      captured.url    = req.url;
+      captured.body   = await readBody(req);
+      respond(res, 201, { id: 'c-1', type: 'note', text: 'hello', author: 'dev', resolved: false, createdAt: '2026-01-01T00:00:00.000Z' });
+    };
+
+    const result = await addComment({ spaceId: 'sp1', taskId: 'tk1', text: 'hello', type: 'note', author: 'dev' });
+    assert.equal(captured.method, 'POST');
+    assert.equal(captured.url, '/api/v1/spaces/sp1/tasks/tk1/comments');
+    assert.equal(captured.body.text, 'hello');
+    assert.equal(captured.body.type, 'note');
+    assert.equal(captured.body.author, 'dev');
+    assert.equal(result.id, 'c-1');
+  });
+
+  it('includes parentId when provided', async () => {
+    let capturedBody;
+    mockHandler = async (req, res) => {
+      capturedBody = await readBody(req);
+      respond(res, 201, { id: 'c-2', type: 'answer', text: 'answer text', author: 'user', resolved: false, createdAt: '2026-01-01T00:00:00.000Z', parentId: 'q-1' });
+    };
+
+    await addComment({ spaceId: 'sp1', taskId: 'tk1', text: 'answer text', type: 'answer', author: 'user', parentId: 'q-1' });
+    assert.equal(capturedBody.parentId, 'q-1');
+  });
+
+  it('uses default author "user" when omitted', async () => {
+    let capturedBody;
+    mockHandler = async (req, res) => {
+      capturedBody = await readBody(req);
+      respond(res, 201, { id: 'c-3', type: 'note', text: 'x', author: 'user', resolved: false, createdAt: '2026-01-01T00:00:00.000Z' });
+    };
+
+    await addComment({ spaceId: 'sp1', taskId: 'tk1', text: 'x', type: 'note' });
+    assert.equal(capturedBody.author, 'user');
+  });
+
+  it('returns error on 404 response', async () => {
+    mockHandler = (req, res) => {
+      respond(res, 404, { error: { code: 'TASK_NOT_FOUND', message: 'task not found' } });
+    };
+
+    const result = await addComment({ spaceId: 'sp1', taskId: 'missing', text: 'x', type: 'note' });
+    assert.equal(result.error, true);
+    assert.equal(result.code, 'TASK_NOT_FOUND');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// answerComment
+// ---------------------------------------------------------------------------
+
+describe('answerComment', () => {
+  before(async () => { if (!mockServer.listening) await new Promise((r) => mockServer.listen(TEST_PORT, r)); });
+
+  it('makes POST (create answer) then PATCH (resolve question)', async () => {
+    const calls = [];
+    mockHandler = async (req, res) => {
+      const body = await readBody(req);
+      calls.push({ method: req.method, url: req.url, body });
+      if (req.method === 'POST') {
+        respond(res, 201, { id: 'answer-1', type: 'answer', text: 'because X', author: 'dev', parentId: 'q-1', resolved: false, createdAt: '2026-01-01T00:00:00.000Z' });
+      } else {
+        respond(res, 200, { id: 'q-1', type: 'question', text: '?', author: 'agent', resolved: true, updatedAt: '2026-01-01T00:00:00.000Z' });
+      }
+    };
+
+    const result = await answerComment({ spaceId: 'sp1', taskId: 'tk1', commentId: 'q-1', answer: 'because X', author: 'dev' });
+    assert.equal(calls.length, 2, 'expected 2 HTTP calls');
+    assert.equal(calls[0].method, 'POST');
+    assert.equal(calls[0].url, '/api/v1/spaces/sp1/tasks/tk1/comments');
+    assert.equal(calls[0].body.type, 'answer');
+    assert.equal(calls[0].body.parentId, 'q-1');
+    assert.equal(calls[1].method, 'PATCH');
+    assert.equal(calls[1].url, '/api/v1/spaces/sp1/tasks/tk1/comments/q-1');
+    assert.equal(calls[1].body.resolved, true);
+    assert.ok(result.answerComment, 'answerComment should be in result');
+    assert.ok(result.resolvedQuestion, 'resolvedQuestion should be in result');
+    assert.equal(result.resolvedQuestion.resolved, true);
+  });
+
+  it('returns error if POST fails', async () => {
+    mockHandler = (req, res) => {
+      respond(res, 404, { error: { code: 'TASK_NOT_FOUND', message: 'not found' } });
+    };
+
+    const result = await answerComment({ spaceId: 'sp1', taskId: 'missing', commentId: 'q-1', answer: 'x' });
+    assert.equal(result.error, true);
+    assert.equal(result.code, 'TASK_NOT_FOUND');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// blockRun / unblockRun
+// ---------------------------------------------------------------------------
+
+describe('blockRun', () => {
+  before(async () => { if (!mockServer.listening) await new Promise((r) => mockServer.listen(TEST_PORT, r)); });
+
+  it('POST /runs/:runId/block with empty body', async () => {
+    let captured = {};
+    mockHandler = async (req, res) => {
+      captured.method = req.method;
+      captured.url    = req.url;
+      captured.body   = await readBody(req);
+      respond(res, 200, { runId: 'r-1', status: 'blocked' });
+    };
+
+    const result = await blockRun('r-1');
+    assert.equal(captured.method, 'POST');
+    assert.equal(captured.url, '/api/v1/runs/r-1/block');
+    assert.equal(result.status, 'blocked');
+  });
+
+  it('returns error when run is in terminal state', async () => {
+    mockHandler = (req, res) => {
+      respond(res, 422, { error: { code: 'RUN_IN_TERMINAL_STATE', message: 'completed' } });
+    };
+
+    const result = await blockRun('r-completed');
+    assert.equal(result.error, true);
+    assert.equal(result.code, 'RUN_IN_TERMINAL_STATE');
+  });
+});
+
+describe('unblockRun', () => {
+  before(async () => { if (!mockServer.listening) await new Promise((r) => mockServer.listen(TEST_PORT, r)); });
+
+  it('POST /runs/:runId/unblock with empty body', async () => {
+    let captured = {};
+    mockHandler = async (req, res) => {
+      captured.method = req.method;
+      captured.url    = req.url;
+      respond(res, 200, { runId: 'r-1', status: 'running' });
+    };
+
+    const result = await unblockRun('r-1');
+    assert.equal(captured.method, 'POST');
+    assert.equal(captured.url, '/api/v1/runs/r-1/unblock');
+    assert.equal(result.status, 'running');
+  });
+
+  it('returns error when run is not blocked', async () => {
+    mockHandler = (req, res) => {
+      respond(res, 422, { error: { code: 'RUN_NOT_BLOCKED', message: 'not blocked' } });
+    };
+
+    const result = await unblockRun('r-running');
+    assert.equal(result.error, true);
+    assert.equal(result.code, 'RUN_NOT_BLOCKED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findActiveRunForTask
+// ---------------------------------------------------------------------------
+
+describe('findActiveRunForTask', () => {
+  before(async () => { if (!mockServer.listening) await new Promise((r) => mockServer.listen(TEST_PORT, r)); });
+
+  const MOCK_REGISTRY = [
+    { runId: 'r-done',    spaceId: 's1', taskId: 't1', status: 'completed', createdAt: '2026-01-01T00:00:00.000Z' },
+    { runId: 'r-blocked', spaceId: 's1', taskId: 't1', status: 'blocked',   createdAt: '2026-01-02T00:00:00.000Z' },
+    { runId: 'r-other',   spaceId: 's1', taskId: 't2', status: 'running',   createdAt: '2026-01-01T00:00:00.000Z' },
+  ];
+
+  it('returns the most-recent active run for (spaceId, taskId)', async () => {
+    mockHandler = (req, res) => respond(res, 200, MOCK_REGISTRY);
+
+    const result = await findActiveRunForTask({ spaceId: 's1', taskId: 't1' });
+    assert.ok(result, 'expected a result');
+    assert.equal(result.runId, 'r-blocked', 'should return most-recent active run');
+  });
+
+  it('returns null when no active run for task', async () => {
+    mockHandler = (req, res) => respond(res, 200, MOCK_REGISTRY);
+
+    const result = await findActiveRunForTask({ spaceId: 's1', taskId: 't-none' });
+    assert.equal(result, null, 'should return null when no match');
+  });
+
+  it('returns null when only completed runs exist for task', async () => {
+    mockHandler = (req, res) => respond(res, 200, [
+      { runId: 'r-c', spaceId: 's1', taskId: 't1', status: 'completed', createdAt: '2026-01-01T00:00:00.000Z' },
+    ]);
+
+    const result = await findActiveRunForTask({ spaceId: 's1', taskId: 't1' });
+    assert.equal(result, null, 'should return null for completed-only');
+  });
+
+  it('returns error object on API error', async () => {
+    mockHandler = (req, res) => {
+      respond(res, 503, { error: { code: 'SERVER_ERROR', message: 'down' } });
+    };
+
+    const result = await findActiveRunForTask({ spaceId: 's1', taskId: 't1' });
+    assert.equal(result.error, true);
   });
 });

@@ -53,6 +53,11 @@ const {
   handleDeleteTemplate,
 } = require('../handlers/templates');
 const {
+  handleCreateComment,
+  handleUpdateComment,
+} = require('../handlers/comments');
+
+const {
   PIPELINE_RUNS_LIST_ROUTE,
   PIPELINE_RUNS_SINGLE_ROUTE,
   PIPELINE_RUNS_LOG_ROUTE,
@@ -60,6 +65,8 @@ const {
   PIPELINE_RUNS_PREVIEW_ROUTE,
   PIPELINE_RUNS_RESUME_ROUTE,
   PIPELINE_RUNS_STOP_ROUTE,
+  PIPELINE_RUNS_BLOCK_ROUTE,
+  PIPELINE_RUNS_UNBLOCK_ROUTE,
   handleCreateRun,
   handleListRuns,
   handleGetRun,
@@ -69,11 +76,16 @@ const {
   handleDeleteRun,
   handleResumeRun,
   handleStopRun,
+  handleBlockRun,
+  handleUnblockRun,
 } = require('../handlers/pipeline');
 
 // ---------------------------------------------------------------------------
 // Route patterns
 // ---------------------------------------------------------------------------
+
+const COMMENTS_LIST_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments$/;
+const COMMENTS_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments\/([^/]+)$/;
 
 const SYSTEM_INFO_ROUTE   = /^\/api\/v1\/system\/info$/;
 const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
@@ -181,6 +193,52 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
       if (method === 'POST') {
         const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
         return handleAutoTaskConfirm(req, res, spaceId, spaceDataDir);
+      }
+
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Comment routes — BEFORE SPACES_TASKS_ROUTE to avoid regex swallowing.
+    // POST  /api/v1/spaces/:spaceId/tasks/:taskId/comments
+    // PATCH /api/v1/spaces/:spaceId/tasks/:taskId/comments/:commentId
+    // -------------------------------------------------------------------------
+    const commentsSingleMatch = COMMENTS_SINGLE_ROUTE.exec(urlPath);
+    if (commentsSingleMatch) {
+      const spaceId   = commentsSingleMatch[1];
+      const taskId    = commentsSingleMatch[2];
+      const commentId = commentsSingleMatch[3];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
+
+      if (method === 'PATCH') {
+        return handleUpdateComment(req, res, spaceDataDir, taskId, commentId);
+      }
+
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    const commentsListMatch = COMMENTS_LIST_ROUTE.exec(urlPath);
+    if (commentsListMatch) {
+      const spaceId = commentsListMatch[1];
+      const taskId  = commentsListMatch[2];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
+
+      if (method === 'POST') {
+        return handleCreateComment(req, res, spaceDataDir, taskId);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
@@ -361,10 +419,12 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
     //   1. PREVIEW_ROUTE  (/runs/preview-prompts)          — before LIST_ROUTE
     //   2. RESUME_ROUTE   (/runs/:id/resume)               — before SINGLE_ROUTE
     //   3. STOP_ROUTE     (/runs/:id/stop)                 — before SINGLE_ROUTE
-    //   4. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
-    //   5. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
-    //   6. LIST_ROUTE     (/runs)
-    //   7. SINGLE_ROUTE   (/runs/:id)
+    //   4. BLOCK_ROUTE    (/runs/:id/block)                — before SINGLE_ROUTE
+    //   5. UNBLOCK_ROUTE  (/runs/:id/unblock)              — before SINGLE_ROUTE
+    //   6. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
+    //   7. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
+    //   8. LIST_ROUTE     (/runs)
+    //   9. SINGLE_ROUTE   (/runs/:id)
     // -------------------------------------------------------------------------
     if (PIPELINE_RUNS_PREVIEW_ROUTE.test(urlPath)) {
       if (method === 'POST') return handlePreviewPrompts(req, res, dataDir, spaceManager);
@@ -382,6 +442,20 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
     if (pipelineStopMatch) {
       const runId = pipelineStopMatch[1];
       if (method === 'POST') return handleStopRun(req, res, runId, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const pipelineBlockMatch = PIPELINE_RUNS_BLOCK_ROUTE.exec(urlPath);
+    if (pipelineBlockMatch) {
+      const runId = pipelineBlockMatch[1];
+      if (method === 'POST') return handleBlockRun(req, res, runId, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const pipelineUnblockMatch = PIPELINE_RUNS_UNBLOCK_ROUTE.exec(urlPath);
+    if (pipelineUnblockMatch) {
+      const runId = pipelineUnblockMatch[1];
+      if (method === 'POST') return handleUnblockRun(req, res, runId, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

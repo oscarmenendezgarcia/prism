@@ -1,13 +1,18 @@
 /**
  * Prism MCP Server
  *
- * Exposes the Prism REST API as 11 MCP tools callable by Claude Code
+ * Exposes the Prism REST API as MCP tools callable by Claude Code
  * and Claude Desktop.
  *
  * ADR-001: stdio transport, HTTP client coupling, official MCP SDK.
  * ADR-1 (Spaces): All 7 existing tools gain an optional spaceId parameter.
  *   4 new tools: kanban_list_spaces, kanban_create_space,
  *                kanban_rename_space, kanban_delete_space.
+ * task-comments + pipeline-blocked:
+ *   2 new tools: kanban_add_comment, kanban_answer_comment.
+ *   kanban_add_comment with type='question' automatically blocks the active
+ *   pipeline run for the task. kanban_answer_comment resolves the question
+ *   and unblocks the pipeline when all questions are answered.
  *
  * Transport: StdioServerTransport (Claude Code manages process lifecycle).
  * All logs go to stderr — stdout is reserved for the MCP protocol.
@@ -38,6 +43,11 @@ import {
   getRunStatus,
   resumePipeline,
   stopPipeline,
+  addComment,
+  answerComment,
+  blockRun,
+  unblockRun,
+  findActiveRunForTask,
 } from './kanban-client.js';
 
 // ---------------------------------------------------------------------------
@@ -45,7 +55,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const SERVER_NAME    = 'prism';
-const SERVER_VERSION = '2.0.0';
+const SERVER_VERSION = '2.1.0';
 const KANBAN_API_URL = process.env.KANBAN_API_URL ?? 'http://localhost:3000/api/v1';
 
 // ---------------------------------------------------------------------------
@@ -490,6 +500,101 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
+// Tool: kanban_add_comment (task-comments + pipeline-blocked)
+// ---------------------------------------------------------------------------
+
+server.tool(
+  'kanban_add_comment',
+  'Add a comment to a kanban task. ' +
+  "When type='question', the active pipeline run for this task is automatically " +
+  "blocked so it will not advance to the next stage until the question is answered. " +
+  "Use kanban_answer_comment to provide an answer and unblock the pipeline.",
+  {
+    spaceId: z.string().describe('Space ID containing the task.'),
+    taskId:  z.string().describe('Task ID to comment on.'),
+    text:    z.string().describe('Comment body (max 5000 characters).'),
+    type:    z
+      .enum(['note', 'question', 'answer'])
+      .describe(
+        "'note' — informational; " +
+        "'question' — blocks the active pipeline run until answered; " +
+        "'answer' — reply to a question (use kanban_answer_comment instead).",
+      ),
+    author: z
+      .string()
+      .optional()
+      .describe("Author name. Defaults to 'user'."),
+  },
+  withTiming('kanban_add_comment', async ({ spaceId, taskId, text, type, author }) => {
+    // 1. Create the comment via REST.
+    const comment = await addComment({ spaceId, taskId, text, type, author: author ?? 'user' });
+    if (comment && comment.error) return comment;
+
+    // 2. When it's a question, find the active run and block it.
+    if (type === 'question') {
+      const run = await findActiveRunForTask({ spaceId, taskId });
+      if (run && !run.error) {
+        const blockResult = await blockRun(run.runId);
+        const blocked     = !blockResult?.error;
+        return { comment, pipelineBlocked: blocked, runId: run.runId };
+      }
+      // No active run found — comment created, but nothing to block.
+      return { comment, pipelineBlocked: false };
+    }
+
+    return { comment };
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Tool: kanban_answer_comment (task-comments + pipeline-blocked)
+// ---------------------------------------------------------------------------
+
+server.tool(
+  'kanban_answer_comment',
+  'Answer an open question comment on a kanban task. ' +
+  'Creates a new answer comment (parentId = commentId), marks the question as resolved=true, ' +
+  'and unblocks the active pipeline run when no open questions remain.',
+  {
+    spaceId:   z.string().describe('Space ID containing the task.'),
+    taskId:    z.string().describe('Task ID that owns the question comment.'),
+    commentId: z.string().describe('ID of the question comment to answer.'),
+    answer:    z.string().describe('Answer text (max 5000 characters).'),
+    author:    z
+      .string()
+      .optional()
+      .describe("Author name. Defaults to 'user'."),
+  },
+  withTiming('kanban_answer_comment', async ({ spaceId, taskId, commentId, answer, author }) => {
+    // 1. Create answer comment + mark question resolved (atomic pair).
+    const result = await answerComment({ spaceId, taskId, commentId, answer, author: author ?? 'user' });
+    if (result && result.error) return result;
+
+    // 2. Check whether any question comments are still unresolved.
+    const task = await getTask(taskId, spaceId);
+    if (task && task.error) {
+      // Can't read task — return the answer result without unblocking.
+      return { ...result, pipelineUnblocked: false };
+    }
+
+    const comments       = Array.isArray(task.comments) ? task.comments : [];
+    const openQuestions  = comments.filter((c) => c.type === 'question' && !c.resolved);
+
+    if (openQuestions.length === 0) {
+      // All questions resolved — find the blocked run and unblock it.
+      const run = await findActiveRunForTask({ spaceId, taskId });
+      if (run && !run.error && run.status === 'blocked') {
+        const unblockResult = await unblockRun(run.runId);
+        const unblocked     = !unblockResult?.error;
+        return { ...result, pipelineUnblocked: unblocked, runId: run.runId };
+      }
+    }
+
+    return { ...result, pipelineUnblocked: false, openQuestionsRemaining: openQuestions.length };
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Start server
 // ---------------------------------------------------------------------------
 
@@ -497,6 +602,6 @@ const transport = new StdioServerTransport();
 
 log('INFO', `Starting ${SERVER_NAME} v${SERVER_VERSION}`);
 log('INFO', `Kanban API URL: ${KANBAN_API_URL}`);
-log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_start_pipeline, kanban_get_run_status, kanban_resume_pipeline, kanban_stop_pipeline');
+log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_start_pipeline, kanban_get_run_status, kanban_resume_pipeline, kanban_stop_pipeline, kanban_add_comment, kanban_answer_comment');
 
 await server.connect(transport);

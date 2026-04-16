@@ -67,12 +67,7 @@ export function Header() {
     <header className="flex items-center justify-between h-header px-6 bg-surface-elevated glass-heavy border-b border-border sticky top-0 z-[100]">
       {/* Brand */}
       <div className="flex items-center gap-3">
-        <span
-          className="material-symbols-outlined text-2xl text-primary leading-none"
-          aria-hidden="true"
-        >
-          view_kanban
-        </span>
+        <img src="/favicon-dark.png" className="w-8 h-8" aria-hidden="true" />
         <h1 className="text-xl font-medium text-text-primary tracking-tight">Prism</h1>
       </div>
 
