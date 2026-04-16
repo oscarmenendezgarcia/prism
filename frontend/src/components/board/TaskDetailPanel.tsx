@@ -20,8 +20,9 @@ import React, {
 } from 'react';
 import { useAppStore, useActiveRun, useAvailableAgents } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
+import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
-import type { Column } from '@/types';
+import type { Column, Comment } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Copy-to-clipboard helper
@@ -379,6 +380,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const detailTask           = useAppStore((s) => s.detailTask);
   const closeDetailPanel     = useAppStore((s) => s.closeDetailPanel);
   const updateTask           = useAppStore((s) => s.updateTask);
+  const addComment           = useAppStore((s) => s.addComment);
+  const patchComment         = useAppStore((s) => s.patchComment);
   const isMutating           = useAppStore((s) => s.isMutating);
   const tasks                = useAppStore((s) => s.tasks);
   const showToast            = useAppStore((s) => s.showToast);
@@ -518,6 +521,23 @@ export function TaskDetailPanel(): React.ReactElement | null {
     if (!detailTask) return;
     updateTask(detailTask.id, { pipeline });
   }, [detailTask, updateTask]);
+
+  // Comment handlers — delegate to the store so the board badge refreshes.
+  const handleCommentCreated = useCallback(
+    async (payload: { author: string; text: string; type: Comment['type']; parentId?: string }) => {
+      if (!detailTask) return;
+      await addComment(detailTask.id, payload);
+    },
+    [detailTask, addComment],
+  );
+
+  const handleCommentUpdated = useCallback(
+    async (commentId: string, patch: { resolved?: boolean; text?: string }) => {
+      if (!detailTask) return;
+      await patchComment(detailTask.id, commentId, patch);
+    },
+    [detailTask, patchComment],
+  );
 
   const handleCopyId = useCallback(async () => {
     if (!detailTask) return;
@@ -779,6 +799,18 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </ul>
             </div>
           )}
+          {/* ── Comments ──────────────────────────────────────────── */}
+          <div className="flex flex-col gap-1.5" data-testid="comments-panel">
+            <CommentsSection
+              spaceId={activeSpaceId}
+              taskId={detailTask.id}
+              comments={detailTask.comments ?? []}
+              onCommentCreated={handleCommentCreated}
+              onCommentUpdated={handleCommentUpdated}
+              disabled={fieldDisabled}
+            />
+          </div>
+
         </div>
 
         {/* ── Footer — read-only metadata ──────────────────────────────── */}

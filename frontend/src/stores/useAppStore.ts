@@ -38,6 +38,7 @@ import type {
   AgentSettings,
   TaggerSuggestion,
   TaggerResult,
+  Comment,
 } from '@/types';
 
 /** Keys used to persist state across page reloads. */
@@ -243,6 +244,27 @@ interface AppState {
    * @param patch  - Partial payload; only present keys are sent.
    */
   updateTask: (taskId: string, patch: UpdateTaskPayload) => Promise<void>;
+
+  /**
+   * Post a new comment on a task.
+   * Optimistically appends to detailTask.comments and the board task's comments.
+   * Throws on API failure (so CommentsSection can show the error).
+   */
+  addComment: (
+    taskId: string,
+    payload: { author: string; text: string; type: Comment['type']; parentId?: string },
+  ) => Promise<void>;
+
+  /**
+   * Update an existing comment (resolve / re-open / edit text).
+   * Optimistically updates detailTask.comments and the board task.
+   * Throws on API failure.
+   */
+  patchComment: (
+    taskId: string,
+    commentId: string,
+    patch: { resolved?: boolean; text?: string },
+  ) => Promise<void>;
 
   // ── Tagger agent (ADR-1: Tagger Agent) ───────────────────────────────────
 
@@ -1197,6 +1219,61 @@ export const useAppStore = create<AppState>((set, get) => ({
       showToast(`Failed to save: ${(err as Error).message}`, 'error');
     } finally {
       set({ isMutating: false });
+    }
+  },
+
+  // ── Task comments (task-ui-comments) ────────────────────────────────────
+
+  addComment: async (taskId, payload) => {
+    const { activeSpaceId, detailTask, showToast } = get();
+    try {
+      const comment = await api.createComment(activeSpaceId, taskId, payload);
+
+      const applyAdd = (t: Task): Task => {
+        if (t.id !== taskId) return t;
+        return { ...t, comments: [...(t.comments ?? []), comment] };
+      };
+
+      const currentTasks = get().tasks;
+      set({
+        tasks: {
+          'todo':        currentTasks['todo'].map(applyAdd),
+          'in-progress': currentTasks['in-progress'].map(applyAdd),
+          'done':        currentTasks['done'].map(applyAdd),
+        },
+        ...(detailTask?.id === taskId ? { detailTask: applyAdd(detailTask) } : {}),
+      });
+    } catch (err) {
+      showToast(`Failed to post comment: ${(err as Error).message}`, 'error');
+      throw err;
+    }
+  },
+
+  patchComment: async (taskId, commentId, patch) => {
+    const { activeSpaceId, detailTask, showToast } = get();
+    try {
+      const updated = await api.updateComment(activeSpaceId, taskId, commentId, patch);
+
+      const applyPatch = (t: Task): Task => {
+        if (t.id !== taskId) return t;
+        return {
+          ...t,
+          comments: (t.comments ?? []).map((c) => (c.id === commentId ? updated : c)),
+        };
+      };
+
+      const currentTasks = get().tasks;
+      set({
+        tasks: {
+          'todo':        currentTasks['todo'].map(applyPatch),
+          'in-progress': currentTasks['in-progress'].map(applyPatch),
+          'done':        currentTasks['done'].map(applyPatch),
+        },
+        ...(detailTask?.id === taskId ? { detailTask: applyPatch(detailTask) } : {}),
+      });
+    } catch (err) {
+      showToast(`Failed to update comment: ${(err as Error).message}`, 'error');
+      throw err;
     }
   },
 

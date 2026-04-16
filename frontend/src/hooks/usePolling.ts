@@ -103,6 +103,26 @@ async function syncPipelineState(): Promise<void> {
           stages: newStages,
         },
       });
+    } else if (run.status === 'blocked' && currentPs.status !== 'blocked') {
+      // Pipeline is waiting for a question to be resolved before continuing.
+      useAppStore.setState({
+        pipelineState: {
+          ...currentPs,
+          status: 'blocked',
+          currentStageIndex: newIdx,
+          stages: newStages,
+          blockedReason: run.blockedReason,
+        },
+      });
+    } else if (run.status === 'running' && currentPs.status === 'blocked') {
+      // Question was resolved — pipeline is running again; clear blockedReason.
+      useAppStore.setState({
+        pipelineState: {
+          ...currentPs,
+          status: 'running',
+          blockedReason: undefined,
+        },
+      });
     } else if (stageChanged || stagesGrew) {
       // Stage advanced or loop injected — update index and stages.
       const { activeRun } = useAppStore.getState();
