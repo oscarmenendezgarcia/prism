@@ -256,10 +256,11 @@ describe('Pipeline + Working Directory (BUG-004)', () => {
     assert.strictEqual(runRes.status, 201);
     const runId = runRes.body.runId;
 
-    // Verify prompt doesn't have workingDirectory label
+    // Verify prompt doesn't have workingDirectory label or git context
     const promptRes = await request(port, 'GET', `/api/v1/runs/${runId}/stages/0/prompt`, undefined);
     assert.strictEqual(promptRes.status, 200);
-    const prompt = promptRes.body.text || '';
+    const prompt = typeof promptRes.body === 'string' ? promptRes.body : '';
     assert.ok(!prompt.includes('Working Directory:'), `Prompt should NOT include "Working Directory:" label when not set`);
+    assert.ok(!prompt.includes('GIT CONTEXT'), `Prompt should NOT include GIT CONTEXT when no workingDirectory is set — avoids leaking Prism's own git state`);
   });
 });

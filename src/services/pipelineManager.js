@@ -884,21 +884,23 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
 
   // Include git context so agents can evaluate what work has already been done.
   // This helps the developer-agent avoid re-implementing code from prior partial runs.
-  // IMPORTANT: Must run in the space's workingDirectory (not Prism's CWD) so the
-  // git log reflects the target project, not Prism itself.
-  try {
-    const execSync2 = require('child_process').execSync;
-    const gitCwd    = workingDirectory && fs.existsSync(workingDirectory) ? workingDirectory : process.cwd();
-    const opts = { encoding: 'utf8', timeout: 5000, cwd: gitCwd };
-    const gitLog    = execSync2('git log --oneline -10 2>/dev/null', opts).trim();
-    const gitStatus = execSync2('git status --short 2>/dev/null', opts).trim();
-    if (gitLog || gitStatus) {
-      promptText += `\n## GIT CONTEXT (recent commits + working tree state in ${gitCwd})\n`;
-      if (gitLog)    promptText += '```\n' + gitLog + '\n```\n';
-      if (gitStatus) promptText += '\nWorking tree changes:\n```\n' + gitStatus + '\n```\n';
+  // IMPORTANT: Only included when a workingDirectory is explicitly set. Falling back
+  // to process.cwd() would expose Prism's own git history to agents that have no
+  // project directory — which is misleading and incorrect.
+  if (workingDirectory && fs.existsSync(workingDirectory)) {
+    try {
+      const execSync2 = require('child_process').execSync;
+      const opts      = { encoding: 'utf8', timeout: 5000, cwd: workingDirectory };
+      const gitLog    = execSync2('git log --oneline -10 2>/dev/null', opts).trim();
+      const gitStatus = execSync2('git status --short 2>/dev/null', opts).trim();
+      if (gitLog || gitStatus) {
+        promptText += `\n## GIT CONTEXT (recent commits + working tree state in ${workingDirectory})\n`;
+        if (gitLog)    promptText += '```\n' + gitLog + '\n```\n';
+        if (gitStatus) promptText += '\nWorking tree changes:\n```\n' + gitStatus + '\n```\n';
+      }
+    } catch (e) {
+      // git not available — skip
     }
-  } catch (e) {
-    // git not available or directory doesn't exist - skip
   }
 
   // Kanban instructions — always included so agents can move tasks and post questions.
