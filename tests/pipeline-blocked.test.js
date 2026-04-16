@@ -320,4 +320,543 @@ async function run() {
   }
 }
 
-run().catch((err) => { console.error(err); process.exit(1); });
+// ---------------------------------------------------------------------------
+// Unit tests — pipelineManager helpers (no server needed)
+// ---------------------------------------------------------------------------
+
+async function runUnitTests() {
+  suite('Unit: findActiveRunByTaskId');
+
+  await test('returns run object when a matching active run exists (status=blocked)', () => {
+    const tmpPath = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'pm-unit-'));
+    const runsDir = require('path').join(tmpPath, 'runs');
+    const runId   = 'unit-run-active';
+    const taskId  = 'unit-task-active';
+    require('fs').mkdirSync(require('path').join(runsDir, runId), { recursive: true });
+    const run = { runId, taskId, spaceId: 'sp', status: 'blocked', stages: [],
+      currentStage: 0, stageStatuses: [],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    require('fs').writeFileSync(require('path').join(runsDir, runId, 'run.json'), JSON.stringify(run), 'utf8');
+    require('fs').writeFileSync(require('path').join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId, spaceId: 'sp', status: 'blocked', createdAt: run.createdAt },
+    ]), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    const found = pm.findActiveRunByTaskId(tmpPath, taskId);
+    assert(found !== null, 'should find the active run');
+    assert(found.runId === runId, 'runId mismatch');
+    assert(found.status === 'blocked', 'status mismatch');
+
+    require('fs').rmSync(tmpPath, { recursive: true, force: true });
+  });
+
+  await test('returns null for completed/failed/interrupted runs', () => {
+    const tmpPath = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'pm-unit-'));
+    const runsDir = require('path').join(tmpPath, 'runs');
+    require('fs').mkdirSync(runsDir, { recursive: true });
+    require('fs').writeFileSync(require('path').join(runsDir, 'runs.json'), JSON.stringify([
+      { runId: 'r1', taskId: 'task-done', spaceId: 'sp', status: 'completed', createdAt: new Date().toISOString() },
+      { runId: 'r2', taskId: 'task-fail', spaceId: 'sp', status: 'failed',    createdAt: new Date().toISOString() },
+    ]), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    assert(pm.findActiveRunByTaskId(tmpPath, 'task-done') === null, 'completed run should not be returned');
+    assert(pm.findActiveRunByTaskId(tmpPath, 'task-fail') === null, 'failed run should not be returned');
+    assert(pm.findActiveRunByTaskId(tmpPath, 'unknown')   === null, 'unknown taskId should return null');
+
+    require('fs').rmSync(tmpPath, { recursive: true, force: true });
+  });
+
+  suite('Unit: blockRunByComment');
+
+  await test('blocks a between-stages run (current stage pending) with blockedReason', () => {
+    const tmpPath = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'pm-unit-'));
+    const runsDir = require('path').join(tmpPath, 'runs');
+    const runId   = 'block-test-between';
+    const taskId  = 'task-between';
+    require('fs').mkdirSync(require('path').join(runsDir, runId), { recursive: true });
+    const run = {
+      runId, taskId, spaceId: 'sp', status: 'running',
+      stages: ['senior-architect', 'developer-agent'], currentStage: 0,
+      stageStatuses: [
+        { index: 0, agentId: 'senior-architect', status: 'pending' },
+        { index: 1, agentId: 'developer-agent',  status: 'pending' },
+      ],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    const runJsonPath = require('path').join(runsDir, runId, 'run.json');
+    require('fs').writeFileSync(runJsonPath, JSON.stringify(run), 'utf8');
+    require('fs').writeFileSync(require('path').join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId, spaceId: 'sp', status: 'running', createdAt: run.createdAt },
+    ]), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    const comment = { id: 'c-q1', author: 'senior-architect', text: 'What is the SLA?', type: 'question' };
+    pm.blockRunByComment(tmpPath, taskId, comment);
+
+    const persisted = JSON.parse(require('fs').readFileSync(runJsonPath, 'utf8'));
+    assert(persisted.status === 'blocked', `Expected blocked, got ${persisted.status}`);
+    assert(persisted.blockedReason != null, 'blockedReason should be set');
+    assert(persisted.blockedReason.commentId === 'c-q1', 'commentId mismatch');
+    assert(persisted.blockedReason.author === 'senior-architect', 'author mismatch');
+    assert(persisted.blockedReason.taskId === taskId, 'taskId mismatch');
+    assert(typeof persisted.blockedReason.blockedAt === 'string', 'blockedAt should be set');
+
+    require('fs').rmSync(tmpPath, { recursive: true, force: true });
+  });
+
+  await test('does NOT block when current stage is actively running (handleStageClose handles it)', () => {
+    const tmpPath = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'pm-unit-'));
+    const runsDir = require('path').join(tmpPath, 'runs');
+    const runId   = 'block-test-running';
+    const taskId  = 'task-running';
+    require('fs').mkdirSync(require('path').join(runsDir, runId), { recursive: true });
+    const run = {
+      runId, taskId, spaceId: 'sp', status: 'running',
+      stages: ['senior-architect'], currentStage: 0,
+      stageStatuses: [{ index: 0, agentId: 'senior-architect', status: 'running' }],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    const runJsonPath = require('path').join(runsDir, runId, 'run.json');
+    require('fs').writeFileSync(runJsonPath, JSON.stringify(run), 'utf8');
+    require('fs').writeFileSync(require('path').join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId, spaceId: 'sp', status: 'running', createdAt: run.createdAt },
+    ]), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    pm.blockRunByComment(tmpPath, taskId, { id: 'c-mid', author: 'a', text: 'Mid-run Q', type: 'question' });
+
+    const persisted = JSON.parse(require('fs').readFileSync(runJsonPath, 'utf8'));
+    assert(persisted.status === 'running', `Expected running (stage active), got ${persisted.status}`);
+    assert(persisted.blockedReason == null, 'blockedReason should NOT be set');
+
+    require('fs').rmSync(tmpPath, { recursive: true, force: true });
+  });
+
+  suite('Unit: unblockRunByComment');
+
+  await test('resumes pipeline when last question resolved (status=running, no blockedReason)', async () => {
+    const tmpPath   = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'pm-unit-'));
+    const runsDir   = require('path').join(tmpPath, 'runs');
+    const spacesDir = require('path').join(tmpPath, 'spaces');
+    const runId = 'unblock-test-1';
+    const taskId = 'task-unblock-1';
+    const spaceId = 'sp-unblock';
+    require('fs').mkdirSync(require('path').join(runsDir, runId), { recursive: true });
+    require('fs').mkdirSync(require('path').join(spacesDir, spaceId), { recursive: true });
+
+    const run = {
+      runId, taskId, spaceId, status: 'blocked',
+      stages: ['senior-architect', 'developer-agent'], currentStage: 1,
+      stageStatuses: [
+        { index: 0, agentId: 'senior-architect', status: 'completed' },
+        { index: 1, agentId: 'developer-agent',  status: 'pending' },
+      ],
+      blockedReason: { commentId: 'q-resolved', taskId, author: 'a', text: 'Q?', blockedAt: new Date().toISOString() },
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    const runJsonPath = require('path').join(runsDir, runId, 'run.json');
+    require('fs').writeFileSync(runJsonPath, JSON.stringify(run), 'utf8');
+    require('fs').writeFileSync(require('path').join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId, spaceId, status: 'blocked', createdAt: run.createdAt },
+    ]), 'utf8');
+
+    // Task with no unresolved questions (already resolved)
+    const task = { id: taskId, title: 'T', type: 'feature',
+      comments: [{ id: 'q-resolved', type: 'question', resolved: true, author: 'a', text: 'Q?', createdAt: new Date().toISOString() }],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    require('fs').writeFileSync(require('path').join(spacesDir, spaceId, 'todo.json'), JSON.stringify([task]), 'utf8');
+    require('fs').writeFileSync(require('path').join(spacesDir, spaceId, 'in-progress.json'), JSON.stringify([]), 'utf8');
+    require('fs').writeFileSync(require('path').join(spacesDir, spaceId, 'done.json'), JSON.stringify([]), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    pm.unblockRunByComment(tmpPath, taskId, 'q-resolved');
+    await new Promise((r) => setTimeout(r, 50)); // allow setImmediate to fire
+
+    const persisted = JSON.parse(require('fs').readFileSync(runJsonPath, 'utf8'));
+    assert(persisted.status === 'running', `Expected running, got ${persisted.status}`);
+    assert(persisted.blockedReason == null, 'blockedReason should be cleared');
+
+    require('fs').rmSync(tmpPath, { recursive: true, force: true });
+  });
+
+  await test('updates blockedReason to second question when first resolved but second remains', () => {
+    const tmpPath   = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'pm-unit-'));
+    const runsDir   = require('path').join(tmpPath, 'runs');
+    const spacesDir = require('path').join(tmpPath, 'spaces');
+    const runId = 'unblock-test-2';
+    const taskId = 'task-unblock-2';
+    const spaceId = 'sp-unblock-2';
+    require('fs').mkdirSync(require('path').join(runsDir, runId), { recursive: true });
+    require('fs').mkdirSync(require('path').join(spacesDir, spaceId), { recursive: true });
+
+    const run = {
+      runId, taskId, spaceId, status: 'blocked',
+      stages: ['senior-architect', 'developer-agent'], currentStage: 1,
+      stageStatuses: [
+        { index: 0, agentId: 'senior-architect', status: 'completed' },
+        { index: 1, agentId: 'developer-agent',  status: 'pending' },
+      ],
+      blockedReason: { commentId: 'q-first', taskId, author: 'a', text: 'Q1?', blockedAt: new Date().toISOString() },
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    const runJsonPath = require('path').join(runsDir, runId, 'run.json');
+    require('fs').writeFileSync(runJsonPath, JSON.stringify(run), 'utf8');
+    require('fs').writeFileSync(require('path').join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId, spaceId, status: 'blocked', createdAt: run.createdAt },
+    ]), 'utf8');
+
+    // Task with q-first resolved but q-second still open
+    const task = { id: taskId, title: 'T', type: 'feature',
+      comments: [
+        { id: 'q-first',  type: 'question', resolved: true,  author: 'a', text: 'Q1?', createdAt: new Date().toISOString() },
+        { id: 'q-second', type: 'question', resolved: false, author: 'b', text: 'Q2?', createdAt: new Date().toISOString() },
+      ],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    require('fs').writeFileSync(require('path').join(spacesDir, spaceId, 'todo.json'), JSON.stringify([task]), 'utf8');
+    require('fs').writeFileSync(require('path').join(spacesDir, spaceId, 'in-progress.json'), JSON.stringify([]), 'utf8');
+    require('fs').writeFileSync(require('path').join(spacesDir, spaceId, 'done.json'), JSON.stringify([]), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    pm.unblockRunByComment(tmpPath, taskId, 'q-first');
+
+    const persisted = JSON.parse(require('fs').readFileSync(runJsonPath, 'utf8'));
+    assert(persisted.status === 'blocked', `Expected still blocked, got ${persisted.status}`);
+    assert(persisted.blockedReason != null, 'blockedReason should still exist');
+    assert(persisted.blockedReason.commentId === 'q-second', `Expected q-second, got ${persisted.blockedReason.commentId}`);
+    assert(persisted.blockedReason.author === 'b', 'should point to second question author');
+
+    require('fs').rmSync(tmpPath, { recursive: true, force: true });
+  });
+
+  await test('does nothing when run is not blocked', () => {
+    const tmpPath   = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'pm-unit-'));
+    const runsDir   = require('path').join(tmpPath, 'runs');
+    require('fs').mkdirSync(runsDir, { recursive: true });
+    require('fs').writeFileSync(require('path').join(runsDir, 'runs.json'), JSON.stringify([
+      { runId: 'run-running', taskId: 'task-r', spaceId: 'sp', status: 'running', createdAt: new Date().toISOString() },
+    ]), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    // Should not throw; run is not blocked
+    let threw = false;
+    try { pm.unblockRunByComment(tmpPath, 'task-r', 'some-comment'); }
+    catch { threw = true; }
+    assert(!threw, 'unblockRunByComment should not throw when run is not blocked');
+
+    require('fs').rmSync(tmpPath, { recursive: true, force: true });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Integration tests — comment-driven blocking with PIPELINE_NO_SPAWN=1
+// ---------------------------------------------------------------------------
+
+async function runCommentDrivenTests() {
+  suite('Integration: comment-driven blocking (PIPELINE_NO_SPAWN=1)');
+
+  // Setup: start an isolated server with PIPELINE_NO_SPAWN=1
+  const tmpServerDir = require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'prism-blocked-cd-'));
+  const agentsDirCd  = require('path').join(tmpServerDir, 'agents');
+  require('fs').mkdirSync(agentsDirCd);
+  for (const id of ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e']) {
+    require('fs').writeFileSync(require('path').join(agentsDirCd, `${id}.md`), `# ${id}\nStub.\n`, 'utf8');
+  }
+
+  const prevEnvs = {
+    PIPELINE_AGENTS_DIR:    process.env.PIPELINE_AGENTS_DIR,
+    PIPELINE_MAX_CONCURRENT: process.env.PIPELINE_MAX_CONCURRENT,
+    KANBAN_API_URL:          process.env.KANBAN_API_URL,
+    PIPELINE_NO_SPAWN:       process.env.PIPELINE_NO_SPAWN,
+  };
+  process.env.PIPELINE_AGENTS_DIR    = agentsDirCd;
+  process.env.PIPELINE_MAX_CONCURRENT = '20';
+  process.env.KANBAN_API_URL          = 'http://localhost:19999/api/v1'; // dead URL
+  process.env.PIPELINE_NO_SPAWN       = '1';
+
+  // Clear module cache so env vars are picked up
+  for (const key of Object.keys(require.cache)) {
+    if (key.includes('pipelineManager') || key.includes('agentResolver')) {
+      delete require.cache[key];
+    }
+  }
+
+  const { startServer } = require('../server');
+  let cdServer, cdPort;
+  await new Promise((resolve, reject) => {
+    cdServer = startServer({ port: 0, dataDir: tmpServerDir, silent: true });
+    cdServer.once('listening', () => { cdPort = cdServer.address().port; resolve(); });
+    cdServer.once('error', reject);
+  });
+
+  const req = makeRequest(cdPort);
+
+  /** Poll for run status */
+  async function waitStatus(runId, predicate, maxMs = 5000) {
+    const deadline = Date.now() + maxMs;
+    while (Date.now() < deadline) {
+      const r = await req('GET', `/api/v1/runs/${runId}`);
+      if (r.status === 200 && predicate(r.body)) return r.body;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    return null;
+  }
+
+  /** Create space + task */
+  async function mkSpaceTask(suffix = '') {
+    const sp = await req('POST', '/api/v1/spaces', { name: `cd-space-${suffix || Date.now()}` });
+    assert(sp.status === 201, `Space create: ${sp.status}`);
+    const tk = await req('POST', `/api/v1/spaces/${sp.body.id}/tasks`, { title: 'Test', type: 'feature' });
+    assert(tk.status === 201, `Task create: ${tk.status}`);
+    return { spaceId: sp.body.id, taskId: tk.body.id };
+  }
+
+  /** Post a question comment */
+  async function postQuestion(spaceId, taskId, text = 'What SLA?') {
+    const r = await req('POST', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`,
+      { author: 'senior-architect', text, type: 'question' });
+    assert(r.status === 201, `postQuestion: ${r.status} - ${JSON.stringify(r.body)}`);
+    return r.body;
+  }
+
+  /** Resolve a comment */
+  async function resolveQ(spaceId, taskId, commentId) {
+    return req('PATCH', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments/${commentId}`, { resolved: true });
+  }
+
+  // ── Test 1: handleStageClose guard blocks run when question exists ──────────
+  await test('question on task before run creation → handleStageClose blocks run after stage completes', async () => {
+    const { spaceId, taskId } = await mkSpaceTask('t1');
+    const comment = await postQuestion(spaceId, taskId, 'What is the target latency?');
+
+    const runRes = await req('POST', '/api/v1/runs', {
+      spaceId, taskId, stages: ['senior-architect', 'developer-agent'],
+    });
+    assert(runRes.status === 201, `POST /runs: ${runRes.status} - ${JSON.stringify(runRes.body)}`);
+    const { runId } = runRes.body;
+
+    const blocked = await waitStatus(runId, (r) => r.status === 'blocked', 5000);
+    assert(blocked !== null, 'run should reach blocked status within 5s');
+    assert(blocked.status === 'blocked', `Expected blocked, got ${blocked.status}`);
+    assert(blocked.blockedReason != null, 'blockedReason should be present');
+    assert(blocked.blockedReason.commentId === comment.id, `commentId mismatch: ${blocked.blockedReason.commentId}`);
+    assert(blocked.blockedReason.taskId === taskId, 'taskId mismatch');
+    assert(blocked.blockedReason.author === 'senior-architect', 'author mismatch');
+    assert(typeof blocked.blockedReason.text === 'string' && blocked.blockedReason.text.length > 0, 'text missing');
+    assert(typeof blocked.blockedReason.blockedAt === 'string', 'blockedAt missing');
+    assert(blocked.stageStatuses[0].status === 'completed', 'stage 0 should be completed');
+    assert(blocked.stageStatuses[1].status === 'pending', 'stage 1 should be pending');
+  });
+
+  // ── Test 2: GET /runs/:id returns full blockedReason ────────────────────────
+  await test('GET /runs/:runId returns blockedReason (commentId, taskId, author, text, blockedAt)', async () => {
+    const { spaceId, taskId } = await mkSpaceTask('t2');
+    await postQuestion(spaceId, taskId, 'Which cloud region?');
+
+    const runRes = await req('POST', '/api/v1/runs', {
+      spaceId, taskId, stages: ['senior-architect', 'developer-agent'],
+    });
+    const { runId } = runRes.body;
+
+    await waitStatus(runId, (r) => r.status === 'blocked', 5000);
+
+    const getRes = await req('GET', `/api/v1/runs/${runId}`);
+    assert(getRes.status === 200, `GET run: ${getRes.status}`);
+    assert(getRes.body.status === 'blocked', `Expected blocked, got ${getRes.body.status}`);
+    const br = getRes.body.blockedReason;
+    assert(br != null, 'blockedReason must be present');
+    assert(typeof br.commentId === 'string', 'commentId must be string');
+    assert(br.taskId === taskId, 'taskId must match');
+    assert(typeof br.author === 'string', 'author must be string');
+    assert(typeof br.text === 'string', 'text must be string');
+    assert(typeof br.blockedAt === 'string' && Date.parse(br.blockedAt) > 0, 'blockedAt must be ISO date');
+  });
+
+  // ── Test 3: resolving question auto-resumes pipeline ────────────────────────
+  await test('resolving blocking question auto-resumes pipeline to completion', async () => {
+    const { spaceId, taskId } = await mkSpaceTask('t3');
+    const comment = await postQuestion(spaceId, taskId, 'Which database engine?');
+
+    const runRes = await req('POST', '/api/v1/runs', {
+      spaceId, taskId, stages: ['senior-architect', 'developer-agent'],
+    });
+    const { runId } = runRes.body;
+
+    const blocked = await waitStatus(runId, (r) => r.status === 'blocked', 5000);
+    assert(blocked !== null, 'run should be blocked first');
+
+    const patchRes = await resolveQ(spaceId, taskId, comment.id);
+    assert(patchRes.status === 200, `resolveComment: ${patchRes.status}`);
+    assert(patchRes.body.resolved === true, 'comment should be resolved');
+
+    const completed = await waitStatus(runId, (r) => r.status === 'completed', 6000);
+    assert(completed !== null, 'run should complete after question resolved');
+    assert(completed.status === 'completed', `Expected completed, got ${completed.status}`);
+    assert(completed.blockedReason == null, 'blockedReason should be absent on completion');
+  });
+
+  // ── Test 4: 2 questions, resolving first keeps run blocked at second ─────────
+  await test('2 questions: resolving first keeps run blocked, pointing to second question', async () => {
+    const { spaceId, taskId } = await mkSpaceTask('t4');
+    const q1 = await postQuestion(spaceId, taskId, 'Question 1?');
+    const q2 = await postQuestion(spaceId, taskId, 'Question 2?');
+
+    const runRes = await req('POST', '/api/v1/runs', {
+      spaceId, taskId, stages: ['senior-architect', 'developer-agent'],
+    });
+    const { runId } = runRes.body;
+
+    const blocked = await waitStatus(runId, (r) => r.status === 'blocked', 5000);
+    assert(blocked !== null, 'run should be blocked');
+
+    await resolveQ(spaceId, taskId, q1.id);
+    await new Promise((r) => setTimeout(r, 300)); // allow unblockRunByComment to run
+
+    const stillBlocked = await req('GET', `/api/v1/runs/${runId}`);
+    assert(stillBlocked.status === 200, 'GET should return 200');
+    assert(stillBlocked.body.status === 'blocked', `Expected still blocked, got ${stillBlocked.body.status}`);
+    assert(stillBlocked.body.blockedReason.commentId === q2.id, `Expected q2 as blockedReason, got ${stillBlocked.body.blockedReason.commentId}`);
+
+    // Resolve second question → pipeline completes
+    await resolveQ(spaceId, taskId, q2.id);
+    const completed = await waitStatus(runId, (r) => r.status === 'completed', 6000);
+    assert(completed !== null, 'run should complete after all questions resolved');
+  });
+
+  // ── Test 5: POST /resume manually resumes blocked run ────────────────────────
+  // Single-stage pipeline: stage 0 completes, question exists → blocks.
+  // Manual resume skips the question and marks run complete (no more stages).
+  await test('POST /resume manually resumes a blocked run (ignores unresolved question)', async () => {
+    const { spaceId, taskId } = await mkSpaceTask('t5');
+    await postQuestion(spaceId, taskId, 'Unanswered?');
+
+    const runRes = await req('POST', '/api/v1/runs', {
+      spaceId, taskId,
+      stages: ['senior-architect'], // single stage: blocked after completion, resume skips question
+    });
+    const { runId } = runRes.body;
+
+    const blocked = await waitStatus(runId, (r) => r.status === 'blocked', 5000);
+    assert(blocked !== null, 'run should be blocked after single stage completes');
+
+    const resumeRes = await req('POST', `/api/v1/runs/${runId}/resume`);
+    assert(resumeRes.status === 200, `POST /resume: ${resumeRes.status} - ${JSON.stringify(resumeRes.body)}`);
+    // blockedReason cleared on resume
+    assert(resumeRes.body.blockedReason == null, 'blockedReason should be cleared on manual resume');
+
+    // With all stages completed, executeNextStage marks the run done (no more stages to run).
+    const completed = await waitStatus(runId, (r) => r.status === 'completed', 3000);
+    assert(completed !== null, 'run should complete after manual resume (no more stages)');
+  });
+
+  // ── Test 6: POST /stop transitions blocked run to interrupted ─────────────────
+  await test('POST /stop transitions blocked run to interrupted', async () => {
+    const { spaceId, taskId } = await mkSpaceTask('t6');
+    await postQuestion(spaceId, taskId, 'Blocking question');
+
+    const runRes = await req('POST', '/api/v1/runs', {
+      spaceId, taskId, stages: ['senior-architect', 'developer-agent'],
+    });
+    const { runId } = runRes.body;
+
+    const blocked = await waitStatus(runId, (r) => r.status === 'blocked', 5000);
+    assert(blocked !== null, 'run should be blocked');
+
+    const stopRes = await req('POST', `/api/v1/runs/${runId}/stop`);
+    assert(stopRes.status === 200, `POST /stop: ${stopRes.status} - ${JSON.stringify(stopRes.body)}`);
+    assert(stopRes.body.status === 'interrupted', `Expected interrupted, got ${stopRes.body.status}`);
+  });
+
+  // ── Test 7: comment type=note does NOT block pipeline ────────────────────────
+  await test('comment type=note does NOT block the pipeline', async () => {
+    const { spaceId, taskId } = await mkSpaceTask('t7');
+
+    await req('POST', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`, {
+      author: 'developer-agent',
+      text: 'This is just a design note.',
+      type: 'note',
+    });
+
+    const runRes = await req('POST', '/api/v1/runs', {
+      spaceId, taskId, stages: ['senior-architect'],
+    });
+    const { runId } = runRes.body;
+
+    const completed = await waitStatus(runId, (r) => r.status === 'completed', 5000);
+    assert(completed !== null, 'run should complete — note does not block');
+    assert(completed.status === 'completed', `Expected completed, got ${completed.status}`);
+    assert(completed.blockedReason == null, 'no blockedReason for note comment');
+  });
+
+  // ── Test 8: question on paused (checkpoint) run → blockRunByComment blocks ───
+  await test('question on paused run (checkpoint) → blockRunByComment blocks immediately', async () => {
+    const { spaceId, taskId } = await mkSpaceTask('t8');
+
+    // Create run with checkpoint before stage 1
+    const runRes = await req('POST', '/api/v1/runs', {
+      spaceId, taskId,
+      stages:      ['senior-architect', 'developer-agent'],
+      checkpoints: [1],
+    });
+    const { runId } = runRes.body;
+
+    // Wait for paused state (stage 0 done, checkpoint halts before stage 1)
+    const paused = await waitStatus(runId, (r) => r.status === 'paused', 5000);
+    assert(paused !== null, 'run should be paused at checkpoint');
+    assert(paused.stageStatuses[0].status === 'completed', 'stage 0 should be completed');
+    assert(paused.stageStatuses[1].status === 'pending', 'stage 1 should be pending');
+
+    // Post question while run is paused (between stages — currentStage status = pending)
+    const comment = await postQuestion(spaceId, taskId, 'Paused-run question?');
+    await new Promise((r) => setTimeout(r, 100)); // blockRunByComment is synchronous; allow propagation
+
+    const blockedRes = await req('GET', `/api/v1/runs/${runId}`);
+    assert(blockedRes.status === 200, 'GET should return 200');
+    assert(blockedRes.body.status === 'blocked', `Expected blocked, got ${blockedRes.body.status}`);
+    assert(blockedRes.body.blockedReason.commentId === comment.id, 'commentId mismatch in paused→blocked');
+  });
+
+  // ── Teardown ────────────────────────────────────────────────────────────────
+  try { const pm = require('../src/services/pipelineManager'); await pm.abortAll(tmpServerDir); } catch {}
+  if (typeof cdServer.closeAllConnections === 'function') cdServer.closeAllConnections();
+  await new Promise((resolve) => {
+    const t = setTimeout(resolve, 300);
+    cdServer.close(() => { clearTimeout(t); resolve(); });
+  });
+  require('fs').rmSync(tmpServerDir, { recursive: true, force: true });
+
+  // Restore env
+  for (const [k, v] of Object.entries(prevEnvs)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+}
+
+run()
+  .then(() => runUnitTests())
+  .then(() => runCommentDrivenTests())
+  .then(() => {
+    console.log(`\n${passed + failed} tests total: ${passed} passed, ${failed} failed`);
+    if (failures.length > 0) {
+      console.error('\nFailed tests:');
+      for (const f of failures) console.error(`  - ${f.name}: ${f.error}`);
+      process.exit(1);
+    }
+  })
+  .catch((err) => { console.error(err); process.exit(1); });
