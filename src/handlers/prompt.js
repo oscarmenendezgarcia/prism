@@ -93,11 +93,20 @@ function buildPromptText(options) {
     lines.push(`Space ID: ${space.id}`);
     lines.push(`Task ID: ${task.id}  ← this task already exists. Do NOT create a new kanban task.`);
     lines.push(`Move THIS task through the board: todo → in-progress (immediately) → done (when finished).`);
-    lines.push('Use the MCP tools (mcp__prism__kanban_*) to manage tasks:');
+    lines.push('Use the MCP tools (mcp__prism__kanban_*) to manage the board:');
+    lines.push('  - kanban_list_spaces: list all spaces');
     lines.push('  - kanban_list_tasks: list tasks in a column');
+    lines.push('  - kanban_get_task: get a single task by ID');
     lines.push('  - kanban_move_task: move a task between columns (todo → in-progress → done)');
     lines.push('  - kanban_update_task: update task fields or attach artifacts');
     lines.push('  - kanban_create_task: create new tasks (only if genuinely needed for a sub-task)');
+    lines.push('  - kanban_add_comment: post a note or question on the task');
+    lines.push('  - kanban_answer_comment: answer an existing question comment');
+    lines.push('  - kanban_get_run_status: check pipeline run status');
+    lines.push('');
+    lines.push('If you hit a genuine blocker (missing context, ambiguous requirement, decision requiring another agent\'s expertise) do NOT assume — post a question:');
+    lines.push(`  kanban_add_comment({ spaceId: "${space.id}", taskId: "${task.id}", author: "<your-agent-id>", text: "<question>", type: "question", targetAgent: "<agent-id>" /* optional */ })`);
+    lines.push('The pipeline will pause until the question is answered. Only use this for real blockers.');
   }
 
   // ── GIT INSTRUCTIONS ──────────────────────────────────────────────────────
