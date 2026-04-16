@@ -252,7 +252,7 @@ interface AppState {
    */
   addComment: (
     taskId: string,
-    payload: { author: string; text: string; type: Comment['type']; parentId?: string },
+    payload: { author: string; text: string; type: Comment['type']; parentId?: string; targetAgent?: string },
   ) => Promise<void>;
 
   /**

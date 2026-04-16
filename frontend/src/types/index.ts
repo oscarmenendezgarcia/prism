@@ -51,6 +51,10 @@ export interface Comment {
   resolved: boolean;
   createdAt: string;
   updatedAt?: string;
+  /** Target agent for cross-agent routing (questions only). */
+  targetAgent?: string;
+  /** When true, the question requires human intervention. */
+  needsHuman?: boolean;
 }
 
 /** A Kanban task. */

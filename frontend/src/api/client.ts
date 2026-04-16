@@ -167,6 +167,8 @@ export interface CreateCommentPayload {
   text: string;
   type: 'note' | 'question' | 'answer';
   parentId?: string;
+  /** Route this question to a specific agent (questions only). */
+  targetAgent?: string;
 }
 
 /** Payload for PATCH /spaces/:spaceId/tasks/:taskId/comments/:commentId */
