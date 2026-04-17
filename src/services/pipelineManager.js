@@ -323,8 +323,13 @@ async function killStage(dataDir, runId, stageIndex, reason) {
   const pid = run.stageStatuses[stageIndex].pid;
   if (pid && pid !== process.pid) {
     pipelineLog('stage.kill', { runId, stageIndex, agentId: run.stages[stageIndex], pid, reason });
-    // Negative pid kills the entire process group (sh + claude + caffeinate).
-    try { process.kill(-pid, 'SIGTERM'); } catch { /* already gone */ }
+    try {
+      if (process.platform === 'win32') {
+        require('child_process').execSync(`taskkill /T /F /PID ${pid}`, { stdio: 'ignore' });
+      } else {
+        process.kill(-pid, 'SIGTERM');
+      }
+    } catch { /* already gone */ }
   }
 
   // Clear the polling interval and remove from activeProcesses.
@@ -502,6 +507,22 @@ function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, time
       } catch { /* read error — treat as failure */ }
 
       pipelineLog('stage.sentinel_detected', { runId, stageIndex, exitCode });
+
+      // Kill the entire process group so any child processes the agent left open
+      // (Chromium, pytest workers, vite, etc.) are reaped before the next stage starts.
+      try {
+        const _r = readRun(dataDir, runId);
+        const _pid = _r?.stageStatuses?.[stageIndex]?.pid;
+        if (_pid && _pid !== process.pid) {
+          if (process.platform === 'win32') {
+            require('child_process').execSync(`taskkill /T /F /PID ${_pid}`, { stdio: 'ignore' });
+          } else {
+            process.kill(-_pid, 'SIGTERM');
+          }
+          pipelineLog('stage.group_kill', { runId, stageIndex, pid: _pid });
+        }
+      } catch { /* process group already gone — fine */ }
+
       await handleStageClose(dataDir, runId, stageIndex, exitCode);
       return;
     }
@@ -517,9 +538,12 @@ function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, time
     }
 
     // --- Stall check (no new log output) ---
+    // Only advance lastLogMtime if the file is newer — an old log file from a
+    // previous run of the same stage must not reset the baseline backwards and
+    // cause an immediate false stall.
     try {
       const stat = fs.statSync(logPath);
-      lastLogMtime = stat.mtimeMs;
+      if (stat.mtimeMs > lastLogMtime) lastLogMtime = stat.mtimeMs;
     } catch {
       // Log not yet created — use stageStartedAt as baseline.
     }
@@ -1078,7 +1102,11 @@ async function spawnStage(dataDir, run, stageIndex) {
   // NOTE: do NOT use `exec claude` here — exec replaces sh, so the trailing
   //       `echo $? > doneFile` would never run and the sentinel would never be written.
   const escapedArgs = finalArgs.map(shellEscape).join(' ');
-  const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+  // After claude exits, kill any Playwright/Chromium processes left behind by the
+  // persistent Playwright MCP server. Targets the playwright cache path to avoid
+  // killing the user's own Chrome browser.
+  const _playwrightCleanup = `pkill -f 'ms-playwright' 2>/dev/null; true`;
+  const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; _EXIT=$?; ${_playwrightCleanup}; echo $_EXIT > ${shellEscape(doneFile)}`;
 
   const child = spawn('sh', ['-c', shellCmd], {
     stdio:    'ignore',
@@ -1719,7 +1747,8 @@ function attemptCrossAgentResolution(dataDir, run, comment) {
     : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
   const escapedArgs = finalArgs.map(shellEscape).join(' ');
-  const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+  const _playwrightCleanup2 = `pkill -f 'ms-playwright' 2>/dev/null; true`;
+  const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; _EXIT=$?; ${_playwrightCleanup2}; echo $_EXIT > ${shellEscape(doneFile)}`;
 
   const child = spawn('sh', ['-c', shellCmd], {
     stdio:    'ignore',
@@ -1940,11 +1969,15 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
   }
 
   // Reset stages from resumeIndex onwards to pending.
+  // Also delete any leftover done-sentinel files so the poller doesn't
+  // immediately fire on a stale file from a previous run of the same stage.
   for (let i = resumeIndex; i < run.stages.length; i++) {
     run.stageStatuses[i].status     = 'pending';
     run.stageStatuses[i].exitCode   = null;
     run.stageStatuses[i].startedAt  = null;
     run.stageStatuses[i].finishedAt = null;
+    const staleFile = stageDonePath(dataDir, run.runId, i);
+    try { fs.unlinkSync(staleFile); } catch { /* not present — fine */ }
   }
 
   run.currentStage       = resumeIndex;

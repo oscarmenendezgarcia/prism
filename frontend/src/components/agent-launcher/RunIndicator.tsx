@@ -234,7 +234,7 @@ function BlockedBanner({ blockedReason, elapsed, onOpenTask, onAbort, onDismiss 
 
       <button
         onClick={onOpenTask}
-        aria-label="Open task to resolve blocking question"
+        aria-label="Resolve question"
         title="Resolve question"
         className="text-xs text-primary hover:text-primary/80 transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
       >
