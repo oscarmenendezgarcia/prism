@@ -132,6 +132,7 @@ Structure:
 - For security: map OWASP checks to specific code surfaces.
 - For performance: define load profiles (ramp-up, steady state, peak).
 - **Playwright screenshots** — always save to `agent-docs/<feature>/screenshots/<name>.png`. Never save to the project root or any other directory. Capture on every E2E failure and for each user journey step that has a visible state change.
+- **Browser cleanup (MANDATORY)** — after all Playwright interactions are complete, always call `mcp__plugin_playwright_playwright__browser_close` before finishing. This is non-negotiable: leaving browsers open exhausts system RAM and kills the pipeline server.
 
 ### Step 4 — Compile Results (`test-results.json`)
 Structure:
