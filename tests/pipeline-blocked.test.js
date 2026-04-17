@@ -1291,6 +1291,58 @@ async function runCrossAgentResolverTests() {
     assert(q2.needsHuman === false, `Expected needsHuman=false (anti-recursion returns early), got ${q2.needsHuman}`);
   });
 
+  // ── Test R-6: multiple questions — second Q with targetAgent gets resolver ────
+  await test('R-6: multiple questions with targetAgent — resolver chained to second question after first resolved', async () => {
+    const stages = ['senior-architect', 'ux-api-designer', 'developer-agent'];
+    const { spaceId, taskId } = await mkSpaceTaskR('r6', stages);
+
+    // Seed a run between stages
+    const runId = seedRunBetweenStages(spaceId, taskId, stages);
+
+    // Post Q1 with targetAgent='ux-api-designer'
+    const q1Res = await req('POST', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`, {
+      author: 'senior-architect',
+      text: 'What color palette should we use?',
+      type: 'question',
+      targetAgent: 'ux-api-designer',
+    });
+    assert(q1Res.status === 201, `postQ1: ${q1Res.status}`);
+    const q1Id = q1Res.body.id;
+
+    // Post Q2 with targetAgent='senior-architect' (while Q1 is still unresolved)
+    const q2Res = await req('POST', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`, {
+      author: 'developer-agent',
+      text: 'What is the overall architecture pattern?',
+      type: 'question',
+      targetAgent: 'senior-architect',
+    });
+    assert(q2Res.status === 201, `postQ2: ${q2Res.status}`);
+    const q2Id = q2Res.body.id;
+
+    // Wait for Q1's resolver sentinel to fire and resolverActive to be cleared
+    // NO_SPAWN=1 writes done sentinel immediately, polling fires after ~2s
+    await new Promise((r) => setTimeout(r, 5500));
+
+    // Manually resolve Q1 — this triggers unblockRunByComment which should see
+    // Q2 still unresolved and call attemptCrossAgentResolution for Q2
+    const patchRes = await req('PATCH', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments/${q1Id}`, {
+      resolved: true,
+    });
+    assert(patchRes.status === 200, `patchQ1: ${patchRes.status}`);
+
+    // Give unblockRunByComment + attemptCrossAgentResolution time to process
+    await new Promise((r) => setTimeout(r, 800));
+
+    const run = readRunJson(runId);
+    // Run should still be blocked on Q2
+    assert(run.status === 'blocked', `Expected run blocked on Q2, got status=${run.status}`);
+    // blockedReason should point to Q2 and include its targetAgent
+    assert(run.blockedReason?.commentId === q2Id,
+      `Expected blockedReason.commentId=${q2Id}, got ${run.blockedReason?.commentId}`);
+    assert(run.blockedReason?.targetAgent === 'senior-architect',
+      `Expected blockedReason.targetAgent='senior-architect', got '${run.blockedReason?.targetAgent}'`);
+  });
+
   // ── Teardown ──────────────────────────────────────────────────────────────────
   try { const pm = require('../src/services/pipelineManager'); await pm.abortAll(tmpDir2); } catch {}
   if (typeof rsvServer.closeAllConnections === 'function') rsvServer.closeAllConnections();
