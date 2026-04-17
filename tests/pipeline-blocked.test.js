@@ -360,6 +360,14 @@ async function run() {
 // ---------------------------------------------------------------------------
 
 async function runUnitTests() {
+  // Isolate unit tests from stale PIPELINE_RUNS_DIR / PIPELINE_AGENTS_DIR that
+  // may have been set by a prior startTestServer() call or inherited from the shell.
+  // Unit tests provide an explicit dataDir (tmpPath) so the env override must be absent.
+  const _savedRunsDir   = process.env.PIPELINE_RUNS_DIR;
+  const _savedAgentsDir = process.env.PIPELINE_AGENTS_DIR;
+  delete process.env.PIPELINE_RUNS_DIR;
+  delete process.env.PIPELINE_AGENTS_DIR;
+
   suite('Unit: findActiveRunByTaskId');
 
   await test('returns run object when a matching active run exists (status=blocked)', () => {
@@ -694,6 +702,12 @@ async function runUnitTests() {
     await new Promise((r) => setTimeout(r, 20));
     require('fs').rmSync(tmpPath, { recursive: true, force: true });
   });
+
+  // Restore env vars after all unit tests complete.
+  if (_savedRunsDir   === undefined) delete process.env.PIPELINE_RUNS_DIR;
+  else process.env.PIPELINE_RUNS_DIR   = _savedRunsDir;
+  if (_savedAgentsDir === undefined) delete process.env.PIPELINE_AGENTS_DIR;
+  else process.env.PIPELINE_AGENTS_DIR = _savedAgentsDir;
 }
 
 // ---------------------------------------------------------------------------
@@ -712,15 +726,17 @@ async function runCommentDrivenTests() {
   }
 
   const prevEnvs = {
-    PIPELINE_AGENTS_DIR:    process.env.PIPELINE_AGENTS_DIR,
+    PIPELINE_AGENTS_DIR:     process.env.PIPELINE_AGENTS_DIR,
     PIPELINE_MAX_CONCURRENT: process.env.PIPELINE_MAX_CONCURRENT,
     KANBAN_API_URL:          process.env.KANBAN_API_URL,
     PIPELINE_NO_SPAWN:       process.env.PIPELINE_NO_SPAWN,
+    PIPELINE_RUNS_DIR:       process.env.PIPELINE_RUNS_DIR,
   };
-  process.env.PIPELINE_AGENTS_DIR    = agentsDirCd;
+  process.env.PIPELINE_AGENTS_DIR     = agentsDirCd;
   process.env.PIPELINE_MAX_CONCURRENT = '20';
   process.env.KANBAN_API_URL          = 'http://localhost:19999/api/v1'; // dead URL
   process.env.PIPELINE_NO_SPAWN       = '1';
+  process.env.PIPELINE_RUNS_DIR       = require('path').join(tmpServerDir, 'runs');
 
   // Clear module cache so env vars are picked up
   for (const key of Object.keys(require.cache)) {
@@ -996,16 +1012,18 @@ async function runCrossAgentResolverTests() {
   }
 
   const prevEnvs2 = {
-    PIPELINE_AGENTS_DIR:      process.env.PIPELINE_AGENTS_DIR,
-    PIPELINE_MAX_CONCURRENT:  process.env.PIPELINE_MAX_CONCURRENT,
-    KANBAN_API_URL:            process.env.KANBAN_API_URL,
-    PIPELINE_NO_SPAWN:         process.env.PIPELINE_NO_SPAWN,
+    PIPELINE_AGENTS_DIR:         process.env.PIPELINE_AGENTS_DIR,
+    PIPELINE_MAX_CONCURRENT:     process.env.PIPELINE_MAX_CONCURRENT,
+    KANBAN_API_URL:               process.env.KANBAN_API_URL,
+    PIPELINE_NO_SPAWN:            process.env.PIPELINE_NO_SPAWN,
     PIPELINE_RESOLVER_TIMEOUT_MS: process.env.PIPELINE_RESOLVER_TIMEOUT_MS,
+    PIPELINE_RUNS_DIR:            process.env.PIPELINE_RUNS_DIR,
   };
   process.env.PIPELINE_AGENTS_DIR     = agentsDir2;
   process.env.PIPELINE_MAX_CONCURRENT = '20';
   process.env.KANBAN_API_URL          = 'http://localhost:19998/api/v1';
   process.env.PIPELINE_NO_SPAWN       = '1';
+  process.env.PIPELINE_RUNS_DIR       = require('path').join(tmpDir2, 'runs');
 
   // Clear module cache so env vars are picked up fresh
   for (const key of Object.keys(require.cache)) {
@@ -1297,6 +1315,85 @@ async function runT010RestartTests() {
   const os   = require('os');
   const crypto = require('crypto');
 
+  // Clear PIPELINE_RUNS_DIR so each test's own tmpPath is honoured.
+  const prevRunsDirT010 = process.env.PIPELINE_RUNS_DIR;
+  delete process.env.PIPELINE_RUNS_DIR;
+
+  // T-010-A: server restart with live resolver PID → polling reattached, sentinel detected
+  await test('T-010-A: restart with live resolver PID reattaches polling and clears resolverActive on done sentinel', async () => {
+    const tmpPath    = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-t010a-'));
+    const runsDir    = path.join(tmpPath, 'runs');
+    const spaceDir   = path.join(tmpPath, 'spaces', 'sp-t010a');
+    const runId      = crypto.randomUUID();
+    const taskId     = 'task-t010-a';
+    const commentId  = 'c-t010-a';
+    const runDirPath = path.join(runsDir, runId);
+
+    fs.mkdirSync(runDirPath, { recursive: true });
+    fs.mkdirSync(spaceDir, { recursive: true });
+
+    const comment = {
+      id: commentId, type: 'question', author: 'developer-agent',
+      text: 'Which layout?', targetAgent: 'ux-api-designer',
+      resolved: false, needsHuman: false, createdAt: new Date().toISOString(),
+    };
+    const task = { id: taskId, title: 'T010A', comments: [comment] };
+    fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([task]), 'utf8');
+
+    // Use a future resolverStartedAt so it appears non-stale relative to the
+    // freshly-loaded module's BOOT_TIME (set at require() time ~now).
+    const resolverStartedAt = new Date(Date.now() + 10000).toISOString();
+
+    const run = {
+      runId, taskId, spaceId: 'sp-t010a', status: 'blocked',
+      stages: ['developer-agent', 'ux-api-designer'], currentStage: 0,
+      resolverActive: true,
+      blockedReason: {
+        commentId, taskId, author: 'developer-agent', text: 'Which layout?',
+        targetAgent: 'ux-api-designer',
+        resolverPid: process.pid,  // test process is alive — simulates live resolver
+        resolverStartedAt,
+        blockedAt: new Date().toISOString(),
+      },
+      stageStatuses: [{ index: 0, agentId: 'developer-agent', status: 'running', exitCode: null, startedAt: new Date().toISOString(), finishedAt: null, pid: process.pid }],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(runDirPath, 'run.json'), JSON.stringify(run), 'utf8');
+    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify([
+      { runId, taskId, spaceId: 'sp-t010a', status: 'blocked', createdAt: run.createdAt },
+    ]), 'utf8');
+
+    // Pre-write the done sentinel (exit 0 = resolver completed successfully).
+    const doneFile = path.join(runDirPath, `resolver-${commentId}.done`);
+    fs.writeFileSync(doneFile, '0', 'utf8');
+
+    // Reload the module to simulate server restart — BOOT_TIME is reset to now.
+    for (const key of Object.keys(require.cache)) {
+      if (key.includes('pipelineManager')) delete require.cache[key];
+    }
+    const pm = require('../src/services/pipelineManager');
+    pm.init(tmpPath);
+
+    // Wait for polling interval (2000ms) to fire and detect the done sentinel.
+    await new Promise((r) => setTimeout(r, 3000));
+
+    const persisted = JSON.parse(fs.readFileSync(path.join(runDirPath, 'run.json'), 'utf8'));
+    assert(
+      persisted.resolverActive === false,
+      `resolverActive should be cleared after sentinel detected, got ${persisted.resolverActive}`,
+    );
+    assert(
+      !persisted.blockedReason?.resolverPid,
+      `resolverPid should be cleared from blockedReason after resolver completes`,
+    );
+    assert(
+      !persisted.blockedReason?.resolverStartedAt,
+      `resolverStartedAt should be cleared from blockedReason after resolver completes`,
+    );
+
+    fs.rmSync(tmpPath, { recursive: true, force: true });
+  });
+
   // T-010-B: server restart with dead resolver PID → needsHuman=true
   await test('T-010-B: restart with dead resolver PID marks comment needsHuman', () => {
     const tmpPath  = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-t010-'));
@@ -1393,6 +1490,10 @@ async function runT010RestartTests() {
 
     fs.rmSync(tmpPath, { recursive: true, force: true });
   });
+
+  // Restore PIPELINE_RUNS_DIR after all T-010 restart tests complete.
+  if (prevRunsDirT010 === undefined) delete process.env.PIPELINE_RUNS_DIR;
+  else process.env.PIPELINE_RUNS_DIR = prevRunsDirT010;
 }
 
 run()
