@@ -243,8 +243,8 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
           </span>
         )}
 
-        {task.description && !task.assigned && !task.attachments?.length && (
-          <p className="w-full text-xs text-text-secondary/70 line-clamp-2" data-testid="desc-preview">
+        {task.description && (
+          <p className="w-full text-xs text-text-secondary/70 line-clamp-2 mt-0.5" data-testid="desc-preview">
             {task.description}
           </p>
         )}
