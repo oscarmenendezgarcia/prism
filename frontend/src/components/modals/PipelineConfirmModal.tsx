@@ -27,6 +27,21 @@ const STAGE_ICON: Record<string, string> = {
   'qa-engineer-e2e':   'bug_report',
 };
 
+/** Agent color token class (matches --color-agent-* in index.css). */
+const STAGE_COLOR_CLASS: Record<string, string> = {
+  'senior-architect': 'text-agent-architect',
+  'ux-api-designer':  'text-agent-ux',
+  'developer-agent':  'text-agent-dev',
+  'qa-engineer-e2e':  'text-agent-qa',
+};
+
+const STAGE_BG_CLASS: Record<string, string> = {
+  'senior-architect': 'bg-agent-architect/10',
+  'ux-api-designer':  'bg-agent-ux/10',
+  'developer-agent':  'bg-agent-dev/10',
+  'qa-engineer-e2e':  'bg-agent-qa/10',
+};
+
 export function PipelineConfirmModal() {
   const modal                 = useAppStore((s) => s.pipelineConfirmModal);
   const closePipeline         = useAppStore((s) => s.closePipelineConfirm);
@@ -193,26 +208,31 @@ export function PipelineConfirmModal() {
           <p className="text-sm text-error text-center py-4">Add at least one stage to run.</p>
         ) : (
           <ol className="flex flex-col gap-2">
-            {stages.map((stage, i) => (
+            {stages.map((stage, i) => {
+              const colorClass = STAGE_COLOR_CLASS[stage] ?? 'text-primary';
+              const bgClass = STAGE_BG_CLASS[stage] ?? 'bg-primary/10';
+              return (
               <li
                 key={stage + i}
-                className="flex flex-col gap-1.5 bg-surface-variant border border-border rounded-md px-3 py-2"
+                className="flex flex-col gap-1.5 bg-surface-elevated border border-border rounded-lg px-3 py-2.5"
               >
                 {/* Stage row */}
-                <div className="flex items-center gap-2">
-                  {/* Step number */}
-                  <span className="text-[11px] text-text-disabled w-4 text-right flex-shrink-0">{i + 1}</span>
+                <div className="flex items-center gap-2.5">
+                  {/* Colored agent icon chip */}
+                  <div className={`flex h-7 w-7 items-center justify-center rounded-md flex-shrink-0 ${bgClass}`}>
+                    <span
+                      className={`material-symbols-outlined text-sm leading-none ${colorClass}`}
+                      aria-hidden="true"
+                    >
+                      {STAGE_ICON[stage] ?? 'smart_toy'}
+                    </span>
+                  </div>
 
-                  {/* Icon */}
-                  <span
-                    className="material-symbols-outlined text-base text-primary leading-none flex-shrink-0"
-                    aria-hidden="true"
-                  >
-                    {STAGE_ICON[stage] ?? 'smart_toy'}
-                  </span>
+                  {/* Step number */}
+                  <span className="text-[10px] text-text-disabled font-mono flex-shrink-0">{i + 1}</span>
 
                   {/* Name */}
-                  <span className="text-sm text-text-primary flex-1 truncate">
+                  <span className={`text-sm font-medium flex-1 truncate ${colorClass}`}>
                     {availableAgents.find((a) => a.id === stage)?.displayName ?? stage}
                   </span>
 
@@ -274,7 +294,8 @@ export function PipelineConfirmModal() {
                   </label>
                 )}
               </li>
-            ))}
+              );
+            })}
           </ol>
         )}
 
