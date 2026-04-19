@@ -69,7 +69,7 @@ export function Header() {
         <div className="w-7 h-7 flex items-center justify-center rounded-lg bg-primary/10">
           <span className="text-primary text-sm font-bold leading-none select-none">◆</span>
         </div>
-        <h1 className="text-sm font-semibold text-text-primary tracking-tight">Prism</h1>
+        <h1 className="text-base font-semibold text-text-primary tracking-tight">Prism</h1>
       </div>
 
       {/* Centre: unified run indicator (ADR-1 run-indicator) */}
