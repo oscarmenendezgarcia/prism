@@ -854,66 +854,44 @@ export function TaskDetailPanel(): React.ReactElement | null {
     return (
       <>
         {/* Backdrop */}
-        <div className="fixed inset-0 z-[105] bg-black/50" aria-hidden="true" onClick={closeDetailPanel} />
+        <div className="fixed inset-0 z-[105] bg-black/60 backdrop-blur-sm" aria-hidden="true" onClick={closeDetailPanel} />
 
-        {/* Slide-in panel */}
-        <div
-          ref={panelRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Task detail"
-          data-testid="task-detail-modal"
-          className="fixed inset-y-0 right-0 z-[110] w-full max-w-[560px] flex flex-col bg-surface border-l border-border shadow-2xl animate-slide-in-right"
-        >
-          {/* ── Header ──────────────────────────────────────────────────── */}
-          <div className="flex items-center gap-3 h-14 px-5 border-b border-border flex-shrink-0">
-            {closeButton}
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span className="font-mono text-xs text-text-disabled bg-surface-variant px-1.5 py-0.5 rounded flex-shrink-0">
-                {shortId}
-              </span>
-              {columnBadge}
+        {/* Centering wrapper */}
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 pointer-events-none">
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Task detail"
+            data-testid="task-detail-modal"
+            className="pointer-events-auto bg-surface border border-border rounded-xl shadow-[0_24px_80px_rgba(0,0,0,0.6)] w-full max-w-[800px] max-h-[88vh] flex flex-col animate-scale-in"
+          >
+            {/* ── Header ────────────────────────────────────────────── */}
+            <div className="flex items-center gap-3 h-14 px-5 border-b border-border flex-shrink-0 bg-surface-elevated/60 rounded-t-xl">
+              {closeButton}
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="font-mono text-xs text-text-disabled bg-surface-variant px-1.5 py-0.5 rounded flex-shrink-0">
+                  {shortId}
+                </span>
+                {columnBadge}
+              </div>
             </div>
-          </div>
 
-          {/* ── Tabs ─────────────────────────────────────────────────────── */}
-          <div className="flex flex-shrink-0 border-b border-border px-5" role="tablist">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={activeTab === tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 py-3 px-1 mr-5 text-sm font-medium border-b-2 -mb-px transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary/50 ${
-                  activeTab === tab.id
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-text-secondary hover:text-text-primary'
-                }`}
-              >
-                {tab.label}
-                {tab.count != null && tab.count > 0 && (
-                  <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-mono ${
-                    activeTab === tab.id ? 'bg-primary/15 text-primary' : 'bg-surface-variant text-text-disabled'
-                  }`}>
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* ── Tab content ──────────────────────────────────────────────── */}
-          <div className="flex-1 overflow-y-auto px-5 py-5" role="tabpanel">
-            {activeTab === 'details' && (
-              <div className="flex flex-col gap-5">
+            {/* ── 2-column body ─────────────────────────────────────── */}
+            <div className="flex flex-1 overflow-hidden min-h-0">
+              {/* Left: fields */}
+              <div className="w-[55%] overflow-y-auto px-6 py-5 flex flex-col gap-5 border-r border-border min-w-0" aria-label="Task fields">
                 {fieldsContent}
-                <div className="flex flex-col gap-0.5 pt-2 mt-auto">
+                <div className="flex flex-col gap-1 pt-2 mt-auto border-t border-border">
                   {timestampsContent}
                 </div>
               </div>
-            )}
-            {activeTab === 'comments' && commentsContent}
-            {activeTab === 'attachments' && attachmentsTabContent}
+
+              {/* Right: comments */}
+              <div className="w-[45%] overflow-y-auto px-5 py-5 min-w-0 bg-surface-elevated/20" aria-label="Comments">
+                {commentsContent}
+              </div>
+            </div>
           </div>
         </div>
       </>
