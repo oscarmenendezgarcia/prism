@@ -405,6 +405,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [localDescription, setLocalDescription] = useState('');
   const [localType, setLocalType]               = useState<'feature' | 'bug' | 'tech-debt' | 'chore'>('chore');
   const [isCopied, setIsCopied]                 = useState(false);
+  const [activeTab, setActiveTab]               = useState<'details' | 'comments' | 'attachments'>('details');
 
   // Track initial values to detect actual changes on blur.
   const savedTitle       = useRef('');
@@ -813,94 +814,123 @@ export function TaskDetailPanel(): React.ReactElement | null {
     </>
   );
 
-  // ── Desktop: centered modal with 2-column grid ────────────────────────────
+  // ── Unified: slide-in panel from the right (Trend A — wireframe S-04) ──────
+  // Single layout for all viewports. Tabs replace the desktop 2-column grid.
+
+  const tabs = [
+    { id: 'details' as const, label: 'Details' },
+    { id: 'comments' as const, label: 'Comments', count: (detailTask.comments ?? []).length },
+    { id: 'attachments' as const, label: 'Attachments', count: detailTask.attachments?.length ?? 0 },
+  ];
+
+  const attachmentsTabContent = detailTask.attachments && detailTask.attachments.length > 0 ? (
+    <ul className="flex flex-col gap-2" aria-label="Task attachments">
+      {detailTask.attachments.map((att, index) => (
+        <li key={index}>
+          <button
+            type="button"
+            data-testid="attachment-row"
+            onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
+            aria-label={`Open attachment ${att.name}`}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+          >
+            <span className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0" aria-hidden="true">
+              {att.type === 'file' ? 'folder' : 'attach_file'}
+            </span>
+            <span className="flex-1 truncate font-mono text-xs text-text-primary">{att.name}</span>
+            <span className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0" aria-hidden="true">open_in_new</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  ) : (
+    <div className="flex flex-col items-center justify-center py-12 text-center">
+      <span className="material-symbols-outlined text-4xl text-text-disabled mb-3 select-none">attach_file</span>
+      <p className="text-sm text-text-disabled">No attachments</p>
+    </div>
+  );
 
   if (isDesktop) {
     return (
       <>
-        {/* Backdrop — z-[105] to sit above the sticky header */}
+        {/* Backdrop */}
+        <div className="fixed inset-0 z-[105] bg-black/50" aria-hidden="true" onClick={closeDetailPanel} />
+
+        {/* Slide-in panel */}
         <div
-          className="fixed inset-0 z-[105] bg-black/50"
-          aria-hidden="true"
-          onClick={closeDetailPanel}
-        />
-
-        {/*
-          Centering wrapper — pointer-events-none so backdrop clicks pass through.
-          The inner modal restores pointer events.
-        */}
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 md:p-6 pointer-events-none">
-          <div
-            ref={panelRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Task detail"
-            data-testid="task-detail-modal"
-            className="pointer-events-auto bg-surface border border-border rounded-modal shadow-modal w-full max-w-[600px] lg:max-w-[800px] max-h-[90vh] flex flex-col animate-scale-in"
-          >
-            {/* ── Modal header ──────────────────────────────────── */}
-            <div className="flex items-center gap-3 h-14 px-5 border-b border-border flex-shrink-0">
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span className="font-mono text-xs text-text-disabled bg-surface-variant px-1.5 py-0.5 rounded flex-shrink-0">
-                  {shortId}
-                </span>
-                {columnBadge}
-              </div>
-              {closeButton}
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Task detail"
+          data-testid="task-detail-modal"
+          className="fixed inset-y-0 right-0 z-[110] w-full max-w-[560px] flex flex-col bg-surface border-l border-border shadow-2xl animate-slide-in-right"
+        >
+          {/* ── Header ──────────────────────────────────────────────────── */}
+          <div className="flex items-center gap-3 h-14 px-5 border-b border-border flex-shrink-0">
+            {closeButton}
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <span className="font-mono text-xs text-text-disabled bg-surface-variant px-1.5 py-0.5 rounded flex-shrink-0">
+                {shortId}
+              </span>
+              {columnBadge}
             </div>
+          </div>
 
-            {/*
-              ── Modal body — 2-column grid ──────────────────────
-              Left column (55%): editable fields + timestamps.
-              Right column (45%): threaded comments with independent scroll.
-              Both columns overflow-y-auto for independent scrolling.
-            */}
-            <div className="flex flex-1 overflow-hidden min-h-0">
-              {/* Left: fields */}
-              <div
-                className="w-[55%] overflow-y-auto px-5 py-5 flex flex-col gap-5 border-r border-border min-w-0"
-                aria-label="Task fields"
+          {/* ── Tabs ─────────────────────────────────────────────────────── */}
+          <div className="flex flex-shrink-0 border-b border-border px-5" role="tablist">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 py-3 px-1 mr-5 text-sm font-medium border-b-2 -mb-px transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary/50 ${
+                  activeTab === tab.id
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-text-secondary hover:text-text-primary'
+                }`}
               >
-                {fieldsContent}
+                {tab.label}
+                {tab.count != null && tab.count > 0 && (
+                  <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-mono ${
+                    activeTab === tab.id ? 'bg-primary/15 text-primary' : 'bg-surface-variant text-text-disabled'
+                  }`}>
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
 
-                {/* Timestamps at the bottom of the left column */}
-                <div className="flex flex-col gap-1 pt-2 mt-auto">
+          {/* ── Tab content ──────────────────────────────────────────────── */}
+          <div className="flex-1 overflow-y-auto px-5 py-5" role="tabpanel">
+            {activeTab === 'details' && (
+              <div className="flex flex-col gap-5">
+                {fieldsContent}
+                <div className="flex flex-col gap-0.5 pt-2 mt-auto">
                   {timestampsContent}
                 </div>
               </div>
-
-              {/* Right: comments */}
-              <div
-                className="w-[45%] overflow-y-auto px-5 py-5 min-w-0"
-                aria-label="Comments"
-              >
-                {commentsContent}
-              </div>
-            </div>
+            )}
+            {activeTab === 'comments' && commentsContent}
+            {activeTab === 'attachments' && attachmentsTabContent}
           </div>
         </div>
       </>
     );
   }
 
-  // ── Mobile: slide-in panel from the right ────────────────────────────────
+  // ── Mobile: same tabbed slide-in panel, narrower width ───────────────────
 
   return (
     <>
-      {/* Backdrop — z-[105] to sit above the sticky header (z-[100]) */}
-      <div
-        className="fixed inset-0 z-[105] bg-black/50"
-        aria-hidden="true"
-        onClick={closeDetailPanel}
-      />
-
-      {/* Panel — z-[110] to sit above the backdrop and header */}
+      <div className="fixed inset-0 z-[105] bg-black/50" aria-hidden="true" onClick={closeDetailPanel} />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Task detail"
-        className="fixed inset-y-0 right-0 z-[110] w-full sm:w-[420px] flex flex-col bg-surface border-l border-border shadow-lg animate-slide-in-right"
+        className="fixed inset-y-0 right-0 z-[110] w-full sm:w-[420px] flex flex-col bg-surface border-l border-border shadow-2xl animate-slide-in-right"
       >
         {/* ── Header ──────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3 h-14 px-5 border-b border-border flex-shrink-0">
@@ -913,15 +943,44 @@ export function TaskDetailPanel(): React.ReactElement | null {
           </div>
         </div>
 
-        {/* ── Scrollable body ──────────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto px-5 py-5 flex flex-col gap-5">
-          {fieldsContent}
-          {commentsContent}
+        {/* ── Tabs ─────────────────────────────────────────────────────── */}
+        <div className="flex flex-shrink-0 border-b border-border px-5" role="tablist">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-1.5 py-3 px-1 mr-5 text-sm font-medium border-b-2 -mb-px transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary/50 ${
+                activeTab === tab.id
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-text-secondary hover:text-text-primary'
+              }`}
+            >
+              {tab.label}
+              {tab.count != null && tab.count > 0 && (
+                <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-mono ${
+                  activeTab === tab.id ? 'bg-primary/15 text-primary' : 'bg-surface-variant text-text-disabled'
+                }`}>
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
 
-        {/* ── Footer — read-only metadata ──────────────────────────────── */}
-        <div className="flex-shrink-0 px-5 py-3 border-t border-border flex flex-col gap-0.5">
-          {timestampsContent}
+        {/* ── Tab content ──────────────────────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto px-5 py-5" role="tabpanel">
+          {activeTab === 'details' && (
+            <div className="flex flex-col gap-5">
+              {fieldsContent}
+              <div className="flex flex-col gap-0.5 pt-2">
+                {timestampsContent}
+              </div>
+            </div>
+          )}
+          {activeTab === 'comments' && commentsContent}
+          {activeTab === 'attachments' && attachmentsTabContent}
         </div>
       </div>
     </>
