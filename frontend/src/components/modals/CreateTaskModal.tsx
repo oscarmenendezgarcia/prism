@@ -224,7 +224,7 @@ export function CreateTaskModal() {
           {/* Pipeline (optional) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <span className={labelClass} style={{ marginBottom: 0 }}>Pipeline</span>
+              <span className="text-sm font-medium text-text-primary">Pipeline</span>
               {!pipelineOpen && (
                 <button
                   type="button"
