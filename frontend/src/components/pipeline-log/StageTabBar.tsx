@@ -45,6 +45,17 @@ function getShortLabel(agentId: string): string {
   return labelMap[agentId] ?? agentId.split('-')[0] ?? agentId;
 }
 
+/** Agent-specific active text color for tabs. */
+function getAgentActiveColor(agentId: string): string {
+  const colorMap: Record<string, string> = {
+    'senior-architect': 'text-agent-architect border-agent-architect',
+    'ux-api-designer':  'text-agent-ux border-agent-ux',
+    'developer-agent':  'text-agent-dev border-agent-dev',
+    'qa-engineer-e2e':  'text-agent-qa border-agent-qa',
+  };
+  return colorMap[agentId] ?? 'text-primary border-primary';
+}
+
 interface StatusIconProps {
   status: StageStatus['status'];
 }
@@ -137,6 +148,7 @@ export function StageTabBar({
         const status     = statusObj?.status ?? 'pending';
         const isActive   = index === selectedIndex;
         const label      = getShortLabel(agentId);
+        const agentColor = getAgentActiveColor(agentId);
 
         return (
           <button
@@ -146,9 +158,9 @@ export function StageTabBar({
             aria-controls={`log-panel-stage-${index}`}
             onClick={() => onSelect(index)}
             title={agentId}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors duration-150 border-b-2 ${
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-all duration-150 border-b-2 ${
               isActive
-                ? 'bg-primary/10 text-primary border-primary'
+                ? `bg-surface-variant border-b-2 ${agentColor}`
                 : 'text-text-secondary border-transparent hover:bg-surface-variant hover:text-text-primary'
             }`}
           >

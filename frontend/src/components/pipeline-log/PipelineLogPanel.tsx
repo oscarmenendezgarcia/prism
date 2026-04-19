@@ -197,15 +197,15 @@ export function PipelineLogPanel() {
       />
 
       {/* Panel header */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0 bg-surface-elevated">
         <div className="flex items-center gap-2">
           <span
-            className="material-symbols-outlined text-base text-text-secondary leading-none"
+            className="material-symbols-outlined text-base text-primary leading-none"
             aria-hidden="true"
           >
             article
           </span>
-          <span className="text-sm font-medium text-text-primary">Pipeline Logs</span>
+          <span className="text-sm font-semibold text-text-primary tracking-tight">Pipeline Logs</span>
           {isRunActive && (
             <span
               className="relative flex h-2 w-2"
@@ -220,7 +220,7 @@ export function PipelineLogPanel() {
         <button
           onClick={() => setLogPanelOpen(false)}
           aria-label="Close pipeline log panel"
-          className="w-7 h-7 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant transition-colors duration-150"
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary transition-all duration-150"
         >
           <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
             close
