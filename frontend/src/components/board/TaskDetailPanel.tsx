@@ -851,10 +851,12 @@ export function TaskDetailPanel(): React.ReactElement | null {
   );
 
   if (isDesktop) {
+    const commentCount = (detailTask.comments ?? []).length;
+
     return (
       <>
         {/* Backdrop */}
-        <div className="fixed inset-0 z-[105] bg-black/60 backdrop-blur-sm" aria-hidden="true" onClick={closeDetailPanel} />
+        <div className="fixed inset-0 z-[105] bg-black/65 backdrop-blur-[2px]" aria-hidden="true" onClick={closeDetailPanel} />
 
         {/* Centering wrapper */}
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 pointer-events-none">
@@ -864,32 +866,52 @@ export function TaskDetailPanel(): React.ReactElement | null {
             aria-modal="true"
             aria-label="Task detail"
             data-testid="task-detail-modal"
-            className="pointer-events-auto bg-surface border border-border rounded-xl shadow-[0_24px_80px_rgba(0,0,0,0.6)] w-full max-w-[800px] max-h-[88vh] flex flex-col animate-scale-in"
+            className="pointer-events-auto bg-surface border border-border rounded-2xl shadow-[0_32px_96px_rgba(0,0,0,0.7),0_0_0_1px_rgba(255,255,255,0.04)] w-full max-w-[860px] max-h-[88vh] flex flex-col animate-scale-in overflow-hidden"
           >
             {/* ── Header ────────────────────────────────────────────── */}
-            <div className="flex items-center gap-3 h-14 px-5 border-b border-border flex-shrink-0 bg-surface-elevated/60 rounded-t-xl">
+            <div className="flex items-center gap-3 px-5 py-3.5 border-b border-border flex-shrink-0">
               {closeButton}
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                <span className="font-mono text-xs text-text-disabled bg-surface-variant px-1.5 py-0.5 rounded flex-shrink-0">
-                  {shortId}
-                </span>
-                {columnBadge}
+              <div className="flex-1 min-w-0">
+                <h2 className="text-sm font-semibold text-text-primary truncate leading-snug">
+                  {detailTask.title}
+                </h2>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="font-mono text-[11px] text-text-disabled">{shortId}</span>
+                  {column && (
+                    <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${
+                      column === 'done' ? 'text-success' : column === 'in-progress' ? 'text-primary' : 'text-text-secondary'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        column === 'done' ? 'bg-success' : column === 'in-progress' ? 'bg-primary' : 'bg-text-disabled'
+                      }`} />
+                      {columnLabel}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* ── 2-column body ─────────────────────────────────────── */}
             <div className="flex flex-1 overflow-hidden min-h-0">
               {/* Left: fields */}
-              <div className="w-[55%] overflow-y-auto px-6 py-5 flex flex-col gap-5 border-r border-border min-w-0" aria-label="Task fields">
+              <div className="w-[56%] overflow-y-auto px-6 py-5 flex flex-col gap-5 border-r border-border min-w-0" aria-label="Task fields">
                 {fieldsContent}
-                <div className="flex flex-col gap-1 pt-2 mt-auto border-t border-border">
+                <div className="flex flex-col gap-1 pt-3 mt-auto border-t border-border/60">
                   {timestampsContent}
                 </div>
               </div>
 
               {/* Right: comments */}
-              <div className="w-[45%] overflow-y-auto px-5 py-5 min-w-0 bg-surface-elevated/20" aria-label="Comments">
-                {commentsContent}
+              <div className="w-[44%] flex flex-col min-w-0 bg-background/40">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
+                  <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">Comments</span>
+                  {commentCount > 0 && (
+                    <span className="text-[11px] font-mono text-text-disabled bg-surface-variant px-1.5 py-0.5 rounded-full">{commentCount}</span>
+                  )}
+                </div>
+                <div className="flex-1 overflow-y-auto px-5 py-4" aria-label="Comments">
+                  {commentsContent}
+                </div>
               </div>
             </div>
           </div>
