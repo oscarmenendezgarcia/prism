@@ -577,10 +577,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium leading-none uppercase tracking-wide flex-shrink-0 ${
         column === 'done'
-          ? 'bg-[rgba(36,138,61,0.12)] dark:bg-[rgba(48,209,88,0.14)] text-badge-done-text'
+          ? 'bg-success/10 text-success'
           : column === 'in-progress'
-          ? 'bg-[rgba(10,132,255,0.12)] dark:bg-[rgba(10,132,255,0.14)] text-badge-research-text'
-          : 'bg-[rgba(232,104,0,0.12)] dark:bg-[rgba(255,159,10,0.14)] text-badge-task-text'
+          ? 'bg-col-in-progress-pill text-col-in-progress'
+          : 'bg-surface-elevated text-text-secondary'
       }`}
     >
       {columnLabel}
