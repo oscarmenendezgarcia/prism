@@ -37,25 +37,24 @@ function PipelineLogToggle() {
       aria-pressed={logPanelOpen}
       aria-disabled={inactive}
       tabIndex={inactive ? -1 : 0}
-      className={`relative h-10 min-w-[72px] px-3 flex flex-col items-center justify-center gap-0.5 rounded-lg transition-all duration-150 ease-apple focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/50 ${
+      className={`relative w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-fast ease-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
         inactive
-          ? 'opacity-40 pointer-events-none text-text-secondary bg-white/[0.04] border border-white/[0.08]'
+          ? 'opacity-40 pointer-events-none text-text-secondary'
           : logPanelOpen
-            ? 'bg-primary/[0.15] text-primary border border-primary/30'
-            : 'text-text-secondary bg-white/[0.04] border border-white/[0.08] hover:bg-surface-variant hover:text-text-primary'
+            ? 'bg-primary/15 text-primary'
+            : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant'
       }`}
     >
       {showDot && (
         <span
-          className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-error"
+          className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-error"
           aria-hidden="true"
           data-testid="logs-unseen-dot"
         />
       )}
-      <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
+      <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
         article
       </span>
-      <span className="hidden sm:block text-[10px] font-medium leading-none">Logs</span>
     </button>
   );
 }
@@ -64,25 +63,30 @@ export function Header() {
   const openCreateModal = useAppStore((s) => s.openCreateModal);
 
   return (
-    <header className="h-16 bg-surface/80 backdrop-blur-md border-b border-border flex items-center px-4 gap-4 sticky top-0 z-[100]">
-      {/* Brand — wireframe S-10 left section */}
+    <header className="flex items-center justify-between h-header px-6 bg-surface-elevated glass-heavy border-b border-border sticky top-0 z-[100]">
+      {/* Brand */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        <span className="text-primary text-xl leading-none select-none" aria-hidden="true">◆</span>
-        <h1 className="font-semibold text-text-primary text-sm tracking-tight">Prism</h1>
+        <div className="w-7 h-7 flex items-center justify-center rounded-lg bg-primary/10">
+          <span className="text-primary text-sm font-bold leading-none select-none">◆</span>
+        </div>
+        <h1 className="text-sm font-semibold text-text-primary tracking-tight">Prism</h1>
       </div>
 
-      {/* Run indicator — between brand and actions */}
-      <div className="flex items-center">
+      {/* Centre: unified run indicator (ADR-1 run-indicator) */}
+      <div className="flex items-center gap-3 flex-1 justify-center">
         <RunIndicator />
       </div>
 
       {/* Actions: Panel Toggles | New Task | Utility Strip */}
-      <div className="flex items-center ml-auto gap-1">
-        <TerminalToggle />
-        <AgentSettingsToggle />
-        <RunHistoryToggle />
-        <PipelineLogToggle />
-        <ConfigToggle />
+      <div className="flex items-center">
+        {/* Panel Toggles */}
+        <div className="flex items-center gap-2">
+          <TerminalToggle />
+          <AgentSettingsToggle />
+          <RunHistoryToggle />
+          <PipelineLogToggle />
+          <ConfigToggle />
+        </div>
 
         <div className="w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
 
@@ -99,6 +103,7 @@ export function Header() {
 
         <div className="w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
 
+        {/* Utility Strip */}
         <ThemeToggle />
       </div>
     </header>

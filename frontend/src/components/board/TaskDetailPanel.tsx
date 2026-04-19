@@ -203,7 +203,7 @@ function PipelineFieldEditor({
   if (!isEditing) {
     return (
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+        <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
           Pipeline
         </span>
         {pipeline && pipeline.length > 0 ? (
@@ -213,7 +213,7 @@ function PipelineFieldEditor({
                 <React.Fragment key={stage}>
                   <span
                     role="listitem"
-                    className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-surface-variant text-text-primary border border-border"
+                    className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium bg-surface-variant text-text-secondary border border-border"
                   >
                     {stage}
                   </span>
@@ -230,9 +230,9 @@ function PipelineFieldEditor({
                 disabled={disabled}
                 aria-label="Edit pipeline"
                 title="Edit pipeline"
-                className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
               >
-                <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+                <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
                   edit
                 </span>
               </button>
@@ -242,9 +242,9 @@ function PipelineFieldEditor({
                 disabled={disabled}
                 aria-label="Clear pipeline"
                 title="Clear pipeline (revert to space default)"
-                className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:text-error hover:bg-error/10 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-error hover:bg-error/10 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
               >
-                <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+                <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
                   close
                 </span>
               </button>
@@ -252,7 +252,7 @@ function PipelineFieldEditor({
           </div>
         ) : (
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm text-text-secondary italic">
+            <span className="text-sm text-text-disabled italic">
               (space default)
             </span>
             <button
@@ -261,7 +261,7 @@ function PipelineFieldEditor({
               disabled={disabled}
               aria-label="Configure pipeline"
               title="Configure pipeline"
-              className="text-xs text-primary hover:text-primary/80 focus:outline-hidden focus:ring-2 focus:ring-primary rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150 px-1.5 py-0.5"
+              className="text-xs text-primary hover:text-primary/80 focus:outline-hidden focus:ring-2 focus:ring-primary rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast px-1.5 py-0.5"
             >
               Configure
             </button>
@@ -275,13 +275,13 @@ function PipelineFieldEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+      <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
         Pipeline
       </span>
 
       {/* Stage list */}
       {draftStages.length === 0 ? (
-        <p className="text-sm text-text-secondary italic px-1">
+        <p className="text-sm text-text-disabled italic px-1">
           No stages — will use space default on save.
         </p>
       ) : (
@@ -289,9 +289,9 @@ function PipelineFieldEditor({
           {draftStages.map((agentId, index) => (
             <li
               key={agentId}
-              className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-surface-elevated border border-border"
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-surface-elevated border border-border"
             >
-              <span className="text-xs font-mono text-text-secondary w-4 text-right flex-shrink-0">
+              <span className="text-xs font-mono text-text-disabled w-4 text-right flex-shrink-0">
                 {index + 1}
               </span>
               <span className="flex-1 text-sm text-text-primary font-mono truncate">
@@ -303,7 +303,7 @@ function PipelineFieldEditor({
                   onClick={() => handleMoveUp(index)}
                   disabled={index === 0}
                   aria-label={`Move ${agentId} up`}
-                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-100"
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-fast"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     arrow_upward
@@ -314,7 +314,7 @@ function PipelineFieldEditor({
                   onClick={() => handleMoveDown(index)}
                   disabled={index === draftStages.length - 1}
                   aria-label={`Move ${agentId} down`}
-                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-100"
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-fast"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     arrow_downward
@@ -324,7 +324,7 @@ function PipelineFieldEditor({
                   type="button"
                   onClick={() => handleRemove(index)}
                   aria-label={`Remove ${agentId} from pipeline`}
-                  className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant hover:text-error focus:outline-hidden focus:ring-1 focus:ring-primary transition-colors duration-100"
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-error focus:outline-hidden focus:ring-1 focus:ring-primary transition-colors duration-fast"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     close
@@ -342,7 +342,7 @@ function PipelineFieldEditor({
           aria-label="Add a stage to the pipeline"
           defaultValue=""
           onChange={(e) => { handleAddStage(e.target.value); e.currentTarget.value = ''; }}
-          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150"
+          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary transition-all duration-fast"
         >
           <option value="" disabled>Add stage...</option>
           {addableAgents.map((id) => (
@@ -575,12 +575,12 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const columnBadge = column && (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium leading-none uppercase tracking-wide flex-shrink-0 ${
+      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium leading-none uppercase tracking-wide flex-shrink-0 ${
         column === 'done'
-          ? 'bg-success/10 text-success'
+          ? 'bg-col-done-pill text-badge-done-text'
           : column === 'in-progress'
-          ? 'bg-col-in-progress-pill text-col-in-progress'
-          : 'bg-surface-elevated text-text-secondary'
+          ? 'bg-col-in-progress-pill text-primary'
+          : 'bg-surface-variant text-text-secondary'
       }`}
     >
       {columnLabel}
@@ -591,9 +591,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
     <button
       onClick={closeDetailPanel}
       aria-label="Close task detail"
-      className="w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150 flex-shrink-0"
+      className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast flex-shrink-0"
     >
-      <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+      <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
         close
       </span>
     </button>
@@ -604,8 +604,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
     <>
       {/* Active run warning banner */}
       {isActiveRun && (
-        <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-warning/10 border border-warning/30">
-          <span className="material-symbols-outlined text-warning text-base leading-none" aria-hidden="true">
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30">
+          <span className="material-symbols-outlined text-warning text-[18px] leading-none flex-shrink-0" aria-hidden="true">
             warning
           </span>
           <p className="text-xs text-warning leading-snug">
@@ -616,11 +616,11 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
       {/* ── ID ──────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+        <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
           ID
         </span>
         <div className="flex items-center gap-2">
-          <span className="flex-1 font-mono text-xs text-text-secondary bg-surface-elevated border border-border rounded-md px-3 py-2 select-all overflow-x-auto whitespace-nowrap">
+          <span className="flex-1 font-mono text-xs text-text-secondary bg-surface-elevated border border-border rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap">
             {detailTask.id}
           </span>
           <button
@@ -628,9 +628,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
             onClick={handleCopyId}
             aria-label="Copy task ID"
             title="Copy task ID"
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150"
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
           >
-            <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+            <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
               {isCopied ? 'check' : 'content_copy'}
             </span>
           </button>
@@ -639,7 +639,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
       {/* ── Title ───────────────────────────────────────────────── */}
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="detail-title" className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+        <label htmlFor="detail-title" className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
           Title
         </label>
         <input
@@ -651,20 +651,20 @@ export function TaskDetailPanel(): React.ReactElement | null {
           onBlur={handleTitleBlur}
           disabled={fieldDisabled}
           aria-disabled={fieldDisabled}
-          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
+          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
           placeholder="Task title"
         />
       </div>
 
       {/* ── Type ────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+        <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
           Type
         </span>
         <div
           role="group"
           aria-label="Task type"
-          className="flex rounded-md overflow-hidden border border-border"
+          className="flex rounded-lg overflow-hidden border border-border"
         >
           {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
             <button
@@ -675,10 +675,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
               onClick={() => handleTypeChange(t)}
               disabled={fieldDisabled}
               aria-disabled={fieldDisabled}
-              className={`flex-1 py-1.5 text-xs font-medium capitalize transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`flex-1 py-1.5 text-xs font-medium capitalize transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
                 localType === t
                   ? 'bg-primary text-on-primary'
-                  : 'bg-surface-elevated text-text-secondary hover:bg-surface-variant'
+                  : 'bg-surface-elevated text-text-secondary hover:bg-surface-variant hover:text-text-primary'
               }`}
             >
               {t}
@@ -689,7 +689,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
       {/* ── Assigned ────────────────────────────────────────────── */}
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="detail-assigned" className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+        <label htmlFor="detail-assigned" className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
           Assigned
         </label>
         <input
@@ -700,14 +700,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
           onBlur={handleAssignedBlur}
           disabled={fieldDisabled}
           aria-disabled={fieldDisabled}
-          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
+          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
           placeholder="Assign to someone..."
         />
       </div>
 
       {/* ── Description ─────────────────────────────────────────── */}
       <div className="flex flex-col gap-1.5">
-        <label htmlFor="detail-description" className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+        <label htmlFor="detail-description" className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
           Description
         </label>
         <textarea
@@ -717,7 +717,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           disabled={fieldDisabled}
           aria-disabled={fieldDisabled}
           rows={6}
-          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-150"
+          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-all duration-fast"
           placeholder="Add a description..."
         />
         <div className="flex justify-end">
@@ -752,7 +752,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
       {/* ── Attachments ──────────────────────────────────────────── */}
       {detailTask.attachments && detailTask.attachments.length > 0 && (
         <div className="flex flex-col gap-1.5" data-testid="attachments-section">
-          <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+          <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
             Attachments
           </span>
           <ul className="flex flex-col gap-1" aria-label="Task attachments">
@@ -763,10 +763,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   data-testid="attachment-row"
                   onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
                   aria-label={`Open attachment ${att.name}`}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-md bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150"
+                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
                 >
                   <span
-                    className="material-symbols-outlined text-base leading-none text-text-secondary flex-shrink-0"
+                    className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0"
                     aria-hidden="true"
                   >
                     {att.type === 'file' ? 'folder' : 'attach_file'}
@@ -804,10 +804,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const timestampsContent = (
     <>
-      <span className="text-xs text-text-disabled">
+      <span className="text-[11px] text-text-disabled">
         Created: {formatTimestamp(detailTask.createdAt)}
       </span>
-      <span className="text-xs text-text-disabled">
+      <span className="text-[11px] text-text-disabled">
         Updated: {formatTimestamp(detailTask.updatedAt)}
       </span>
     </>
@@ -820,7 +820,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
       <>
         {/* Backdrop — z-[105] to sit above the sticky header */}
         <div
-          className="fixed inset-0 z-[105] bg-black/35"
+          className="fixed inset-0 z-[105] bg-black/50"
           aria-hidden="true"
           onClick={closeDetailPanel}
         />
@@ -839,9 +839,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
             className="pointer-events-auto bg-surface border border-border rounded-modal shadow-modal w-full max-w-[600px] lg:max-w-[800px] max-h-[90vh] flex flex-col animate-scale-in"
           >
             {/* ── Modal header ──────────────────────────────────── */}
-            <div className="flex items-center justify-between gap-2 px-6 py-4 border-b border-border flex-shrink-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-xs font-mono text-text-secondary bg-surface-variant px-1.5 py-0.5 rounded-sm flex-shrink-0">
+            <div className="flex items-center gap-3 h-14 px-5 border-b border-border flex-shrink-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="font-mono text-xs text-text-disabled bg-surface-variant px-1.5 py-0.5 rounded flex-shrink-0">
                   {shortId}
                 </span>
                 {columnBadge}
@@ -858,7 +858,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
             <div className="flex flex-1 overflow-hidden min-h-0">
               {/* Left: fields */}
               <div
-                className="w-[55%] overflow-y-auto px-6 py-5 flex flex-col gap-5 border-r border-border min-w-0"
+                className="w-[55%] overflow-y-auto px-5 py-5 flex flex-col gap-5 border-r border-border min-w-0"
                 aria-label="Task fields"
               >
                 {fieldsContent}
@@ -871,7 +871,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
               {/* Right: comments */}
               <div
-                className="w-[45%] overflow-y-auto px-6 py-5 min-w-0"
+                className="w-[45%] overflow-y-auto px-5 py-5 min-w-0"
                 aria-label="Comments"
               >
                 {commentsContent}
@@ -889,7 +889,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
     <>
       {/* Backdrop — z-[105] to sit above the sticky header (z-[100]) */}
       <div
-        className="fixed inset-0 z-[105] bg-black/35"
+        className="fixed inset-0 z-[105] bg-black/50"
         aria-hidden="true"
         onClick={closeDetailPanel}
       />
@@ -900,27 +900,27 @@ export function TaskDetailPanel(): React.ReactElement | null {
         role="dialog"
         aria-modal="true"
         aria-label="Task detail"
-        className="fixed inset-y-0 right-0 z-[110] w-full sm:w-[380px] flex flex-col bg-surface border-l border-border shadow-xl animate-slide-in-right"
+        className="fixed inset-y-0 right-0 z-[110] w-full sm:w-[420px] flex flex-col bg-surface border-l border-border shadow-lg animate-slide-in-right"
       >
         {/* ── Header ──────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-border flex-shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-xs font-mono text-text-secondary bg-surface-variant px-1.5 py-0.5 rounded-sm flex-shrink-0">
+        <div className="flex items-center gap-3 h-14 px-5 border-b border-border flex-shrink-0">
+          {closeButton}
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="font-mono text-xs text-text-disabled bg-surface-variant px-1.5 py-0.5 rounded flex-shrink-0">
               {shortId}
             </span>
             {columnBadge}
           </div>
-          {closeButton}
         </div>
 
         {/* ── Scrollable body ──────────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-5">
+        <div className="flex-1 overflow-y-auto px-5 py-5 flex flex-col gap-5">
           {fieldsContent}
           {commentsContent}
         </div>
 
         {/* ── Footer — read-only metadata ──────────────────────────────── */}
-        <div className="flex-shrink-0 px-4 py-3 border-t border-border flex flex-col gap-1">
+        <div className="flex-shrink-0 px-5 py-3 border-t border-border flex flex-col gap-0.5">
           {timestampsContent}
         </div>
       </div>
