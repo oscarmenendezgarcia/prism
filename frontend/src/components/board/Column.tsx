@@ -9,11 +9,11 @@ import type { Task, Column as ColumnType } from '@/types';
 import { TaskCard } from './TaskCard';
 import { EmptyState } from './EmptyState';
 
-// ADR-003: accent classes now use semantic col.* tokens backed by CSS custom properties.
+// Wireframe S-01/S-02: Todo = neutral, In-Progress = violet left accent, Done = green left accent
 const COLUMN_META: Record<ColumnType, { label: string; accentClass: string; colIndex: number }> = {
-  'todo':        { label: 'Todo',        accentClass: 'border-col-todo',        colIndex: 0 },
-  'in-progress': { label: 'In Progress', accentClass: 'border-col-in-progress', colIndex: 1 },
-  'done':        { label: 'Done',        accentClass: 'border-col-done',        colIndex: 2 },
+  'todo':        { label: 'Todo',        accentClass: '',                     colIndex: 0 },
+  'in-progress': { label: 'In Progress', accentClass: 'border-l-2 border-l-primary', colIndex: 1 },
+  'done':        { label: 'Done',        accentClass: 'border-l-2 border-l-success', colIndex: 2 },
 };
 
 interface ColumnProps {
@@ -53,32 +53,33 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
 
   return (
     <section
-      className="flex flex-col bg-transparent rounded-lg h-full transition-colors duration-200"
+      className={`flex flex-col bg-surface rounded-xl border border-border overflow-hidden min-h-[200px] h-full transition-all duration-fast ${accentClass}`}
       aria-label={`${label} column`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       data-column={column}
     >
-      {/* S-1: sticky so the header stays visible when column content scrolls */}
-      <div className={`sticky top-0 z-10 flex items-center justify-between px-3 py-3 border-b-2 bg-background/90 backdrop-blur-sm ${accentClass}`}>
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{label}</h2>
-        {/* S-2: tabular-nums keeps the count width stable as it changes */}
-        <span className="text-xs font-semibold text-text-secondary bg-surface-elevated px-2 py-0.5 rounded-full tabular-nums">
+      {/* Column header — wireframe S-01/S-02 */}
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-shrink-0">
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-widest">{label}</h2>
+        <span
+          className="ml-2 px-2 py-0.5 text-xs font-mono bg-surface-elevated rounded-full text-text-secondary tabular-nums"
+          aria-live="polite"
+        >
           {tasks.length}
         </span>
       </div>
 
+      {/* Card area */}
       <div
         role="list"
-        className="flex flex-col gap-3 p-3 overflow-y-auto flex-1 pb-20 sm:pb-3"
+        className="flex-1 p-3 flex flex-col gap-2 overflow-y-auto pb-20 sm:pb-3"
       >
         {tasks.length === 0 ? (
           <EmptyState column={column} />
         ) : (
           tasks.map((task, cardIndex) => {
-            // A-1: stagger delay — skip if total cards > 30 (too many, animate all at once).
-            // Cap at 500ms. Column offset: colIndex × 100ms, card offset: cardIndex × 35ms.
             const staggerMs = tasks.length > 30
               ? 0
               : Math.min(COLUMN_META[column].colIndex * 100 + cardIndex * 35, 500);

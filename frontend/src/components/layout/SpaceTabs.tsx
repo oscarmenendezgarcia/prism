@@ -54,12 +54,12 @@ export function SpaceTabs() {
 
   return (
     <nav
-      className="flex items-center gap-0 border-b border-border bg-surface-elevated glass-surface px-4 overflow-x-auto"
+      className="flex items-center gap-1 border-b border-border bg-surface-elevated px-4 overflow-x-auto scrollbar-none"
       role="tablist"
       aria-label="Spaces"
     >
       {/* Tab list */}
-      <div className="flex items-center flex-1 gap-0.5 py-1">
+      <div className="flex items-center flex-1 gap-0.5 py-1.5">
         {spaces.map((space) => {
           const isActive = space.id === activeSpaceId;
           return (
@@ -69,9 +69,9 @@ export function SpaceTabs() {
               aria-selected={isActive}
               data-space-id={space.id}
               onClick={() => handleTabClick(space)}
-              className={`group relative flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all duration-200 ease-apple rounded-md ${
+              className={`group relative flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-all duration-fast select-none whitespace-nowrap ${
                 isActive
-                  ? 'bg-primary/10 text-primary border-b-2 border-primary rounded-b-none -mb-1 pb-2.5'
+                  ? 'text-primary bg-primary/10 font-medium'
                   : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant'
               }`}
             >
@@ -83,7 +83,7 @@ export function SpaceTabs() {
                 aria-label="Space options"
                 title="Space options"
                 onClick={(e) => handleKebabClick(e, space.id)}
-                className={`material-symbols-outlined text-base leading-none text-text-secondary hover:text-text-primary transition-opacity duration-150 rounded ${
+                className={`material-symbols-outlined text-base leading-none text-text-secondary hover:text-text-primary transition-opacity duration-fast rounded ${
                   isActive ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'
                 }`}
               >
@@ -94,15 +94,15 @@ export function SpaceTabs() {
         })}
       </div>
 
-      {/* Add space button */}
+      {/* Add space button — wireframe S-10: ghost icon button */}
       <button
         id="space-add-btn"
         aria-label="Create new space"
         title="Create new space"
         onClick={() => openSpaceModal('create')}
-        className="flex items-center justify-center w-8 h-8 rounded-lg text-text-secondary hover:bg-surface-variant hover:text-primary transition-all duration-150"
+        className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary transition-all duration-fast flex-shrink-0"
       >
-        <span className="material-symbols-outlined text-xl leading-none" aria-hidden="true">
+        <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
           add
         </span>
       </button>

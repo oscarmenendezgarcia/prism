@@ -158,9 +158,9 @@ export function StageTabBar({
             aria-controls={`log-panel-stage-${index}`}
             onClick={() => onSelect(index)}
             title={agentId}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium whitespace-nowrap transition-all duration-150 border-b-2 ${
+            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium uppercase tracking-wide whitespace-nowrap transition-all duration-fast border-b-2 ${
               isActive
-                ? `bg-surface-variant border-b-2 ${agentColor}`
+                ? `bg-surface-variant ${agentColor}`
                 : 'text-text-secondary border-transparent hover:bg-surface-variant hover:text-text-primary'
             }`}
           >

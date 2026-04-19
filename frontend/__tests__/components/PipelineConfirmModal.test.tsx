@@ -244,7 +244,7 @@ describe('PipelineConfirmModal — T-3 checkpoint checkboxes', () => {
     });
     render(<PipelineConfirmModal />);
     // material icon "pause_circle" should be present (aria-hidden but visible text)
-    expect(document.querySelector('[title="Pipeline will pause and wait for confirmation"]')).toBeTruthy();
+    expect(document.querySelector('[title="Pipeline will pause"]')).toBeTruthy();
   });
 
   it('checkpoint checkboxes are hidden when orchestrator mode is active', () => {

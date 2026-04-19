@@ -64,35 +64,25 @@ export function Header() {
   const openCreateModal = useAppStore((s) => s.openCreateModal);
 
   return (
-    <header className="flex items-center justify-between h-header px-6 bg-surface-elevated glass-heavy border-b border-border sticky top-0 z-[100]">
-      {/* Brand */}
-      <div className="flex items-center gap-2.5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-          <span
-            className="material-symbols-outlined text-xl text-primary leading-none"
-            aria-hidden="true"
-          >
-            view_kanban
-          </span>
-        </div>
-        <h1 className="text-base font-semibold text-text-primary tracking-tight">Prism</h1>
+    <header className="h-16 bg-surface/80 backdrop-blur-md border-b border-border flex items-center px-4 gap-4 sticky top-0 z-[100]">
+      {/* Brand — wireframe S-10 left section */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className="text-primary text-xl leading-none select-none" aria-hidden="true">◆</span>
+        <h1 className="font-semibold text-text-primary text-sm tracking-tight">Prism</h1>
       </div>
 
-      {/* Centre: unified run indicator (ADR-1 run-indicator) */}
-      <div className="flex items-center gap-3 flex-1 justify-center">
+      {/* Run indicator — between brand and actions */}
+      <div className="flex items-center">
         <RunIndicator />
       </div>
 
       {/* Actions: Panel Toggles | New Task | Utility Strip */}
-      <div className="flex items-center">
-        {/* Panel Toggles */}
-        <div className="flex items-center gap-2">
-          <TerminalToggle />
-          <AgentSettingsToggle />
-          <RunHistoryToggle />
-          <PipelineLogToggle />
-          <ConfigToggle />
-        </div>
+      <div className="flex items-center ml-auto gap-1">
+        <TerminalToggle />
+        <AgentSettingsToggle />
+        <RunHistoryToggle />
+        <PipelineLogToggle />
+        <ConfigToggle />
 
         <div className="w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
 
@@ -109,7 +99,6 @@ export function Header() {
 
         <div className="w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
 
-        {/* Utility Strip */}
         <ThemeToggle />
       </div>
     </header>
