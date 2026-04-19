@@ -59,7 +59,7 @@ export function SpaceTabs() {
       aria-label="Spaces"
     >
       {/* Tab list */}
-      <div className="flex items-center flex-1">
+      <div className="flex items-center flex-1 gap-0.5 py-1">
         {spaces.map((space) => {
           const isActive = space.id === activeSpaceId;
           return (
@@ -69,10 +69,10 @@ export function SpaceTabs() {
               aria-selected={isActive}
               data-space-id={space.id}
               onClick={() => handleTabClick(space)}
-              className={`group relative flex items-center gap-1.5 px-3 py-3 text-sm font-medium whitespace-nowrap transition-colors duration-200 border-b-2 -mb-px ${
+              className={`group relative flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all duration-200 ease-apple rounded-md ${
                 isActive
-                  ? 'text-primary border-primary'
-                  : 'text-text-secondary border-transparent hover:text-text-primary hover:border-border'
+                  ? 'bg-primary/10 text-primary border-b-2 border-primary rounded-b-none -mb-1 pb-2.5'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant'
               }`}
             >
               <span className="space-tab-name">{space.name}</span>
@@ -100,7 +100,7 @@ export function SpaceTabs() {
         aria-label="Create new space"
         title="Create new space"
         onClick={() => openSpaceModal('create')}
-        className="flex items-center justify-center w-8 h-8 rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary transition-colors duration-150"
+        className="flex items-center justify-center w-8 h-8 rounded-lg text-text-secondary hover:bg-surface-variant hover:text-primary transition-all duration-150"
       >
         <span className="material-symbols-outlined text-xl leading-none" aria-hidden="true">
           add

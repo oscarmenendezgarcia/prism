@@ -66,14 +66,16 @@ export function Header() {
   return (
     <header className="flex items-center justify-between h-header px-6 bg-surface-elevated glass-heavy border-b border-border sticky top-0 z-[100]">
       {/* Brand */}
-      <div className="flex items-center gap-3">
-        <span
-          className="material-symbols-outlined text-2xl text-primary leading-none"
-          aria-hidden="true"
-        >
-          view_kanban
-        </span>
-        <h1 className="text-xl font-medium text-text-primary tracking-tight">Prism</h1>
+      <div className="flex items-center gap-2.5">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+          <span
+            className="material-symbols-outlined text-xl text-primary leading-none"
+            aria-hidden="true"
+          >
+            view_kanban
+          </span>
+        </div>
+        <h1 className="text-base font-semibold text-text-primary tracking-tight">Prism</h1>
       </div>
 
       {/* Centre: unified run indicator (ADR-1 run-indicator) */}
