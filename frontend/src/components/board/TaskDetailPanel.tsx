@@ -718,7 +718,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           disabled={fieldDisabled}
           aria-disabled={fieldDisabled}
           rows={6}
-          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-all duration-fast"
+          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border font-sans text-sm text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-all duration-fast"
           placeholder="Add a description..."
         />
         <div className="flex justify-end">
