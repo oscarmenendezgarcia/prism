@@ -61,10 +61,10 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
       data-column={column}
     >
       {/* S-1: sticky so the header stays visible when column content scrolls */}
-      <div className={`sticky top-0 z-10 flex items-center justify-between px-3 py-2.5 border-b-2 bg-background/80 backdrop-blur-md ${accentClass}`}>
-        <h2 className="text-sm font-semibold text-text-primary tracking-tight">{label}</h2>
+      <div className={`sticky top-0 z-10 flex items-center justify-between px-3 py-3 border-b-2 bg-background/90 backdrop-blur-sm ${accentClass}`}>
+        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{label}</h2>
         {/* S-2: tabular-nums keeps the count width stable as it changes */}
-        <span className="text-xs font-medium text-text-secondary bg-surface-variant px-2 py-0.5 rounded-full tabular-nums">
+        <span className="text-xs font-semibold text-text-secondary bg-surface-elevated px-2 py-0.5 rounded-full tabular-nums">
           {tasks.length}
         </span>
       </div>

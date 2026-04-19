@@ -119,17 +119,18 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       data-column={column}
       data-testid="task-card"
       className={[
-        'group relative bg-surface rounded-card border shadow-card hover:shadow-card-hover',
-        // A-1: entrance fade-in-up; A-2: hover lifts card via translateY
-        'animate-fade-in-up hover:-translate-y-0.5',
+        'group relative bg-surface rounded-card border shadow-card',
+        // A-1: entrance fade-in-up; A-2: hover lifts card + violet glow ring
+        'animate-fade-in-up',
+        'hover:-translate-y-0.5 hover:shadow-card-hover hover:ring-1 hover:ring-primary/20',
         'transition-all duration-200 ease-apple p-3 flex flex-col gap-2',
         // shrink-0: prevent flex-shrink in overflow-y-auto column from collapsing card height
         // MB-3: minimum 44px touch target + press scale feedback on coarse pointer
         'shrink-0 min-h-[44px] [@media(pointer:coarse)]:active:scale-[0.98]',
         isDone ? 'opacity-50 grayscale-[30%]' : '',
-        isDragging ? 'opacity-50' : '',
-        isDragOver ? 'ring-2 ring-primary' : '',
-        isActiveTask ? 'border-primary/40' : 'border-border',
+        isDragging ? 'opacity-40 rotate-1 scale-[0.97]' : '',
+        isDragOver ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : '',
+        isActiveTask ? 'border-primary/40 ring-1 ring-primary/15' : 'border-border',
       ].filter(Boolean).join(' ')}
       // A-1: EXCEPTION — dynamic stagger delay requires inline style
       style={staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms`, animationFillMode: 'both' } : { animationFillMode: 'both' }}
