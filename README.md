@@ -3,6 +3,8 @@
 [![CI](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml/badge.svg)](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml)
 ![version](https://img.shields.io/badge/version-0.2.0--beta-blue)
 
+![Prism](docs/banner.png)
+
 **A Kanban board built for Claude Code agents.**
 
 Prism gives your AI pipelines a place to work. Agents create tasks, move them across columns, write to an embedded terminal, and stream live logs — all from a single interface you can run locally or in Docker.
