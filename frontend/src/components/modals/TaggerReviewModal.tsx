@@ -275,7 +275,7 @@ export function TaggerReviewModal() {
             <span
               className="material-symbols-outlined text-primary text-xl"
               aria-hidden="true"
-              style={{ fontVariationSettings: "'FILL' 1" }}
+              style={{ fontVariationSettings: "'FILL' 1" }} // lint-ok: font-variation-settings for Material Symbols icon fill — no Tailwind utility available
             >
               colors_spark
             </span>
