@@ -178,29 +178,28 @@ describe('TaskCard — active run dot', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('dot is present when this task is the active task', () => {
+  it('applies animate-glow-pulse when this task is the active task (Trend A)', () => {
     resetStores({ activeRun: ACTIVE_RUN });
-    render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
+    const { container } = render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
     expect(
-      screen.getByRole('button', { name: /agent running — view run history/i })
-    ).toBeInTheDocument();
+      container.querySelector('[data-testid="task-card"]')?.className
+    ).toContain('animate-glow-pulse');
   });
 
-  it('dot button has the correct aria-label', () => {
+  it('applies border-primary/30 when this task is the active task (Trend A)', () => {
     resetStores({ activeRun: ACTIVE_RUN });
-    render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
+    const { container } = render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
     expect(
-      screen.getByRole('button', { name: 'Agent running — view run history' })
-    ).toBeInTheDocument();
+      container.querySelector('[data-testid="task-card"]')?.className
+    ).toContain('border-primary/30');
   });
 
-  it('clicking the run dot calls openPanelForTask', () => {
-    resetStores({ activeRun: ACTIVE_RUN });
-    const openPanelForTask = vi.fn();
-    useRunHistoryStore.setState({ openPanelForTask } as never);
-    render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
-    fireEvent.click(screen.getByRole('button', { name: /agent running/i }));
-    expect(openPanelForTask).toHaveBeenCalledWith('task-1');
+  it('does not apply glow-pulse when a different task is active', () => {
+    resetStores({ activeRun: { ...ACTIVE_RUN, taskId: 'other-task' } });
+    const { container } = render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
+    expect(
+      container.querySelector('[data-testid="task-card"]')?.className
+    ).not.toContain('animate-glow-pulse');
   });
 });
 
@@ -462,14 +461,15 @@ describe('TaskCard — card wrapper styles', () => {
     ).toContain('rounded-xl');
   });
 
-  it('applies ring-2 ring-primary when task is the drag-over target', () => {
-    // isDragging/isDragOver are now read from useDragStore — set store state directly.
-    useDragStore.setState({ dragOverTaskId: BASE_TASK.id });
+  it('drag-over highlight is column-level — card does not get ring-2 (Trend A)', () => {
+    // Trend A redesign: drag highlighting moved to column level via dragOverColumn.
+    // Individual cards no longer receive ring-2 on drag-over.
+    useDragStore.setState({ dragOverColumn: 'todo' });
     const { container } = render(
       <TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />
     );
     expect(
       container.querySelector('[data-testid="task-card"]')?.className
-    ).toContain('ring-2');
+    ).not.toContain('ring-2');
   });
 });

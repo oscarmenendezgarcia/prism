@@ -653,10 +653,10 @@ describe('TaskDetailPanel — attachments section', () => {
     expect(container.querySelector('[data-testid="attachments-section"]')).not.toBeInTheDocument();
   });
 
-  it('renders the Attachments heading when task has attachments', () => {
+  it('renders the Attachments tab when task has attachments', () => {
     useAppStore.setState({ detailTask: TASK_WITH_ATTACHMENTS } as any);
     render(<TaskDetailPanel />);
-    expect(screen.getByText(/attachments/i)).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /attachments/i })).toBeInTheDocument();
   });
 
   it('renders one row per attachment — all 3 attachments are visible', () => {
@@ -786,13 +786,12 @@ describe('TaskDetailPanel — responsive layout: mobile slider (default)', () =>
     expect(document.body.querySelector('[data-testid="task-detail-modal"]')).toBeNull();
   });
 
-  it('renders comments inline (below fields) in mobile layout', () => {
+  it('renders a Comments tab in mobile layout (Trend A tabbed design)', () => {
     mockMobileViewport();
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
 
-    const commentsPanel = document.body.querySelector('[data-testid="comments-panel"]');
-    expect(commentsPanel).not.toBeNull();
+    expect(screen.getByRole('tab', { name: /comments/i })).toBeInTheDocument();
   });
 });
 
