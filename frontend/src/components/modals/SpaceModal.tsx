@@ -15,7 +15,7 @@ const DEFAULT_STAGES = ['senior-architect', 'ux-api-designer', 'developer-agent'
 const STAGE_OPTIONS  = DEFAULT_STAGES;
 
 const inputClass =
-  'w-full px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled focus:outline-hidden focus:border-primary focus:ring-2 focus:ring-primary/40 transition-colors duration-150 h-12';
+  'w-full bg-surface border border-border rounded-lg px-4 py-3 text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-fast text-sm';
 
 export function SpaceModal() {
   const spaceModal = useAppStore((s) => s.spaceModal);
@@ -196,7 +196,7 @@ export function SpaceModal() {
       </ModalBody>
 
       <ModalFooter>
-        <Button type="button" variant="secondary" onClick={closeModal}>
+        <Button type="button" variant="ghost" onClick={closeModal}>
           Cancel
         </Button>
         <Button
@@ -205,7 +205,7 @@ export function SpaceModal() {
           disabled={submitting}
           onClick={handleSubmit}
         >
-          {submitting ? 'Saving...' : mode === 'create' ? 'Create' : 'Save'}
+          {submitting ? 'Saving...' : mode === 'create' ? 'Create Space' : 'Save'}
         </Button>
       </ModalFooter>
     </Modal>

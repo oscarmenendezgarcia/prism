@@ -111,14 +111,20 @@ export function TerminalPanel() {
       />
 
       {/* Terminal header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
-        <span className="text-sm font-medium text-terminal-text">Terminal</span>
+      <div className="flex items-center justify-between h-10 px-4 border-b border-border shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-[15px] leading-none text-primary" aria-hidden="true">
+            terminal
+          </span>
+          <span className="text-xs font-semibold text-terminal-text tracking-wide">Terminal</span>
+          <div className={`${statusDotClass[activeStatus]}`} aria-label={`Session ${activeStatus}`} />
+        </div>
         <button
           onClick={closePanel}
           aria-label="Close terminal panel"
-          className="w-7 h-7 flex items-center justify-center rounded text-terminal-text hover:bg-[var(--color-terminal-tab-hover)] transition-colors duration-150"
+          className="w-7 h-7 flex items-center justify-center rounded-md text-terminal-text/50 hover:text-terminal-text hover:bg-white/5 transition-all duration-fast"
         >
-          <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
+          <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
             close
           </span>
         </button>
@@ -128,100 +134,93 @@ export function TerminalPanel() {
       <div
         role="tablist"
         aria-label="Terminal sessions"
-        className="flex items-center gap-1 px-2 py-1 border-b border-border shrink-0 overflow-x-auto"
+        className="flex items-center gap-0.5 px-2 py-1.5 bg-surface border-b border-border shrink-0 overflow-x-auto"
       >
-        {sessions.map((session) => {
-          const isActive = session.id === activeId;
-          return (
-            <div
-              key={session.id}
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => setActiveId(session.id)}
-              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs cursor-pointer select-none min-w-0 max-w-[160px] shrink-0 transition-colors duration-100 ${
-                isActive
-                  ? 'bg-[var(--color-terminal-tab-active)] text-terminal-text'
-                  : 'text-terminal-text/60 hover:bg-[var(--color-terminal-tab-hover)] hover:text-terminal-text'
-              }`}
-            >
-              {/* Status dot */}
-              <div className={statusDotClass[session.status]} />
+        <div className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto">
+          {sessions.map((session) => {
+            const isActive = session.id === activeId;
+            return (
+              <div
+                key={session.id}
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => setActiveId(session.id)}
+                className={`group/tab flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] cursor-pointer select-none min-w-0 max-w-[160px] shrink-0 transition-all duration-fast ${
+                  isActive
+                    ? 'bg-primary/[0.12] text-primary'
+                    : 'text-terminal-text/50 hover:bg-white/5 hover:text-terminal-text/80'
+                }`}
+              >
+                <div className={statusDotClass[session.status]} />
 
-              {/* Label — double-click to rename */}
-              {renamingId === session.id ? (
-                <input
-                  ref={renameInputRef}
-                  value={renameValue}
-                  onChange={(e) => setRenameValue(e.target.value)}
-                  onBlur={commitRename}
-                  onKeyDown={handleRenameKeyDown}
-                  className="bg-transparent border-b border-primary outline-hidden text-xs text-terminal-text w-20 min-w-0"
-                  maxLength={24}
-                  aria-label="Rename session"
-                  onClick={(e) => e.stopPropagation()}
-                />
-              ) : (
-                <span
-                  onDoubleClick={(e) => {
-                    e.stopPropagation();
-                    startRename(session.id, session.label);
-                  }}
-                  className="truncate"
-                  title={session.label}
-                >
-                  {session.label}
-                </span>
-              )}
-
-              {/* Close button — hidden when only one tab */}
-              {sessions.length > 1 && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeSession(session.id);
-                  }}
-                  aria-label={`Close ${session.label}`}
-                  className="ml-auto shrink-0 w-4 h-4 flex items-center justify-center rounded hover:bg-[var(--color-terminal-tab-close-hover)] text-terminal-text/60 hover:text-terminal-text transition-colors duration-100"
-                >
-                  <span className="material-symbols-outlined text-[12px] leading-none" aria-hidden="true">
-                    close
+                {renamingId === session.id ? (
+                  <input
+                    ref={renameInputRef}
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={handleRenameKeyDown}
+                    className="bg-transparent border-b border-primary outline-hidden text-[11px] text-terminal-text w-20 min-w-0"
+                    maxLength={24}
+                    aria-label="Rename session"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span
+                    onDoubleClick={(e) => { e.stopPropagation(); startRename(session.id, session.label); }}
+                    className="truncate"
+                    title={session.label}
+                  >
+                    {session.label}
                   </span>
-                </button>
-              )}
-            </div>
-          );
-        })}
+                )}
 
-        {/* Add tab button */}
-        <button
-          onClick={() => !atCap && addSession()}
-          disabled={atCap}
-          aria-disabled={atCap}
-          aria-label="Add terminal tab"
-          title={atCap ? 'Maximum 4 tabs open. Close a tab to open a new one.' : 'New terminal tab'}
-          className={`shrink-0 w-6 h-6 flex items-center justify-center rounded transition-colors duration-100 ${
-            atCap
-              ? 'text-terminal-text/20 cursor-not-allowed'
-              : 'text-terminal-text/60 hover:bg-[var(--color-terminal-tab-hover)] hover:text-terminal-text cursor-pointer'
-          }`}
-        >
-          <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
-            add
-          </span>
-        </button>
+                {sessions.length > 1 && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeSession(session.id); }}
+                    aria-label={`Close ${session.label}`}
+                    className="ml-1 shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded opacity-0 group-hover/tab:opacity-100 hover:bg-white/10 text-terminal-text/60 hover:text-terminal-text transition-all duration-fast"
+                  >
+                    <span className="material-symbols-outlined text-[11px] leading-none" aria-hidden="true">close</span>
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Trailing add button */}
+        <div className="flex items-center pl-1 border-l border-border shrink-0">
+          <button
+            onClick={() => !atCap && addSession()}
+            disabled={atCap}
+            aria-disabled={atCap}
+            aria-label="Add terminal tab"
+            title={atCap ? 'Maximum 4 tabs open' : 'New terminal tab'}
+            className={`w-6 h-6 flex items-center justify-center rounded-md transition-all duration-fast ${
+              atCap ? 'text-terminal-text/15 cursor-not-allowed' : 'text-terminal-text/40 hover:bg-white/5 hover:text-terminal-text/70 cursor-pointer'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">add</span>
+          </button>
+        </div>
       </div>
 
-      {/* Reconnect bar — shown when the active session is disconnected */}
+      {/* Reconnect bar */}
       {reconnectAvailable && (
-        <div className="px-3 py-1.5 bg-[var(--color-terminal-tab-hover)] border-b border-border shrink-0">
-          <span className="text-xs text-warning">
-            Session disconnected — reconnecting automatically...
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-warning/[0.06] border-b border-warning/20 shrink-0">
+          <span className="material-symbols-outlined text-[13px] leading-none text-warning" aria-hidden="true">
+            wifi_off
+          </span>
+          <span className="text-[11px] text-warning font-medium">
+            Session disconnected — reconnecting automatically…
           </span>
         </div>
       )}
 
       {/* One TerminalTab per session — all mounted, only active one is visible */}
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      {/* terminal-glow: inset violet shimmer from Stitch S-09 */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden shadow-[inset_0_0_40px_rgba(124,109,250,0.03)]">
         {sessions.map((session) => (
           <TerminalTab
             key={session.id}

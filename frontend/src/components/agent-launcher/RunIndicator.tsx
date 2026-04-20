@@ -62,7 +62,7 @@ interface PausedBannerProps {
 function PausedBanner({ stageName, pausedIdx, elapsed, onContinue, onAbort, onDismiss }: PausedBannerProps) {
   return (
     <div
-      className="flex items-center gap-3 px-3 py-1.5 rounded-sm bg-warning/10 border border-warning/40"
+      className="flex items-center gap-3 px-3 py-1.5 rounded-sm bg-warning-container border border-warning/40"
       role="status"
       aria-live="polite"
       aria-label={`Pipeline paused before stage ${pausedIdx + 1}: ${stageName}`}
@@ -87,7 +87,7 @@ function PausedBanner({ stageName, pausedIdx, elapsed, onContinue, onAbort, onDi
         onClick={onContinue}
         aria-label="Continue pipeline"
         title="Continue"
-        className="text-xs text-primary hover:text-primary/80 transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+        className="text-xs text-primary hover:text-primary/80 transition-colors duration-base flex items-center gap-1 flex-shrink-0"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
           play_arrow
@@ -99,7 +99,7 @@ function PausedBanner({ stageName, pausedIdx, elapsed, onContinue, onAbort, onDi
         onClick={onAbort}
         aria-label="Abort pipeline"
         title="Abort pipeline"
-        className="text-xs text-error hover:text-error-hover transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+        className="text-xs text-error hover:text-error-hover transition-colors duration-base flex items-center gap-1 flex-shrink-0"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
           stop
@@ -111,7 +111,7 @@ function PausedBanner({ stageName, pausedIdx, elapsed, onContinue, onAbort, onDi
         onClick={onDismiss}
         aria-label="Dismiss pipeline indicator"
         title="Dismiss"
-        className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-150 flex-shrink-0"
+        className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-base flex-shrink-0"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
           close
@@ -131,7 +131,7 @@ interface InterruptedBannerProps {
 function InterruptedBanner({ elapsed, onResume, onCancel, onDismiss }: InterruptedBannerProps) {
   return (
     <div
-      className="flex items-center gap-3 px-3 py-1.5 rounded-sm bg-warning/10 border border-warning/40"
+      className="flex items-center gap-3 px-3 py-1.5 rounded-sm bg-warning-container border border-warning/40"
       role="status"
       aria-live="polite"
       aria-label="Pipeline interrupted"
@@ -156,7 +156,7 @@ function InterruptedBanner({ elapsed, onResume, onCancel, onDismiss }: Interrupt
         onClick={onResume}
         aria-label="Resume pipeline"
         title="Resume"
-        className="text-xs text-primary hover:text-primary/80 transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+        className="text-xs text-primary hover:text-primary/80 transition-colors duration-base flex items-center gap-1 flex-shrink-0"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
           play_arrow
@@ -168,7 +168,7 @@ function InterruptedBanner({ elapsed, onResume, onCancel, onDismiss }: Interrupt
         onClick={onCancel}
         aria-label="Cancel pipeline"
         title="Cancel"
-        className="text-xs text-error hover:text-error-hover transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+        className="text-xs text-error hover:text-error-hover transition-colors duration-base flex items-center gap-1 flex-shrink-0"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
           stop
@@ -180,7 +180,7 @@ function InterruptedBanner({ elapsed, onResume, onCancel, onDismiss }: Interrupt
         onClick={onDismiss}
         aria-label="Dismiss pipeline indicator"
         title="Dismiss"
-        className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-150 flex-shrink-0"
+        className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-base flex-shrink-0"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
           close
@@ -211,7 +211,7 @@ function BlockedBanner({ blockedReason, elapsed, onOpenTask, onAbort, onDismiss 
 
   return (
     <div
-      className="flex items-center gap-3 px-3 py-1.5 rounded-sm bg-warning/10 border border-warning/40"
+      className="flex items-center gap-3 px-3 py-1.5 rounded-sm bg-warning-container border border-warning/40"
       role="status"
       aria-live="polite"
       aria-label={`Pipeline blocked: ${blockedReason.text}`}
@@ -234,9 +234,9 @@ function BlockedBanner({ blockedReason, elapsed, onOpenTask, onAbort, onDismiss 
 
       <button
         onClick={onOpenTask}
-        aria-label="Open task to resolve blocking question"
+        aria-label="Resolve question"
         title="Resolve question"
-        className="text-xs text-primary hover:text-primary/80 transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+        className="text-xs text-primary hover:text-primary/80 transition-colors duration-base flex items-center gap-1 flex-shrink-0"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
           open_in_new
@@ -248,7 +248,7 @@ function BlockedBanner({ blockedReason, elapsed, onOpenTask, onAbort, onDismiss 
         onClick={onAbort}
         aria-label="Abort pipeline"
         title="Abort pipeline"
-        className="text-xs text-error hover:text-error-hover transition-colors duration-150 flex items-center gap-1 flex-shrink-0"
+        className="text-xs text-error hover:text-error-hover transition-colors duration-base flex items-center gap-1 flex-shrink-0"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
           stop
@@ -260,7 +260,7 @@ function BlockedBanner({ blockedReason, elapsed, onOpenTask, onAbort, onDismiss 
         onClick={onDismiss}
         aria-label="Dismiss pipeline indicator"
         title="Dismiss"
-        className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-150 flex-shrink-0"
+        className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-base flex-shrink-0"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
           close
@@ -279,17 +279,17 @@ interface SingleAgentDotProps {
 function SingleAgentDot({ displayName, elapsed, onAbort }: SingleAgentDotProps) {
   return (
     <div
-      className="flex items-center gap-2 px-3 py-1.5 rounded-sm bg-primary/[0.10] border border-primary/[0.20]"
+      className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-primary/[0.08] border border-primary/[0.18] shadow-[0_0_12px_rgba(124,109,250,0.15)]"
       role="status"
       aria-live="polite"
       aria-label={`Agent running: ${displayName}, elapsed ${formatElapsed(elapsed)}`}
       data-testid="run-indicator-single"
     >
-      {/* Pulsing dot */}
-      <span
-        className="w-2 h-2 rounded-full bg-success animate-pulse flex-shrink-0"
-        aria-hidden="true"
-      />
+      {/* Glow pulse ring */}
+      <span className="relative flex h-2.5 w-2.5 flex-shrink-0" aria-hidden="true">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-50" />
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary shadow-[0_0_6px_rgba(124,109,250,0.9)]" />
+      </span>
 
       <span className="text-xs font-medium text-primary">
         {displayName}
@@ -303,7 +303,7 @@ function SingleAgentDot({ displayName, elapsed, onAbort }: SingleAgentDotProps) 
         onClick={onAbort}
         aria-label="Abort pipeline"
         title="Abort pipeline"
-        className="ml-1 w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-error hover:bg-error/[0.10] transition-colors duration-150"
+        className="ml-1 w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-error hover:bg-error/[0.10] transition-colors duration-base"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
           close
@@ -369,7 +369,7 @@ function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDism
                   isInjected
                     ? 'animate-loop-pop bg-warning/20 text-warning border border-warning/50'
                     : isActive
-                    ? 'bg-primary text-on-primary animate-pulse'
+                    ? 'bg-primary text-on-primary animate-run-pulse'
                     : isCompleted
                     ? 'bg-success/[0.15] text-success border border-success/30'
                     : 'bg-surface text-text-disabled border border-border'
@@ -403,7 +403,7 @@ function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDism
           onClick={onAbort}
           aria-label="Abort pipeline"
           title="Abort pipeline"
-          className="text-xs text-error hover:text-error-hover hover:bg-error/[0.10] px-2 py-0.5 rounded transition-colors duration-150 flex items-center gap-1"
+          className="text-xs text-error hover:text-error-hover hover:bg-error/[0.10] px-2 py-0.5 rounded transition-colors duration-base flex items-center gap-1"
         >
           <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
             stop
@@ -417,7 +417,7 @@ function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDism
         onClick={onDismiss}
         aria-label="Dismiss pipeline indicator"
         title="Dismiss"
-        className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-150"
+        className="w-5 h-5 flex items-center justify-center rounded text-text-secondary hover:text-text-primary hover:bg-surface transition-colors duration-base"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
           close

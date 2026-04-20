@@ -12,9 +12,9 @@ beforeEach(() => {
 
 describe('useDragStore — initial state', () => {
   it('starts with all fields null', () => {
-    const { draggedTaskId, dragOverTaskId, dragSourceColumn } = useDragStore.getState();
+    const { draggedTaskId, dragOverColumn, dragSourceColumn } = useDragStore.getState();
     expect(draggedTaskId).toBeNull();
-    expect(dragOverTaskId).toBeNull();
+    expect(dragOverColumn).toBeNull();
     expect(dragSourceColumn).toBeNull();
   });
 });
@@ -27,39 +27,39 @@ describe('useDragStore — startDrag', () => {
     expect(dragSourceColumn).toBe('todo');
   });
 
-  it('does not clear dragOverTaskId when called', () => {
-    useDragStore.setState({ dragOverTaskId: 'task-2' });
+  it('does not clear dragOverColumn when called', () => {
+    useDragStore.setState({ dragOverColumn: 'todo' });
     useDragStore.getState().startDrag('task-1', 'in-progress');
-    expect(useDragStore.getState().dragOverTaskId).toBe('task-2');
+    expect(useDragStore.getState().dragOverColumn).toBe('todo');
   });
 });
 
 describe('useDragStore — setDragOver', () => {
-  it('sets dragOverTaskId to a task ID', () => {
-    useDragStore.getState().setDragOver('task-3');
-    expect(useDragStore.getState().dragOverTaskId).toBe('task-3');
+  it('sets dragOverColumn to a column', () => {
+    useDragStore.getState().setDragOver('in-progress');
+    expect(useDragStore.getState().dragOverColumn).toBe('in-progress');
   });
 
-  it('clears dragOverTaskId when called with null', () => {
-    useDragStore.setState({ dragOverTaskId: 'task-3' });
+  it('clears dragOverColumn when called with null', () => {
+    useDragStore.setState({ dragOverColumn: 'done' });
     useDragStore.getState().setDragOver(null);
-    expect(useDragStore.getState().dragOverTaskId).toBeNull();
+    expect(useDragStore.getState().dragOverColumn).toBeNull();
   });
 });
 
 describe('useDragStore — resetDrag', () => {
-  it('clears draggedTaskId, dragOverTaskId, and dragSourceColumn', () => {
+  it('clears draggedTaskId, dragOverColumn, and dragSourceColumn', () => {
     useDragStore.setState({
       draggedTaskId: 'task-1',
-      dragOverTaskId: 'task-2',
+      dragOverColumn: 'in-progress',
       dragSourceColumn: 'in-progress',
     });
 
     useDragStore.getState().resetDrag();
 
-    const { draggedTaskId, dragOverTaskId, dragSourceColumn } = useDragStore.getState();
+    const { draggedTaskId, dragOverColumn, dragSourceColumn } = useDragStore.getState();
     expect(draggedTaskId).toBeNull();
-    expect(dragOverTaskId).toBeNull();
+    expect(dragOverColumn).toBeNull();
     expect(dragSourceColumn).toBeNull();
   });
 });

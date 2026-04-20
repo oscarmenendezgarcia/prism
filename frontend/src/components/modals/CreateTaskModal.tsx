@@ -131,6 +131,9 @@ export function CreateTaskModal() {
     }
   }
 
+  const baseInputClass =
+    'w-full bg-surface border border-border rounded-lg px-4 py-3 text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-fast text-sm';
+
   return (
     <Modal open={open} onClose={closeModal} labelId={TITLE_ID}>
       <form onSubmit={handleSubmit} noValidate>
@@ -138,7 +141,7 @@ export function CreateTaskModal() {
           <ModalTitle id={TITLE_ID}>New Task</ModalTitle>
         </ModalHeader>
 
-        <ModalBody className="flex flex-col gap-4">
+        <ModalBody className="flex flex-col gap-5">
           {/* Title */}
           <div>
             <label htmlFor="input-title" className={labelClass}>
@@ -147,7 +150,7 @@ export function CreateTaskModal() {
             <input
               id="input-title"
               ref={titleRef}
-              className={`${inputClass} ${titleError ? 'border-error ring-1 ring-error' : ''}`}
+              className={`${baseInputClass} ${titleError ? 'border-error ring-1 ring-error focus:ring-error/50' : ''}`}
               type="text"
               maxLength={TITLE_MAX}
               placeholder="What needs to be done?"
@@ -164,24 +167,33 @@ export function CreateTaskModal() {
             </div>
           </div>
 
-          {/* Type */}
+          {/* Type — chip group per wireframe S-05 */}
           <div>
-            <label htmlFor="input-type" className={labelClass}>
+            <span className={labelClass}>
               Type <span className="text-error">*</span>
-            </label>
-            <select
-              id="input-type"
-              className={`${inputClass} ${typeError ? 'border-error ring-1 ring-error' : ''}`}
-              value={type}
-              onChange={(e) => setType(e.target.value as 'feature' | 'bug' | 'tech-debt' | 'chore' | '')}
-              required
+            </span>
+            <div
+              role="group"
+              aria-label="Task type"
+              className="flex gap-2 flex-wrap mt-1.5"
             >
-              <option value="">-- Select type --</option>
-              <option value="feature">Feature</option>
-              <option value="bug">Bug</option>
-              <option value="tech-debt">Tech Debt</option>
-              <option value="chore">Chore</option>
-            </select>
+              {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="radio"
+                  aria-checked={type === t}
+                  onClick={() => setType(t)}
+                  className={`px-3 py-1.5 rounded-full border text-sm font-medium cursor-pointer transition-all duration-fast focus:outline-none focus:ring-2 focus:ring-primary/50 capitalize ${
+                    type === t
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-text-secondary hover:border-primary/40 hover:text-text-primary'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
             {typeError && (
               <span className={errorClass} role="alert">{typeError}</span>
             )}
@@ -194,7 +206,7 @@ export function CreateTaskModal() {
             </label>
             <select
               id="input-assigned"
-              className={inputClass}
+              className={baseInputClass}
               value={assigned}
               onChange={(e) => setAssigned(e.target.value)}
             >
@@ -213,9 +225,9 @@ export function CreateTaskModal() {
             </label>
             <textarea
               id="input-description"
-              className="w-full px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled focus:outline-hidden focus:border-primary focus:ring-2 focus:ring-primary/40 transition-colors duration-150 resize-none"
+              className={`${baseInputClass} min-h-[100px] resize-none`}
               rows={3}
-              placeholder="Optional details..."
+              placeholder="Add a description..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
@@ -224,12 +236,12 @@ export function CreateTaskModal() {
           {/* Pipeline (optional) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <span className={labelClass} style={{ marginBottom: 0 }}>Pipeline</span>
+              <span className="text-sm font-medium text-text-primary">Pipeline</span>
               {!pipelineOpen && (
                 <button
                   type="button"
                   onClick={() => setPipelineOpen(true)}
-                  className="text-xs text-primary hover:text-primary/80 focus:outline-hidden focus:ring-2 focus:ring-primary rounded px-1.5 py-0.5 transition-colors duration-150"
+                  className="text-xs text-primary hover:text-primary/80 focus:outline-hidden focus:ring-2 focus:ring-primary rounded px-1.5 py-0.5 transition-colors duration-fast"
                 >
                   {pipeline.length > 0 ? 'Edit' : 'Configure'}
                 </button>
@@ -243,7 +255,7 @@ export function CreateTaskModal() {
                   : '(space default)'}
               </p>
             ) : (
-              <div className="flex flex-col gap-2 border border-border rounded-md p-3 bg-surface-variant">
+              <div className="flex flex-col gap-2 border border-border rounded-lg p-3 bg-surface-elevated">
                 {pipeline.length === 0 ? (
                   <p className="text-xs text-text-secondary italic">No stages — will use space default.</p>
                 ) : (
@@ -270,7 +282,7 @@ export function CreateTaskModal() {
                   </ol>
                 )}
                 <select
-                  className={`${inputClass} h-9`}
+                  className={`${baseInputClass} py-1.5`}
                   value=""
                   onChange={(e) => { addStage(e.target.value); e.target.value = ''; }}
                   aria-label="Add a stage to the pipeline"
@@ -296,7 +308,7 @@ export function CreateTaskModal() {
         </ModalBody>
 
         <ModalFooter>
-          <Button type="button" variant="secondary" onClick={closeModal}>
+          <Button type="button" variant="ghost" onClick={closeModal}>
             Cancel
           </Button>
           <Button type="submit" variant="primary" disabled={submitting} aria-busy={submitting}>

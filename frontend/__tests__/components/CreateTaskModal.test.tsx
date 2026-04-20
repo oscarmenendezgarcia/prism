@@ -30,7 +30,8 @@ describe('CreateTaskModal', () => {
     render(<CreateTaskModal />);
     expect(screen.getByText('New Task')).toBeInTheDocument();
     expect(screen.getByLabelText(/title/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/type/i)).toBeInTheDocument();
+    // Type field is now a chip group (role="group")
+    expect(screen.getByRole('group', { name: /task type/i })).toBeInTheDocument();
   });
 
   it('shows title validation error when submitting empty title', async () => {
@@ -64,17 +65,18 @@ describe('CreateTaskModal', () => {
     expect(screen.getByText('3 / 200')).toBeInTheDocument();
   });
 
-  it('select shows the 4 new types and not the legacy ones', () => {
+  it('chip group shows the 4 new types and not the legacy ones', () => {
     useAppStore.setState({ createModalOpen: true });
     render(<CreateTaskModal />);
-    const select = screen.getByLabelText(/type/i) as HTMLSelectElement;
-    const values = Array.from(select.options).map((o) => o.value);
-    expect(values).toContain('feature');
-    expect(values).toContain('bug');
-    expect(values).toContain('tech-debt');
-    expect(values).toContain('chore');
-    expect(values).not.toContain('task');
-    expect(values).not.toContain('research');
+    // Type is now a chip group of radio buttons
+    const chipGroup = screen.getByRole('group', { name: /task type/i });
+    expect(chipGroup).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'feature' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'bug' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'tech-debt' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'chore' })).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'task' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: 'research' })).not.toBeInTheDocument();
   });
 
   it('closes when Cancel button is clicked', () => {
@@ -93,7 +95,8 @@ describe('CreateTaskModal', () => {
     render(<CreateTaskModal />);
 
     await user.type(screen.getByLabelText(/title/i), 'New Feature');
-    await user.selectOptions(screen.getByLabelText(/type/i), 'feature');
+    // Click the 'feature' chip instead of selectOptions
+    await user.click(screen.getByRole('radio', { name: 'feature' }));
     await user.type(screen.getByLabelText(/description/i), 'Some details');
 
     await user.click(screen.getByRole('button', { name: /create task/i }));
@@ -116,7 +119,8 @@ describe('CreateTaskModal', () => {
     render(<CreateTaskModal />);
 
     await user.type(screen.getByLabelText(/title/i), 'Title');
-    await user.selectOptions(screen.getByLabelText(/type/i), 'chore');
+    // Click the 'chore' chip
+    await user.click(screen.getByRole('radio', { name: 'chore' }));
     await user.click(screen.getByRole('button', { name: /create task/i }));
 
     await waitFor(() => {

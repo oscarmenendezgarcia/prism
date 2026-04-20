@@ -27,6 +27,21 @@ const STAGE_ICON: Record<string, string> = {
   'qa-engineer-e2e':   'bug_report',
 };
 
+/** Agent color token class (matches --color-agent-* in index.css). */
+const STAGE_COLOR_CLASS: Record<string, string> = {
+  'senior-architect': 'text-agent-architect',
+  'ux-api-designer':  'text-agent-ux',
+  'developer-agent':  'text-agent-dev',
+  'qa-engineer-e2e':  'text-agent-qa',
+};
+
+const STAGE_BG_CLASS: Record<string, string> = {
+  'senior-architect': 'bg-agent-architect/10',
+  'ux-api-designer':  'bg-agent-ux/10',
+  'developer-agent':  'bg-agent-dev/10',
+  'qa-engineer-e2e':  'bg-agent-qa/10',
+};
+
 export function PipelineConfirmModal() {
   const modal                 = useAppStore((s) => s.pipelineConfirmModal);
   const closePipeline         = useAppStore((s) => s.closePipelineConfirm);
@@ -184,98 +199,125 @@ export function PipelineConfirmModal() {
         <ModalTitle id={TITLE_ID}>Run Pipeline</ModalTitle>
       </ModalHeader>
 
-      <ModalBody className="flex flex-col gap-3">
+      <ModalBody className="flex flex-col gap-4">
         <p className="text-sm text-text-secondary">
           Review and adjust the stages before running. Use arrows to reorder, remove stages you don't need, or pause before any stage.
         </p>
 
+        {/* Staggered timeline — wireframe S-06 */}
         {stages.length === 0 ? (
           <p className="text-sm text-error text-center py-4">Add at least one stage to run.</p>
         ) : (
-          <ol className="flex flex-col gap-2">
-            {stages.map((stage, i) => (
-              <li
-                key={stage + i}
-                className="flex flex-col gap-1.5 bg-surface-variant border border-border rounded-md px-3 py-2"
-              >
-                {/* Stage row */}
-                <div className="flex items-center gap-2">
-                  {/* Step number */}
-                  <span className="text-[11px] text-text-disabled w-4 text-right flex-shrink-0">{i + 1}</span>
-
-                  {/* Icon */}
-                  <span
-                    className="material-symbols-outlined text-base text-primary leading-none flex-shrink-0"
-                    aria-hidden="true"
-                  >
-                    {STAGE_ICON[stage] ?? 'smart_toy'}
-                  </span>
-
-                  {/* Name */}
-                  <span className="text-sm text-text-primary flex-1 truncate">
-                    {availableAgents.find((a) => a.id === stage)?.displayName ?? stage}
-                  </span>
-
-                  {/* Move up/down */}
-                  <div className="flex gap-0.5 flex-shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => moveUp(i)}
-                      disabled={i === 0}
-                      aria-label="Move up"
-                      className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:text-primary hover:bg-primary/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          <>
+            {/* Horizontal timeline dots */}
+            <div className="flex items-start justify-between gap-2 py-4 overflow-x-auto">
+              {stages.map((stage, i) => {
+                const colorClass = STAGE_COLOR_CLASS[stage] ?? 'text-primary';
+                const bgClass = STAGE_BG_CLASS[stage] ?? 'bg-primary/10';
+                const displayName = availableAgents.find((a) => a.id === stage)?.displayName ?? stage;
+                return (
+                  <React.Fragment key={stage + i}>
+                    <div
+                      className="flex flex-col items-center gap-2 flex-1 min-w-[60px]"
+                      style={{ '--stagger-delay': `${i * 40}ms`, animationDelay: 'var(--stagger-delay)' } as React.CSSProperties} // lint-ok: stagger requires dynamic per-index CSS custom property
                     >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveDown(i)}
-                      disabled={i === stages.length - 1}
-                      aria-label="Move down"
-                      className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:text-primary hover:bg-primary/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      ↓
-                    </button>
-                  </div>
-
-                  {/* Remove */}
-                  <button
-                    type="button"
-                    onClick={() => remove(i)}
-                    aria-label="Remove stage"
-                    className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:text-error hover:bg-error/10 transition-colors flex-shrink-0 text-sm"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                {/* T-3: "Pause before this stage" checkbox — hidden in orchestrator mode */}
-                {!useOrchestrator && (
-                  <label className="flex items-center gap-2 cursor-pointer pl-6">
-                    <input
-                      type="checkbox"
-                      checked={checkpoints.has(i)}
-                      onChange={() => toggleCheckpoint(i)}
-                      aria-label={`Pause before stage ${i + 1}: ${availableAgents.find((a) => a.id === stage)?.displayName ?? stage}`}
-                      className="w-3.5 h-3.5 rounded border-border accent-primary cursor-pointer"
-                    />
-                    <span className="text-[11px] text-text-secondary select-none">
-                      Pause before this stage
-                    </span>
-                    {checkpoints.has(i) && (
-                      <span
-                        className="material-symbols-outlined text-xs text-warning leading-none"
-                        aria-hidden="true"
-                        title="Pipeline will pause and wait for confirmation"
-                      >
-                        pause_circle
+                      {/* Agent dot */}
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${bgClass} ${colorClass}`}>
+                        <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+                          {STAGE_ICON[stage] ?? 'smart_toy'}
+                        </span>
+                      </div>
+                      {/* Stage name */}
+                      <span className={`text-xs font-medium text-center leading-snug ${colorClass}`}>
+                        {displayName}
                       </span>
+                      {/* Stage number */}
+                      <span className="text-[10px] text-text-disabled font-mono">{i + 1}</span>
+                    </div>
+                    {/* Connector line between stages */}
+                    {i < stages.length - 1 && (
+                      <div className="flex-shrink-0 h-px w-6 bg-border mt-4 self-start" aria-hidden="true" />
                     )}
-                  </label>
-                )}
-              </li>
-            ))}
-          </ol>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+
+            {/* Editable stage list */}
+            <ol className="flex flex-col gap-2">
+              {stages.map((stage, i) => {
+                const colorClass = STAGE_COLOR_CLASS[stage] ?? 'text-primary';
+                const bgClass = STAGE_BG_CLASS[stage] ?? 'bg-primary/10';
+                return (
+                  <li
+                    key={stage + i}
+                    className="flex flex-col gap-1.5 bg-surface-elevated border border-border rounded-lg px-3 py-2.5"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className={`flex h-7 w-7 items-center justify-center rounded-md flex-shrink-0 ${bgClass}`}>
+                        <span className={`material-symbols-outlined text-sm leading-none ${colorClass}`} aria-hidden="true">
+                          {STAGE_ICON[stage] ?? 'smart_toy'}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-text-disabled font-mono flex-shrink-0">{i + 1}</span>
+                      <span className={`text-sm font-medium flex-1 truncate ${colorClass}`}>
+                        {availableAgents.find((a) => a.id === stage)?.displayName ?? stage}
+                      </span>
+                      <div className="flex gap-0.5 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => moveUp(i)}
+                          disabled={i === 0}
+                          aria-label="Move up"
+                          className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:text-primary hover:bg-primary/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveDown(i)}
+                          disabled={i === stages.length - 1}
+                          aria-label="Move down"
+                          className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:text-primary hover:bg-primary/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        >
+                          ↓
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => remove(i)}
+                        aria-label="Remove stage"
+                        className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:text-error hover:bg-error/10 transition-colors flex-shrink-0 text-sm"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* T-3: pause checkpoint */}
+                    {!useOrchestrator && (
+                      <label className="flex items-center gap-2 cursor-pointer pl-6">
+                        <input
+                          type="checkbox"
+                          checked={checkpoints.has(i)}
+                          onChange={() => toggleCheckpoint(i)}
+                          aria-label={`Pause before stage ${i + 1}: ${availableAgents.find((a) => a.id === stage)?.displayName ?? stage}`}
+                          className="w-3.5 h-3.5 rounded border-border accent-primary cursor-pointer"
+                        />
+                        <span className="text-[11px] text-text-secondary select-none">
+                          Pause before this stage
+                        </span>
+                        {checkpoints.has(i) && (
+                          <span className="material-symbols-outlined text-xs text-warning leading-none" aria-hidden="true" title="Pipeline will pause">
+                            pause_circle
+                          </span>
+                        )}
+                      </label>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          </>
         )}
 
         {/* Add stage selector */}

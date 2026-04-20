@@ -24,7 +24,7 @@ export function ColumnTabBar({ activeColumn, taskCounts, onSelect }: ColumnTabBa
     <div
       role="tablist"
       aria-label="Kanban columns"
-      className="flex overflow-x-auto snap-x snap-mandatory gap-1 px-4 py-2 bg-surface border-b border-border"
+      className="flex justify-center overflow-x-auto snap-x snap-mandatory gap-1 px-4 py-2 bg-surface border-b border-border"
     >
       {TABS.map(({ column, label }) => {
         const isActive = column === activeColumn;

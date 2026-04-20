@@ -116,7 +116,7 @@ describe('StageTabBar — active tab styling', () => {
     expect(tabs[0]).toHaveAttribute('aria-selected', 'false');
   });
 
-  it('applies border-primary class to the active tab', () => {
+  it('applies active styling (bg-surface-variant) to the active tab', () => {
     render(
       <StageTabBar
         stages={stages}
@@ -126,10 +126,13 @@ describe('StageTabBar — active tab styling', () => {
       />
     );
     const tabs = screen.getAllByRole('tab');
-    expect(tabs[1].className).toContain('border-primary');
+    // Active tab gets bg-surface-variant + agent-specific border color
+    expect(tabs[1].className).toContain('bg-surface-variant');
+    // ux-api-designer (index 1) uses border-agent-ux
+    expect(tabs[1].className).toContain('border-agent-ux');
   });
 
-  it('does not apply border-primary to inactive tabs', () => {
+  it('does not apply active agent border color to inactive tabs', () => {
     render(
       <StageTabBar
         stages={stages}
@@ -139,8 +142,9 @@ describe('StageTabBar — active tab styling', () => {
       />
     );
     const tabs = screen.getAllByRole('tab');
-    expect(tabs[1].className).not.toContain('border-primary');
-    expect(tabs[2].className).not.toContain('border-primary');
+    // Inactive tabs should not have agent-specific border colors
+    expect(tabs[1].className).not.toContain('border-agent-ux');
+    expect(tabs[2].className).not.toContain('border-agent-dev');
   });
 });
 

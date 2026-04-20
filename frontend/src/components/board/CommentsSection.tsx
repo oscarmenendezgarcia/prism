@@ -56,96 +56,109 @@ function CommentBubble({ comment, isAnswer, onResolveToggle, disabled }: Comment
   const isNote     = comment.type === 'note';
 
   const containerClass = [
-    'flex flex-col gap-1 p-2.5 rounded-md border text-sm',
-    isAnswer   ? 'ml-5 bg-surface border-border'       : '',
-    isQuestion && !comment.resolved
-               ? 'bg-warning/[0.08] border-warning/30' : '',
-    isQuestion && comment.resolved
-               ? 'bg-surface border-border opacity-60' : '',
-    isNote     ? 'bg-surface border-border'            : '',
+    'flex gap-3',
+    isAnswer ? 'ml-4 pl-3 border-l border-border' : '',
+  ].filter(Boolean).join(' ');
+
+  const bubbleClass = [
+    'flex flex-col gap-1 p-3 rounded-lg border text-sm flex-1 min-w-0',
+    isAnswer
+      ? 'bg-surface border-border'
+      : isQuestion && !comment.resolved
+      ? 'bg-warning/[0.06] border-warning/20'
+      : isQuestion && comment.resolved
+      ? 'bg-surface border-border opacity-60'
+      : 'bg-surface-elevated border-border',
   ].filter(Boolean).join(' ');
 
   return (
     <div className={containerClass} data-testid="comment-bubble">
-      {/* Header row */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {/* Type pill */}
-        {isQuestion && (
-          <span
-            data-testid="comment-type-badge"
-            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide leading-none ${
-              comment.resolved
-                ? 'bg-success/[0.12] text-success'
-                : 'bg-warning/[0.15] text-warning'
-            }`}
-          >
-            {comment.resolved ? 'resolved' : 'question'}
-          </span>
-        )}
-        {isNote && (
-          <span
-            data-testid="comment-type-badge"
-            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide leading-none bg-surface-variant text-text-secondary"
-          >
-            note
-          </span>
-        )}
-        {isAnswer && (
-          <span className="material-symbols-outlined text-[14px] leading-none text-text-secondary" aria-hidden="true">
-            subdirectory_arrow_right
-          </span>
-        )}
-
-        {/* needs-human badge */}
-        {comment.needsHuman && (
-          <span
-            data-testid="needs-human-badge"
-            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide leading-none bg-error/[0.15] text-error"
-          >
-            needs human
-          </span>
-        )}
-
-        {/* Author */}
-        <span className="text-[11px] font-medium text-text-secondary truncate">
-          {comment.author}
-        </span>
-
-        {/* targetAgent routing indicator */}
-        {comment.targetAgent && (
-          <span
-            data-testid="comment-target-agent"
-            className="text-[10px] text-text-disabled"
-          >
-            → {comment.targetAgent}
-          </span>
-        )}
-
-        {/* Timestamp */}
-        <span className="text-[10px] text-text-disabled ml-auto flex-shrink-0">
-          {formatTimestamp(comment.createdAt)}
-        </span>
-
-        {/* Resolve toggle for questions */}
-        {isQuestion && onResolveToggle && !disabled && (
-          <button
-            type="button"
-            onClick={() => onResolveToggle(comment.id, !comment.resolved)}
-            aria-label={comment.resolved ? 'Mark as unresolved' : 'Mark as resolved'}
-            title={comment.resolved ? 'Mark as unresolved' : 'Mark as resolved'}
-            className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded hover:bg-surface-variant text-text-secondary hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-150"
-          >
-            <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
-              {comment.resolved ? 'undo' : 'check_circle'}
-            </span>
-          </button>
-        )}
+      {/* Avatar */}
+      <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+        {comment.author[0].toUpperCase()}
       </div>
+      {/* Bubble body */}
+      <div className={bubbleClass}>
+        {/* Header row */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {/* Type pill */}
+          {isQuestion && (
+            <span
+              data-testid="comment-type-badge"
+              className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide leading-none ${
+                comment.resolved
+                  ? 'bg-success/[0.12] text-success'
+                  : 'bg-warning/[0.15] text-warning'
+              }`}
+            >
+              {comment.resolved ? 'resolved' : 'question'}
+            </span>
+          )}
+          {isNote && (
+            <span
+              data-testid="comment-type-badge"
+              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide leading-none bg-surface-variant text-text-secondary"
+            >
+              note
+            </span>
+          )}
+          {isAnswer && (
+            <span className="material-symbols-outlined text-[14px] leading-none text-text-secondary" aria-hidden="true">
+              subdirectory_arrow_right
+            </span>
+          )}
 
-      {/* Body */}
-      <p className="text-sm text-text-primary leading-relaxed whitespace-pre-wrap break-words">
-        {comment.text}
-      </p>
+          {/* needs-human badge */}
+          {comment.needsHuman && (
+            <span
+              data-testid="needs-human-badge"
+              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide leading-none bg-error/[0.15] text-error"
+            >
+              needs human
+            </span>
+          )}
+
+          {/* Author */}
+          <span className="text-xs font-medium text-text-primary truncate">
+            {comment.author}
+          </span>
+
+          {/* targetAgent routing indicator */}
+          {comment.targetAgent && (
+            <span
+              data-testid="comment-target-agent"
+              className="text-[10px] text-text-disabled"
+            >
+              → {comment.targetAgent}
+            </span>
+          )}
+
+          {/* Timestamp */}
+          <span className="text-[10px] text-text-disabled ml-auto flex-shrink-0">
+            {formatTimestamp(comment.createdAt)}
+          </span>
+
+          {/* Resolve toggle for questions */}
+          {isQuestion && onResolveToggle && !disabled && (
+            <button
+              type="button"
+              onClick={() => onResolveToggle(comment.id, !comment.resolved)}
+              aria-label={comment.resolved ? 'Mark as unresolved' : 'Mark as resolved'}
+              title={comment.resolved ? 'Mark as unresolved' : 'Mark as resolved'}
+              className="flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-full hover:bg-surface-variant text-text-secondary hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+            >
+              <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
+                {comment.resolved ? 'undo' : 'check_circle'}
+              </span>
+            </button>
+          )}
+        </div>
+
+        {/* Body */}
+        <p className="text-sm text-text-primary leading-relaxed whitespace-pre-wrap break-words">
+          {comment.text}
+        </p>
+      </div>
     </div>
   );
 }
@@ -187,81 +200,88 @@ function AddCommentForm({ onSubmit, disabled }: AddCommentFormProps) {
   }, [handleSubmit]);
 
   return (
-    <div className="flex flex-col gap-2 pt-2 border-t border-border" data-testid="add-comment-form">
-      {/* Type selector */}
-      <div role="group" aria-label="Comment type" className="flex rounded-md overflow-hidden border border-border">
-        {(['note', 'question', 'answer'] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            role="radio"
-            aria-checked={type === t}
-            onClick={() => setType(t)}
-            disabled={disabled}
-            className={`flex-1 py-1 text-xs font-medium capitalize transition-colors duration-150 focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
-              type === t
-                ? 'bg-primary text-on-primary'
-                : 'bg-surface-elevated text-text-secondary hover:bg-surface-variant'
-            }`}
-          >
-            {t}
-          </button>
-        ))}
+    <div className="flex gap-3 pt-4 border-t border-border" data-testid="add-comment-form">
+      {/* Avatar */}
+      <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0 mt-1">
+        Y
       </div>
+      {/* Form body */}
+      <div className="flex-1 flex flex-col gap-2 min-w-0">
+        {/* Type selector */}
+        <div role="group" aria-label="Comment type" className="flex rounded-lg overflow-hidden border border-border">
+          {(['note', 'question', 'answer'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              role="radio"
+              aria-checked={type === t}
+              onClick={() => setType(t)}
+              disabled={disabled}
+              className={`flex-1 py-1 text-xs font-medium capitalize transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
+                type === t
+                  ? 'bg-primary text-on-primary'
+                  : 'bg-surface-elevated text-text-secondary hover:bg-surface-variant hover:text-text-primary'
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
 
-      {/* Route-to-agent input (questions only) */}
-      {type === 'question' && (
-        <input
-          type="text"
-          value={targetAgent}
-          onChange={(e) => setTargetAgent(e.target.value)}
+        {/* Route-to-agent input (questions only) */}
+        {type === 'question' && (
+          <input
+            type="text"
+            value={targetAgent}
+            onChange={(e) => setTargetAgent(e.target.value)}
+            disabled={disabled || submitting}
+            placeholder="Route to agent (optional)"
+            aria-label="Route to agent"
+            data-testid="target-agent-input"
+            className="w-full px-3 py-2 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
+          />
+        )}
+
+        {/* Textarea */}
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={handleKeyDown}
           disabled={disabled || submitting}
-          placeholder="Route to agent (optional)"
-          aria-label="Route to agent"
-          data-testid="target-agent-input"
-          className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150"
+          rows={3}
+          placeholder={
+            type === 'question'
+              ? 'Ask a question... (blocks pipeline until answered)'
+              : type === 'answer'
+              ? 'Answer a question...'
+              : 'Add a note...'
+          }
+          aria-label="Comment text"
+          className="w-full bg-surface-elevated border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-disabled resize-none focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast min-h-[72px]"
         />
-      )}
 
-      {/* Textarea */}
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={handleKeyDown}
-        disabled={disabled || submitting}
-        rows={3}
-        placeholder={
-          type === 'question'
-            ? 'Ask a question... (blocks pipeline until answered)'
-            : type === 'answer'
-            ? 'Answer a question...'
-            : 'Add a note...'
-        }
-        aria-label="Comment text"
-        className="w-full px-3 py-2 rounded-md bg-surface-elevated border border-border text-sm text-text-primary placeholder-text-disabled focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-150"
-      />
-
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] text-text-disabled">
-          ⌘↵ to submit
-        </span>
-        <Button
-          variant="primary"
-          onClick={handleSubmit}
-          disabled={disabled || submitting || !text.trim()}
-          className="text-xs px-3 py-1.5"
-        >
-          {submitting ? (
-            <>
-              <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">
-                progress_activity
-              </span>
-              Posting...
-            </>
-          ) : (
-            'Post comment'
-          )}
-        </Button>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-text-disabled">
+            ⌘↵ to submit
+          </span>
+          <Button
+            variant="primary"
+            onClick={handleSubmit}
+            disabled={disabled || submitting || !text.trim()}
+            className="text-xs px-3 py-1.5"
+          >
+            {submitting ? (
+              <>
+                <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">
+                  progress_activity
+                </span>
+                Posting...
+              </>
+            ) : (
+              'Post comment'
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -307,10 +327,10 @@ export function CommentsSection({
   const unresolved = unresolvedQuestionCount(comments);
 
   return (
-    <div className="flex flex-col gap-3" data-testid="comments-section">
+    <div className="flex flex-col gap-4" data-testid="comments-section">
       {/* Section header */}
       <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
+        <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
           Comments
         </span>
         {comments.length > 0 && (
@@ -320,7 +340,7 @@ export function CommentsSection({
         )}
         {unresolved > 0 && (
           <span
-            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-warning/[0.15] text-warning leading-none"
+            className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-warning/[0.15] text-warning leading-none"
             data-testid="unresolved-badge"
             aria-label={`${unresolved} unresolved question${unresolved !== 1 ? 's' : ''}`}
           >
@@ -331,7 +351,7 @@ export function CommentsSection({
 
       {/* Thread */}
       {topLevel.length > 0 && (
-        <div className="flex flex-col gap-2" aria-label="Comment thread">
+        <div className="flex flex-col gap-4" aria-label="Comment thread">
           {topLevel.map((comment) => (
             <React.Fragment key={comment.id}>
               <CommentBubble
@@ -340,7 +360,7 @@ export function CommentsSection({
                 onResolveToggle={comment.type === 'question' ? handleResolveToggle : undefined}
                 disabled={disabled}
               />
-              {/* Nested answers */}
+              {/* Nested answers — indented under parent */}
               {(answersByParent[comment.id] ?? []).map((answer) => (
                 <CommentBubble
                   key={answer.id}

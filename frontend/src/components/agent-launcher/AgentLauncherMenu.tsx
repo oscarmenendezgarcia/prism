@@ -121,7 +121,7 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
           ref={menuRef}
           role="menu"
           aria-label="Select agent"
-          style={{ top: menuPos.top, left: menuPos.left, maxHeight: 300 }}
+          style={{ top: menuPos.top, left: menuPos.left, maxHeight: 300 }} // lint-ok: runtime-computed position from getBoundingClientRect — no static Tailwind equivalent
           className="fixed z-[9999] min-w-[200px] bg-surface-elevated border border-border rounded-lg shadow-modal overflow-y-auto"
         >
           {/* Agent list */}

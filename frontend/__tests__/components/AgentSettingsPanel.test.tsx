@@ -102,10 +102,10 @@ describe('AgentSettingsPanel — visibility', () => {
     expect(screen.getByRole('complementary', { name: /agent launcher settings/i })).toBeInTheDocument();
   });
 
-  it('shows "Settings" heading', () => {
+  it('shows "Agent Settings" heading', () => {
     resetStore({ agentSettingsPanelOpen: true });
     render(<AgentSettingsPanel />);
-    expect(screen.getByText('Settings')).toBeInTheDocument();
+    expect(screen.getByText('Agent Settings')).toBeInTheDocument();
   });
 
   it('renders a drag handle with role=separator for panel resize', () => {
@@ -128,7 +128,7 @@ describe('AgentSettingsPanel — loading state', () => {
   it('shows loading message when agentSettings is null', () => {
     resetStore({ agentSettingsPanelOpen: true, agentSettings: null });
     render(<AgentSettingsPanel />);
-    expect(screen.getByText('Loading settings...')).toBeInTheDocument();
+    expect(screen.getByText('Loading settings…')).toBeInTheDocument();
   });
 });
 
@@ -339,9 +339,9 @@ describe('AgentSettingsPanel — Save Settings', () => {
     resetStore({ agentSettingsPanelOpen: true, saveSettings: saveFn });
     render(<AgentSettingsPanel />);
     fireEvent.click(screen.getByRole('button', { name: /save settings/i }));
-    await waitFor(() => expect(screen.getByText('Saving...')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Saving…')).toBeInTheDocument());
     resolve(undefined);
-    await waitFor(() => expect(screen.queryByText('Saving...')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('Saving…')).toBeNull());
   });
 });
 
