@@ -129,7 +129,7 @@ export function LogViewer({
       <pre
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-3 text-xs font-mono text-text-primary whitespace-pre-wrap break-words bg-surface-variant min-h-0"
+        className="flex-1 overflow-y-auto p-3 text-xs font-mono text-terminal-text whitespace-pre-wrap break-words bg-terminal-bg min-h-0"
         aria-label="Stage log output"
         aria-live="polite"
         aria-atomic="false"

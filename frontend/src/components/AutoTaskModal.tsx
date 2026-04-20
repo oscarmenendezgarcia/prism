@@ -163,9 +163,8 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
       <ModalHeader onClose={onClose}>
         <div className="flex items-center gap-2">
           <span
-            className="material-symbols-outlined icon-filled text-primary"
+            className="material-symbols-outlined icon-filled text-primary text-[20px] leading-none"
             aria-hidden="true"
-            style={{ fontSize: '20px' }}
           >
             auto_awesome
           </span>
@@ -192,7 +191,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                   : 'text-text-secondary hover:text-text-primary',
               ].join(' ')}
             >
-              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '15px' }}>
+              <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">
                 {m === 'generate' ? 'auto_awesome' : 'auto_fix_high'}
               </span>
               {m === 'generate' ? 'Generate tasks' : 'Auto-tag'}
@@ -236,7 +235,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                 />
                 {error && (
                   <p role="alert" className="text-[12px] text-error flex items-center gap-1">
-                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '14px' }}>error</span>
+                    <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">error</span>
                     {error}
                   </p>
                 )}
@@ -264,7 +263,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                       <option key={s.id} value={s.id}>{s.name}</option>
                     ))}
                   </select>
-                  <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary" aria-hidden="true" style={{ fontSize: '14px' }}>expand_more</span>
+                  <span className="material-symbols-outlined text-[14px] leading-none pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary" aria-hidden="true">expand_more</span>
                 </div>
 
                 <div className="relative">
@@ -285,7 +284,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                       <option key={col} value={col}>{COLUMN_LABELS[col]}</option>
                     ))}
                   </select>
-                  <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary" aria-hidden="true" style={{ fontSize: '14px' }}>expand_more</span>
+                  <span className="material-symbols-outlined text-[14px] leading-none pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary" aria-hidden="true">expand_more</span>
                 </div>
               </div>
             </form>
@@ -300,7 +299,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                   onClick={() => { setStep('form'); setError(null); }}
                   className="text-[12px] text-text-secondary hover:text-text-primary flex items-center gap-0.5 transition-colors"
                 >
-                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '14px' }}>arrow_back</span>
+                  <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">arrow_back</span>
                   Edit prompt
                 </button>
               </div>
@@ -322,7 +321,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                       aria-label={`Remove "${task.title}"`}
                       className="shrink-0 mt-0.5 text-text-disabled hover:text-error transition-colors opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                     >
-                      <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '16px' }}>close</span>
+                      <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">close</span>
                     </button>
                   </li>
                 ))}
@@ -334,7 +333,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
 
               {error && (
                 <p role="alert" className="text-[12px] text-error flex items-center gap-1">
-                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '14px' }}>error</span>
+                  <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">error</span>
                   {error}
                 </p>
               )}
@@ -365,13 +364,13 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
-                <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary" aria-hidden="true" style={{ fontSize: '14px' }}>expand_more</span>
+                <span className="material-symbols-outlined text-[14px] leading-none pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary" aria-hidden="true">expand_more</span>
               </div>
             </div>
 
             {error && (
               <p role="alert" className="text-[12px] text-error flex items-center gap-1">
-                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '14px' }}>error</span>
+                <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">error</span>
                 {error}
               </p>
             )}
@@ -392,12 +391,12 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
             >
               {loading ? (
                 <>
-                  <span className="material-symbols-outlined animate-spin" aria-hidden="true" style={{ fontSize: '16px' }}>progress_activity</span>
+                  <span className="material-symbols-outlined text-[16px] leading-none animate-spin" aria-hidden="true">progress_activity</span>
                   Generating...
                 </>
               ) : (
                 <>
-                  <span className="material-symbols-outlined icon-filled" aria-hidden="true" style={{ fontSize: '16px' }}>auto_awesome</span>
+                  <span className="material-symbols-outlined icon-filled text-[16px] leading-none" aria-hidden="true">auto_awesome</span>
                   {error ? 'Try again' : 'Generate tasks'}
                 </>
               )}
@@ -412,12 +411,12 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
             >
               {loading ? (
                 <>
-                  <span className="material-symbols-outlined animate-spin" aria-hidden="true" style={{ fontSize: '16px' }}>progress_activity</span>
+                  <span className="material-symbols-outlined text-[16px] leading-none animate-spin" aria-hidden="true">progress_activity</span>
                   Creating...
                 </>
               ) : (
                 <>
-                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '16px' }}>check</span>
+                  <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">check</span>
                   Create {pendingTasks.length} task{pendingTasks.length === 1 ? '' : 's'}
                 </>
               )}
@@ -433,12 +432,12 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
           >
             {loading ? (
               <>
-                <span className="material-symbols-outlined animate-spin" aria-hidden="true" style={{ fontSize: '16px' }}>progress_activity</span>
+                <span className="material-symbols-outlined text-[16px] leading-none animate-spin" aria-hidden="true">progress_activity</span>
                 Tagging...
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '16px' }}>auto_fix_high</span>
+                <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">auto_fix_high</span>
                 {error ? 'Try again' : 'Auto-tag tasks'}
               </>
             )}

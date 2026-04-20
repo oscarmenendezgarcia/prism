@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/check-design-invariants.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "lint:design": "node scripts/check-design-invariants.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

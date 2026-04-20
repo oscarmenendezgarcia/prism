@@ -182,7 +182,7 @@ export function PipelineLogPanel() {
       role="complementary"
       aria-label="Pipeline log viewer"
       className="relative flex flex-col bg-surface border-l border-border h-full shrink-0 w-[var(--panel-w)]"
-      style={{ '--panel-w': `${width}px` } as React.CSSProperties}
+      style={{ '--panel-w': `${width}px` } as React.CSSProperties} // lint-ok: CSS custom-property injection for dynamic panel resize — Tailwind cannot set runtime CSS vars at the element level
     >
       {/* Left-edge drag handle */}
       <div
@@ -196,31 +196,29 @@ export function PipelineLogPanel() {
         className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
       />
 
-      {/* Panel header */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
-        <div className="flex items-center gap-2">
+      {/* Panel header — wireframe S-07 */}
+      <div className="flex items-center gap-2 px-4 py-3 bg-surface-elevated border-b border-border shrink-0">
+        <span
+          className="material-symbols-outlined text-base text-primary leading-none"
+          aria-hidden="true"
+        >
+          article
+        </span>
+        <span className="text-sm font-semibold text-text-primary flex-1">Pipeline Logs</span>
+        {isRunActive && (
           <span
-            className="material-symbols-outlined text-base text-text-secondary leading-none"
-            aria-hidden="true"
+            className="relative flex h-2 w-2"
+            aria-label="Run active"
+            title="Pipeline run is active — logs are updating"
           >
-            article
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
           </span>
-          <span className="text-sm font-medium text-text-primary">Pipeline Logs</span>
-          {isRunActive && (
-            <span
-              className="relative flex h-2 w-2"
-              aria-label="Run active"
-              title="Pipeline run is active — logs are updating"
-            >
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" />
-            </span>
-          )}
-        </div>
+        )}
         <button
           onClick={() => setLogPanelOpen(false)}
           aria-label="Close pipeline log panel"
-          className="w-7 h-7 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant transition-colors duration-150"
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary transition-all duration-fast"
         >
           <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
             close

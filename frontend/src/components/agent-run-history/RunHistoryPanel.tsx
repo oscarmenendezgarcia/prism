@@ -65,7 +65,7 @@ export function RunHistoryPanel() {
       role="complementary"
       aria-label="Agent run history"
       className="relative flex flex-col bg-surface border-l border-border h-full shrink-0 w-[var(--panel-w)]"
-      style={{ '--panel-w': `${width}px` } as React.CSSProperties}
+      style={{ '--panel-w': `${width}px` } as React.CSSProperties} // lint-ok: CSS custom-property injection for dynamic panel resize — Tailwind cannot set runtime CSS vars at the element level
     >
       {/* Left-edge drag handle */}
       <div
@@ -79,10 +79,11 @@ export function RunHistoryPanel() {
         className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
       />
 
-      {/* Panel header */}
-      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border shrink-0">
+      {/* Panel header — wireframe S-08 */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0 bg-surface-elevated">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-text-primary">Run History</span>
+          <span className="material-symbols-outlined text-base text-text-secondary leading-none" aria-hidden="true">history</span>
+          <span className="text-sm font-semibold text-text-primary">Run History</span>
           {hasActiveRun && (
             <span
               className="relative flex h-2 w-2"
@@ -97,7 +98,7 @@ export function RunHistoryPanel() {
         <button
           onClick={togglePanel}
           aria-label="Close run history panel"
-          className="w-7 h-7 flex items-center justify-center rounded text-text-secondary hover:bg-surface-variant transition-colors duration-150"
+          className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary transition-colors duration-fast"
         >
           <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
             close
@@ -107,15 +108,15 @@ export function RunHistoryPanel() {
 
       {/* Task ID filter chip — shown when opened from a task card indicator */}
       {taskIdFilter && (
-        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 bg-[#3b82f6]/5">
-          <span className="material-symbols-outlined text-sm text-[#3b82f6] leading-none" aria-hidden="true">
+        <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 bg-info-container">
+          <span className="material-symbols-outlined text-sm text-info leading-none" aria-hidden="true">
             filter_alt
           </span>
-          <span className="text-xs text-[#3b82f6] flex-1 truncate">Filtering by task</span>
+          <span className="text-xs text-info flex-1 truncate">Filtering by task</span>
           <button
             onClick={clearTaskIdFilter}
             aria-label="Clear task filter"
-            className="w-5 h-5 flex items-center justify-center rounded text-[#3b82f6] hover:bg-[#3b82f6]/20 transition-colors duration-150"
+            className="w-5 h-5 flex items-center justify-center rounded text-info hover:bg-info/[0.20] transition-colors duration-150"
           >
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">close</span>
           </button>

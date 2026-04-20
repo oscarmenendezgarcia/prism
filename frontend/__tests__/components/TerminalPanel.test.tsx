@@ -230,7 +230,7 @@ describe('TerminalPanel — tab bar', () => {
     });
     render(<TerminalPanel />);
     const addBtn = screen.getByRole('button', { name: /add terminal tab/i });
-    expect(addBtn).toHaveAttribute('title', 'Maximum 4 tabs open. Close a tab to open a new one.');
+    expect(addBtn).toHaveAttribute('title', 'Maximum 4 tabs open');
   });
 
   it('"+" button shows "New terminal tab" tooltip when under cap', () => {

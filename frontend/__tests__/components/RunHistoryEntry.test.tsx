@@ -38,11 +38,6 @@ describe('RunHistoryEntry — rendering', () => {
     expect(screen.getByText('Implement feature X')).toBeInTheDocument();
   });
 
-  it('renders space name', () => {
-    render(<RunHistoryEntry run={makeRun()} />);
-    expect(screen.getByText('Prism')).toBeInTheDocument();
-  });
-
   it('renders relative time', () => {
     render(<RunHistoryEntry run={makeRun()} />);
     // 1 min ago should render "1 min ago"
@@ -50,55 +45,41 @@ describe('RunHistoryEntry — rendering', () => {
   });
 });
 
-describe('RunHistoryEntry — status icons', () => {
-  it('shows smart_toy icon for running status', () => {
+describe('RunHistoryEntry — status dot', () => {
+  it('shows pulsing dot with bg-primary for running status', () => {
     const { container } = render(<RunHistoryEntry run={makeRun({ status: 'running' })} />);
-    const icon = container.querySelector('.material-symbols-outlined');
-    expect(icon?.textContent).toContain('smart_toy');
+    const dot = container.querySelector('span[aria-label="running"]');
+    expect(dot).toBeInTheDocument();
+    expect(dot?.className).toContain('bg-primary');
   });
 
-  it('shows check_circle icon for completed status', () => {
+  it('shows dot with bg-success for completed status', () => {
     const { container } = render(<RunHistoryEntry run={makeRun({ status: 'completed', completedAt: new Date().toISOString(), durationMs: 5000 })} />);
-    const icon = container.querySelector('.material-symbols-outlined');
-    expect(icon?.textContent).toContain('check_circle');
+    const dot = container.querySelector('span[aria-label="completed"]');
+    expect(dot).toBeInTheDocument();
+    expect(dot?.className).toContain('bg-success');
   });
 
-  it('shows cancel icon for cancelled status', () => {
+  it('shows dot with bg-warning for cancelled status', () => {
     const { container } = render(<RunHistoryEntry run={makeRun({ status: 'cancelled', completedAt: new Date().toISOString(), durationMs: 2000 })} />);
-    const icon = container.querySelector('.material-symbols-outlined');
-    expect(icon?.textContent).toContain('cancel');
+    const dot = container.querySelector('span[aria-label="cancelled"]');
+    expect(dot).toBeInTheDocument();
+    expect(dot?.className).toContain('bg-warning');
   });
 
-  it('shows error icon for failed status', () => {
+  it('shows dot with bg-error for failed status', () => {
     const { container } = render(<RunHistoryEntry run={makeRun({ status: 'failed', completedAt: new Date().toISOString(), durationMs: 1000 })} />);
-    const icon = container.querySelector('.material-symbols-outlined');
-    expect(icon?.textContent).toContain('error');
+    const dot = container.querySelector('span[aria-label="failed"]');
+    expect(dot).toBeInTheDocument();
+    expect(dot?.className).toContain('bg-error');
   });
 });
 
-describe('RunHistoryEntry — border colours', () => {
-  it('applies border-l-primary for running status', () => {
+describe('RunHistoryEntry — hover style', () => {
+  it('applies hover:bg-surface-variant for clickable appearance', () => {
     const { container } = render(<RunHistoryEntry run={makeRun({ status: 'running' })} />);
     const li = container.querySelector('li');
-    expect(li?.className).toContain('border-l-primary');
-  });
-
-  it('applies border-l-success for completed status', () => {
-    const { container } = render(<RunHistoryEntry run={makeRun({ status: 'completed', completedAt: new Date().toISOString(), durationMs: 0 })} />);
-    const li = container.querySelector('li');
-    expect(li?.className).toContain('border-l-success');
-  });
-
-  it('applies border-l-warning for cancelled status', () => {
-    const { container } = render(<RunHistoryEntry run={makeRun({ status: 'cancelled', completedAt: new Date().toISOString(), durationMs: 0 })} />);
-    const li = container.querySelector('li');
-    expect(li?.className).toContain('border-l-warning');
-  });
-
-  it('applies border-l-error for failed status', () => {
-    const { container } = render(<RunHistoryEntry run={makeRun({ status: 'failed', completedAt: new Date().toISOString(), durationMs: 0 })} />);
-    const li = container.querySelector('li');
-    expect(li?.className).toContain('border-l-error');
+    expect(li?.className).toContain('hover:bg-surface-variant');
   });
 });
 

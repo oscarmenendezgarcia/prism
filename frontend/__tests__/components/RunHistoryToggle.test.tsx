@@ -74,51 +74,32 @@ describe('RunHistoryToggle', () => {
     expect(mockToggle).toHaveBeenCalled();
   });
 
-  it('has h-10 min-w-[72px] px-3 size classes (T-4 redesign)', () => {
+  it('has w-9 h-9 icon-only size classes (Trend A redesign)', () => {
     render(<RunHistoryToggle />);
     const btn = screen.getByRole('button', { name: /toggle run history panel/i });
-    expect(btn.className).toContain('h-10');
-    expect(btn.className).toContain('min-w-[72px]');
-    expect(btn.className).toContain('px-3');
+    expect(btn.className).toContain('w-9');
+    expect(btn.className).toContain('h-9');
   });
 
-  it('has flex-col layout for icon+label column (T-4 redesign)', () => {
+  it('has items-center justify-center layout (Trend A redesign)', () => {
     render(<RunHistoryToggle />);
     const btn = screen.getByRole('button', { name: /toggle run history panel/i });
-    expect(btn.className).toContain('flex-col');
-    expect(btn.className).toContain('gap-0.5');
+    expect(btn.className).toContain('items-center');
+    expect(btn.className).toContain('justify-center');
   });
 
-  it('uses rounded-lg instead of rounded-xl (T-4 wireframe spec)', () => {
+  it('uses rounded-lg instead of rounded-xl (Trend A wireframe spec)', () => {
     render(<RunHistoryToggle />);
     const btn = screen.getByRole('button', { name: /toggle run history panel/i });
     expect(btn.className).toContain('rounded-lg');
     expect(btn.className).not.toContain('rounded-xl');
   });
 
-  // T-5: text label tests
-  it('renders "History" text label (T-5)', () => {
+  it('renders icon-only — no text label (Trend A redesign)', () => {
     render(<RunHistoryToggle />);
     const btn = screen.getByRole('button', { name: /toggle run history panel/i });
-    const label = btn.querySelector('span:not(.material-symbols-outlined)');
-    expect(label).toBeInTheDocument();
-    expect(label?.textContent).toBe('History');
-  });
-
-  it('label has hidden sm:block classes for mobile-only visibility (T-5)', () => {
-    render(<RunHistoryToggle />);
-    const btn = screen.getByRole('button', { name: /toggle run history panel/i });
-    const label = btn.querySelector('span:not(.material-symbols-outlined)');
-    expect(label?.className).toContain('hidden');
-    expect(label?.className).toContain('sm:block');
-  });
-
-  it('label has text-[10px] font-medium leading-none classes (T-5)', () => {
-    render(<RunHistoryToggle />);
-    const btn = screen.getByRole('button', { name: /toggle run history panel/i });
-    const label = btn.querySelector('span:not(.material-symbols-outlined)');
-    expect(label?.className).toContain('text-[10px]');
-    expect(label?.className).toContain('font-medium');
-    expect(label?.className).toContain('leading-none');
+    const icon = btn.querySelector('.material-symbols-outlined');
+    expect(icon).toBeInTheDocument();
+    expect(btn.querySelector('span:not(.material-symbols-outlined)')).toBeNull();
   });
 });

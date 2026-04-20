@@ -110,7 +110,7 @@ function AppContent() {
             Board uses flex-1 so it shrinks gracefully when panels are open.
             Layout order: Board | TerminalPanel | ConfigPanel (ADR-1 §5.1). */}
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 overflow-hidden relative">
+          <div className="flex-1 overflow-hidden relative transition-all duration-300 ease-out">
             <Board />
             <AutoTaskFAB onClick={() => setAutoTaskModalOpen(true)} />
           </div>

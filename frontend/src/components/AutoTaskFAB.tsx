@@ -31,9 +31,8 @@ export function AutoTaskFAB({ onClick }: AutoTaskFABProps) {
       data-autotask-fab
     >
       <span
-        className="material-symbols-outlined icon-filled"
+        className="material-symbols-outlined icon-filled text-[20px] leading-none"
         aria-hidden="true"
-        style={{ fontSize: '20px' }}
       >
         auto_awesome
       </span>

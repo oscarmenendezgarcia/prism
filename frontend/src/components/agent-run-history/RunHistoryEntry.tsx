@@ -85,50 +85,45 @@ interface RunHistoryEntryProps {
 export const RunHistoryEntry = memo(function RunHistoryEntry({ run, stageLabel }: RunHistoryEntryProps) {
   const status = run.status;
 
+  // Status dot class — wireframe S-08
+  const statusDotClass =
+    status === 'running'   ? 'bg-primary animate-pulse' :
+    status === 'completed' ? 'bg-success' :
+    status === 'failed'    ? 'bg-error' :
+    status === 'cancelled' ? 'bg-warning' :
+    'bg-border';
+
   return (
     <li
-      className={`relative flex items-start gap-3 px-4 py-3 border-b border-border hover:bg-surface-elevated transition-colors duration-150 border-l-[3px] ${borderColorClass[status] ?? 'border-l-border'}`}
+      className="flex items-center gap-3 px-4 py-3 hover:bg-surface-variant transition-colors duration-fast rounded-lg cursor-pointer mx-1 my-0.5"
     >
-      {/* Icon container */}
-      <div
-        className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${iconBgClass[status] ?? ''}`}
-        aria-hidden="true"
-      >
-        <span className="material-symbols-outlined text-base leading-none">
-          {iconName[status] ?? 'help'}
-        </span>
-      </div>
+      {/* Status dot */}
+      <span
+        className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDotClass}`}
+        aria-label={status}
+      />
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        {/* Agent name — optionally prefixed with stage label */}
-        <p className="text-sm font-medium text-text-primary leading-snug truncate">
+        <p className="text-sm text-text-primary truncate leading-snug">
           {stageLabel ? `${stageLabel}: ${run.agentDisplayName}` : run.agentDisplayName}
         </p>
-
-        {/* Task title */}
-        <p className="text-xs text-text-secondary leading-snug truncate mt-0.5">
+        <p className="text-xs text-text-secondary truncate mt-0.5">
           {run.taskTitle}
         </p>
+      </div>
 
-        {/* Space + relative time + optional duration */}
-        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-          <span className="text-[11px] text-text-disabled truncate">{run.spaceName}</span>
-          <span className="text-[11px] text-text-disabled" aria-hidden="true">·</span>
-          <span className="text-[11px] text-text-disabled">{relativeTime(run.startedAt)}</span>
-
-          {run.durationMs != null && (
-            <>
-              <span className="text-[11px] text-text-disabled" aria-hidden="true">·</span>
-              <span
-                className="text-[11px] text-text-secondary font-mono"
-                aria-label={`Duration: ${formatDuration(run.durationMs)}`}
-              >
-                {formatDuration(run.durationMs)}
-              </span>
-            </>
-          )}
-        </div>
+      {/* Meta */}
+      <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+        <span className="text-xs text-text-secondary">{relativeTime(run.startedAt)}</span>
+        {run.durationMs != null && (
+          <span
+            className="text-[11px] text-text-disabled font-mono"
+            aria-label={`Duration: ${formatDuration(run.durationMs)}`}
+          >
+            {formatDuration(run.durationMs)}
+          </span>
+        )}
       </div>
     </li>
   );

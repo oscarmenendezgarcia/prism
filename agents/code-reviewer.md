@@ -114,6 +114,10 @@ For each screen described in `wireframes.md` and each `stitch-screens/*.html` fi
 3. Take a screenshot with `mcp__plugin_playwright_playwright__browser_take_screenshot` — save to `agent-docs/<feature>/screenshots/<screen-name>.png`
 4. Open the corresponding Stitch HTML file and read its structure
 
+### 2.2b — Close browser after screenshots (MANDATORY)
+
+After all screenshots are captured, call `mcp__plugin_playwright_playwright__browser_close` immediately. Do this before moving to Step 3. Leaving the browser open exhausts system RAM and kills the pipeline server.
+
 ### 2.3 — Compare and flag deviations
 
 For each screen pair (Stitch spec vs screenshot), evaluate:
