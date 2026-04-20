@@ -25,13 +25,13 @@ import type { Column } from '@/types';
 interface DragState {
   /** ID of the card currently being dragged, or null. */
   draggedTaskId: string | null;
-  /** ID of the card currently under the drag cursor, or null. */
-  dragOverTaskId: string | null;
+  /** Column currently under the drag cursor — highlights the whole column, not individual cards. */
+  dragOverColumn: Column | null;
   /** Column the drag originated from — read in handleDrop to determine direction. */
   dragSourceColumn: Column | null;
 
   startDrag: (taskId: string, sourceColumn: Column) => void;
-  setDragOver: (taskId: string | null) => void;
+  setDragOver: (column: Column | null) => void;
   resetDrag: () => void;
 }
 
@@ -41,15 +41,15 @@ interface DragState {
 
 export const useDragStore = create<DragState>((set) => ({
   draggedTaskId: null,
-  dragOverTaskId: null,
+  dragOverColumn: null,
   dragSourceColumn: null,
 
   startDrag: (taskId, sourceColumn) =>
     set({ draggedTaskId: taskId, dragSourceColumn: sourceColumn }),
 
-  setDragOver: (taskId) =>
-    set({ dragOverTaskId: taskId }),
+  setDragOver: (column) =>
+    set({ dragOverColumn: column }),
 
   resetDrag: () =>
-    set({ draggedTaskId: null, dragOverTaskId: null, dragSourceColumn: null }),
+    set({ draggedTaskId: null, dragOverColumn: null, dragSourceColumn: null }),
 }));

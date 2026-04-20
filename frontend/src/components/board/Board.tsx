@@ -31,37 +31,18 @@ export function Board() {
     useDragStore.getState().startDrag(taskId, sourceColumn);
   }, []); // stable — getState() never changes
 
-  const handleDragOver = useCallback((e: React.DragEvent, _targetColumn: ColumnType) => {
+  const handleDragOver = useCallback((e: React.DragEvent, targetColumn: ColumnType) => {
     e.preventDefault();
     e.stopPropagation();
-    const { draggedTaskId, dragOverTaskId } = useDragStore.getState();
-    // Guard: only accept events while a drag is active.
-    if (!draggedTaskId) return;
-    // Clear per-card highlight when hovering the column container directly.
-    if (dragOverTaskId !== null) {
-      useDragStore.getState().setDragOver(null);
-    }
-  }, []); // stable — no closure deps
-
-  const handleDragOverTask = useCallback((e: React.DragEvent, taskId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const { draggedTaskId, dragOverTaskId } = useDragStore.getState();
-    if (draggedTaskId && draggedTaskId !== taskId && dragOverTaskId !== taskId) {
-      useDragStore.getState().setDragOver(taskId);
+    if (!useDragStore.getState().draggedTaskId) return;
+    if (useDragStore.getState().dragOverColumn !== targetColumn) {
+      useDragStore.getState().setDragOver(targetColumn);
     }
   }, []); // stable — no closure deps
 
   // Use relatedTarget to detect genuine column-exit vs child-to-child movement.
   const handleDragLeave = useCallback((e: React.DragEvent, _targetColumn: ColumnType) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      useDragStore.getState().setDragOver(null);
-    }
-  }, []); // stable — no closure deps
-
-  const handleDragLeaveTask = useCallback((e: React.DragEvent, taskId: string) => {
-    e.stopPropagation();
-    if (useDragStore.getState().dragOverTaskId === taskId) {
       useDragStore.getState().setDragOver(null);
     }
   }, []); // stable — no closure deps
@@ -113,8 +94,9 @@ export function Board() {
 
       <main
         role="main"
-        className="flex gap-4 p-6 h-full overflow-x-auto overflow-y-hidden"
+        className="flex h-full overflow-x-auto overflow-y-hidden"
       >
+        <div className="flex gap-4 p-6 mx-auto min-w-fit h-full">
         {COLUMNS.map((col) => (
           <div
             key={col}
@@ -129,22 +111,21 @@ export function Board() {
               tasks={tasks[col] || []}
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
-              onDragOverTask={handleDragOverTask}
               onDragLeave={handleDragLeave}
-              onDragLeaveTask={handleDragLeaveTask}
               onDragEnd={handleDragEnd}
               onDrop={handleDrop}
             />
           </div>
         ))}
+        </div>
       </main>
 
-      {/* MB-2: FAB — only visible on mobile (< 640px), fixed bottom-right with safe-area */}
+      {/* MB-2: FAB — only visible on mobile (< 640px), fixed bottom-left with safe-area */}
       <button
         type="button"
         onClick={openCreateModal}
         aria-label="Create new task"
-        className="sm:hidden fixed bottom-safe-6 right-6 z-40 w-14 h-14 rounded-full bg-primary text-white shadow-lg hover:bg-primary-hover active:scale-95 transition-all duration-200 ease-spring flex items-center justify-center"
+        className="sm:hidden fixed bottom-safe-6 left-6 z-40 w-14 h-14 rounded-full bg-primary text-white shadow-lg hover:bg-primary-hover active:scale-95 transition-all duration-200 ease-spring flex items-center justify-center"
       >
         <span className="material-symbols-outlined text-2xl" aria-hidden="true">add</span>
       </button>

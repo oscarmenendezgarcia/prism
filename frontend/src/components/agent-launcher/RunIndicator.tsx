@@ -279,17 +279,17 @@ interface SingleAgentDotProps {
 function SingleAgentDot({ displayName, elapsed, onAbort }: SingleAgentDotProps) {
   return (
     <div
-      className="flex items-center gap-2 px-3 py-1.5 rounded-sm bg-primary/[0.10] border border-primary/[0.20]"
+      className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-primary/[0.08] border border-primary/[0.18] shadow-[0_0_12px_rgba(124,109,250,0.15)]"
       role="status"
       aria-live="polite"
       aria-label={`Agent running: ${displayName}, elapsed ${formatElapsed(elapsed)}`}
       data-testid="run-indicator-single"
     >
-      {/* Pulsing dot */}
-      <span
-        className="w-2 h-2 rounded-full bg-success animate-pulse flex-shrink-0"
-        aria-hidden="true"
-      />
+      {/* Glow pulse ring */}
+      <span className="relative flex h-2.5 w-2.5 flex-shrink-0" aria-hidden="true">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-50" />
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-primary shadow-[0_0_6px_rgba(124,109,250,0.9)]" />
+      </span>
 
       <span className="text-xs font-medium text-primary">
         {displayName}

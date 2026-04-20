@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Prism</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext x='16' y='24' font-size='22' text-anchor='middle' fill='%237C6DFA'%3E%E2%97%86%3C/text%3E%3C/svg%3E" />
   <!-- ADR-003 §4A.4: FOIT prevention — set html.dark class synchronously before any CSS or React loads.
        Reads localStorage('prism-theme'). Falls back to prefers-color-scheme for 'system' or absent key. -->
   <script>(function(){var t=localStorage.getItem('prism-theme');var d=t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark');})()</script>

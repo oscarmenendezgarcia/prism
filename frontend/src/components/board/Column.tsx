@@ -6,6 +6,7 @@
 
 import React, { memo } from 'react';
 import type { Task, Column as ColumnType } from '@/types';
+import { useDragStore } from '@/stores/useDragStore';
 import { TaskCard } from './TaskCard';
 import { EmptyState } from './EmptyState';
 
@@ -21,21 +22,17 @@ interface ColumnProps {
   tasks: Task[];
   onDragStart?: (e: React.DragEvent, taskId: string, sourceColumn: ColumnType) => void;
   onDragOver?: (e: React.DragEvent, targetColumn: ColumnType) => void;
-  onDragOverTask?: (e: React.DragEvent, taskId: string) => void;
   onDragLeave?: (e: React.DragEvent, targetColumn: ColumnType) => void;
-  onDragLeaveTask?: (e: React.DragEvent, taskId: string) => void;
-  /** Forwarded to TaskCard; allows Board to reset drag state on cancelled drag. */
   onDragEnd?: () => void;
   onDrop?: (e: React.DragEvent, targetColumn: ColumnType) => void;
-  // PERF: draggedTaskId and dragOverTaskId removed — TaskCard now reads drag state
-  // directly from useDragStore with per-card boolean selectors. Column no longer
-  // re-renders on drag events.
 }
 
-// PERF: memo + no drag-ID props means this component never re-renders during
-// drag events. Only re-renders when its task list or stable callbacks change.
-export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragOverTask, onDragLeave, onDragLeaveTask, onDragEnd, onDrop }: ColumnProps) {
+export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop }: ColumnProps) {
   const { label, accentClass } = COLUMN_META[column];
+
+  // Subscribe to column-level drag-over — re-renders only when this column's
+  // active state changes (2 re-renders max per drag move: prev col + next col).
+  const isDragOver = useDragStore((s) => s.dragOverColumn === column && s.draggedTaskId !== null);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -53,7 +50,11 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
 
   return (
     <section
-      className={`flex flex-col bg-surface rounded-xl border border-border overflow-hidden min-h-[200px] h-full transition-all duration-fast ${accentClass}`}
+      className={`flex flex-col bg-surface rounded-xl border overflow-hidden min-h-[200px] h-full transition-all duration-fast ${accentClass} ${
+        isDragOver
+          ? 'border-primary/60 ring-2 ring-primary/20 bg-primary/[0.03]'
+          : 'border-border'
+      }`}
       aria-label={`${label} column`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -89,10 +90,7 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
                 task={task}
                 column={column}
                 onDragStart={onDragStart}
-                onDragOver={onDragOverTask}
-                onDragLeave={onDragLeaveTask}
                 onDragEnd={onDragEnd}
-                onDrop={onDrop}
                 staggerDelayMs={staggerMs}
               />
             );

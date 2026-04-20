@@ -58,16 +58,8 @@ const COLUMNS: Column[] = ['todo', 'in-progress', 'done'];
 interface TaskCardProps {
   task: Task;
   column: Column;
-  // PERF: isDragging and isDragOver removed from props. The component now
-  // subscribes to useDragStore directly with per-card boolean selectors so
-  // that only this card re-renders when its own drag state changes — not all
-  // cards in the column.
   onDragStart?: (e: React.DragEvent, taskId: string, sourceColumn: Column) => void;
-  onDragOver?: (e: React.DragEvent, taskId: string) => void;
-  onDragLeave?: (e: React.DragEvent, taskId: string) => void;
-  /** Called when drag ends (drop or cancel). Lets Board reset drag state. */
   onDragEnd?: () => void;
-  onDrop?: (e: React.DragEvent, targetColumn: Column) => void;
   /** A-1: stagger delay in ms for the entrance animation. EXCEPTION: only inline style allowed. */
   staggerDelayMs?: number;
 }
@@ -80,7 +72,7 @@ interface TaskCardProps {
 // task list changes). Drag state is now read directly from useDragStore with
 // per-card boolean selectors — only this specific card re-renders when its own
 // drag state changes, giving O(1) re-renders per drag event.
-export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, staggerDelayMs = 0 }: TaskCardProps) {
+export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragEnd, staggerDelayMs = 0 }: TaskCardProps) {
   const moveTask          = useAppStore((s) => s.moveTask);
   const deleteTask        = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
@@ -90,10 +82,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const openDetailPanel   = useAppStore((s) => s.openDetailPanel);
   const openPanelForTask  = useRunHistoryStore((s) => s.openPanelForTask);
 
-  // Per-card drag state — Zustand only re-renders this component when the
-  // boolean result of the selector changes (false→true or true→false).
   const isDragging = useDragStore((s) => s.draggedTaskId === task.id);
-  const isDragOver = useDragStore((s) => s.dragOverTaskId === task.id);
 
   const isActiveTask = activeRun?.taskId === task.id;
   const isDone = column === 'done';
@@ -132,81 +121,37 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         'hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(124,109,250,0.15)] hover:ring-1 hover:ring-primary/30',
         isDone ? 'opacity-50 grayscale-[25%]' : '',
         isDragging ? 'rotate-1 scale-[0.97] shadow-xl ring-1 ring-primary/40 opacity-80' : '',
-        isDragOver ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : '',
-        isActiveTask ? 'border-primary/40' : '',
+        isActiveTask ? 'border-primary/30 animate-glow-pulse' : '',
       ].filter(Boolean).join(' ')}
       style={staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms`, animationFillMode: 'both' } : { animationFillMode: 'both' }}
       aria-grabbed={isDragging}
       onClick={() => openDetailPanel(task)}
       onDragStart={(e) => onDragStart?.(e, task.id, column)}
-      onDragOver={(e) => onDragOver?.(e, task.id)}
-      onDragLeave={(e) => onDragLeave?.(e, task.id)}
       onDragEnd={onDragEnd}
-      onDrop={(e) => onDrop?.(e, column)}
     >
-      {/* ── Top row: badge + active-run dot + action menu ── */}
-      <div className="flex items-start justify-between gap-2">
-        {/* Type badge */}
-        <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${badgeClass}`}>
-          <span className="material-symbols-outlined text-[11px] leading-none" aria-hidden="true">
+      {/* ── Title ── */}
+      <p className="text-sm font-medium text-text-primary leading-snug line-clamp-2">
+        {task.title}
+      </p>
+
+      {/* ── Meta row: badge + assigned + attachments + questions + action menu ── */}
+      <div className="flex items-center gap-2 mt-3 flex-wrap" data-testid="zone-b">
+        {/* Badge */}
+        <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-md flex-shrink-0 ${badgeClass}`}>
+          <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">
             {task.type === 'feature' ? 'diamond' : task.type === 'bug' ? 'bug_report' : 'science'}
           </span>
           {task.type}
         </span>
 
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Active run indicator */}
-          {isActiveTask && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); openPanelForTask(task.id); }}
-              aria-label="Agent running — view run history"
-              title="Agent running — click to view run history"
-              className="flex items-center justify-center w-5 h-5 focus:outline-hidden focus:ring-2 focus:ring-primary rounded-full"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" aria-hidden="true" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-primary" aria-hidden="true" />
-              </span>
-            </button>
-          )}
+        {/* Divider dot */}
+        <span className="w-1 h-1 rounded-full bg-border flex-shrink-0" aria-hidden="true" />
 
-          {/* More actions button — visible on hover */}
-          <div
-            data-testid="hover-overlay"
-            className="opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-fast"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="bg-surface-elevated border border-border rounded-md shadow-sm">
-              <CardActionMenu
-                taskId={task.id}
-                column={column}
-                spaceId={activeSpaceId}
-                isMutating={isMutating}
-                activeRun={activeRun}
-                onMoveLeft={showLeft ? () => moveTask(task.id, 'left', column) : undefined}
-                onMoveRight={showRight ? () => moveTask(task.id, 'right', column) : undefined}
-                onDelete={() => deleteTask(task.id)}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Title ── */}
-      <p className="mt-2 text-sm font-medium text-text-primary leading-snug line-clamp-2">
-        {task.title}
-      </p>
-
-      {/* ── Separator ── */}
-      <div className="border-t border-border my-2" />
-
-      {/* ── Bottom row: meta + indicators ── */}
-      <div className="flex items-center gap-2 flex-wrap" data-testid="zone-b">
-        {task.assigned && (
+        {/* Assigned / Unassigned */}
+        {task.assigned ? (
           <>
             <div
-              className={`w-5 h-5 rounded-full bg-gradient-to-br ${getGradient(task.assigned)} flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0`}
+              className={`w-4 h-4 rounded-full bg-gradient-to-br ${getGradient(task.assigned)} flex items-center justify-center text-[7px] font-bold text-white flex-shrink-0`}
               aria-hidden="true"
               data-testid="avatar"
             >
@@ -216,8 +161,13 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
               {task.assigned}
             </span>
           </>
+        ) : (
+          <span className="text-[11px] text-text-disabled" data-testid="unassigned-label">
+            Unassigned
+          </span>
         )}
 
+        {/* Attachments */}
         {task.attachments && task.attachments.length > 0 && (
           <button
             type="button"
@@ -225,30 +175,53 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
             aria-label={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
             title={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
             data-testid="attachment-pill"
-            className="ml-auto inline-flex items-center gap-0.5 text-xs text-text-secondary hover:text-primary transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
+            className="inline-flex items-center gap-0.5 text-xs text-text-secondary hover:text-primary transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
           >
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">attachment</span>
             {task.attachments.length}
           </button>
         )}
 
+        {/* Pending questions */}
         {pendingQuestions > 0 && (
           <span
-            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[10px] font-semibold bg-warning/[0.15] text-warning leading-none"
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-warning/[0.15] text-warning leading-none"
             data-testid="pending-questions-badge"
             aria-label={`${pendingQuestions} pending question${pendingQuestions !== 1 ? 's' : ''}`}
           >
             <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">help</span>
-            {pendingQuestions} pending
+            {pendingQuestions}
           </span>
         )}
 
-        {task.description && (
-          <p className="w-full text-xs text-text-secondary/70 line-clamp-2 mt-0.5" data-testid="desc-preview">
-            {task.description}
-          </p>
-        )}
       </div>
+
+      {/* Action menu — absolute top-right, hover only */}
+      <div
+        data-testid="hover-overlay"
+        className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-fast"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="bg-surface-elevated border border-border rounded-md shadow-sm">
+          <CardActionMenu
+            taskId={task.id}
+            column={column}
+            spaceId={activeSpaceId}
+            isMutating={isMutating}
+            activeRun={activeRun}
+            onMoveLeft={showLeft ? () => moveTask(task.id, 'left', column) : undefined}
+            onMoveRight={showRight ? () => moveTask(task.id, 'right', column) : undefined}
+            onDelete={() => deleteTask(task.id)}
+          />
+        </div>
+      </div>
+
+      {/* ── Description preview ── */}
+      {task.description && (
+        <p className="mt-2 text-[11px] text-text-disabled line-clamp-2 leading-relaxed" data-testid="desc-preview">
+          {task.description}
+        </p>
+      )}
     </article>
   );
 });
