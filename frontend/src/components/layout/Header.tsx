@@ -92,8 +92,8 @@ export function Header() {
         <h1 className="text-lg font-semibold text-text-primary tracking-tight">Prism</h1>
       </div>
 
-      {/* Centre: unified run indicator (ADR-1 run-indicator) */}
-      <div className="flex items-center gap-3 flex-1 justify-center">
+      {/* Centre: unified run indicator (ADR-1 run-indicator) — only takes space when active */}
+      <div className="flex items-center gap-3 justify-center px-4">
         <RunIndicator />
       </div>
 
