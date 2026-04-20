@@ -16,7 +16,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { RunIndicator } from '../../src/components/agent-launcher/RunIndicator';
 import { useAppStore } from '../../src/stores/useAppStore';
-import type { PipelineState, PipelineStage, AgentInfo } from '../../src/types';
+import type { PipelineState, PipelineStage, AgentInfo, BlockedReason, Task } from '../../src/types';
 
 // ---------------------------------------------------------------------------
 // Mock the API client — required because the store imports it at module load
@@ -77,14 +77,18 @@ function makePipelineState(overrides: Partial<PipelineState> = {}): PipelineStat
 // Store reset helper
 // ---------------------------------------------------------------------------
 
+const EMPTY_TASKS = { todo: [] as Task[], 'in-progress': [] as Task[], done: [] as Task[] };
+
 function resetStore(overrides: Record<string, unknown> = {}) {
   useAppStore.setState({
     pipelineState:          null,
     availableAgents:        [],
+    tasks:                  EMPTY_TASKS,
     abortPipeline:          vi.fn(),
     clearPipeline:          vi.fn(),
     resumePipeline:         vi.fn(),
     resumeInterruptedRun:   vi.fn(),
+    openDetailPanel:        vi.fn(),
     ...overrides,
   } as any);
 }
@@ -604,5 +608,157 @@ describe('RunIndicator — interrupted mode', () => {
     render(<RunIndicator />);
     expect(screen.queryByTestId('run-indicator-steps')).toBeNull();
     expect(screen.queryByTestId('run-indicator-single')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Blocked mode
+// ---------------------------------------------------------------------------
+
+describe('RunIndicator — blocked mode', () => {
+  const BLOCKED_REASON: BlockedReason = {
+    commentId: 'comment-1',
+    taskId:    'task-1',
+    author:    'developer-agent',
+    text:      'Which database should we use?',
+    blockedAt: new Date().toISOString(),
+  };
+
+  it('renders the blocked banner when status is blocked', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }) });
+    render(<RunIndicator />);
+    expect(screen.getByTestId('run-indicator-blocked')).toBeInTheDocument();
+  });
+
+  it('blocked banner has role="status" and aria-live="polite"', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }) });
+    render(<RunIndicator />);
+    const el = screen.getByTestId('run-indicator-blocked');
+    expect(el).toHaveAttribute('role', 'status');
+    expect(el).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('blocked banner shows the question text', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }) });
+    render(<RunIndicator />);
+    expect(screen.getByText(/which database should we use\?/i)).toBeInTheDocument();
+  });
+
+  it('truncates question text longer than 60 chars with ellipsis', () => {
+    const longText = 'A'.repeat(61);
+    resetStore({
+      pipelineState: makePipelineState({
+        status: 'blocked',
+        blockedReason: { ...BLOCKED_REASON, text: longText },
+      }),
+    });
+    render(<RunIndicator />);
+    // Truncated to 57 chars + "…"
+    expect(screen.getByText('A'.repeat(57) + '\u2026')).toBeInTheDocument();
+  });
+
+  it('does NOT truncate question text of exactly 60 chars', () => {
+    const exactText = 'B'.repeat(60);
+    resetStore({
+      pipelineState: makePipelineState({
+        status: 'blocked',
+        blockedReason: { ...BLOCKED_REASON, text: exactText },
+      }),
+    });
+    render(<RunIndicator />);
+    expect(screen.getByText(exactText)).toBeInTheDocument();
+  });
+
+  it('aria-label contains the blocked question text', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }) });
+    render(<RunIndicator />);
+    expect(screen.getByRole('status')).toHaveAttribute(
+      'aria-label',
+      expect.stringContaining(BLOCKED_REASON.text),
+    );
+  });
+
+  it('shows a Resolve button', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }) });
+    render(<RunIndicator />);
+    expect(screen.getByRole('button', { name: /resolve question/i })).toBeInTheDocument();
+  });
+
+  it('clicking Resolve calls openDetailPanel when task exists in todo column', () => {
+    const openDetailPanelFn = vi.fn();
+    const matchingTask: Task = {
+      id:        'task-1',
+      title:     'Test Task',
+      type:      'feature',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    resetStore({
+      pipelineState:   makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }),
+      openDetailPanel: openDetailPanelFn,
+      tasks:           { todo: [matchingTask], 'in-progress': [], done: [] },
+    });
+    render(<RunIndicator />);
+    fireEvent.click(screen.getByRole('button', { name: /resolve question/i }));
+    expect(openDetailPanelFn).toHaveBeenCalledWith(matchingTask);
+  });
+
+  it('clicking Resolve does NOT call openDetailPanel when task is not found', () => {
+    const openDetailPanelFn = vi.fn();
+    resetStore({
+      pipelineState:   makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }),
+      openDetailPanel: openDetailPanelFn,
+      tasks:           EMPTY_TASKS,
+    });
+    render(<RunIndicator />);
+    fireEvent.click(screen.getByRole('button', { name: /resolve question/i }));
+    expect(openDetailPanelFn).not.toHaveBeenCalled();
+  });
+
+  it('shows an Abort button', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }) });
+    render(<RunIndicator />);
+    expect(screen.getByRole('button', { name: /abort pipeline/i })).toBeInTheDocument();
+  });
+
+  it('clicking Abort calls abortPipeline', () => {
+    const abortFn = vi.fn();
+    resetStore({
+      pipelineState: makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }),
+      abortPipeline: abortFn,
+    });
+    render(<RunIndicator />);
+    fireEvent.click(screen.getByRole('button', { name: /abort pipeline/i }));
+    expect(abortFn).toHaveBeenCalledOnce();
+  });
+
+  it('shows a Dismiss button', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }) });
+    render(<RunIndicator />);
+    expect(screen.getByRole('button', { name: /dismiss pipeline indicator/i })).toBeInTheDocument();
+  });
+
+  it('clicking Dismiss calls clearPipeline', () => {
+    const clearFn = vi.fn();
+    resetStore({
+      pipelineState: makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }),
+      clearPipeline: clearFn,
+    });
+    render(<RunIndicator />);
+    fireEvent.click(screen.getByRole('button', { name: /dismiss pipeline indicator/i }));
+    expect(clearFn).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT render step-nodes or single-agent dot when blocked', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'blocked', blockedReason: BLOCKED_REASON }) });
+    render(<RunIndicator />);
+    expect(screen.queryByTestId('run-indicator-steps')).toBeNull();
+    expect(screen.queryByTestId('run-indicator-single')).toBeNull();
+  });
+
+  it('renders nothing when blockedReason is absent (guards against inconsistent state)', () => {
+    resetStore({ pipelineState: makePipelineState({ status: 'blocked', blockedReason: undefined }) });
+    render(<RunIndicator />);
+    expect(screen.queryByTestId('run-indicator-blocked')).toBeNull();
   });
 });
