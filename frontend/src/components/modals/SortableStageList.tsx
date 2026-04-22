@@ -6,6 +6,10 @@
  *   checkbox / remove button do not accidentally start a drag.
  * - SortableContext provides vertical-list ordering strategy.
  * - Focus is restored to the dragged row's handle after every drop.
+ * - BUG-001 fix: Escape key interception during active keyboard drag prevents
+ *   the Modal's Escape-to-close handler from firing before @dnd-kit can cancel.
+ * - BUG-002 fix: Custom accessibility.announcements provide human-readable stage
+ *   names instead of raw UUID row-instance keys.
  *
  * T-006: add SortableStageList with DnD context.
  */
@@ -96,6 +100,27 @@ export function SortableStageList({
     lastActiveIdRef.current = null;
   }, [activeId]);
 
+  // BUG-001: Prevent Escape from closing the Modal while a keyboard drag is active.
+  //
+  // @dnd-kit's KeyboardSensor registers its cancel handler on `window` in the
+  // capture phase — it fires at step (1) of the propagation chain. The Modal's
+  // Escape-to-close handler is on `document` in the bubble phase — step (3).
+  // Our interceptor sits on `document` in the capture phase — step (2). This
+  // lets @dnd-kit cancel the drag first, then we stop propagation so the Modal
+  // handler never sees the event.
+  //
+  // Using a closure that doesn't reference `activeId` is intentional: the
+  // listener is registered/unregistered by the effect lifecycle. When `activeId`
+  // is non-null the listener is present; when null it is removed.
+  useEffect(() => {
+    if (!activeId) return;
+    function stopEscCapture(e: KeyboardEvent) {
+      if (e.key === 'Escape') e.stopPropagation();
+    }
+    document.addEventListener('keydown', stopEscCapture, { capture: true });
+    return () => document.removeEventListener('keydown', stopEscCapture, { capture: true });
+  }, [activeId]);
+
   function handleDragStart({ active }: DragStartEvent) {
     const id = String(active.id);
     setActiveId(id);
@@ -131,6 +156,15 @@ export function SortableStageList({
     setActiveId(null);
   }
 
+  // BUG-002: Build a row-key → human-readable display name lookup so that
+  // the DndContext accessibility.announcements can use stage names instead
+  // of raw UUID keys. Re-computed whenever stageKeys, stages, or agents change.
+  const rowKeyToName: Record<string, string> = {};
+  stageKeys.forEach((key, i) => {
+    rowKeyToName[key] =
+      availableAgents.find((a) => a.id === stages[i])?.displayName ?? stages[i];
+  });
+
   return (
     <DndContext
       sensors={sensors}
@@ -138,6 +172,34 @@ export function SortableStageList({
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
+      // BUG-002: custom announcements replace default UUID-based text with
+      // human-readable stage names for screen-reader users.
+      accessibility={{
+        announcements: {
+          onDragStart: ({ active }) => {
+            const name = rowKeyToName[String(active.id)] ?? String(active.id);
+            return `Picked up stage ${name}. Use arrow keys to move. Space to drop. Escape to cancel.`;
+          },
+          onDragOver: ({ active, over }) => {
+            if (!over) return undefined;
+            const name = rowKeyToName[String(active.id)] ?? String(active.id);
+            const pos  = stageKeys.indexOf(String(over.id)) + 1;
+            return `Stage ${name} moved to position ${pos} of ${stageKeys.length}.`;
+          },
+          onDragEnd: ({ active, over }) => {
+            const name = rowKeyToName[String(active.id)] ?? String(active.id);
+            if (!over) return `Stage ${name} dropped.`;
+            const pos = stageKeys.indexOf(String(over.id)) + 1;
+            return pos > 0
+              ? `Stage ${name} dropped at position ${pos}.`
+              : `Stage ${name} dropped.`;
+          },
+          onDragCancel: ({ active }) => {
+            const name = rowKeyToName[String(active.id)] ?? String(active.id);
+            return `Cancelled. Stage ${name} returned to its original position.`;
+          },
+        },
+      }}
     >
       <SortableContext items={stageKeys} strategy={verticalListSortingStrategy}>
         <ol className="flex flex-col gap-2">

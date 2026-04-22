@@ -80,7 +80,11 @@ export function SortableStageItem({
       style={{ transform: CSS.Transform.toString(transform), transition }} // lint-ok: required by @dnd-kit per ADR-1 §Constraints
       data-dnd-item-key={id}
       className={`flex flex-col gap-1.5 bg-surface-elevated border border-border rounded-lg px-3 py-2.5 transition-opacity ${isDragging ? 'opacity-50' : 'opacity-100'}`}
-      aria-roledescription="sortable"
+      // BUG-003: aria-roledescription="sortable" must NOT be on the <li>.
+      // The <li> announces as "listitem" to screen readers — that is correct.
+      // The drag handle <button> below receives {…attributes} from useSortable
+      // which already includes aria-roledescription="sortable" on that element.
+      // Putting it on both causes double-announcement noise in VoiceOver/NVDA.
     >
       <div className="flex items-center gap-2.5">
         {/* ── Drag handle ── */}
