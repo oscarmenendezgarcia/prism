@@ -424,16 +424,19 @@ describe('PipelineConfirmModal — T-009 preview prompts', () => {
     expect(screen.queryByRole('button', { name: /1\. senior architect/i })).toBeNull();
   });
 
-  it('clears preview results when a stage is moved up', async () => {
+  it('clears preview results when a stage is added via the selector', async () => {
+    // DnD-based reorder invalidation is tested in PipelineConfirmModal.dnd.test.tsx.
+    // This test verifies the same invariant via the "add stage" selector.
     resetStore();
     render(<PipelineConfirmModal />);
     fireEvent.click(screen.getByRole('button', { name: /preview prompts/i }));
     await vi.waitFor(() => {
       expect(screen.getByRole('button', { name: /1\. senior architect/i })).toBeInTheDocument();
     });
-    // Move stage 1 (UX) up — the "Move up" button for index 1.
-    const moveUpButtons = screen.getAllByRole('button', { name: /move up/i });
-    fireEvent.click(moveUpButtons[1]); // index 1's move-up
+    // Add a new stage — should invalidate the preview cache.
+    fireEvent.change(screen.getByRole('combobox', { name: /add stage/i }), {
+      target: { value: 'developer-agent' },
+    });
     expect(screen.queryByRole('button', { name: /1\. senior architect/i })).toBeNull();
   });
 

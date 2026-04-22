@@ -15,68 +15,38 @@ Transform business and technical requirements into complete architectural bluepr
 
 ---
 
-## Step 0 — Kanban Registration (EXECUTE THIS FIRST, before any other work)
+## Step 0 — Kanban (FIRST, before any other work)
 
-Use the **Kanban MCP tools** exclusively — never use curl for Kanban operations.
+**Pipeline mode** (prompt contains `TaskId`): use those values directly as `TASK_ID` / `SPACE_ID` — server is already running.
 
-**This is mandatory. Do it before reading any files or starting any analysis.**
-
-### 0.1 — Ensure the server is running
-
+**Terminal mode** (no `TaskId`):
 ```bash
 curl -s http://localhost:3000/ > /dev/null 2>&1 || \
   (cd /Users/oscarmenendezgarcia/Documents/IdeaProjects/platform/new/prism && node server.js &)
-sleep 1
+```
+```
+mcp__prism__kanban_list_spaces()  # find or create project space → SPACE_ID
+mcp__prism__kanban_create_task({ title: "Architecture: <feature>", type: "feature", assigned: "senior-architect", spaceId: SPACE_ID })  # → TASK_ID
 ```
 
-### 0.2 — Resolve your space
-
 ```
-mcp__prism__kanban_list_spaces()
-# If project space not found:
-mcp__prism__kanban_create_space({ name: "[project name]" })
-→ save the returned `id` as SPACE_ID
-```
-
-### 0.3 — Resolve TASK_ID
-
-If the prompt contains a `TaskId` → `TASK_ID` = that value. Do NOT create any new task.
-
-If no `TaskId` is present (direct terminal invocation):
-```
-mcp__prism__kanban_create_task({
-  title: "Architecture: [feature name]",
-  type: "feature",
-  assigned: "senior-architect",
-  description: "[one-line description]",
-  spaceId: SPACE_ID
-})
-→ TASK_ID = returned id
-```
-
-### 0.4 — Work the task
-
-Same flow regardless of pipeline or terminal mode:
-
-```
-# Claim:
 mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, assigned: "senior-architect" })
 mcp__prism__kanban_move_task({ id: TASK_ID, to: "in-progress", spaceId: SPACE_ID })
 
-# ...do all your work...
-
-# Attach artifacts (accumulate across stages on the same task):
 mcp__prism__kanban_update_task({ id: TASK_ID, spaceId: SPACE_ID, attachments: [
   { name: "ADR.md",       type: "file", content: "/absolute/path/to/ADR.md" },
   { name: "blueprint.md", type: "file", content: "/absolute/path/to/blueprint.md" },
   { name: "tasks.json",   type: "file", content: "/absolute/path/to/tasks.json" }
 ] })
 
-# Close — only if LastStage: true in the prompt, or if no TaskId was in the prompt (terminal mode):
+# If blocked — post a question (pipeline pauses automatically):
+mcp__prism__kanban_add_comment({ spaceId: SPACE_ID, taskId: TASK_ID, author: "senior-architect", type: "question", text: "<question + both options>", targetAgent: "<agent-id or omit for human>" })
+# If another agent asks you a question:
+mcp__prism__kanban_answer_comment({ spaceId: SPACE_ID, taskId: TASK_ID, commentId: "<id>", answer: "<answer>", author: "senior-architect" })
+
+# Close (only if LastStage: true or terminal mode):
 mcp__prism__kanban_move_task({ id: TASK_ID, to: "done", spaceId: SPACE_ID })
 ```
-
-If the server is still unreachable after the start attempt, log it and continue without blocking.
 
 ---
 
