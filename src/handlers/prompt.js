@@ -104,9 +104,16 @@ function buildPromptText(options) {
     lines.push('  - kanban_answer_comment: answer an existing question comment');
     lines.push('  - kanban_get_run_status: check pipeline run status');
     lines.push('');
-    lines.push('If you hit a genuine blocker (missing context, ambiguous requirement, decision requiring another agent\'s expertise) do NOT assume — post a question:');
-    lines.push(`  kanban_add_comment({ spaceId: "${space.id}", taskId: "${task.id}", author: "<your-agent-id>", text: "<question>", type: "question", targetAgent: "<agent-id>" /* optional */ })`);
-    lines.push('The pipeline will pause until the question is answered. Only use this for real blockers.');
+    lines.push('STOP and post a question (do NOT assume) when ANY of these is true:');
+    lines.push('  • A required artifact (spec, wireframe, ADR) is missing or unreadable and you cannot proceed without it');
+    lines.push('  • You face ≥2 valid options and nothing in the brief lets you choose — name both options in the question');
+    lines.push('  • Resolving an ambiguity would require changing ≥2 files in a non-obvious way');
+    lines.push('  • You need a dependency or pattern not mentioned in the design');
+    lines.push('  • A decision is irreversible or cross-team and you have no explicit approval');
+    lines.push('');
+    lines.push('How to post a question:');
+    lines.push(`  mcp__prism__kanban_add_comment({ spaceId: "${space.id}", taskId: "${task.id}", author: "<your-agent-id>", type: "question", text: "<question — include the two options you are choosing between>", targetAgent: "<agent-id if another pipeline agent can answer, omit for human>" })`);
+    lines.push('The pipeline pauses automatically. Resume once the question is answered via kanban_answer_comment.');
   }
 
   // ── GIT INSTRUCTIONS ──────────────────────────────────────────────────────
