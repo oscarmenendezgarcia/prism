@@ -7,6 +7,9 @@
  * T-4: "Use orchestrator mode" toggle at the bottom — routes to executeOrchestratorRun.
  * T-9: "Preview Prompts" button — calls POST /api/v1/runs/preview-prompts and shows
  *       each stage's prompt in a collapsible section below the stage row.
+ * pipeline-drag-reorder: Replace ↑/↓ arrow buttons with @dnd-kit drag-and-drop.
+ *   Checkpoints are now keyed by stable row instance ID (Set<string>), translated
+ *   to number[] at API call time via checkpointsToIndices().
  */
 
 import React, { useState, useEffect } from 'react';
@@ -16,6 +19,8 @@ import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
 import { useAppStore } from '@/stores/useAppStore';
 import { useTerminalSessionStore } from '@/stores/useTerminalSessionStore';
 import { previewPipelinePrompts } from '@/api/client';
+import { SortableStageList } from './SortableStageList';
+import { generateRowKey, checkpointsToIndices } from './pipelineReorder';
 import type { PipelineStage, PipelinePromptPreviewEntry } from '@/types';
 
 const TITLE_ID = 'pipeline-confirm-title';
@@ -43,25 +48,33 @@ const STAGE_BG_CLASS: Record<string, string> = {
 };
 
 export function PipelineConfirmModal() {
-  const modal                 = useAppStore((s) => s.pipelineConfirmModal);
-  const closePipeline         = useAppStore((s) => s.closePipelineConfirm);
-  const startPipeline         = useAppStore((s) => s.startPipeline);
+  const modal                  = useAppStore((s) => s.pipelineConfirmModal);
+  const closePipeline          = useAppStore((s) => s.closePipelineConfirm);
+  const startPipeline          = useAppStore((s) => s.startPipeline);
   const executeOrchestratorRun = useAppStore((s) => s.executeOrchestratorRun);
   const spaces          = useAppStore((s) => s.spaces);
   const availableAgents = useAppStore((s) => s.availableAgents);
   const loadAgents      = useAppStore((s) => s.loadAgents);
 
-  const [stages, setStages]               = useState<PipelineStage[]>([]);
-  /** T-3: Set of stage indices (0-based) where pipeline should pause before executing. */
-  const [checkpoints, setCheckpoints]     = useState<Set<number>>(new Set());
+  const [stages, setStages]         = useState<PipelineStage[]>([]);
+  /**
+   * Stable per-row instance keys, parallel to `stages`.
+   * Generated once when the modal opens (and for each added stage).
+   * Keying by instance — not by stage ID — means duplicate agent IDs in the
+   * same pipeline each get their own distinct key (T-3 / ADR-1 §T-3).
+   */
+  const [stageKeys, setStageKeys]   = useState<string[]>([]);
+  /**
+   * Row-key-keyed checkpoint set.
+   * Translated to number[] at handleRun() time via checkpointsToIndices().
+   * Immune to reorder because keys follow the stage, not the position.
+   */
+  const [checkpoints, setCheckpoints] = useState<Set<string>>(new Set());
   /** T-4: When true, routes to executeOrchestratorRun instead of startPipeline. */
   const [useOrchestrator, setUseOrchestrator] = useState(false);
   const [dangerouslySkipPermissions, setDangerouslySkipPermissions] = useState(false);
 
   // True when the active terminal tab has an established PTY connection.
-  // Orchestrator mode injects the command into the PTY when one is available;
-  // otherwise the run spawns headlessly in the backend, where
-  // --dangerously-skip-permissions is always applied automatically.
   const hasActiveTerminal = useTerminalSessionStore((s) => {
     const active = s.sessions.find((sess) => sess.id === s.activeId);
     return active?.sendInput != null;
@@ -81,11 +94,16 @@ export function PipelineConfirmModal() {
   // Sync stages from modal when it opens; reset local state. Load agents if needed.
   useEffect(() => {
     if (isOpen && modal) {
-      setStages([...modal.stages]);
-      setCheckpoints(new Set(modal.checkpoints ?? []));
+      const initialStages = [...modal.stages];
+      const initialKeys   = initialStages.map(() => generateRowKey());
+      setStages(initialStages);
+      setStageKeys(initialKeys);
+      // Convert the number[] checkpoints from the store to a Set<string> of row keys.
+      setCheckpoints(
+        new Set((modal.checkpoints ?? []).map((i) => initialKeys[i]).filter(Boolean)),
+      );
       setUseOrchestrator(modal.useOrchestratorMode ?? false);
       setDangerouslySkipPermissions(false);
-      // Clear any previously fetched preview prompts when the modal re-opens.
       setPreviewPrompts(null);
       setExpandedPromptIndex(null);
       const space = spaces.find((s) => s.id === modal.spaceId);
@@ -93,59 +111,32 @@ export function PipelineConfirmModal() {
     }
   }, [isOpen, modal]);
 
-  /** Clear preview prompt cache whenever stages change (reorder/remove). */
+  /** Clear preview prompt cache whenever stages change (reorder/remove/add). */
   function invalidatePreviewCache() {
     setPreviewPrompts(null);
     setExpandedPromptIndex(null);
   }
 
-  function moveUp(i: number) {
-    if (i === 0) return;
-    const next = [...stages];
-    [next[i - 1], next[i]] = [next[i], next[i - 1]];
-    // Remap checkpoints: swap indices i-1 and i.
-    setCheckpoints((prev) => {
-      const next2 = new Set<number>();
-      prev.forEach((c) => {
-        if (c === i - 1)     next2.add(i);
-        else if (c === i)    next2.add(i - 1);
-        else                 next2.add(c);
-      });
-      return next2;
-    });
-    setStages(next);
-    invalidatePreviewCache();
-  }
-
-  function moveDown(i: number) {
-    if (i === stages.length - 1) return;
-    const next = [...stages];
-    [next[i], next[i + 1]] = [next[i + 1], next[i]];
-    // Remap checkpoints: swap indices i and i+1.
-    setCheckpoints((prev) => {
-      const next2 = new Set<number>();
-      prev.forEach((c) => {
-        if (c === i)     next2.add(i + 1);
-        else if (c === i + 1) next2.add(i);
-        else             next2.add(c);
-      });
-      return next2;
-    });
-    setStages(next);
+  /** Called by SortableStageList after a drag-drop reorder. */
+  function handleReorder(
+    nextStages: PipelineStage[],
+    nextKeys: string[],
+    nextCheckpoints: Set<string>,
+  ) {
+    setStages(nextStages);
+    setStageKeys(nextKeys);
+    setCheckpoints(nextCheckpoints);
     invalidatePreviewCache();
   }
 
   function remove(i: number) {
-    setStages(stages.filter((_, j) => j !== i));
-    // Remap checkpoints: remove index i, shift down all indices > i.
+    const keyToRemove = stageKeys[i];
+    setStages((prev) => prev.filter((_, j) => j !== i));
+    setStageKeys((prev) => prev.filter((_, j) => j !== i));
     setCheckpoints((prev) => {
-      const next2 = new Set<number>();
-      prev.forEach((c) => {
-        if (c < i)  next2.add(c);
-        if (c > i)  next2.add(c - 1);
-        // c === i: removed, not re-added
-      });
-      return next2;
+      const next = new Set(prev);
+      next.delete(keyToRemove);
+      return next;
     });
     invalidatePreviewCache();
   }
@@ -158,7 +149,6 @@ export function PipelineConfirmModal() {
     try {
       const result = await previewPipelinePrompts(modal.spaceId, modal.taskId, stages);
       setPreviewPrompts(result.prompts);
-      // Auto-expand the first stage prompt.
       setExpandedPromptIndex(0);
     } catch (err) {
       useAppStore.getState().showToast(
@@ -170,15 +160,15 @@ export function PipelineConfirmModal() {
     }
   }
 
-  function toggleCheckpoint(i: number) {
+  function toggleCheckpoint(key: string) {
     setCheckpoints((prev) => {
-      const next2 = new Set(prev);
-      if (next2.has(i)) {
-        next2.delete(i);
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
       } else {
-        next2.add(i);
+        next.add(key);
       }
-      return next2;
+      return next;
     });
   }
 
@@ -186,10 +176,19 @@ export function PipelineConfirmModal() {
     if (!modal || stages.length === 0) return;
     closePipeline();
 
+    // Translate row-key checkpoints to the positional number[] the backend expects.
+    const checkpointIndices = checkpointsToIndices(stageKeys, checkpoints);
+
     if (useOrchestrator) {
       await executeOrchestratorRun(modal.spaceId, modal.taskId, stages, dangerouslySkipPermissions);
     } else {
-      await startPipeline(modal.spaceId, modal.taskId, stages, Array.from(checkpoints).sort((a, b) => a - b), dangerouslySkipPermissions);
+      await startPipeline(
+        modal.spaceId,
+        modal.taskId,
+        stages,
+        checkpointIndices,
+        dangerouslySkipPermissions,
+      );
     }
   }
 
@@ -201,7 +200,7 @@ export function PipelineConfirmModal() {
 
       <ModalBody className="flex flex-col gap-4">
         <p className="text-sm text-text-secondary">
-          Review and adjust the stages before running. Use arrows to reorder, remove stages you don't need, or pause before any stage.
+          Drag rows to reorder (or use keyboard: Space → arrows → Space). Remove stages you don't need, or pause before any stage.
         </p>
 
         {/* Staggered timeline — wireframe S-06 */}
@@ -210,13 +209,14 @@ export function PipelineConfirmModal() {
         ) : (
           <>
             {/* Horizontal timeline dots */}
-            <div className="flex items-start justify-between gap-2 py-4 overflow-x-auto">
+            <div className="overflow-x-auto py-2">
+            <div className="flex items-start justify-between gap-2 py-2 min-w-max">
               {stages.map((stage, i) => {
                 const colorClass = STAGE_COLOR_CLASS[stage] ?? 'text-primary';
-                const bgClass = STAGE_BG_CLASS[stage] ?? 'bg-primary/10';
+                const bgClass    = STAGE_BG_CLASS[stage]    ?? 'bg-primary/10';
                 const displayName = availableAgents.find((a) => a.id === stage)?.displayName ?? stage;
                 return (
-                  <React.Fragment key={stage + i}>
+                  <React.Fragment key={stageKeys[i] ?? stage + i}>
                     <div
                       className="flex flex-col items-center gap-2 flex-1 min-w-[60px]"
                       style={{ '--stagger-delay': `${i * 40}ms`, animationDelay: 'var(--stagger-delay)' } as React.CSSProperties} // lint-ok: stagger requires dynamic per-index CSS custom property
@@ -242,81 +242,19 @@ export function PipelineConfirmModal() {
                 );
               })}
             </div>
+            </div>
 
-            {/* Editable stage list */}
-            <ol className="flex flex-col gap-2">
-              {stages.map((stage, i) => {
-                const colorClass = STAGE_COLOR_CLASS[stage] ?? 'text-primary';
-                const bgClass = STAGE_BG_CLASS[stage] ?? 'bg-primary/10';
-                return (
-                  <li
-                    key={stage + i}
-                    className="flex flex-col gap-1.5 bg-surface-elevated border border-border rounded-lg px-3 py-2.5"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className={`flex h-7 w-7 items-center justify-center rounded-md flex-shrink-0 ${bgClass}`}>
-                        <span className={`material-symbols-outlined text-sm leading-none ${colorClass}`} aria-hidden="true">
-                          {STAGE_ICON[stage] ?? 'smart_toy'}
-                        </span>
-                      </div>
-                      <span className="text-[10px] text-text-disabled font-mono flex-shrink-0">{i + 1}</span>
-                      <span className={`text-sm font-medium flex-1 truncate ${colorClass}`}>
-                        {availableAgents.find((a) => a.id === stage)?.displayName ?? stage}
-                      </span>
-                      <div className="flex gap-0.5 flex-shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => moveUp(i)}
-                          disabled={i === 0}
-                          aria-label="Move up"
-                          className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:text-primary hover:bg-primary/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moveDown(i)}
-                          disabled={i === stages.length - 1}
-                          aria-label="Move down"
-                          className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:text-primary hover:bg-primary/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        >
-                          ↓
-                        </button>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => remove(i)}
-                        aria-label="Remove stage"
-                        className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:text-error hover:bg-error/10 transition-colors flex-shrink-0 text-sm"
-                      >
-                        ✕
-                      </button>
-                    </div>
-
-                    {/* T-3: pause checkpoint */}
-                    {!useOrchestrator && (
-                      <label className="flex items-center gap-2 cursor-pointer pl-6">
-                        <input
-                          type="checkbox"
-                          checked={checkpoints.has(i)}
-                          onChange={() => toggleCheckpoint(i)}
-                          aria-label={`Pause before stage ${i + 1}: ${availableAgents.find((a) => a.id === stage)?.displayName ?? stage}`}
-                          className="w-3.5 h-3.5 rounded border-border accent-primary cursor-pointer"
-                        />
-                        <span className="text-[11px] text-text-secondary select-none">
-                          Pause before this stage
-                        </span>
-                        {checkpoints.has(i) && (
-                          <span className="material-symbols-outlined text-xs text-warning leading-none" aria-hidden="true" title="Pipeline will pause">
-                            pause_circle
-                          </span>
-                        )}
-                      </label>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
+            {/* Drag-and-drop stage list (replaces the static <ol> with ↑/↓ buttons) */}
+            <SortableStageList
+              stages={stages}
+              stageKeys={stageKeys}
+              checkpoints={checkpoints}
+              availableAgents={availableAgents}
+              useOrchestrator={useOrchestrator}
+              onReorder={handleReorder}
+              onRemove={remove}
+              onToggleCheckpoint={toggleCheckpoint}
+            />
           </>
         )}
 
@@ -330,6 +268,7 @@ export function PipelineConfirmModal() {
                 const agentId = e.target.value;
                 if (!agentId) return;
                 setStages((prev) => [...prev, agentId as PipelineStage]);
+                setStageKeys((prev) => [...prev, generateRowKey()]);
                 invalidatePreviewCache();
                 e.target.value = '';
               }}
