@@ -891,6 +891,7 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   // Include working directory if set — tells the agent where to cd into.
   if (workingDirectory) {
     promptText += `\nWorking Directory: ${workingDirectory}\n`;
+    promptText += '⚠️ You MUST cd into this directory before starting work. All file paths should be relative to this directory.\n';
   }
 
   // Include artifact paths from previous stages (accumulated on the task by earlier agents).
