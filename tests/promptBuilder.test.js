@@ -247,3 +247,58 @@ describe('buildCompileGateBlock()', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// handlers/prompt.js — buildPromptText integration with promptBuilder
+// ---------------------------------------------------------------------------
+
+describe('handlers/prompt.js buildPromptText — promptBuilder integration', () => {
+  // Minimal settings stub so buildPromptText does not throw.
+  const baseSettings = {
+    prompts: { includeKanbanBlock: false, includeGitBlock: false },
+    cli:     { tool: 'claude', fileInputMethod: 'cat-subshell', binary: '' },
+  };
+  const baseTask  = { id: 'task-001', title: 'Test Task', attachments: [] };
+  const baseSpace = { id: 'space-001', name: 'Test Space' };
+
+  const { buildPromptText } = require('../src/handlers/prompt');
+
+  test('kanban block uses buildKanbanBlock — includes STOP conditions', () => {
+    const settings = { ...baseSettings, prompts: { ...baseSettings.prompts, includeKanbanBlock: true } };
+    const result   = buildPromptText({ task: baseTask, taskColumn: 'todo', space: baseSpace, agentContent: '# A', settings });
+    assert.ok(result.includes('## KANBAN INSTRUCTIONS'),         'must include kanban header');
+    assert.ok(result.includes('STOP and post a question'),       'must include structured STOP guidance from buildKanbanBlock');
+    assert.ok(result.includes('mcp__prism__kanban_add_comment'), 'must include mcp tool call');
+  });
+
+  test('kanban block is omitted when includeKanbanBlock=false', () => {
+    const result = buildPromptText({ task: baseTask, taskColumn: 'todo', space: baseSpace, agentContent: '# A', settings: baseSettings });
+    assert.ok(!result.includes('## KANBAN INSTRUCTIONS'), 'kanban block must be absent');
+  });
+
+  test('git block uses buildGitInstructionsBlock — includes commit format', () => {
+    const settings = { ...baseSettings, prompts: { ...baseSettings.prompts, includeGitBlock: true } };
+    const result   = buildPromptText({ task: baseTask, taskColumn: 'todo', space: baseSpace, agentContent: '# A', settings });
+    assert.ok(result.includes('## GIT INSTRUCTIONS'), 'must include git header');
+    assert.ok(result.includes('[dev] T-XXX'),          'must include commit format from buildGitInstructionsBlock');
+  });
+
+  test('compile gate is included for developer-agent', () => {
+    const result = buildPromptText({
+      task: baseTask, taskColumn: 'todo', space: baseSpace,
+      agentContent: '# Dev', agentId: 'developer-agent', settings: baseSettings,
+    });
+    assert.ok(result.includes('## MANDATORY COMPILE GATE'), 'compile gate must be present for developer-agent');
+    assert.ok(result.includes('tsc --noEmit'),               'must include tsc check command');
+  });
+
+  test('compile gate is omitted for non-developer agents', () => {
+    for (const agentId of ['senior-architect', 'qa-engineer-e2e', 'ux-api-designer', undefined]) {
+      const result = buildPromptText({
+        task: baseTask, taskColumn: 'todo', space: baseSpace,
+        agentContent: '# Agent', agentId, settings: baseSettings,
+      });
+      assert.ok(!result.includes('## MANDATORY COMPILE GATE'), `compile gate must be absent for agentId=${agentId}`);
+    }
+  });
+});
