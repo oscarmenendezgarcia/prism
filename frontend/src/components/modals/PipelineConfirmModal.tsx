@@ -209,8 +209,7 @@ export function PipelineConfirmModal() {
         ) : (
           <>
             {/* Horizontal timeline dots */}
-            <div className="overflow-x-auto py-2">
-            <div className="flex items-start justify-between gap-2 py-2 min-w-max">
+            <div className="flex items-start justify-between gap-2 py-4 overflow-x-auto overflow-y-clip">
               {stages.map((stage, i) => {
                 const colorClass = STAGE_COLOR_CLASS[stage] ?? 'text-primary';
                 const bgClass    = STAGE_BG_CLASS[stage]    ?? 'bg-primary/10';
@@ -241,7 +240,6 @@ export function PipelineConfirmModal() {
                   </React.Fragment>
                 );
               })}
-            </div>
             </div>
 
             {/* Drag-and-drop stage list (replaces the static <ol> with ↑/↓ buttons) */}
