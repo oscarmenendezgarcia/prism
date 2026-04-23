@@ -1183,6 +1183,61 @@ describe('pipelineManager — init() PID re-attach', () => {
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
+  test('init kills stale-but-alive process group on restart (no sentinel)', async () => {
+    const { spawn } = require('child_process');
+    const dataDir = tmpDir();
+    const runsDir = path.join(dataDir, 'runs');
+    const runId   = 'run-stale-kill';
+    const runDir  = path.join(runsDir, runId);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    // Spawn a real detached process (sleep) to simulate a surviving agent.
+    const child = spawn('sleep', ['60'], { detached: true, stdio: 'ignore' });
+    child.unref();
+    const childPid = child.pid;
+
+    const staleDate = new Date(0).toISOString();
+    const runState = {
+      runId,
+      spaceId: 'space-kill',
+      taskId:  'task-kill',
+      stages:  ['developer-agent'],
+      currentStage: 0,
+      status:  'running',
+      stageStatuses: [{
+        index: 0,
+        agentId: 'developer-agent',
+        status: 'running',
+        exitCode: null,
+        startedAt: staleDate,
+        finishedAt: null,
+        pid: childPid,
+      }],
+      createdAt: staleDate,
+      updatedAt: staleDate,
+    };
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(runState), 'utf8');
+    const registry = [{ runId, spaceId: 'space-kill', taskId: 'task-kill', status: 'running', createdAt: staleDate }];
+    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify(registry), 'utf8');
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+    pm.init(dataDir);
+
+    // SIGTERM delivery is async — give the OS a tick to reap the process.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // isProcessAlive uses kill(pid, 0) — if the process is gone it throws.
+    let alive = true;
+    try { process.kill(childPid, 0); } catch { alive = false; }
+    assert.equal(alive, false, 'stale-but-alive process should be killed by init()');
+
+    const after = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
+    assert.equal(after.status, 'interrupted', 'run should be marked interrupted');
+
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+
   test('init marks run interrupted when stage startedAt is before boot time (stale PID)', () => {
     const dataDir = tmpDir();
     const runsDir = path.join(dataDir, 'runs');
