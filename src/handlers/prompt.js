@@ -114,6 +114,17 @@ function buildPromptText(options) {
     lines.push('How to post a question:');
     lines.push(`  mcp__prism__kanban_add_comment({ spaceId: "${space.id}", taskId: "${task.id}", author: "<your-agent-id>", type: "question", text: "<question — include the two options you are choosing between>", targetAgent: "<agent-id if another pipeline agent can answer, omit for human>" })`);
     lines.push('The pipeline pauses automatically. Resume once the question is answered via kanban_answer_comment.');
+    lines.push('');
+    lines.push('POST A NOTE (type: "note", does NOT pause pipeline) for any of these:');
+    lines.push('  • Non-obvious assumption: something you assumed that is not explicit in the spec');
+    lines.push(`    mcp__prism__kanban_add_comment({ spaceId: "${space.id}", taskId: "${task.id}", author: "<your-agent-id>", type: "note", text: "Assumption: <what + why>" })`);
+    lines.push('  • Blueprint deviation: you decided to do something differently than specified');
+    lines.push(`    mcp__prism__kanban_add_comment({ spaceId: "${space.id}", taskId: "${task.id}", author: "<your-agent-id>", type: "note", text: "Deviation: <what changed + why>" })`);
+    lines.push('  • Non-trivial trade-off: you chose approach A over B and the reason is not obvious');
+    lines.push(`    mcp__prism__kanban_add_comment({ spaceId: "${space.id}", taskId: "${task.id}", author: "<your-agent-id>", type: "note", text: "Trade-off: chose <A> over <B> because <reason>" })`);
+    lines.push('');
+    lines.push('HANDOFF SUMMARY — post BEFORE moving to done (always, even if no deviations):');
+    lines.push(`  mcp__prism__kanban_add_comment({ spaceId: "${space.id}", taskId: "${task.id}", author: "<your-agent-id>", type: "note", text: "Handoff: produced <artifacts>. Next agent should read <key files>." })`);
   }
 
   // ── GIT INSTRUCTIONS ──────────────────────────────────────────────────────
