@@ -12,27 +12,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { useAppStore, usePipelineState, useAvailableAgents } from '@/stores/useAppStore';
+import { resolveAgentName, resolveAgentShortLabel, STAGE_LABELS } from '@/utils/agentName';
 import type { BlockedReason } from '@/types';
-
-// ---------------------------------------------------------------------------
-// Stage label maps — includes code-reviewer (ADR-1 §3.4)
-// ---------------------------------------------------------------------------
-
-const STAGE_LABELS: Record<string, string> = {
-  'senior-architect': 'Architect',
-  'ux-api-designer':  'UX',
-  'developer-agent':  'Dev',
-  'qa-engineer-e2e':  'QA',
-  'code-reviewer':    'Rev',
-};
-
-const STAGE_DISPLAY: Record<string, string> = {
-  'senior-architect': 'Senior Architect',
-  'ux-api-designer':  'UX / API Designer',
-  'developer-agent':  'Developer Agent',
-  'qa-engineer-e2e':  'QA Engineer E2E',
-  'code-reviewer':    'Code Reviewer',
-};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -320,9 +301,10 @@ interface StepNodesProps {
   elapsed: number;
   onAbort: () => void;
   onDismiss: () => void;
+  activeSpace: import('@/types').Space | null;
 }
 
-function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDismiss }: StepNodesProps) {
+function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDismiss, activeSpace }: StepNodesProps) {
   // Track which indices were injected via loop so we can animate them in.
   const prevLengthRef = useRef(stages.length);
   const [injectedFrom, setInjectedFrom] = useState<number | null>(null);
@@ -375,7 +357,7 @@ function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDism
                     : 'bg-surface text-text-disabled border border-border'
                 }`}
                 title={isInjected ? `${stage} (loop injected)` : stage}
-                aria-label={`${STAGE_LABELS[stage] ?? stage}: ${
+                aria-label={`${resolveAgentShortLabel(stage, activeSpace)}: ${
                   isInjected ? 'loop injected' : isCompleted ? 'done' : isActive ? 'running' : 'pending'
                 }`}
               >
@@ -384,7 +366,7 @@ function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDism
                     check
                   </span>
                 ) : (
-                  STAGE_LABELS[stage]?.[0] ?? (idx + 1).toString()
+                  resolveAgentShortLabel(stage, activeSpace)[0] ?? (idx + 1).toString()
                 )}
               </div>
             </React.Fragment>
@@ -440,6 +422,7 @@ export function RunIndicator() {
   const resumeInterruptedRun  = useAppStore((s) => s.resumeInterruptedRun);
   const openDetailPanel       = useAppStore((s) => s.openDetailPanel);
   const tasks                 = useAppStore((s) => s.tasks);
+  const activeSpace           = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
 
   const [elapsedSecs, setElapsedSecs] = useState(0);
 
@@ -513,7 +496,7 @@ export function RunIndicator() {
   // --- Paused mode ---
   if (status === 'paused') {
     const pausedIdx = pausedBeforeStage ?? currentStageIndex;
-    const stageName = STAGE_DISPLAY[stages[pausedIdx]] ?? stages[pausedIdx];
+    const stageName = resolveAgentName(stages[pausedIdx], activeSpace, agents);
     return (
       <PausedBanner
         stageName={stageName}
@@ -529,9 +512,7 @@ export function RunIndicator() {
   // --- Single-agent mode (1 stage) ---
   if (stages.length === 1) {
     const agentId     = stages[0];
-    const displayName = STAGE_DISPLAY[agentId]
-      ?? agents.find((a) => a.id === agentId)?.displayName
-      ?? agentId;
+    const displayName = resolveAgentName(agentId, activeSpace, agents);
     return (
       <SingleAgentDot
         displayName={displayName}
@@ -550,6 +531,7 @@ export function RunIndicator() {
       elapsed={elapsedSecs}
       onAbort={abortPipeline}
       onDismiss={clearPipeline}
+      activeSpace={activeSpace}
     />
   );
 }
