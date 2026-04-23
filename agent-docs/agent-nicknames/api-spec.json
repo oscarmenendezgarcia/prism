@@ -1,0 +1,398 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Prism Kanban API — Agent Nicknames Extension",
+    "version": "1.2.0",
+    "description": "Extension to the Prism Kanban API that adds per-space agent nickname support. This spec documents only the changed endpoint. All other endpoints remain unchanged from v1.1.0."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000/api/v1",
+      "description": "Local development server"
+    }
+  ],
+  "paths": {
+    "/spaces/{spaceId}": {
+      "put": {
+        "summary": "Update a space (rename, reconfigure, set agent nicknames)",
+        "operationId": "updateSpace",
+        "description": "Updates an existing space. All fields are optional except the top-level space `id` (supplied in the path). Previously persisted values are retained for any field omitted from the request body. The new `agentNicknames` field follows the same merge pattern: if omitted, existing nicknames are unchanged; if present (including as an empty object), the provided value replaces the stored map after normalisation.",
+        "tags": ["Spaces"],
+        "parameters": [
+          {
+            "name": "spaceId",
+            "in": "path",
+            "required": true,
+            "description": "The UUID of the space to update.",
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "example": "193f336c-1950-4a39-804e-5691be135ddc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSpaceRequest"
+              },
+              "examples": {
+                "setNickname": {
+                  "summary": "Set a single nickname",
+                  "value": {
+                    "name": "Prism",
+                    "agentNicknames": {
+                      "senior-architect": "El Jefe"
+                    }
+                  }
+                },
+                "setMultipleNicknames": {
+                  "summary": "Set multiple nicknames at once",
+                  "value": {
+                    "name": "Prism",
+                    "agentNicknames": {
+                      "senior-architect": "El Jefe",
+                      "developer-agent": "Rafa"
+                    }
+                  }
+                },
+                "clearOneNickname": {
+                  "summary": "Clear a single nickname by sending an empty string for that key",
+                  "value": {
+                    "name": "Prism",
+                    "agentNicknames": {
+                      "senior-architect": "El Jefe",
+                      "developer-agent": ""
+                    }
+                  }
+                },
+                "clearAllNicknames": {
+                  "summary": "Clear all nicknames by sending an empty object",
+                  "value": {
+                    "name": "Prism",
+                    "agentNicknames": {}
+                  }
+                },
+                "noNicknameChange": {
+                  "summary": "Update name without touching nicknames (omit agentNicknames entirely)",
+                  "value": {
+                    "name": "Prism v2"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Space updated successfully. Returns the full updated space object.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Space"
+                },
+                "examples": {
+                  "withNickname": {
+                    "summary": "Response after setting a nickname",
+                    "value": {
+                      "id": "193f336c-1950-4a39-804e-5691be135ddc",
+                      "name": "Prism",
+                      "workingDirectory": "/Users/oscar/projects/prism",
+                      "pipeline": [
+                        "senior-architect",
+                        "ux-api-designer",
+                        "developer-agent",
+                        "qa-engineer-e2e"
+                      ],
+                      "agentNicknames": {
+                        "senior-architect": "El Jefe",
+                        "developer-agent": "Rafa"
+                      },
+                      "createdAt": "2026-03-19T08:09:33.270Z",
+                      "updatedAt": "2026-04-23T10:00:00.000Z"
+                    }
+                  },
+                  "nicknameClearedFromResponse": {
+                    "summary": "Response after clearing developer-agent nickname (empty string sent — key absent in response)",
+                    "value": {
+                      "id": "193f336c-1950-4a39-804e-5691be135ddc",
+                      "name": "Prism",
+                      "workingDirectory": "/Users/oscar/projects/prism",
+                      "pipeline": [
+                        "senior-architect",
+                        "ux-api-designer",
+                        "developer-agent",
+                        "qa-engineer-e2e"
+                      ],
+                      "agentNicknames": {
+                        "senior-architect": "El Jefe"
+                      },
+                      "createdAt": "2026-03-19T08:09:33.270Z",
+                      "updatedAt": "2026-04-23T10:05:00.000Z"
+                    }
+                  },
+                  "noNicknames": {
+                    "summary": "Response when no nicknames are set (field absent)",
+                    "value": {
+                      "id": "193f336c-1950-4a39-804e-5691be135ddc",
+                      "name": "Prism",
+                      "workingDirectory": "/Users/oscar/projects/prism",
+                      "pipeline": [
+                        "senior-architect",
+                        "ux-api-designer",
+                        "developer-agent",
+                        "qa-engineer-e2e"
+                      ],
+                      "createdAt": "2026-03-19T08:09:33.270Z",
+                      "updatedAt": "2026-04-23T10:10:00.000Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error — one or more nickname values exceed 50 characters after trimming.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "nicknameTooLong": {
+                    "summary": "Nickname value exceeds 50 characters",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "The nickname for 'senior-architect' is too long.",
+                        "suggestion": "Nicknames must not exceed 50 characters. Please shorten it and try again.",
+                        "field": "agentNicknames.senior-architect"
+                      }
+                    }
+                  },
+                  "nicknameNotString": {
+                    "summary": "Nickname value is not a string",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "The nickname for 'developer-agent' must be a text value.",
+                        "suggestion": "Provide a plain text nickname (e.g. \"Rafa\") or an empty string to clear it.",
+                        "field": "agentNicknames.developer-agent"
+                      }
+                    }
+                  },
+                  "agentNicknamesNotObject": {
+                    "summary": "agentNicknames is not an object",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "The 'agentNicknames' field must be an object mapping agent IDs to nickname strings.",
+                        "suggestion": "Send an object like {\"senior-architect\": \"El Jefe\"} or an empty object {} to clear all nicknames.",
+                        "field": "agentNicknames"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No space found with the given ID.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "notFound": {
+                    "value": {
+                      "error": {
+                        "code": "SPACE_NOT_FOUND",
+                        "message": "The space you are trying to update does not exist.",
+                        "suggestion": "Check that the space ID is correct, or reload the page to refresh your space list."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "A space with the new name already exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "duplicate": {
+                    "value": {
+                      "error": {
+                        "code": "DUPLICATE_NAME",
+                        "message": "A space named 'Prism' already exists.",
+                        "suggestion": "Choose a different name for this space.",
+                        "field": "name"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentNicknames": {
+        "type": "object",
+        "description": "A map of agent IDs to custom display names (nicknames). Keys are arbitrary agent ID strings. Values are nickname strings (trimmed, max 50 characters). An empty string value means 'clear this nickname' — it will be normalised away and the key will be absent from subsequent API responses. The field itself is optional; if omitted from a PUT request, existing nicknames are preserved unchanged.",
+        "additionalProperties": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "The nickname for the agent. Empty string clears the nickname."
+        },
+        "example": {
+          "senior-architect": "El Jefe",
+          "developer-agent": "Rafa"
+        }
+      },
+      "UpdateSpaceRequest": {
+        "type": "object",
+        "description": "Request body for updating a space. All fields are optional — only provided fields are applied.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "New display name for the space. Must be unique across all spaces.",
+            "example": "Prism"
+          },
+          "workingDirectory": {
+            "type": "string",
+            "description": "Absolute filesystem path used as the working directory when agents run tasks in this space. Pass an empty string to clear.",
+            "example": "/Users/oscar/projects/prism"
+          },
+          "pipeline": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered list of agent IDs defining the pipeline for tasks in this space. Pass an empty array to reset to the server default pipeline.",
+            "example": ["senior-architect", "ux-api-designer", "developer-agent", "qa-engineer-e2e"]
+          },
+          "projectClaudeMdPath": {
+            "type": "string",
+            "description": "Optional path to a project-level CLAUDE.md file injected into each stage's prompt.",
+            "example": "/Users/oscar/projects/prism/.claude/CLAUDE.md"
+          },
+          "agentNicknames": {
+            "$ref": "#/components/schemas/AgentNicknames"
+          }
+        }
+      },
+      "Space": {
+        "type": "object",
+        "description": "A Prism space — a project context that groups tasks and configures a pipeline.",
+        "required": ["id", "name", "createdAt", "updatedAt"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique identifier for the space.",
+            "example": "193f336c-1950-4a39-804e-5691be135ddc"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name of the space.",
+            "example": "Prism"
+          },
+          "workingDirectory": {
+            "type": "string",
+            "description": "Absolute path used as the working directory for agent runs. Absent if not set.",
+            "example": "/Users/oscar/projects/prism"
+          },
+          "pipeline": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Ordered agent IDs for this space's pipeline. Absent means the server default pipeline applies.",
+            "example": ["senior-architect", "ux-api-designer", "developer-agent", "qa-engineer-e2e"]
+          },
+          "projectClaudeMdPath": {
+            "type": "string",
+            "description": "Path to the project CLAUDE.md file. Absent if not set.",
+            "example": "/Users/oscar/projects/prism/.claude/CLAUDE.md"
+          },
+          "agentNicknames": {
+            "$ref": "#/components/schemas/AgentNicknames"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp when the space was created. Always set by the server.",
+            "example": "2026-03-19T08:09:33.270Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp of the last update. Always set by the server.",
+            "example": "2026-04-23T10:00:00.000Z"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Machine-readable error identifier in SCREAMING_SNAKE_CASE.",
+                "example": "VALIDATION_ERROR"
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable description of what went wrong.",
+                "example": "The nickname for 'senior-architect' is too long."
+              },
+              "suggestion": {
+                "type": "string",
+                "description": "Actionable guidance for the user on how to fix the error.",
+                "example": "Nicknames must not exceed 50 characters. Please shorten it and try again."
+              },
+              "field": {
+                "type": "string",
+                "description": "Dot-notation path to the request field that caused a VALIDATION_ERROR. Absent for non-validation errors.",
+                "example": "agentNicknames.senior-architect"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-backend-contracts": {
+    "normaliseNicknames": {
+      "description": "Backend helper applied before persisting agentNicknames. Drops entries whose value (after trim) is an empty string. Trims remaining values. Returns the normalised map.",
+      "input": {
+        "senior-architect": "El Jefe",
+        "developer-agent": "  ",
+        "ux-api-designer": ""
+      },
+      "output": {
+        "senior-architect": "El Jefe"
+      }
+    },
+    "mergeRule": "If agentNicknames is undefined in the request body, the existing stored value is kept unchanged. If agentNicknames is present (including {}), the normalised map replaces the stored value entirely.",
+    "atomicity": "Write uses the existing .tmp + rename atomic pattern in spaceManager.js. No additional atomicity mechanism required.",
+    "latencySLA": "p95 < 50ms — synchronous JSON read/write, payload < 1 KB"
+  }
+}
