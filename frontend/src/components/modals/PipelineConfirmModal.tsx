@@ -208,40 +208,40 @@ export function PipelineConfirmModal() {
           <p className="text-sm text-error text-center py-4">Add at least one stage to run.</p>
         ) : (
           <>
-            {/* Horizontal timeline dots */}
-            <div className="overflow-x-auto py-2">
-            <div className="flex items-start justify-between gap-2 py-2 min-w-max">
+            {/* Horizontal timeline dots — 4 per row */}
+            <div className="grid grid-cols-4 gap-y-4 py-2">
               {stages.map((stage, i) => {
-                const colorClass = STAGE_COLOR_CLASS[stage] ?? 'text-primary';
-                const bgClass    = STAGE_BG_CLASS[stage]    ?? 'bg-primary/10';
-                const displayName = availableAgents.find((a) => a.id === stage)?.displayName ?? stage;
+                const colorClass   = STAGE_COLOR_CLASS[stage] ?? 'text-primary';
+                const bgClass      = STAGE_BG_CLASS[stage]    ?? 'bg-primary/10';
+                const displayName  = availableAgents.find((a) => a.id === stage)?.displayName ?? stage;
+                const isLastInRow  = (i + 1) % 4 === 0;
+                const isLast       = i === stages.length - 1;
+                const showConnector = !isLast && !isLastInRow;
                 return (
-                  <React.Fragment key={stageKeys[i] ?? stage + i}>
-                    <div
-                      className="flex flex-col items-center gap-2 flex-1 min-w-[60px]"
-                      style={{ '--stagger-delay': `${i * 40}ms`, animationDelay: 'var(--stagger-delay)' } as React.CSSProperties} // lint-ok: stagger requires dynamic per-index CSS custom property
-                    >
-                      {/* Agent dot */}
-                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${bgClass} ${colorClass}`}>
-                        <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
-                          {STAGE_ICON[stage] ?? 'smart_toy'}
-                        </span>
-                      </div>
-                      {/* Stage name */}
-                      <span className={`text-xs font-medium text-center leading-snug ${colorClass}`}>
-                        {displayName}
-                      </span>
-                      {/* Stage number */}
-                      <span className="text-[10px] text-text-disabled font-mono">{i + 1}</span>
-                    </div>
-                    {/* Connector line between stages */}
-                    {i < stages.length - 1 && (
-                      <div className="flex-shrink-0 h-px w-6 bg-border mt-4 self-start" aria-hidden="true" />
+                  <div
+                    key={stageKeys[i] ?? stage + i}
+                    className="relative flex flex-col items-center gap-2"
+                    style={{ '--stagger-delay': `${i * 40}ms`, animationDelay: 'var(--stagger-delay)' } as React.CSSProperties} // lint-ok: stagger requires dynamic per-index CSS custom property
+                  >
+                    {/* Connector line to the right, vertically centered on the circle */}
+                    {showConnector && (
+                      <div className="absolute top-[18px] left-[calc(50%+20px)] right-0 h-px bg-border" aria-hidden="true" />
                     )}
-                  </React.Fragment>
+                    {/* Agent dot */}
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${bgClass} ${colorClass}`}>
+                      <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+                        {STAGE_ICON[stage] ?? 'smart_toy'}
+                      </span>
+                    </div>
+                    {/* Stage name */}
+                    <span className={`text-xs font-medium text-center leading-snug ${colorClass}`}>
+                      {displayName}
+                    </span>
+                    {/* Stage number */}
+                    <span className="text-[10px] text-text-disabled font-mono">{i + 1}</span>
+                  </div>
                 );
               })}
-            </div>
             </div>
 
             {/* Drag-and-drop stage list (replaces the static <ol> with ↑/↓ buttons) */}
