@@ -1374,6 +1374,11 @@ function init(dataDir) {
           });
         } else {
           // No sentinel — stage truly did not complete. Mark interrupted.
+          // Defensively kill the process group: the agent may still be running even when
+          // flagged as stale, because detached+unref'd processes survive server restarts.
+          if (pid && pid !== process.pid) {
+            try { process.kill(-pid, 'SIGTERM'); } catch { /* already gone */ }
+          }
           run.status    = 'interrupted';
           run.updatedAt = new Date().toISOString();
           for (const s of run.stageStatuses) {
