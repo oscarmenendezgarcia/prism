@@ -198,7 +198,7 @@ export function ModalTitle({
 }
 
 export function ModalBody({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <div className={`px-6 py-4 overflow-y-auto flex-1 ${className}`}>{children}</div>;
+  return <div className={`px-6 py-4 overflow-y-auto flex-1 min-h-0 ${className}`}>{children}</div>;
 }
 
 export function ModalFooter({ children }: { children: React.ReactNode }) {
