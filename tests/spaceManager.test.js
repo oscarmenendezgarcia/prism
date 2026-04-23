@@ -434,6 +434,186 @@ async function runTests() {
    });
 
   // =========================================================================
+  // normaliseNicknames
+  // =========================================================================
+
+  suite('normaliseNicknames()');
+
+  await test('returns empty object for undefined input', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.normaliseNicknames(undefined);
+      assert(result.ok === true,                      'ok should be true');
+      assert(typeof result.nicknames === 'object',    'nicknames should be an object');
+      assert(Object.keys(result.nicknames).length === 0, 'nicknames should be empty');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('drops empty-string entries', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.normaliseNicknames({ 'developer-agent': '', 'senior-architect': 'El Jefe' });
+      assert(result.ok === true, 'ok should be true');
+      assert(!('developer-agent' in result.nicknames), 'empty entry should be dropped');
+      assert(result.nicknames['senior-architect'] === 'El Jefe', 'non-empty entry should be kept');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('trims values', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.normaliseNicknames({ 'developer-agent': '  Rafa  ' });
+      assert(result.ok === true,                                 'ok should be true');
+      assert(result.nicknames['developer-agent'] === 'Rafa',     'value should be trimmed');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('drops whitespace-only entries', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.normaliseNicknames({ 'developer-agent': '   ' });
+      assert(result.ok === true,                                       'ok should be true');
+      assert(!('developer-agent' in result.nicknames),                 'whitespace-only entry should be dropped');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns VALIDATION_ERROR for value > 50 chars', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm         = makeManager(dir);
+      const longValue  = 'a'.repeat(51);
+      const result     = sm.normaliseNicknames({ 'developer-agent': longValue });
+      assert(result.ok   === false,             'ok should be false');
+      assert(result.code === 'VALIDATION_ERROR', 'code should be VALIDATION_ERROR');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('accepts value of exactly 50 chars', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm        = makeManager(dir);
+      const maxValue  = 'a'.repeat(50);
+      const result    = sm.normaliseNicknames({ 'developer-agent': maxValue });
+      assert(result.ok === true,                                   'ok should be true');
+      assert(result.nicknames['developer-agent'] === maxValue,     '50-char value should pass');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns VALIDATION_ERROR for non-object input', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.normaliseNicknames('not-an-object');
+      assert(result.ok   === false,             'ok should be false');
+      assert(result.code === 'VALIDATION_ERROR', 'code should be VALIDATION_ERROR');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  // =========================================================================
+  // renameSpace with agentNicknames
+  // =========================================================================
+
+  suite('renameSpace() with agentNicknames');
+
+  await test('persists valid agentNicknames', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.renameSpace('default', 'General', undefined, undefined, undefined, {
+        'senior-architect': 'El Jefe',
+        'developer-agent':  'Rafa',
+      });
+      assert(result.ok === true,                                         'ok should be true');
+      assert(result.space.agentNicknames['senior-architect'] === 'El Jefe', 'nickname should be persisted');
+      assert(result.space.agentNicknames['developer-agent']  === 'Rafa',    'nickname should be persisted');
+
+      // Verify the manifest on disk reflects the nicknames.
+      const onDisk = readJSON(path.join(dir, 'spaces.json'));
+      assert(onDisk[0].agentNicknames['senior-architect'] === 'El Jefe', 'manifest should have nickname');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('strips empty-string nickname values before write', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.renameSpace('default', 'General', undefined, undefined, undefined, {
+        'developer-agent': '',
+        'senior-architect': 'El Jefe',
+      });
+      assert(result.ok === true,                                         'ok should be true');
+      assert(!('developer-agent' in (result.space.agentNicknames ?? {})), 'empty entry should be absent');
+      assert(result.space.agentNicknames['senior-architect'] === 'El Jefe', 'non-empty entry should remain');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('returns VALIDATION_ERROR for nickname value > 50 chars', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm     = makeManager(dir);
+      const result = sm.renameSpace('default', 'General', undefined, undefined, undefined, {
+        'developer-agent': 'a'.repeat(51),
+      });
+      assert(result.ok   === false,             'ok should be false');
+      assert(result.code === 'VALIDATION_ERROR', 'code should be VALIDATION_ERROR');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('omitting agentNicknames leaves existing value unchanged', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm = makeManager(dir);
+      // First: set nicknames.
+      sm.renameSpace('default', 'General', undefined, undefined, undefined, { 'senior-architect': 'Boss' });
+      // Second: rename without agentNicknames param — should NOT clear them.
+      const result = sm.renameSpace('default', 'General Renamed');
+      assert(result.ok === true,                                               'ok should be true');
+      assert(result.space.agentNicknames?.['senior-architect'] === 'Boss',     'nicknames should be unchanged');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  await test('passing all-empty agentNicknames removes agentNicknames field', () => {
+    const dir = makeTmpDir();
+    try {
+      const sm = makeManager(dir);
+      sm.renameSpace('default', 'General', undefined, undefined, undefined, { 'senior-architect': 'Boss' });
+      const result = sm.renameSpace('default', 'General', undefined, undefined, undefined, {
+        'senior-architect': '',
+      });
+      assert(result.ok === true,                           'ok should be true');
+      assert(result.space.agentNicknames === undefined,    'agentNicknames should be absent when all cleared');
+    } finally {
+      rmTmpDir(dir);
+    }
+  });
+
+  // =========================================================================
   // deleteSpace
   // =========================================================================
 
