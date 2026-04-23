@@ -209,7 +209,7 @@ export function PipelineConfirmModal() {
         ) : (
           <>
             {/* Horizontal timeline dots */}
-            <div className="flex items-start justify-between gap-2 py-4 overflow-x-auto overflow-y-clip">
+            <div className="flex items-start justify-between gap-2 py-4 flex-wrap">
               {stages.map((stage, i) => {
                 const colorClass = STAGE_COLOR_CLASS[stage] ?? 'text-primary';
                 const bgClass    = STAGE_BG_CLASS[stage]    ?? 'bg-primary/10';
