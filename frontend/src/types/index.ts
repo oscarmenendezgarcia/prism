@@ -12,6 +12,7 @@ export interface Space {
   name: string;
   workingDirectory?: string;
   pipeline?: string[]; // ordered agent IDs for this space's default pipeline
+  agentNicknames?: Record<string, string>; // custom display names per agent, keyed by agent ID
   createdAt: string;
   updatedAt: string;
 }

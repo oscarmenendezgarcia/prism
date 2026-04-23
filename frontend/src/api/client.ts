@@ -79,14 +79,21 @@ export const createSpace = (name: string, workingDirectory?: string, pipeline?: 
     }),
   });
 
-/** Update a space (name, workingDirectory, pipeline). */
-export const renameSpace = (id: string, name: string, workingDirectory?: string, pipeline?: string[]): Promise<Space> =>
+/** Update a space (name, workingDirectory, pipeline, agentNicknames). */
+export const renameSpace = (
+  id: string,
+  name: string,
+  workingDirectory?: string,
+  pipeline?: string[],
+  agentNicknames?: Record<string, string>,
+): Promise<Space> =>
   apiFetch<Space>(`/spaces/${id}`, {
     method: 'PUT',
     body: JSON.stringify({
       name,
       ...(workingDirectory !== undefined ? { workingDirectory } : {}),
       ...(pipeline !== undefined ? { pipeline } : {}),
+      ...(agentNicknames !== undefined ? { agentNicknames } : {}),
     }),
   });
 
