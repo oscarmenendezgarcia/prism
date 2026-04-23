@@ -30,6 +30,7 @@ const { spawn, execSync }       = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
+const worktreeManager = require('./worktreeManager');
 
 // Resolve the claude binary path once at startup so caffeinate (and sh) can
 // find it even when the server was launched from a shell with a different PATH.
@@ -351,6 +352,11 @@ async function killStage(dataDir, runId, stageIndex, reason) {
     ? Date.now() - new Date(run.stageStatuses[stageIndex].startedAt).getTime()
     : 0;
   bridgeUpdateRunFinished(dataDir, runId, stageIndex, 'failed', run.stageStatuses[stageIndex].finishedAt, killDurationMs);
+
+  // Teardown worktree if this run used one (parallel-worktrees).
+  finalizeRun(dataDir, run).catch((err) => {
+    pipelineLog('worktree.error', { runId, op: `finalize_${reason}`, message: err.message });
+  });
 }
 
 /**
@@ -386,6 +392,11 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
 
     // T-003 (pipeline-run-history-bridge): update history entry to 'failed'.
     bridgeUpdateRunFinished(dataDir, runId, stageIndex, 'failed', stage.finishedAt, durationMs);
+
+    // Teardown worktree if this run used one (parallel-worktrees).
+    finalizeRun(dataDir, run).catch((err) => {
+      pipelineLog('worktree.error', { runId, op: 'finalize_failed_stage', message: err.message });
+    });
     return;
   }
 
@@ -688,6 +699,80 @@ function pipelineLog(event, payload = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Worktree helpers (ADR-1: parallel-worktrees)
+// ---------------------------------------------------------------------------
+
+/**
+ * Return true when any active run is already targeting the given workingDirectory.
+ *
+ * Checks two sources:
+ *   1. `activeProcesses` (in-memory: stages that have started polling).
+ *   2. The runs registry (on-disk: covers the window between createRun() returning
+ *      and the first setImmediate callback, during which status is 'pending' but the
+ *      run is not yet in activeProcesses).
+ *
+ * @param {string} dataDir
+ * @param {string} workingDirectory
+ * @returns {boolean}
+ */
+function hasActiveRunInDir(dataDir, workingDirectory) {
+  if (!workingDirectory) return false;
+
+  // Fast path: check in-memory active stages.
+  for (const [runId] of activeProcesses) {
+    const run = readRun(dataDir, runId);
+    if (run && run.workingDirectory === workingDirectory) return true;
+  }
+
+  // Slow path: check the registry for any active-status run targeting the same dir.
+  // This covers pending runs that haven't entered activeProcesses yet.
+  const ACTIVE_STATUSES = new Set(['pending', 'running', 'blocked', 'paused']);
+  const registry = readRegistry(dataDir);
+  for (const entry of registry) {
+    if (!ACTIVE_STATUSES.has(entry.status)) continue;
+    const run = readRun(dataDir, entry.runId);
+    if (run && run.workingDirectory === workingDirectory) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Resolve the effective working directory for a run.
+ * When the run has an isolated worktree, return its path; otherwise return
+ * the configured workingDirectory (or undefined for runs without one).
+ *
+ * @param {object|null|undefined} run
+ * @returns {string|undefined}
+ */
+function effectiveCwd(run) {
+  if (!run) return undefined;
+  if (run.worktree && run.worktree.path) return run.worktree.path;
+  return run.workingDirectory || undefined;
+}
+
+/**
+ * Tear down the worktree for a run that has reached a terminal state.
+ * No-op when the run has no worktree. Never throws.
+ *
+ * @param {string} dataDir
+ * @param {object} run  - Run state at the point of finalization.
+ */
+async function finalizeRun(dataDir, run) {
+  if (!run || !run.worktree) return; // Solo runs have no worktree — skip.
+
+  const deleteBranch =
+    process.env.PIPELINE_DELETE_BRANCH_ON_FAILURE === '1' &&
+    run.status !== 'completed';
+
+  await worktreeManager.teardown(run.worktree, {
+    reason:       run.status || 'unknown',
+    runId:        run.runId,
+    deleteBranch,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Agent-runs bridge helpers (ADR-1: pipeline-run-history-bridge)
 // ---------------------------------------------------------------------------
 
@@ -986,6 +1071,8 @@ async function executeNextStage(dataDir, runId) {
     writeRun(dataDir, run);
     pipelineLog('run.completed', { runId, totalDurationMs: Date.now() - new Date(run.createdAt).getTime() });
     await moveKanbanTask(run.spaceId, run.taskId, 'done');
+    // Teardown worktree now that the run is complete (parallel-worktrees).
+    await finalizeRun(dataDir, run);
     return;
   }
 
@@ -1014,8 +1101,9 @@ async function spawnStage(dataDir, run, stageIndex) {
   pipelineLog('stage.started', { runId: run.runId, stageIndex, agentId });
 
   // Build the task prompt to pass via stdin.
+  // Use effectiveCwd so isolated runs see the worktree path, not the parent repo.
   const { promptText: taskPrompt } = buildStagePrompt(
-    dataDir, run.spaceId, run.taskId, stageIndex, agentId, run.stages, run.workingDirectory, run.runId,
+    dataDir, run.spaceId, run.taskId, stageIndex, agentId, run.stages, effectiveCwd(run), run.runId,
   );
 
   // T-002: Persist the prompt to disk before piping it to the child process.
@@ -1173,6 +1261,9 @@ function init(dataDir) {
     return;
   }
 
+  // Collect unique workingDirectories for the reapOrphans sweep below.
+  const knownWorkingDirs = new Set();
+
   for (const entry of entries) {
     const runJsonFile = path.join(dir, entry, 'run.json');
     if (!fs.existsSync(runJsonFile)) continue;
@@ -1180,6 +1271,9 @@ function init(dataDir) {
     try {
       const run = JSON.parse(fs.readFileSync(runJsonFile, 'utf8'));
       if (!run) continue;
+
+      // Collect workingDirectory for reapOrphans sweep (parallel-worktrees).
+      if (run.workingDirectory) knownWorkingDirs.add(run.workingDirectory);
 
       // T-010: Handle blocked runs with an active resolver on restart.
       if (run.status === 'blocked' && run.resolverActive === true) {
@@ -1297,6 +1391,14 @@ function init(dataDir) {
       console.warn(`[pipelineManager] WARN: could not process run entry '${entry}':`, err.message);
     }
   }
+
+  // Garbage-collect orphaned worktrees from unclean shutdowns (parallel-worktrees T-008).
+  // Run asynchronously — init() is synchronous overall; reapOrphans is a best-effort sweep.
+  if (knownWorkingDirs.size > 0) {
+    worktreeManager.reapOrphans(dataDir, [...knownWorkingDirs]).catch((err) => {
+      console.warn('[pipelineManager] WARN: reapOrphans failed:', err.message);
+    });
+  }
 }
 
 /**
@@ -1352,8 +1454,26 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
     }
   }
 
+  // --- Generate run ID upfront so it can be used in worktree path/branch names. ---
+  const runId = crypto.randomUUID();
+
+  // --- Provision a worktree if another active run uses the same workingDirectory. ---
+  // This is done BEFORE building the run object so that failures here do not
+  // leave a partial run.json on disk. The task stays in 'todo'.
+  let worktreeMeta = null;
+  const worktreeEnabled = process.env.PIPELINE_WORKTREE_ENABLED !== '0';
+  if (worktreeEnabled && workingDirectory && hasActiveRunInDir(dataDir, workingDirectory)) {
+    try {
+      worktreeMeta = await worktreeManager.provision(workingDirectory, runId);
+    } catch (err) {
+      const provErr = new Error(`Worktree provisioning failed: ${err.message}`);
+      provErr.code = 'WORKTREE_PROVISION_FAILED';
+      provErr.original = err;
+      throw provErr;
+    }
+  }
+
   // --- Build initial run state. ---
-  const runId     = crypto.randomUUID();
   const now       = new Date().toISOString();
   const run = {
     runId,
@@ -1375,6 +1495,7 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
     dangerouslySkipPermissions,
     checkpoints: Array.isArray(checkpoints) ? checkpoints : [],
     ...(workingDirectory ? { workingDirectory } : {}),
+    ...(worktreeMeta    ? { worktree: worktreeMeta } : {}),
   };
 
   // --- Ensure runs directory exists. ---
@@ -2054,6 +2175,12 @@ async function stopRun(runId, dataDir) {
 
   run.status = 'interrupted';
   writeRun(dataDir, run);
+
+  // Teardown worktree if this run used one (parallel-worktrees).
+  finalizeRun(dataDir, run).catch((err) => {
+    pipelineLog('worktree.error', { runId, op: 'finalize_stop', message: err.message });
+  });
+
   return run;
 }
 
@@ -2156,6 +2283,12 @@ async function deleteRun(runId, dataDir) {
       pipelineLog('run.aborted', { runId, pid, stageIndex });
       try { process.kill(-pid, 'SIGTERM'); } catch { /* process may already be gone */ }
     }
+
+    // Teardown worktree on abort (parallel-worktrees).
+    if (run) {
+      run.status = 'aborted';
+      await finalizeRun(dataDir, run);
+    }
   }
 
   // Remove run directory.
@@ -2211,6 +2344,10 @@ module.exports = {
   attemptCrossAgentResolution,
   handleResolverClose,
   markCommentNeedsHuman,
+  // Parallel-worktrees helpers (exported for testing):
+  hasActiveRunInDir,
+  effectiveCwd,
+  finalizeRun,
   // Exported for testing and preview endpoint:
   runsDir,
   runDir,
