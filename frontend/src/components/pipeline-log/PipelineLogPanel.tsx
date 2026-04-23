@@ -51,6 +51,7 @@ function deriveStageStatus(
  */
 export function PipelineLogPanel() {
   const pipelineState         = useAppStore((s) => s.pipelineState);
+  const activeSpace           = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
   const selectedStageIndex    = usePipelineLogStore((s) => s.selectedStageIndex);
   const setSelectedStageIndex = usePipelineLogStore((s) => s.setSelectedStageIndex);
   const setLogPanelOpen       = usePipelineLogStore((s) => s.setLogPanelOpen);
@@ -233,6 +234,7 @@ export function PipelineLogPanel() {
           stageStatuses={stageStatusesForBar}
           selectedIndex={selectedStageIndex}
           onSelect={setSelectedStageIndex}
+          activeSpace={activeSpace}
         />
       )}
 

@@ -11,6 +11,8 @@
  */
 
 import React from 'react';
+import { resolveAgentShortLabel } from '@/utils/agentName';
+import type { Space } from '@/types';
 
 /** Shape matching one entry in GET /api/v1/runs/:runId stageStatuses[]. */
 export interface StageStatus {
@@ -31,18 +33,8 @@ export interface StageTabBarProps {
   selectedIndex: number;
   /** Called when the user clicks a tab. */
   onSelect: (index: number) => void;
-}
-
-/** Map agent ID stems to short display labels. Falls back to first word of the ID. */
-function getShortLabel(agentId: string): string {
-  const labelMap: Record<string, string> = {
-    'senior-architect': 'Architect',
-    'ux-api-designer':  'UX',
-    'developer-agent':  'Dev',
-    'qa-engineer-e2e':  'QA',
-    orchestrator:       'Orch',
-  };
-  return labelMap[agentId] ?? agentId.split('-')[0] ?? agentId;
+  /** Active space — used to resolve per-space agent nicknames. */
+  activeSpace?: Space | null;
 }
 
 /** Agent-specific active text color for tabs. */
@@ -136,6 +128,7 @@ export function StageTabBar({
   stageStatuses,
   selectedIndex,
   onSelect,
+  activeSpace,
 }: StageTabBarProps) {
   return (
     <div
@@ -147,7 +140,7 @@ export function StageTabBar({
         const statusObj  = stageStatuses[index];
         const status     = statusObj?.status ?? 'pending';
         const isActive   = index === selectedIndex;
-        const label      = getShortLabel(agentId);
+        const label      = resolveAgentShortLabel(agentId, activeSpace ?? null);
         const agentColor = getAgentActiveColor(agentId);
 
         return (
