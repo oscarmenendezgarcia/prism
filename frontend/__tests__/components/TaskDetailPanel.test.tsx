@@ -467,9 +467,10 @@ describe('TaskDetailPanel — pipeline field: collapsed state (pipeline set)', (
   it('shows the agent chain as text with → separators', () => {
     useAppStore.setState({ detailTask: TASK_WITH_PIPELINE } as any);
     render(<TaskDetailPanel />);
-    // The component renders pipeline.join(' → ')
+    // The component resolves agent IDs to display names via resolveAgentName.
+    // Without a space with agentNicknames, STAGE_DISPLAY is used as fallback.
     const pipelineSection = document.body.querySelector('[data-testid="pipeline-collapsed"]') ?? document.body;
-    expect(pipelineSection.textContent).toMatch(/developer-agent.*qa-engineer-e2e/);
+    expect(pipelineSection.textContent).toMatch(/Developer Agent.*QA Engineer E2E/);
   });
 
   it('shows Edit and Clear buttons when pipeline is set', () => {

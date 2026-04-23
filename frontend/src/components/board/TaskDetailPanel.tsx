@@ -25,6 +25,7 @@ import { useAppStore, useActiveRun, useAvailableAgents } from '@/stores/useAppSt
 import { Button } from '@/components/shared/Button';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
+import { resolveAgentName } from '@/utils/agentName';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import type { Column, Comment } from '@/types';
 
@@ -132,6 +133,8 @@ interface PipelineFieldEditorProps {
   onSave: (pipeline: string[]) => void;
   /** Whether the panel is in read-only mode (isMutating / activeRun). */
   disabled: boolean;
+  /** Active space — used to resolve agent nicknames for display. */
+  activeSpace: import('@/types').Space | null;
 }
 
 /**
@@ -146,6 +149,7 @@ function PipelineFieldEditor({
   availableAgentIds,
   onSave,
   disabled,
+  activeSpace,
 }: PipelineFieldEditorProps): React.ReactElement {
   const [isEditing, setIsEditing]     = useState(false);
   const [draftStages, setDraftStages] = useState<string[]>([]);
@@ -214,8 +218,9 @@ function PipelineFieldEditor({
                   <span
                     role="listitem"
                     className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium bg-surface-variant text-text-secondary border border-border"
+                    title={stage}
                   >
-                    {stage}
+                    {resolveAgentName(stage, activeSpace)}
                   </span>
                   {i < pipeline.length - 1 && (
                     <span className="text-text-disabled text-xs" aria-hidden="true">→</span>
@@ -392,6 +397,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const loadAgents           = useAppStore((s) => s.loadAgents);
   const openAttachmentModal  = useAppStore((s) => s.openAttachmentModal);
   const activeSpaceId        = useAppStore((s) => s.activeSpaceId);
+  const activeSpace          = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
   const activeRun            = useActiveRun();
   const availableAgents      = useAvailableAgents();
 
@@ -748,6 +754,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
         availableAgentIds={availableAgents.map((a) => a.id)}
         onSave={handlePipelineSave}
         disabled={fieldDisabled}
+        activeSpace={activeSpace}
       />
 
       {/* ── Attachments ──────────────────────────────────────────── */}

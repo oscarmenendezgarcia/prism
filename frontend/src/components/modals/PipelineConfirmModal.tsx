@@ -21,6 +21,7 @@ import { useTerminalSessionStore } from '@/stores/useTerminalSessionStore';
 import { previewPipelinePrompts } from '@/api/client';
 import { SortableStageList } from './SortableStageList';
 import { generateRowKey, checkpointsToIndices } from './pipelineReorder';
+import { resolveAgentName } from '@/utils/agentName';
 import type { PipelineStage, PipelinePromptPreviewEntry } from '@/types';
 
 const TITLE_ID = 'pipeline-confirm-title';
@@ -55,6 +56,7 @@ export function PipelineConfirmModal() {
   const spaces          = useAppStore((s) => s.spaces);
   const availableAgents = useAppStore((s) => s.availableAgents);
   const loadAgents      = useAppStore((s) => s.loadAgents);
+  const activeSpaceId   = useAppStore((s) => s.activeSpaceId);
 
   const [stages, setStages]         = useState<PipelineStage[]>([]);
   /**
@@ -211,11 +213,12 @@ export function PipelineConfirmModal() {
             {/* Horizontal timeline dots — 4 per row */}
             <div className="grid grid-cols-4 gap-y-4 py-2">
               {stages.map((stage, i) => {
-                const colorClass   = STAGE_COLOR_CLASS[stage] ?? 'text-primary';
-                const bgClass      = STAGE_BG_CLASS[stage]    ?? 'bg-primary/10';
-                const displayName  = availableAgents.find((a) => a.id === stage)?.displayName ?? stage;
-                const isLastInRow  = (i + 1) % 4 === 0;
-                const isLast       = i === stages.length - 1;
+                const colorClass    = STAGE_COLOR_CLASS[stage] ?? 'text-primary';
+                const bgClass       = STAGE_BG_CLASS[stage]    ?? 'bg-primary/10';
+                const activeSpace   = spaces.find((s) => s.id === activeSpaceId) ?? null;
+                const displayName   = resolveAgentName(stage, activeSpace, availableAgents);
+                const isLastInRow   = (i + 1) % 4 === 0;
+                const isLast        = i === stages.length - 1;
                 const showConnector = !isLast && !isLastInRow;
                 return (
                   <div
