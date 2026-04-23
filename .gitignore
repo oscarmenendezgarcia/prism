@@ -17,6 +17,10 @@ frontend/coverage/
 # Playwright MCP browser session cache
 .playwright-mcp/
 
+# Git worktrees created by parallel pipeline runs (ADR-1: parallel-worktrees)
+.worktrees/
+/.worktrees
+
 # Screenshots dropped by review/QA agents in the project root
 /*.png
 /*.jpg
