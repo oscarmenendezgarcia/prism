@@ -121,7 +121,7 @@ describe('SpaceModal — Agent Nicknames section', () => {
     useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
     render(<SpaceModal />);
     // Inputs are only visible when expanded — none visible when collapsed
-    expect(screen.queryByPlaceholderText(/e\.g\. El Jefe/i)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/e\.g\. The/i)).not.toBeInTheDocument();
   });
 
   it('clicking the header toggles the section open', async () => {
@@ -131,7 +131,7 @@ describe('SpaceModal — Agent Nicknames section', () => {
     render(<SpaceModal />);
 
     await user.click(screen.getByRole('button', { name: /agent nicknames/i }));
-    expect(screen.getAllByPlaceholderText(/e\.g\. El Jefe/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByPlaceholderText(/e\.g\. The/i).length).toBeGreaterThan(0);
   });
 
   it('clicking the header again collapses the section', async () => {
@@ -143,7 +143,7 @@ describe('SpaceModal — Agent Nicknames section', () => {
     const header = screen.getByRole('button', { name: /agent nicknames/i });
     await user.click(header); // open
     await user.click(header); // close
-    expect(screen.queryByPlaceholderText(/e\.g\. El Jefe/i)).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/e\.g\. The/i)).not.toBeInTheDocument();
   });
 
   it('pre-fills nickname inputs from space.agentNicknames', async () => {
@@ -173,7 +173,7 @@ describe('SpaceModal — Agent Nicknames section', () => {
     await user.click(screen.getByRole('button', { name: /agent nicknames/i }));
 
     // Use fireEvent.change to avoid focus-leak from userEvent.type
-    const inputs = screen.getAllByPlaceholderText(/e\.g\. El Jefe/i) as HTMLInputElement[];
+    const inputs = screen.getAllByPlaceholderText(/e\.g\. The/i) as HTMLInputElement[];
     fireEvent.change(inputs[0], { target: { value: 'El Jefe' } });
 
     // Submit
@@ -212,7 +212,7 @@ describe('SpaceModal — Agent Nicknames section', () => {
     await user.click(screen.getByRole('button', { name: /clear all nicknames/i }));
 
     // All inputs should now be empty
-    const inputs = screen.getAllByPlaceholderText(/e\.g\. El Jefe/i);
+    const inputs = screen.getAllByPlaceholderText(/e\.g\. The/i);
     for (const input of inputs) {
       expect((input as HTMLInputElement).value).toBe('');
     }
@@ -234,7 +234,7 @@ describe('SpaceModal — Agent Nicknames section', () => {
 
     // Click the first nickname input to ensure focus, then clear it and type 51 chars
     // (maxLength is 51 so jsdom accepts it; validation checks > 50 and fails)
-    const inputs = screen.getAllByPlaceholderText(/e\.g\. El Jefe/i) as HTMLInputElement[];
+    const inputs = screen.getAllByPlaceholderText(/e\.g\. The/i) as HTMLInputElement[];
     await user.click(inputs[0]);
     fireEvent.change(inputs[0], { target: { value: 'a'.repeat(51) } });
 
@@ -264,7 +264,7 @@ describe('SpaceModal — Agent Nicknames section', () => {
     await user.click(screen.getByRole('button', { name: /agent nicknames/i }));
 
     // All inputs rendered should have an id that matches a label's htmlFor
-    const inputs = screen.getAllByPlaceholderText(/e\.g\. El Jefe/i) as HTMLInputElement[];
+    const inputs = screen.getAllByPlaceholderText(/e\.g\. The/i) as HTMLInputElement[];
     for (const input of inputs) {
       const id = input.id;
       expect(id).not.toBe('');
