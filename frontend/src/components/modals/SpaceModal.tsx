@@ -8,8 +8,9 @@ import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/compon
 import { Button } from '@/components/shared/Button';
 import { useAppStore } from '@/stores/useAppStore';
 
-const SPACE_NAME_MAX = 100;
-const TITLE_ID = 'space-modal-title';
+const SPACE_NAME_MAX    = 100;
+const NICKNAME_MAX      = 50;
+const TITLE_ID          = 'space-modal-title';
 
 const DEFAULT_STAGES = ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e'];
 const STAGE_OPTIONS  = DEFAULT_STAGES;
@@ -26,6 +27,9 @@ export function SpaceModal() {
   const [name, setName] = useState('');
   const [workingDirectory, setWorkingDirectory] = useState('');
   const [pipeline, setPipeline] = useState<string[]>([]);
+  const [nicknames, setNicknames] = useState<Record<string, string>>({});
+  const [nicknamesOpen, setNicknamesOpen] = useState(false);
+  const [nicknameErrors, setNicknameErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -34,17 +38,37 @@ export function SpaceModal() {
   const mode = spaceModal?.mode ?? 'create';
   const space = spaceModal?.space;
 
+  // Stages shown in the nicknames section: the space's configured pipeline, or the defaults.
+  const nicknameStages = (space?.pipeline && space.pipeline.length > 0)
+    ? space.pipeline
+    : DEFAULT_STAGES;
+
   // Pre-fill and reset on open
   useEffect(() => {
     if (isOpen) {
       setName(mode === 'rename' && space ? space.name : '');
       setWorkingDirectory(mode === 'rename' && space ? (space.workingDirectory ?? '') : '');
       setPipeline(mode === 'rename' && space ? (space.pipeline ?? []) : []);
+      setNicknames(mode === 'rename' && space ? (space.agentNicknames ?? {}) : {});
+      setNicknamesOpen(false);
+      setNicknameErrors({});
       setError('');
       setSubmitting(false);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [isOpen, mode, space]);
+
+  function validateNicknames(): boolean {
+    const errors: Record<string, string> = {};
+    for (const [agentId, value] of Object.entries(nicknames)) {
+      const trimmed = value.trim();
+      if (trimmed.length > NICKNAME_MAX) {
+        errors[agentId] = `Max ${NICKNAME_MAX} characters`;
+      }
+    }
+    setNicknameErrors(errors);
+    return Object.keys(errors).length === 0;
+  }
 
   async function handleSubmit() {
     const trimmed = name.trim();
@@ -58,6 +82,8 @@ export function SpaceModal() {
       return;
     }
 
+    if (!validateNicknames()) return;
+
     const wd = workingDirectory.trim() || undefined;
     const pl = pipeline.length > 0 ? pipeline : undefined;
     setSubmitting(true);
@@ -66,7 +92,7 @@ export function SpaceModal() {
         await createSpace(trimmed, wd, pl);
         closeModal();
       } else if (mode === 'rename' && space) {
-        await renameSpace(space.id, trimmed, wd ?? '', pl ?? []);
+        await renameSpace(space.id, trimmed, wd ?? '', pl ?? [], nicknames);
         closeModal();
       }
     } catch (err) {
@@ -193,6 +219,80 @@ export function SpaceModal() {
             Override the default agent pipeline for tasks in this space.
           </span>
         </div>
+
+        {/* Agent Nicknames — rename mode only */}
+        {mode === 'rename' && (
+          <div className="border border-border rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setNicknamesOpen((prev) => !prev)}
+              aria-expanded={nicknamesOpen}
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-text-primary hover:bg-surface-variant transition-colors duration-fast"
+            >
+              <span>Agent Nicknames <span className="text-text-disabled font-normal">(optional)</span></span>
+              <span
+                className={`material-symbols-outlined text-base leading-none text-text-secondary transition-transform duration-fast ${nicknamesOpen ? 'rotate-180' : ''}`}
+                aria-hidden="true"
+              >
+                expand_more
+              </span>
+            </button>
+
+            {nicknamesOpen && (
+              <div className="px-4 pb-4 flex flex-col gap-3 border-t border-border pt-3">
+                <p className="text-xs text-text-disabled">
+                  Assign a custom display name to each agent in this space. Names appear in the run indicator, logs, and handoff messages.
+                </p>
+
+                {nicknameStages.map((agentId) => {
+                  const inputId = `nickname-${agentId}`;
+                  return (
+                    <div key={agentId}>
+                      <label htmlFor={inputId} className="block text-xs font-medium text-text-secondary mb-1">
+                        <span className="font-mono text-text-disabled">{agentId}</span>
+                      </label>
+                      <input
+                        id={inputId}
+                        type="text"
+                        maxLength={NICKNAME_MAX + 1}
+                        placeholder="e.g. El Jefe"
+                        value={nicknames[agentId] ?? ''}
+                        onChange={(e) => {
+                          setNicknames((prev) => ({ ...prev, [agentId]: e.target.value }));
+                          if (nicknameErrors[agentId]) {
+                            setNicknameErrors((prev) => {
+                              const next = { ...prev };
+                              delete next[agentId];
+                              return next;
+                            });
+                          }
+                        }}
+                        className={`${inputClass} py-2 ${nicknameErrors[agentId] ? 'border-error ring-1 ring-error' : ''}`}
+                        autoComplete="off"
+                      />
+                      {nicknameErrors[agentId] && (
+                        <span className="text-xs text-error mt-1 block" role="alert">
+                          {nicknameErrors[agentId]}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <button
+                  type="button"
+                  className="text-xs text-text-disabled hover:text-text-secondary text-left transition-colors self-start"
+                  onClick={() => {
+                    setNicknames({});
+                    setNicknameErrors({});
+                  }}
+                >
+                  Clear all nicknames
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </ModalBody>
 
       <ModalFooter>
