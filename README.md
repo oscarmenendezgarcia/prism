@@ -183,6 +183,42 @@ cd frontend && npm run dev   # → http://localhost:5173
 
 ---
 
+## Parallel pipeline runs — git worktree isolation
+
+When two pipeline runs target the **same working directory**, they could race on git operations (checkouts, commits, rebases). Prism automatically provisions an isolated git worktree for each conflicting run so they never interfere.
+
+### How it works
+
+- **Solo run** — the first run on a directory works directly in the main checkout. No worktree is created. Fully backward compatible.
+- **Concurrent run** — any subsequent run that starts while another is still active in the same directory gets its own worktree at `.worktrees/run-<short-runId>`, branched off the current HEAD as `pipeline/run-<short-runId>`.
+- **Cleanup** — worktrees are removed automatically when a run reaches a terminal state (`completed`, `failed`, `interrupted`, `aborted`). Orphaned worktrees (no matching run) are reaped on the next server startup.
+
+### Branch naming
+
+```
+pipeline/run-<first-8-chars-of-runId>
+```
+
+The worktree lives at:
+
+```
+<space-workingDirectory>/.worktrees/run-<first-8-chars-of-runId>
+```
+
+Both paths are in `.gitignore` and are never committed to the main repo.
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PIPELINE_WORKTREE_ENABLED` | `1` | Set to `0` to disable worktree provisioning entirely |
+| `PIPELINE_WORKTREE_DIR` | `.worktrees` | Subdirectory under the space working directory |
+| `PIPELINE_DELETE_BRANCH_ON_FAILURE` | `0` | Set to `1` to delete the `pipeline/run-*` branch when a run fails or is aborted |
+
+> See `agent-docs/parallel-worktrees/ADR-1.md` for the full design rationale.
+
+---
+
 ## Environment variables
 
 | Variable | Default | Description |

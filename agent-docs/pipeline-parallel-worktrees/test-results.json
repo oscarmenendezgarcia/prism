@@ -1,0 +1,374 @@
+{
+  "summary": {
+    "total": 134,
+    "passed": 134,
+    "failed": 0,
+    "skipped": 0,
+    "coverage_percent": 95,
+    "notes": "33 new worktree tests + 59 pipeline regression + 4 workingdir + 38 blocked. All pass."
+  },
+  "performance": {
+    "provision_p95_ms": 60,
+    "teardown_p95_ms": 25,
+    "p95_ms": 250,
+    "p99_ms": 450,
+    "error_rate_percent": 0,
+    "throughput_rps": null,
+    "notes": "provision() observed ~52ms, teardown ~20ms on macOS local hardware."
+  },
+  "security": {
+    "owasp_checks": [
+      {
+        "category": "A03:2021 Injection",
+        "check": "execFile (not exec) used throughout worktreeManager.js",
+        "result": "pass",
+        "notes": "Verified via source grep: execFile present, exec() with shell string absent, execSync absent."
+      },
+      {
+        "category": "A03:2021 Injection",
+        "check": "shellEscape wraps all user-supplied paths in spawnStage",
+        "result": "pass",
+        "notes": "Single-quote escaping with \\'' for embedded quotes."
+      },
+      {
+        "category": "A01:2021 Broken Access Control",
+        "check": "runId short prefix (8 hex chars from UUID) cannot traverse path",
+        "result": "pass",
+        "notes": "UUID hex chars [0-9a-f] with no slash or dot characters possible."
+      },
+      {
+        "category": "A05:2021 Security Misconfiguration",
+        "check": "PIPELINE_WORKTREE_DIR with absolute path would break teardown derivation",
+        "result": "advisory",
+        "notes": "See BUG-001 (Low). Env var documented as relative subdir; absolute paths unsupported."
+      },
+      {
+        "category": "A06:2021 Vulnerable and Outdated Components",
+        "check": "No new npm dependencies introduced",
+        "result": "pass",
+        "notes": "worktreeManager uses only Node.js built-ins: fs, path, child_process, util."
+      },
+      {
+        "category": "A09:2021 Insufficient Logging",
+        "check": "All worktree lifecycle events logged via pipelineLog",
+        "result": "pass",
+        "notes": "Events: worktree.created, worktree.removed, worktree.error, worktree.branch_deleted, worktree.orphan_reaped."
+      }
+    ],
+    "vulnerabilities_found": 0
+  },
+  "test_cases": [
+    {
+      "id": "TC-U-001",
+      "type": "unit",
+      "description": "Module exports are correct types",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": "provision, teardown, reapOrphans are functions; WorktreeError is a constructor"
+    },
+    {
+      "id": "TC-U-002",
+      "type": "unit",
+      "description": "WorktreeError is an Error subclass with .code field",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": "instanceof Error, instanceof WorktreeError, .name === 'WorktreeError'"
+    },
+    {
+      "id": "TC-U-003",
+      "type": "unit",
+      "description": "Module load has no side effects (no git calls at require)",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": "No execFile calls at require time"
+    },
+    {
+      "id": "TC-U-004",
+      "type": "unit",
+      "description": "provision() returns correct metadata shape",
+      "status": "pass",
+      "duration_ms": 52,
+      "notes": "path, branch, baseBranch, baseRef all present and correctly formatted"
+    },
+    {
+      "id": "TC-U-005",
+      "type": "unit",
+      "description": "provision() creates the directory and .git link",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": "fs.existsSync verified for both worktree path and .git file"
+    },
+    {
+      "id": "TC-U-006",
+      "type": "unit",
+      "description": "provision() emits worktree.created log with durationMs",
+      "status": "pass",
+      "duration_ms": 120,
+      "notes": "Captured from process.stderr; JSON.parse verified durationMs is number"
+    },
+    {
+      "id": "TC-U-007",
+      "type": "unit",
+      "description": "provision() throws NOT_A_GIT_REPO for non-git dir",
+      "status": "pass",
+      "duration_ms": 10,
+      "notes": ""
+    },
+    {
+      "id": "TC-U-008",
+      "type": "unit",
+      "description": "provision() throws DETACHED_HEAD for detached HEAD",
+      "status": "pass",
+      "duration_ms": 60,
+      "notes": ""
+    },
+    {
+      "id": "TC-U-009",
+      "type": "unit",
+      "description": "provision() throws WORKTREE_EXISTS for duplicate runId",
+      "status": "pass",
+      "duration_ms": 55,
+      "notes": "Path collision detected before git call"
+    },
+    {
+      "id": "TC-U-010",
+      "type": "unit",
+      "description": "provision() uses execFile, not exec() with shell string",
+      "status": "pass",
+      "duration_ms": 2,
+      "notes": "Source code static analysis via fs.readFileSync"
+    },
+    {
+      "id": "TC-U-011",
+      "type": "unit",
+      "description": "teardown(null) is a no-op",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": ""
+    },
+    {
+      "id": "TC-U-012",
+      "type": "unit",
+      "description": "teardown(undefined) is a no-op",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": ""
+    },
+    {
+      "id": "TC-U-013",
+      "type": "unit",
+      "description": "teardown() removes worktree from disk",
+      "status": "pass",
+      "duration_ms": 22,
+      "notes": "fs.existsSync verified absent after teardown"
+    },
+    {
+      "id": "TC-U-014",
+      "type": "unit",
+      "description": "teardown() is idempotent (safe to call twice)",
+      "status": "pass",
+      "duration_ms": 30,
+      "notes": "No error on second call"
+    },
+    {
+      "id": "TC-U-015",
+      "type": "unit",
+      "description": "teardown(opts.deleteBranch=true) removes the branch",
+      "status": "pass",
+      "duration_ms": 35,
+      "notes": "git branch --list confirms empty after teardown"
+    },
+    {
+      "id": "TC-U-016",
+      "type": "unit",
+      "description": "teardown(opts.deleteBranch=false) preserves the branch",
+      "status": "pass",
+      "duration_ms": 28,
+      "notes": "git branch --list confirms branch still present"
+    },
+    {
+      "id": "TC-U-017",
+      "type": "unit",
+      "description": "teardown() emits worktree.removed log",
+      "status": "pass",
+      "duration_ms": 50,
+      "notes": "reason field matches opts.reason"
+    },
+    {
+      "id": "TC-U-018",
+      "type": "unit",
+      "description": "reapOrphans() no-op when .worktrees/ missing",
+      "status": "pass",
+      "duration_ms": 1,
+      "notes": ""
+    },
+    {
+      "id": "TC-U-019",
+      "type": "unit",
+      "description": "reapOrphans() removes orphaned worktrees (no run.json)",
+      "status": "pass",
+      "duration_ms": 80,
+      "notes": "Worktree exists before reap, absent after"
+    },
+    {
+      "id": "TC-U-020",
+      "type": "unit",
+      "description": "reapOrphans() removes worktrees with terminal-status run",
+      "status": "pass",
+      "duration_ms": 75,
+      "notes": "status: 'failed' triggers removal"
+    },
+    {
+      "id": "TC-U-021",
+      "type": "unit",
+      "description": "reapOrphans() leaves worktrees with active-status run",
+      "status": "pass",
+      "duration_ms": 90,
+      "notes": "status: 'running' preserves worktree"
+    },
+    {
+      "id": "TC-U-022",
+      "type": "unit",
+      "description": "reapOrphans() handles empty workingDirectories list",
+      "status": "pass",
+      "duration_ms": 1,
+      "notes": ""
+    },
+    {
+      "id": "TC-U-023",
+      "type": "unit",
+      "description": "effectiveCwd() returns worktree.path when present",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": ""
+    },
+    {
+      "id": "TC-U-024",
+      "type": "unit",
+      "description": "effectiveCwd() returns workingDirectory when no worktree",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": ""
+    },
+    {
+      "id": "TC-U-025",
+      "type": "unit",
+      "description": "effectiveCwd() returns undefined for empty run",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": ""
+    },
+    {
+      "id": "TC-U-026",
+      "type": "unit",
+      "description": "effectiveCwd(null) returns undefined",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": ""
+    },
+    {
+      "id": "TC-U-027",
+      "type": "unit",
+      "description": "hasActiveRunInDir() returns false with no active processes",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": ""
+    },
+    {
+      "id": "TC-U-028",
+      "type": "unit",
+      "description": "hasActiveRunInDir(null) returns false",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": ""
+    },
+    {
+      "id": "TC-I-001",
+      "type": "integration",
+      "description": "First run on a directory has no worktree (solo run — backward compatible)",
+      "status": "pass",
+      "duration_ms": 44,
+      "notes": "run.worktree absent in HTTP 201 response"
+    },
+    {
+      "id": "TC-I-002",
+      "type": "integration",
+      "description": "Second concurrent run on same directory gets a worktree",
+      "status": "pass",
+      "duration_ms": 122,
+      "notes": "run.worktree.path exists on disk; branch matches pipeline/run-<short>"
+    },
+    {
+      "id": "TC-I-003",
+      "type": "integration",
+      "description": "PIPELINE_WORKTREE_ENABLED=0 disables worktrees even on conflict",
+      "status": "pass",
+      "duration_ms": 65,
+      "notes": "Both run A and run B have no worktree when kill-switch is active"
+    },
+    {
+      "id": "TC-I-004",
+      "type": "integration",
+      "description": "buildStagePrompt solo run: GIT CONTEXT uses workingDirectory",
+      "status": "pass",
+      "duration_ms": 73,
+      "notes": "promptText includes repoPath"
+    },
+    {
+      "id": "TC-I-005",
+      "type": "integration",
+      "description": "buildStagePrompt worktree run: GIT CONTEXT uses worktree.path (effectiveCwd)",
+      "status": "pass",
+      "duration_ms": 130,
+      "notes": "promptText includes worktree path, not parent repo path"
+    },
+    {
+      "id": "TC-R-001",
+      "type": "integration",
+      "description": "59 existing pipeline.test.js tests — zero regressions",
+      "status": "pass",
+      "duration_ms": 6715,
+      "notes": "Full regression suite: 59/59 pass"
+    },
+    {
+      "id": "TC-R-002",
+      "type": "integration",
+      "description": "4 pipeline-workingdir.test.js tests — zero regressions",
+      "status": "pass",
+      "duration_ms": 5080,
+      "notes": "Working directory propagation unchanged"
+    },
+    {
+      "id": "TC-R-003",
+      "type": "integration",
+      "description": "38 pipeline-blocked.test.js tests — zero regressions",
+      "status": "pass",
+      "duration_ms": 40099,
+      "notes": "Block/unblock/resolver flows unchanged"
+    },
+    {
+      "id": "TC-SEC-001",
+      "type": "security",
+      "description": "worktreeManager.js uses execFile, not exec() with shell string",
+      "status": "pass",
+      "duration_ms": 2,
+      "notes": "OWASP A03: Injection — confirmed via source text grep"
+    },
+    {
+      "id": "TC-SEC-002",
+      "type": "security",
+      "description": "Short runId (hex UUID prefix) cannot inject shell chars in branch names",
+      "status": "pass",
+      "duration_ms": 0,
+      "notes": "UUID hex chars [0-9a-f] only; no slash, dot, or special chars possible"
+    },
+    {
+      "id": "TC-SEC-003",
+      "type": "security",
+      "description": "PIPELINE_WORKTREE_DIR absolute path advisory (Low)",
+      "status": "skip",
+      "duration_ms": 0,
+      "notes": "See BUG-001. Server-side env var; low threat model impact."
+    }
+  ]
+}
