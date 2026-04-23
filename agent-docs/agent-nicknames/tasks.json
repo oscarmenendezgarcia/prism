@@ -1,0 +1,203 @@
+{
+  "version": "1.0",
+  "project": "prism/agent-nicknames",
+  "date": "2026-04-23",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Backend: extend renameSpace() to persist agentNicknames",
+      "description": "Add agentNicknames parameter to spaceManager.renameSpace(). Implement normaliseNicknames() helper that drops empty-string entries and trims values. Validate each value is a string with trimmed length ≤ 50 chars (return VALIDATION_ERROR otherwise). Write the normalised map into the space object in spaces.json using the existing atomic write pattern.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "PUT /api/v1/spaces/:id with { agentNicknames: { 'senior-architect': 'El Jefe' } } returns 200 with the nickname included in the response body",
+        "Empty-string nickname values (e.g. { 'developer-agent': '' }) are stripped before write and absent from the response",
+        "Nickname value exceeding 50 chars returns 400 with code VALIDATION_ERROR",
+        "Existing spaces without agentNicknames continue to behave identically — GET returns space without the field",
+        "PUT with agentNicknames: undefined leaves the existing agentNicknames value unchanged (no regression)",
+        "Atomic write: no partial write state possible (tmp file rename pattern used)",
+        "Unit test: normaliseNicknames() drops empty strings, trims values, handles undefined input"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Backend: pass agentNicknames through PUT route handler",
+      "description": "In src/routes/index.js, extract agentNicknames from the parsed request body and pass it as the sixth argument to spaceManager.renameSpace(). Also update the POST /api/v1/spaces handler to NOT accept agentNicknames on create (it must only be settable via PUT on an existing space).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "PUT /api/v1/spaces/:id body with agentNicknames is correctly forwarded to renameSpace()",
+        "POST /api/v1/spaces ignores agentNicknames in the body — the created space never has agentNicknames set",
+        "Integration test: PUT a space with nicknames, GET the space, verify nicknames are present in the response"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Frontend: add agentNicknames to Space type and api client",
+      "description": "In frontend/src/types/index.ts, add agentNicknames?: Record<string, string> to the Space interface. In frontend/src/api/client.ts, extend the updateSpace() payload type to include agentNicknames?: Record<string, string> and pass it through to the PUT request body.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "Space interface has agentNicknames?: Record<string, string>",
+        "updateSpace() in api/client.ts accepts and forwards agentNicknames in the request body",
+        "TypeScript compiler reports zero new errors after these changes (npm run build in frontend/)",
+        "No other types or interfaces regress"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Frontend: create agentName.ts utility with resolveAgentName and resolveAgentShortLabel",
+      "description": "Create frontend/src/utils/agentName.ts. Implement resolveAgentName(agentId, space, agents?) using the four-step fallback chain: space.agentNicknames[agentId] → STAGE_DISPLAY[agentId] → agents[].displayName → agentId. Implement resolveAgentShortLabel(agentId, space) using: nickname truncated to 6 chars with ellipsis → STAGE_LABELS[agentId] → agentId.split('-')[0]. STAGE_DISPLAY and STAGE_LABELS constants are moved here from RunIndicator.tsx and StageTabBar.tsx (or imported from here by those files to avoid duplication).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "resolveAgentName('senior-architect', { agentNicknames: { 'senior-architect': 'El Jefe' } }) returns 'El Jefe'",
+        "resolveAgentName('senior-architect', null) returns 'Senior Architect' (static fallback)",
+        "resolveAgentName('unknown-agent', null) returns 'unknown-agent' (raw ID fallback)",
+        "resolveAgentShortLabel('senior-architect', { agentNicknames: { 'senior-architect': 'El Jefe' } }) returns 'El Jef…'",
+        "resolveAgentShortLabel('senior-architect', null) returns 'Arch' (static short label)",
+        "Unit tests cover all fallback levels for both functions",
+        "TypeScript types are correctly annotated — no any casts"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Frontend: update useAppStore renameSpace action to pass agentNicknames",
+      "description": "In frontend/src/stores/useAppStore.ts, extend the renameSpace action signature to accept agentNicknames?: Record<string, string> as a fifth optional parameter. Pass it through to api.updateSpace(). No new store state slice is needed — the nicknames are read from the spaces[] array which is already kept in sync after every updateSpace() call.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "renameSpace action signature accepts agentNicknames as fifth optional argument",
+        "Calling renameSpace without agentNicknames does not break existing behaviour",
+        "After a successful renameSpace call with agentNicknames, the spaces[] array in the store reflects the updated nicknames",
+        "TypeScript compilation clean"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Frontend: add Agent Nicknames section to SpaceModal (rename mode only)",
+      "description": "In frontend/src/components/modals/SpaceModal.tsx, add an 'Agent Nicknames' collapsible section inside ModalBody, rendered only when mode === 'rename'. The section shows one input row per agent in the resolved pipeline (space.pipeline ?? DEFAULT_STAGES). Each row has the agent ID as a label and a text input for the nickname (max 50 chars, placeholder 'e.g. El Jefe'). A 'Clear all' link resets all inputs to empty. Local state: nicknames (Record<string, string>), nicknamesOpen (boolean, default false). On open in rename mode, initialise from space.agentNicknames ?? {}. Pass nicknames to renameSpace() on submit.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-004", "T-005"],
+      "acceptance_criteria": [
+        "Nicknames section is NOT rendered when mode === 'create'",
+        "Nicknames section is collapsed by default when mode === 'rename'",
+        "Clicking the section header toggles it open/closed",
+        "Inputs are pre-filled from space.agentNicknames on modal open",
+        "Typing a nickname and clicking Save sends the updated nickname to the API",
+        "Clearing a nickname input (empty string) results in that entry being removed from space.agentNicknames",
+        "Nickname input longer than 50 chars shows an inline validation error and blocks submit",
+        "'Clear all' resets all nickname inputs to empty without closing the modal",
+        "Design system compliant: Tailwind tokens only, no inline styles, uses existing inputClass pattern",
+        "Accessible: each input has an associated label with htmlFor"
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Frontend: integrate resolveAgentName into RunIndicator",
+      "description": "In frontend/src/components/agent-launcher/RunIndicator.tsx, replace the inline STAGE_DISPLAY lookup (lines ~532-534) and the PausedBanner stageName computation (line ~516) with calls to resolveAgentName(agentId, activeSpace, agents). The activeSpace is derived from useAppStore: spaces.find(s => s.id === activeSpaceId). Import resolveAgentName and resolveAgentShortLabel from @/utils/agentName. Remove the local STAGE_DISPLAY and STAGE_LABELS constants (or keep as fallback if they are used elsewhere in the file — check usages).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-004"],
+      "acceptance_criteria": [
+        "When a space has agentNicknames: { 'senior-architect': 'El Jefe' }, the RunIndicator shows 'El Jefe' as the display name for that agent",
+        "When no nickname is set, existing static labels are used (no visual regression)",
+        "PausedBanner stageName correctly shows the nickname when set",
+        "No TypeScript errors introduced"
+      ]
+    },
+    {
+      "id": "T-008",
+      "title": "Frontend: integrate resolveAgentShortLabel into StageTabBar",
+      "description": "In frontend/src/components/pipeline-log/StageTabBar.tsx, replace the internal getShortLabel(agentId) call with resolveAgentShortLabel(agentId, activeSpace). The activeSpace must be passed as a prop from PipelineLogPanel (which already has access to the store). Update StageTabBar props interface accordingly.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "1",
+      "dependencies": ["T-004"],
+      "acceptance_criteria": [
+        "StageTabBar accepts an optional activeSpace prop of type Space | null",
+        "When activeSpace.agentNicknames has an entry for the agentId, the short label shows the truncated nickname (≤ 6 chars + ellipsis if needed)",
+        "When no nickname is set, existing short labels render identically to before",
+        "PipelineLogPanel passes activeSpace to StageTabBar"
+      ]
+    },
+    {
+      "id": "T-009",
+      "title": "Frontend: integrate resolveAgentName into PipelineConfirmModal and TaskDetailPanel",
+      "description": "In PipelineConfirmModal.tsx, replace raw agentId display in the stage list with resolveAgentName(agentId, activeSpace, agents). In TaskDetailPanel.tsx (line ~298), replace {agentId} text with resolveAgentName(agentId, activeSpace, agents). Both components already have access to activeSpace via the store. Also update SpaceModal.tsx stage selector options to use resolveAgentName for the displayed option text (create mode can use static labels since no space exists yet).",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "2",
+      "dependencies": ["T-004"],
+      "acceptance_criteria": [
+        "PipelineConfirmModal stage list shows nicknames when set for the active space",
+        "TaskDetailPanel stage list shows nicknames when set for the active space",
+        "SpaceModal pipeline selector shows nicknames in rename mode",
+        "Falling back to static labels when no nickname is set — no visual regression"
+      ]
+    },
+    {
+      "id": "T-010",
+      "title": "Tests: backend unit tests for agentNicknames in spaceManager",
+      "description": "Add unit tests in the backend test suite (Node.js node:test runner) for the agentNicknames feature: normaliseNicknames helper, renameSpace with agentNicknames param, validation edge cases (value too long, non-string keys). Use temp directories as in existing spaceManager tests.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-001", "T-002"],
+      "acceptance_criteria": [
+        "Test: renameSpace with valid agentNicknames persists correctly",
+        "Test: renameSpace with empty-string nickname value drops that entry",
+        "Test: renameSpace with agentNicknames value > 50 chars returns VALIDATION_ERROR",
+        "Test: renameSpace without agentNicknames parameter leaves existing nicknames unchanged",
+        "Test: PUT route handler passes agentNicknames to renameSpace",
+        "npm test passes with zero failures"
+      ]
+    },
+    {
+      "id": "T-011",
+      "title": "Tests: frontend unit tests for agentName.ts utility",
+      "description": "Write Vitest unit tests for resolveAgentName and resolveAgentShortLabel covering all fallback levels and edge cases (null space, empty nickname map, nickname empty string, known and unknown agentIds).",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-004"],
+      "acceptance_criteria": [
+        "resolveAgentName: all four fallback levels tested",
+        "resolveAgentShortLabel: nickname truncation tested (nickname = 'El Jefe' → 'El Jef…'), static map fallback tested",
+        "Edge case: agentNicknames value = '' treated as absent (falls through to next level)",
+        "cd frontend && npm test passes with zero failures"
+      ]
+    },
+    {
+      "id": "T-012",
+      "title": "Tests: component tests for SpaceModal nicknames section",
+      "description": "Write React Testing Library tests for the new nicknames section in SpaceModal: section hidden in create mode, visible (collapsed) in rename mode, toggle open/close, pre-fill from space data, submit sends nicknames to renameSpace, clear all resets inputs, validation error for value > 50 chars.",
+      "role": "QA",
+      "priority": "Medium",
+      "estimate": "2",
+      "dependencies": ["T-006"],
+      "acceptance_criteria": [
+        "Nicknames section not present when mode=create",
+        "Nicknames section present but collapsed when mode=rename",
+        "Toggle chevron opens/closes the section",
+        "Inputs pre-filled from space.agentNicknames",
+        "Submitting with a nickname calls renameSpace with the correct agentNicknames map",
+        "Clear all empties all inputs",
+        "Input value > 50 chars blocks form submit and shows error"
+      ]
+    }
+  ]
+}
