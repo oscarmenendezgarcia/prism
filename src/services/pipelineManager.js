@@ -30,6 +30,11 @@ const { spawn, execSync }       = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
+const {
+  buildKanbanBlock,
+  buildGitContextBlock,
+  buildCompileGateBlock,
+} = require('../utils/promptBuilder');
 
 // Resolve the claude binary path once at startup so caffeinate (and sh) can
 // find it even when the server was launched from a shell with a different PATH.
@@ -907,52 +912,19 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   }
 
   // Include git context so agents can evaluate what work has already been done.
-  // This helps the developer-agent avoid re-implementing code from prior partial runs.
-  // IMPORTANT: Only included when a workingDirectory is explicitly set. Falling back
+  // IMPORTANT: Only included when workingDirectory is explicitly set — falling back
   // to process.cwd() would expose Prism's own git history to agents that have no
-  // project directory — which is misleading and incorrect.
-  if (workingDirectory && fs.existsSync(workingDirectory)) {
-    try {
-      const execSync2 = require('child_process').execSync;
-      const opts      = { encoding: 'utf8', timeout: 5000, cwd: workingDirectory };
-      const gitLog    = execSync2('git log --oneline -5 2>/dev/null', opts).trim();
-      const rawStatus = execSync2('git status --short 2>/dev/null', opts).trim();
-      // Exclude untracked files (??) — they are irrelevant to pipeline agents
-      const gitStatus = rawStatus.split('\n').filter(l => !l.startsWith('??')).join('\n').trim();
-      if (gitLog || gitStatus) {
-        promptText += `\n## GIT CONTEXT\n`;
-        if (gitLog)    promptText += '```\n' + gitLog + '\n```\n';
-        if (gitStatus) promptText += '\nWorking tree changes:\n```\n' + gitStatus + '\n```\n';
-      }
-    } catch (e) {
-      // git not available — skip
-    }
-  }
+  // project directory, which is misleading and incorrect.
+  const gitBlock = buildGitContextBlock(workingDirectory);
+  if (gitBlock) promptText += gitBlock + '\n';
 
   // Kanban instructions — always included so agents can move tasks and post questions.
-  promptText += '\n## KANBAN INSTRUCTIONS\n';
-  promptText += `Space ID: ${spaceId}  |  Task ID: ${taskId}\n`;
-  promptText += `Move this task: todo → in-progress (immediately) → done (when finished).\n`;
-  promptText += 'Tools: kanban_move_task · kanban_update_task · kanban_add_comment · kanban_answer_comment\n';
-  promptText += '\n';
-  promptText += 'STOP and post a question (do NOT assume) when ANY of these is true:\n';
-  promptText += '  • A required artifact (spec, wireframe, ADR) is missing or unreadable\n';
-  promptText += '  • You face ≥2 valid options and nothing in the brief lets you choose\n';
-  promptText += '  • Resolving an ambiguity would require changing ≥2 files in a non-obvious way\n';
-  promptText += '  • You need a dependency or pattern not mentioned in the design\n';
-  promptText += '  • A decision is irreversible or cross-team and you have no explicit approval\n';
-  promptText += `  mcp__prism__kanban_add_comment({ spaceId: "${spaceId}", taskId: "${taskId}", author: "<agent-id>", type: "question", text: "<question + both options>", targetAgent: "<agent-id or omit>" })\n`;
-  promptText += 'The pipeline pauses automatically. Resume once answered via kanban_answer_comment.\n';
+  promptText += '\n' + buildKanbanBlock(spaceId, taskId) + '\n';
 
   // For the developer stage: require compilation gate before closing.
   // Prevents QA from launching against code that does not compile.
   if (agentId === 'developer-agent') {
-    promptText += '\n## MANDATORY COMPILE GATE\n';
-    promptText += 'Before marking your Kanban task done, you MUST verify the code compiles:\n';
-    promptText += '- Java/Maven: run `mvn compile -q` (or `./mvnw compile -q`)\n';
-    promptText += '- Java/Gradle: run `./gradlew compileJava -q`\n';
-    promptText += '- TypeScript/Node: run `npm run build` or `tsc --noEmit`\n';
-    promptText += 'If compilation fails, fix the errors before closing the task. Do NOT advance to QA with broken code.\n';
+    promptText += '\n' + buildCompileGateBlock() + '\n';
   }
 
   const estimatedTokens = Math.ceil(promptText.length / 4);
