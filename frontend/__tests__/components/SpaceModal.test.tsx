@@ -172,12 +172,12 @@ describe('SpaceModal — Agent Nicknames section', () => {
     // Open nicknames section
     await user.click(screen.getByRole('button', { name: /agent nicknames/i }));
 
-    // Type a nickname for senior-architect (first input)
-    const inputs = screen.getAllByPlaceholderText(/e\.g\. El Jefe/i);
-    await user.type(inputs[0], 'El Jefe');
+    // Use fireEvent.change to avoid focus-leak from userEvent.type
+    const inputs = screen.getAllByPlaceholderText(/e\.g\. El Jefe/i) as HTMLInputElement[];
+    fireEvent.change(inputs[0], { target: { value: 'El Jefe' } });
 
     // Submit
-    await user.click(screen.getByRole('button', { name: /save/i }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
 
     await waitFor(() => {
       expect(mockRename).toHaveBeenCalled();
