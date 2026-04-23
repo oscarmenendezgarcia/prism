@@ -18,8 +18,9 @@ const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
 
-const COLUMN_NAMES     = ['todo', 'in-progress', 'done'];
-const SPACE_NAME_MAX   = 100;
+const COLUMN_NAMES         = ['todo', 'in-progress', 'done'];
+const SPACE_NAME_MAX       = 100;
+const NICKNAME_VALUE_MAX   = 50;
 
 // ---------------------------------------------------------------------------
 // Module factory — binds to a specific dataDir so tests can use temp dirs.
@@ -58,6 +59,41 @@ function createSpaceManager(dataDir) {
   // -------------------------------------------------------------------------
   // Name validation helper
   // -------------------------------------------------------------------------
+
+  /**
+   * Normalise an agentNicknames map:
+   *   - Drops entries with empty-string values (after trim).
+   *   - Trims remaining values.
+   *   - Validates that no trimmed value exceeds NICKNAME_VALUE_MAX characters.
+   *
+   * @param {Record<string, string> | undefined | null} raw
+   * @returns {{ ok: true, nicknames: Record<string, string> } | { ok: false, code: string, message: string }}
+   */
+  function normaliseNicknames(raw) {
+    if (raw === undefined || raw === null) {
+      return { ok: true, nicknames: {} };
+    }
+    if (typeof raw !== 'object' || Array.isArray(raw)) {
+      return { ok: false, code: 'VALIDATION_ERROR', message: 'agentNicknames must be an object.' };
+    }
+    const result = {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (typeof value !== 'string') {
+        return { ok: false, code: 'VALIDATION_ERROR', message: `Nickname for "${key}" must be a string.` };
+      }
+      const trimmed = value.trim();
+      if (trimmed.length === 0) continue; // drop empty entries
+      if (trimmed.length > NICKNAME_VALUE_MAX) {
+        return {
+          ok:      false,
+          code:    'VALIDATION_ERROR',
+          message: `Nickname for "${key}" must not exceed ${NICKNAME_VALUE_MAX} characters.`,
+        };
+      }
+      result[key] = trimmed;
+    }
+    return { ok: true, nicknames: result };
+  }
 
   /**
    * Validate a space name.
@@ -170,9 +206,13 @@ function createSpaceManager(dataDir) {
    * Rename a space.
    * @param {string} id
    * @param {string} newName
+   * @param {string} [workingDirectory]
+   * @param {string[]} [pipeline]
+   * @param {string} [projectClaudeMdPath]
+   * @param {Record<string, string>} [agentNicknames]
    * @returns {{ ok: true, space: object } | { ok: false, code: string, message: string }}
    */
-  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath) {
+  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames) {
     const validation = validateName(newName);
     if (!validation.valid) {
       return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
@@ -201,6 +241,14 @@ function createSpaceManager(dataDir) {
       };
     }
 
+    // Validate and normalise agentNicknames when provided.
+    let normalisedNicknames;
+    if (agentNicknames !== undefined) {
+      const nickResult = normaliseNicknames(agentNicknames);
+      if (!nickResult.ok) return nickResult;
+      normalisedNicknames = nickResult.nicknames;
+    }
+
     spaces[idx] = {
       ...spaces[idx],
       name:      validation.name,
@@ -214,6 +262,11 @@ function createSpaceManager(dataDir) {
       // projectClaudeMdPath: empty string clears it, undefined leaves it unchanged
       ...(projectClaudeMdPath !== undefined
         ? { projectClaudeMdPath: projectClaudeMdPath || undefined }
+        : {}),
+      // agentNicknames: undefined leaves existing value unchanged; provided value replaces it
+      // (empty normalised map removes the field entirely to keep spaces.json tidy)
+      ...(normalisedNicknames !== undefined
+        ? { agentNicknames: Object.keys(normalisedNicknames).length > 0 ? normalisedNicknames : undefined }
         : {}),
     };
 
@@ -303,6 +356,8 @@ function createSpaceManager(dataDir) {
     renameSpace,
     deleteSpace,
     ensureAllSpaces,
+    /** Exposed for testing — normalises an agentNicknames input map. */
+    normaliseNicknames,
     /** Expose manifest path for testing. */
     get manifestPath() { return manifestPath; },
     /** Expose spaces directory for testing. */
