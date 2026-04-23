@@ -322,7 +322,8 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
         const name             = body && body.name;
         const workingDirectory = body && body.workingDirectory;
         const pipeline         = body && body.pipeline;
-        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline);
+        const agentNicknames   = body && body.agentNicknames;
+        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames);
 
         if (!result.ok) {
           const status = result.code === 'SPACE_NOT_FOUND' ? 404
