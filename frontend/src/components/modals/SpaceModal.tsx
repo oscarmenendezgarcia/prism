@@ -15,6 +15,8 @@ const TITLE_ID          = 'space-modal-title';
 const DEFAULT_STAGES = ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e'];
 const STAGE_OPTIONS  = DEFAULT_STAGES;
 
+const NICKNAME_PLACEHOLDERS = ['e.g. The Architect', 'e.g. The Designer', 'e.g. The Builder', 'e.g. The Reviewer', 'e.g. The Tester'];
+
 const inputClass =
   'w-full bg-surface border border-border rounded-lg px-4 py-3 text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-fast text-sm';
 
@@ -222,12 +224,12 @@ export function SpaceModal() {
 
         {/* Agent Nicknames — rename mode only */}
         {mode === 'rename' && (
-          <div className="border border-border rounded-lg overflow-hidden">
+          <div className="border border-border rounded-lg [contain:paint]">
             <button
               type="button"
               onClick={() => setNicknamesOpen((prev) => !prev)}
               aria-expanded={nicknamesOpen}
-              className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-text-primary hover:bg-surface-variant transition-colors duration-fast"
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-text-primary hover:bg-surface-variant rounded-t-lg transition-colors duration-fast"
             >
               <span>Agent Nicknames <span className="text-text-disabled font-normal">(optional)</span></span>
               <span
@@ -244,7 +246,7 @@ export function SpaceModal() {
                   Assign a custom display name to each agent in this space. Names appear in the run indicator, logs, and handoff messages.
                 </p>
 
-                {nicknameStages.map((agentId) => {
+                {nicknameStages.map((agentId, i) => {
                   const inputId = `nickname-${agentId}`;
                   return (
                     <div key={agentId}>
@@ -255,7 +257,7 @@ export function SpaceModal() {
                         id={inputId}
                         type="text"
                         maxLength={NICKNAME_MAX + 1}
-                        placeholder="e.g. El Jefe"
+                        placeholder={NICKNAME_PLACEHOLDERS[i % NICKNAME_PLACEHOLDERS.length]}
                         value={nicknames[agentId] ?? ''}
                         onChange={(e) => {
                           setNicknames((prev) => ({ ...prev, [agentId]: e.target.value }));
