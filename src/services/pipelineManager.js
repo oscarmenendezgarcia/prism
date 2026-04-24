@@ -31,6 +31,7 @@ const { spawn, execSync }       = require('child_process');
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
 const worktreeManager = require('./worktreeManager');
+const { buildCommentGuidanceLines } = require('../utils/promptComments');
 
 // Resolve the claude binary path once at startup so caffeinate (and sh) can
 // find it even when the server was launched from a shell with a different PATH.
@@ -1029,16 +1030,7 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   promptText += `  mcp__prism__kanban_add_comment({ spaceId: "${spaceId}", taskId: "${taskId}", author: "<agent-id>", type: "question", text: "<question + both options>", targetAgent: "<agent-id or omit>" })\n`;
   promptText += 'The pipeline pauses automatically. Resume once answered via kanban_answer_comment.\n';
   promptText += '\n';
-  promptText += 'POST A NOTE (type: "note", does NOT pause pipeline) for any of these:\n';
-  promptText += '  • Non-obvious assumption: something you assumed that is not explicit in the spec\n';
-  promptText += `    mcp__prism__kanban_add_comment({ spaceId: "${spaceId}", taskId: "${taskId}", author: "<agent-id>", type: "note", text: "Assumption: <what + why>" })\n`;
-  promptText += '  • Blueprint deviation: you decided to do something differently than specified\n';
-  promptText += `    mcp__prism__kanban_add_comment({ spaceId: "${spaceId}", taskId: "${taskId}", author: "<agent-id>", type: "note", text: "Deviation: <what changed + why>" })\n`;
-  promptText += '  • Non-trivial trade-off: you chose approach A over B and the reason is not obvious\n';
-  promptText += `    mcp__prism__kanban_add_comment({ spaceId: "${spaceId}", taskId: "${taskId}", author: "<agent-id>", type: "note", text: "Trade-off: chose <A> over <B> because <reason>" })\n`;
-  promptText += '\n';
-  promptText += 'HANDOFF SUMMARY — post BEFORE moving to done (always, even if no deviations):\n';
-  promptText += `  mcp__prism__kanban_add_comment({ spaceId: "${spaceId}", taskId: "${taskId}", author: "<agent-id>", type: "note", text: "Handoff: produced <artifacts>. Next agent should read <key files>." })\n`;
+  promptText += buildCommentGuidanceLines(spaceId, taskId).join('\n') + '\n';
 
   // For the developer stage: require compilation gate before closing.
   // Prevents QA from launching against code that does not compile.
