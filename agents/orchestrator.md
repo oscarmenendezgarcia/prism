@@ -27,12 +27,12 @@ All fields are mandatory except `WorkingDirectory`.
 
 For each stage in `Stages`, in order:
 
-1. **Build context**: collect the task details plus any attachments that previous stages added to the Kanban sub-tasks.
+1. **Build context**: collect the task details plus any attachments that previous stages added to the main Kanban task.
 2. **Launch sub-agent**: call the `Agent` tool with:
    - `subagent_type`: the stage ID (e.g. `"senior-architect"`)
    - A prompt that includes the full accumulated context from previous stages
 3. **Wait for completion**: the `Agent` tool call blocks until the sub-agent finishes.
-4. **Harvest artifacts**: use the Kanban MCP tools (`mcp__prism__*`) to read the sub-task attachments produced by the stage. Attach them to the next stage's prompt.
+4. **Harvest artifacts**: use the Kanban MCP tools (`mcp__prism__*`) to read the attachments added to the main task by the stage. Attach them to the next stage's prompt.
 5. **Proceed to the next stage** or finish if this was the last stage.
 
 ## Sub-agent prompt template
@@ -53,7 +53,7 @@ For each stage in `Stages`, in order:
 ## Your instructions
 
 You are the {{agent_display_name}}. Follow your agent definition exactly.
-Produce all required outputs for this stage, commit them, and move your Kanban sub-task to done.
+Produce all required outputs for this stage, commit them, and update the main Kanban task (TaskId above) — do NOT create a new task for this stage.
 ```
 
 ## Checkpoint handling
@@ -84,5 +84,5 @@ If a sub-agent fails (returns an error or non-zero exit):
 - Never skip a stage without reporting why.
 - Never run stages in parallel — always sequential.
 - Always pass the full artifact context from all prior stages, not just the immediate predecessor.
-- Never modify the main task directly — only the sub-tasks created per stage.
+- Always work on the main task (TaskId from input) — never create per-stage sub-tasks.
 - Use `mcp__prism__*` tools for all Kanban operations; never curl the API.

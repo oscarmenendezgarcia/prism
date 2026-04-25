@@ -22,7 +22,9 @@ curl -s http://localhost:3000/ > /dev/null 2>&1 || \
 ```
 ```
 mcp__prism__kanban_list_spaces()  # find or create project space → SPACE_ID
-mcp__prism__kanban_create_task({ title: "Implementation: <feature>", type: "feature", assigned: "developer-agent", spaceId: SPACE_ID })  # → TASK_ID
+mcp__prism__kanban_list_tasks({ spaceId: SPACE_ID, column: "todo" })  # look for an existing task for this feature → TASK_ID
+# Only if no matching task exists:
+mcp__prism__kanban_create_task({ title: "<feature>", type: "feature", spaceId: SPACE_ID })  # → TASK_ID
 ```
 
 ```
@@ -38,6 +40,15 @@ mcp__prism__kanban_add_comment({ spaceId: SPACE_ID, taskId: TASK_ID, author: "de
 # If another agent asks you a question:
 mcp__prism__kanban_answer_comment({ spaceId: SPACE_ID, taskId: TASK_ID, commentId: "<id>", answer: "<answer>", author: "developer-agent" })
 
+# Non-obvious assumption — post as note (does NOT pause pipeline):
+mcp__prism__kanban_add_comment({ spaceId: SPACE_ID, taskId: TASK_ID, author: "developer-agent", type: "note", text: "Assumption: <what you assumed and why it is not explicit in the spec>" })
+# Blueprint deviation — post as note (does NOT pause pipeline):
+mcp__prism__kanban_add_comment({ spaceId: SPACE_ID, taskId: TASK_ID, author: "developer-agent", type: "note", text: "Deviation: <what you changed from spec and why>" })
+# Non-trivial trade-off — post as note (does NOT pause pipeline):
+mcp__prism__kanban_add_comment({ spaceId: SPACE_ID, taskId: TASK_ID, author: "developer-agent", type: "note", text: "Trade-off: chose <A> over <B> because <reason>" })
+
+# Handoff summary — post BEFORE moving to done (always, even if no deviations):
+mcp__prism__kanban_add_comment({ spaceId: SPACE_ID, taskId: TASK_ID, author: "developer-agent", type: "note", text: "Handoff: produced <list of artifacts>. Next agent should read <key files/sections>." })
 # Close (only if LastStage: true or terminal mode):
 mcp__prism__kanban_move_task({ id: TASK_ID, to: "done", spaceId: SPACE_ID })
 ```
