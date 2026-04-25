@@ -969,6 +969,22 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   // Tell the agent whether it is the last stage so it knows to move the task to done.
   promptText += `LastStage: ${isLastStage}\n`;
 
+  // ── PERSONA injection (ADR-1 agent-personalities §8, T-005) ──────────────
+  // If a personality with a non-empty persona is saved for this agentId, append
+  // it before the operational blocks so the agent reads its "self" description
+  // before task details and kanban instructions.
+  if (agentId) {
+    try {
+      const { get: getPersonality } = require('./personalityStore');
+      const personality = getPersonality(agentId);
+      if (personality && personality.persona && personality.persona.trim().length > 0) {
+        promptText += `\n## PERSONA\n${personality.persona.trim()}\n`;
+      }
+    } catch {
+      // personalityStore failure must never break pipeline execution
+    }
+  }
+
   // Provide run context so agents can write the loop-inject signal file if needed.
   if (runId) {
     promptText += `RunId: ${runId}\nStageIndex: ${stageIndex}\n`;

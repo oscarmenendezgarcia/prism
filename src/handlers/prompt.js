@@ -83,6 +83,21 @@ function buildPromptText(options) {
     }
   }
 
+  // ── PERSONA (ADR-1 agent-personalities T-005) ─────────────────────────────
+  // Injected BEFORE agent instructions so the agent reads its "self" context first.
+  const { agentId } = options;
+  if (agentId) {
+    try {
+      const { get: getPersonality } = require('../services/personalityStore');
+      const personality = getPersonality(agentId);
+      if (personality && personality.persona && personality.persona.trim().length > 0) {
+        lines.push(`\n## PERSONA\n${personality.persona.trim()}`);
+      }
+    } catch {
+      // personalityStore failure must never break prompt generation
+    }
+  }
+
   // ── AGENT INSTRUCTIONS ────────────────────────────────────────────────────
   lines.push('\n## AGENT INSTRUCTIONS');
   lines.push(agentContent);
@@ -235,6 +250,7 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
     taskColumn:       taskResult.column,
     space:            spaceResult.space,
     agentContent,
+    agentId,
     settings,
     customInstructions,
     workingDirectory: workingDirectory || settings.prompts.workingDirectory,
