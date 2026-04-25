@@ -31,6 +31,7 @@ const { spawn, execSync }       = require('child_process');
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
 const worktreeManager = require('./worktreeManager');
+const { buildCommentGuidanceLines } = require('../utils/promptComments');
 
 // Resolve the claude binary path once at startup so caffeinate (and sh) can
 // find it even when the server was launched from a shell with a different PATH.
@@ -1028,6 +1029,8 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   promptText += '  • A decision is irreversible or cross-team and you have no explicit approval\n';
   promptText += `  mcp__prism__kanban_add_comment({ spaceId: "${spaceId}", taskId: "${taskId}", author: "<agent-id>", type: "question", text: "<question + both options>", targetAgent: "<agent-id or omit>" })\n`;
   promptText += 'The pipeline pauses automatically. Resume once answered via kanban_answer_comment.\n';
+  promptText += '\n';
+  promptText += buildCommentGuidanceLines(spaceId, taskId).join('\n') + '\n';
 
   // For the developer stage: require compilation gate before closing.
   // Prevents QA from launching against code that does not compile.

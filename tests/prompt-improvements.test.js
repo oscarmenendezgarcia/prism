@@ -221,6 +221,52 @@ describe('buildStagePrompt() unit tests', () => {
     }
   });
 
+  test('includes note triggers for non-obvious assumptions, deviations, and trade-offs', () => {
+    const dataDir = tmpDir();
+    const { spaceId, taskId } = createSpaceWithTask(dataDir);
+
+    const { promptText } = buildStagePrompt(dataDir, spaceId, taskId, 0, 'senior-architect', ['senior-architect']);
+
+    assert.ok(promptText.includes('POST A NOTE'), 'must include POST A NOTE section');
+    assert.ok(promptText.includes('Non-obvious assumption'), 'must include assumption trigger');
+    assert.ok(promptText.includes('Blueprint deviation'), 'must include deviation trigger');
+    assert.ok(promptText.includes('Non-trivial trade-off'), 'must include trade-off trigger');
+    assert.ok(promptText.includes('"Assumption:'), 'must include Assumption note template');
+    assert.ok(promptText.includes('"Deviation:'), 'must include Deviation note template');
+    assert.ok(promptText.includes('"Trade-off:'), 'must include Trade-off note template');
+  });
+
+  test('includes HANDOFF SUMMARY instruction before done', () => {
+    const dataDir = tmpDir();
+    const { spaceId, taskId } = createSpaceWithTask(dataDir);
+
+    const { promptText } = buildStagePrompt(dataDir, spaceId, taskId, 0, 'developer-agent', ['developer-agent']);
+
+    assert.ok(promptText.includes('HANDOFF SUMMARY'), 'must include HANDOFF SUMMARY instruction');
+    assert.ok(promptText.includes('"Handoff:'), 'must include Handoff note template');
+    assert.ok(promptText.includes('BEFORE moving to done'), 'must clarify handoff happens before done');
+  });
+
+  test('note triggers use type: "note" (non-blocking) not type: "question"', () => {
+    const dataDir = tmpDir();
+    const { spaceId, taskId } = createSpaceWithTask(dataDir);
+
+    const { promptText } = buildStagePrompt(dataDir, spaceId, taskId, 0, 'ux-api-designer', ['ux-api-designer']);
+
+    // Extract all kanban_add_comment calls and verify note-type ones use "note"
+    const noteCallPattern = /kanban_add_comment\([^)]*"Assumption:[^)]*\)/;
+    const noteCallInText = promptText.includes('type: "note", text: "Assumption:') ||
+                           promptText.includes("type: 'note', text: 'Assumption:");
+    assert.ok(
+      promptText.includes('type: "note"') && promptText.includes('"Assumption:'),
+      'assumption comment must use type: "note"'
+    );
+    assert.ok(
+      promptText.includes('type: "note"') && promptText.includes('"Deviation:'),
+      'deviation comment must use type: "note"'
+    );
+  });
+
   test('returns fallback prompt when task not found', () => {
     const dataDir = tmpDir();
     const spaceDir = path.join(dataDir, 'spaces', 'missing-space');

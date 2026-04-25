@@ -19,6 +19,7 @@ const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { COLUMNS }                        = require('../constants');
 const { getAgentsDir, AGENT_ID_RE }      = require('./agents');
 const { readSettings }                   = require('./settings');
+const { buildCommentGuidanceLines }      = require('../utils/promptComments');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -114,6 +115,8 @@ function buildPromptText(options) {
     lines.push('How to post a question:');
     lines.push(`  mcp__prism__kanban_add_comment({ spaceId: "${space.id}", taskId: "${task.id}", author: "<your-agent-id>", type: "question", text: "<question — include the two options you are choosing between>", targetAgent: "<agent-id if another pipeline agent can answer, omit for human>" })`);
     lines.push('The pipeline pauses automatically. Resume once the question is answered via kanban_answer_comment.');
+    lines.push('');
+    lines.push(...buildCommentGuidanceLines(space.id, task.id));
   }
 
   // ── GIT INSTRUCTIONS ──────────────────────────────────────────────────────
