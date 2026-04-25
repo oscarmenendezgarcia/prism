@@ -91,6 +91,12 @@ const DEFAULT_STAGES = [
   'qa-engineer-e2e',
 ];
 
+/**
+ * Stages that require the Prism backend (node server.js) to be running.
+ * ensureBackendRunning() is called before spawning any of these.
+ */
+const STAGES_REQUIRING_BACKEND = ['code-reviewer', 'qa-engineer-e2e'];
+
 const DEFAULT_STAGE_TIMEOUT_MS    = 3_600_000; // 1 hour
 const DEFAULT_MAX_CONCURRENT      = 5;
 // Stall watchdog: kill if no output for this long.  5 min is conservative —
@@ -1082,6 +1088,73 @@ async function executeNextStage(dataDir, runId) {
   await spawnStage(dataDir, run, run.currentStage);
 }
 
+// ---------------------------------------------------------------------------
+// Backend health check — pre-stage hook
+// ---------------------------------------------------------------------------
+
+const BACKEND_HEALTH_URL = 'http://localhost:3000/api/v1/system/info';
+const BACKEND_CHECK_TIMEOUT_MS = 2_000;
+const BACKEND_START_TIMEOUT_MS = 10_000;
+const BACKEND_POLL_INTERVAL_MS = 500;
+
+/**
+ * Poll `url` until it responds with 2xx or `timeoutMs` elapses.
+ *
+ * @param {string} url
+ * @param {number} timeoutMs
+ * @returns {Promise<void>}
+ */
+async function waitForBackend(url, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(BACKEND_CHECK_TIMEOUT_MS) });
+      if (res.ok) return;
+    } catch {
+      /* keep polling */
+    }
+    await new Promise((r) => setTimeout(r, BACKEND_POLL_INTERVAL_MS));
+  }
+  throw new Error(`Backend did not start within ${timeoutMs}ms — aborting stage`);
+}
+
+/**
+ * Ensure the Prism backend is running before a stage that needs it.
+ *
+ * - Checks http://localhost:3000/api/v1/system/info first.
+ * - If it does not respond, spawns `node server.js` in workingDirectory
+ *   (detached, stdio ignored) and waits up to 10 s for it to answer.
+ * - If workingDirectory is not set, falls back to process.cwd().
+ *
+ * @param {string|undefined} workingDirectory - Run's working directory.
+ * @returns {Promise<void>}
+ */
+async function ensureBackendRunning(workingDirectory) {
+  // Fast-path: backend already up.
+  try {
+    const res = await fetch(BACKEND_HEALTH_URL, { signal: AbortSignal.timeout(BACKEND_CHECK_TIMEOUT_MS) });
+    if (res.ok) {
+      pipelineLog('backend.already_running', {});
+      return;
+    }
+  } catch {
+    /* not running — start it below */
+  }
+
+  const cwd = workingDirectory || process.cwd();
+  pipelineLog('backend.starting', { cwd });
+
+  const child = spawn('node', ['server.js'], {
+    cwd,
+    detached: true,
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+  child.unref();
+
+  await waitForBackend(BACKEND_HEALTH_URL, BACKEND_START_TIMEOUT_MS);
+  pipelineLog('backend.started', { cwd });
+}
+
 /**
  * Spawn the subprocess for a single pipeline stage.
  *
@@ -1153,6 +1226,22 @@ async function spawnStage(dataDir, run, stageIndex) {
     activeProcesses.set(run.runId, { interval, stageIndex });
     pipelineLog('stage.spawned', { runId: run.runId, stageIndex, agentId, pid: null, mock: true });
     return;
+  }
+
+  // Pre-stage hook: ensure the backend is running for stages that need it.
+  // Placed after the PIPELINE_NO_SPAWN guard so test-mode is unaffected.
+  if (STAGES_REQUIRING_BACKEND.includes(agentId)) {
+    try {
+      await ensureBackendRunning(run.workingDirectory);
+    } catch (backendErr) {
+      run.status = 'failed';
+      run.stageStatuses[stageIndex].status     = 'failed';
+      run.stageStatuses[stageIndex].exitCode   = -1;
+      run.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
+      writeRun(dataDir, run);
+      pipelineLog('run.failed', { runId: run.runId, stageIndex, agentId, reason: 'BACKEND_START_FAILED', error: backendErr.message });
+      return;
+    }
   }
 
   // Resolve spawn args — may throw AgentNotFoundError.
@@ -2369,4 +2458,8 @@ module.exports = {
   buildResolverPrompt,
   shellEscape,
   DEFAULT_STAGES,
+  // Pre-stage backend hook (exported for testing):
+  STAGES_REQUIRING_BACKEND,
+  ensureBackendRunning,
+  waitForBackend,
 };
