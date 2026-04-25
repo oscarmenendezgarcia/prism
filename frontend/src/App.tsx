@@ -109,9 +109,12 @@ function AppContent() {
 
       <div className="flex-1 overflow-hidden flex flex-col">
         {agentsPageOpen ? (
-          /* Agents page — full content area */
-          <div className="flex-1 overflow-y-auto">
-            <AgentsPage />
+          /* Agents page — full content area, with optional settings panel */
+          <div className="flex flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto">
+              <AgentsPage />
+            </div>
+            {agentSettingsPanelOpen && <AgentSettingsPanel />}
           </div>
         ) : (
           <>
