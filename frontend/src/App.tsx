@@ -114,6 +114,7 @@ function AppContent() {
             <div className="flex-1 overflow-y-auto">
               <AgentsPage />
             </div>
+            {configPanelOpen && <ConfigPanel />}
             {agentSettingsPanelOpen && <AgentSettingsPanel />}
           </div>
         ) : (

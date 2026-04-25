@@ -167,6 +167,8 @@ export function AgentsPage() {
 function PageHeader({ onLaunchWizard }: { onLaunchWizard: () => void }) {
   const setAgentSettingsPanelOpen = useAppStore((s) => s.setAgentSettingsPanelOpen);
   const agentSettingsPanelOpen    = useAppStore((s) => s.agentSettingsPanelOpen);
+  const toggleConfigPanel         = useAppStore((s) => s.toggleConfigPanel);
+  const configPanelOpen           = useAppStore((s) => s.configPanelOpen);
 
   return (
     <div className="flex items-start justify-between gap-4">
@@ -197,6 +199,22 @@ function PageHeader({ onLaunchWizard }: { onLaunchWizard: () => void }) {
             tune
           </span>
           Settings
+        </button>
+        <button
+          type="button"
+          onClick={toggleConfigPanel}
+          aria-label="Toggle configuration editor"
+          aria-pressed={configPanelOpen}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-primary ${
+            configPanelOpen
+              ? 'bg-primary/15 text-primary'
+              : 'bg-surface-variant text-text-secondary hover:text-text-primary hover:bg-border'
+          }`}
+        >
+          <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+            settings
+          </span>
+          Config
         </button>
         <button
           type="button"
