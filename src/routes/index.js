@@ -69,6 +69,7 @@ const {
   handleGeneratePersonality,
   handleDiscoverMcp,
 } = require('../handlers/agentsPersonalities');
+const { setDataDir: setPersonalityStoreDataDir, invalidateCache: invalidatePersonalityCache } = require('../services/personalityStore');
 
 const {
   PIPELINE_RUNS_LIST_ROUTE,
@@ -133,6 +134,11 @@ const SETTINGS_ROUTE      = /^\/api\/v1\/settings$/;
  * @returns {Function} `async (req, res) => void`
  */
 function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
+  // Wire personality store to the server's data directory so isolated test
+  // servers each get their own storage and the cache is coherent per instance.
+  setPersonalityStoreDataDir(dataDir);
+  invalidatePersonalityCache();
+
   return async function mainRouter(req, res) {
     const { method } = req;
     const urlPath    = req.url.split('?')[0];
