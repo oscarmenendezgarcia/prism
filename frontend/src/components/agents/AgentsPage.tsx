@@ -114,7 +114,7 @@ export function AgentsPage() {
             smart_toy
           </span>
           <p className="text-sm text-text-secondary">
-            No agent files found in <code className="font-mono">~/.claude/agents/</code>.
+            Nobody home. Add <code className="font-mono">.md</code> files to <code className="font-mono">~/.claude/agents/</code> to assemble your crew.
           </p>
           <p className="text-xs text-text-disabled">
             Create <code className="font-mono">.md</code> agent definition files to get started.
@@ -177,10 +177,10 @@ function PageHeader({ onLaunchWizard }: { onLaunchWizard: () => void }) {
           <span className="material-symbols-outlined text-xl text-primary" aria-hidden="true">
             smart_toy
           </span>
-          Agents
+          The Squad
         </h1>
         <p className="text-sm text-text-secondary mt-1">
-          Manage AI agent personas, tool access, and custom branding
+          Your crew. Each one has their thing. Give them a vibe.
         </p>
       </div>
       <div className="flex items-center gap-2">
@@ -225,7 +225,7 @@ function PageHeader({ onLaunchWizard }: { onLaunchWizard: () => void }) {
           <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
             auto_fix_high
           </span>
-          Setup Wizard
+          Meet the crew
         </button>
       </div>
     </div>

@@ -148,39 +148,52 @@ const PALETTE_LIST = CURATED_PALETTE.join(', ');
 
 function buildSystemPrompt(agentId, agentContent, hint, availableTools) {
   const toolsList = availableTools.length > 0 ? availableTools.join(', ') : 'mcp__prism__*';
-  const hintLine  = hint ? `User hint for personality style: "${hint}"` : '';
+  const hintLine  = hint ? `User style hint: "${hint}"` : '';
 
-  return `You are an expert at creating agent personalities for an AI pipeline tool called Prism.
+  return `You create quirky, funny character bios for AI agents in a tool called Prism.
+Think Animal Crossing villager meets tech Twitter. Each agent has a distinct personality, a slightly ridiculous backstory, and speaks in a way only they would.
 
-Your task: generate a personality profile for the agent "${agentId}" based on its definition file.
-
-Agent definition file content:
+Agent ID: "${agentId}"
+Agent definition file:
 ---
-${agentContent || '(no definition file found — use the agent ID to infer the personality)'}
+${agentContent || '(no file — infer from the agent ID)'}
 ---
-
 ${hintLine}
 
-Available MCP tool prefixes for this workspace:
-${toolsList}
+Available MCP tools: ${toolsList}
 
-Return ONLY a single valid JSON object matching this schema exactly:
+Tone rules for the persona field:
+- Write like a funny character bio, not a job description. One or two sentences max.
+- Give them a quirk, a hobby, or an absurd detail that fits their role. Be specific and weird.
+- Examples of the vibe:
+  • developer-agent → "Hasn't left the house since 2019 but top-ranked in 4 online games simultaneously. Refactors code at 2am for fun, not profit."
+  • senior-architect → "Draws system diagrams nobody reads, then turns out to be right about everything 6 months later. Communicates exclusively in ADRs."
+  • ux-api-designer → "Cried at a perfectly kerned font once. Has strong opinions about your button padding and will tell you about them unprompted."
+  • qa-engineer-e2e → "Finds the bug you introduced while fixing the last bug. Keeps a personal spreadsheet of every broken deploy. Smiles when things fail."
+  • code-reviewer → "Knows every RFC by heart. Will leave 40 comments on a 3-line PR. Means it lovingly."
+- The persona should feel like something this agent would say about themselves — half-bragging, half-self-aware.
+- Keep it under 280 characters. Punchy beats thorough.
+
+Return ONLY a single valid JSON object:
 {
-  "displayName": "<1-60 character human-readable name>",
-  "persona": "<0-600 character personality description: tone, role, voice, working style>",
-  "color": "<hex color from this palette ONLY: ${PALETTE_LIST}>",
-  "mcpTools": ["<list of mcp tool prefixes from the available list above that are relevant to this agent's role>"],
-  "avatar": "<1-2 emoji or initials that represent this agent>"
+  "displayName": "<catchy 1-60 char name — can be a nickname or a title>",
+  "persona": "<funny character bio, ≤280 chars>",
+  "color": "<one hex from: ${PALETTE_LIST}>",
+  "mcpTools": ["<relevant prefixes from available list — always include mcp__prism__*>"],
+  "avatar": "<1-2 emoji that match the vibe>"
 }
 
-Rules:
-- displayName must be between 1 and 60 characters, no newlines.
-- persona must be 600 characters or fewer. Make it evocative and memorable, not generic.
-- color MUST be exactly one of the 16 hex values listed above — no other values allowed.
-- mcpTools must be a subset of the available prefixes. Include mcp__prism__* for all agents.
-- avatar must be 1-2 grapheme clusters (emoji preferred, initials as fallback).
-- Output ONLY the JSON object — no markdown, no explanation, no code fences.`;
+Hard rules:
+- displayName: 1-60 chars, no newlines.
+- color MUST be exactly one of the listed hex values — no other values.
+- mcpTools must be a subset of the available prefixes.
+- avatar: 1-2 grapheme clusters (emoji preferred).
+- Output ONLY the JSON object — no markdown, no explanation, no code fences.
+- persona must be 280 characters or fewer. Punchy beats thorough.`;
 }
+
+// legacy alias so existing callers that pass persona through still validate
+const PERSONA_MAX_GENERATED = 280;
 
 // ---------------------------------------------------------------------------
 // CLI caller (mirrors callCLI in autoTask.js)

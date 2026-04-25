@@ -81,16 +81,16 @@ export function AgentPersonalityCard({ agent, personality, mcpServers }: AgentPe
             </div>
           </div>
 
-          <p className="text-xs text-text-secondary italic">No personality set yet.</p>
+          <p className="text-xs text-text-secondary italic">Mystery agent. Pure potential. 👻</p>
 
           <div className="flex gap-2 mt-auto flex-wrap">
             <Button variant="ghost" onClick={handleViewPrompt} className="text-xs">
               <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">description</span>
-              View prompt
+              Peek inside
             </Button>
             <Button variant="primary" onClick={handleEdit} className="text-xs">
               <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">edit</span>
-              Set personality
+              Give them a soul
             </Button>
             <Button
               variant="secondary"
@@ -102,12 +102,12 @@ export function AgentPersonalityCard({ agent, personality, mcpServers }: AgentPe
               {generating ? (
                 <>
                   <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">autorenew</span>
-                  Generating…
+                  Cooking…
                 </>
               ) : (
                 <>
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">auto_fix_high</span>
-                  Generate
+                  Surprise me
                 </>
               )}
             </Button>
@@ -191,11 +191,11 @@ export function AgentPersonalityCard({ agent, personality, mcpServers }: AgentPe
         <div className="flex gap-2 px-4 pb-4 mt-auto flex-wrap">
           <Button variant="ghost" onClick={handleViewPrompt} className="text-xs">
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">description</span>
-            View prompt
+            Peek inside
           </Button>
           <Button variant="secondary" onClick={handleEdit} className="text-xs flex-1">
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">edit</span>
-            Edit
+            Tweak
           </Button>
           <Button
             variant="ghost"
@@ -207,12 +207,12 @@ export function AgentPersonalityCard({ agent, personality, mcpServers }: AgentPe
             {generating ? (
               <>
                 <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">autorenew</span>
-                Generating…
+                Cooking…
               </>
             ) : (
               <>
                 <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">auto_fix_high</span>
-                Regenerate
+                Roll again
               </>
             )}
           </Button>
