@@ -15,6 +15,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { AgentPersonalityCard } from '@/components/agents/AgentPersonalityCard';
 import { OnboardingWizard, ONBOARDING_DISMISSED_KEY } from '@/components/agents/OnboardingWizard';
 import { useAgentPersonalityStore } from '@/stores/useAgentPersonalityStore';
+import { useAppStore } from '@/stores/useAppStore';
 import * as api from '@/api/client';
 import type { AgentInfo } from '@/types';
 
@@ -164,6 +165,9 @@ export function AgentsPage() {
 // ---------------------------------------------------------------------------
 
 function PageHeader({ onLaunchWizard }: { onLaunchWizard: () => void }) {
+  const setAgentSettingsPanelOpen = useAppStore((s) => s.setAgentSettingsPanelOpen);
+  const agentSettingsPanelOpen    = useAppStore((s) => s.agentSettingsPanelOpen);
+
   return (
     <div className="flex items-start justify-between gap-4">
       <div>
@@ -177,17 +181,35 @@ function PageHeader({ onLaunchWizard }: { onLaunchWizard: () => void }) {
           Manage AI agent personas, tool access, and custom branding
         </p>
       </div>
-      <button
-        type="button"
-        onClick={onLaunchWizard}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-primary"
-        aria-label="Launch onboarding wizard"
-      >
-        <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
-          auto_fix_high
-        </span>
-        Setup Wizard
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setAgentSettingsPanelOpen(!agentSettingsPanelOpen)}
+          aria-label="Agent launcher settings"
+          aria-pressed={agentSettingsPanelOpen}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-primary ${
+            agentSettingsPanelOpen
+              ? 'bg-primary/15 text-primary'
+              : 'bg-surface-variant text-text-secondary hover:text-text-primary hover:bg-border'
+          }`}
+        >
+          <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+            tune
+          </span>
+          Settings
+        </button>
+        <button
+          type="button"
+          onClick={onLaunchWizard}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-primary"
+          aria-label="Launch onboarding wizard"
+        >
+          <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
+            auto_fix_high
+          </span>
+          Setup Wizard
+        </button>
+      </div>
     </div>
   );
 }

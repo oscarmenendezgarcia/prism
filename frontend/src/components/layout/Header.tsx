@@ -11,7 +11,6 @@ import { TerminalToggle } from '@/components/terminal/TerminalToggle';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { ConfigToggle } from '@/components/config/ConfigToggle';
 import { RunIndicator } from '@/components/agent-launcher/RunIndicator';
-import { AgentSettingsToggle } from '@/components/agent-launcher/AgentSettingsToggle';
 import { RunHistoryToggle } from '@/components/agent-run-history/RunHistoryToggle';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
@@ -124,7 +123,6 @@ export function Header({ agentsPageOpen = false, onToggleAgentsPage }: HeaderPro
             </button>
           )}
           <TerminalToggle />
-          <AgentSettingsToggle />
           <RunHistoryToggle />
           <PipelineLogToggle />
           <ConfigToggle />
@@ -198,7 +196,6 @@ export function Header({ agentsPageOpen = false, onToggleAgentsPage }: HeaderPro
                   </button>
                 )}
                 <MobileMenuRow label="Terminal" icon="terminal" toggle={<TerminalToggle />} />
-                <MobileMenuRow label="Agent Settings" icon="tune" toggle={<AgentSettingsToggle />} />
                 <MobileMenuRow label="Run History" icon="history" toggle={<RunHistoryToggle />} />
                 <MobileMenuRow label="Pipeline Log" icon="article" toggle={<PipelineLogToggle />} />
                 <MobileMenuRow label="Config" icon="settings" toggle={<ConfigToggle />} />
