@@ -17,6 +17,7 @@ import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore, useActiveRun } from '@/stores/useAppStore';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
 import { useDragStore } from '@/stores/useDragStore';
+import { useAgentColor } from '@/hooks/useAgentColor';
 
 // ---------------------------------------------------------------------------
 // Avatar helpers — deterministic gradient + initials from an assigned name
@@ -84,6 +85,9 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
 
   const isDragging = useDragStore((s) => s.draggedTaskId === task.id);
 
+  // Agent personality color for stripe + chip tint (T-012)
+  const agentColor = useAgentColor(task.assigned);
+
   const isActiveTask = activeRun?.taskId === task.id;
   const isDone = column === 'done';
 
@@ -107,6 +111,14 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
     ? 'bg-error/10 text-error'
     : 'bg-info/10 text-info';
 
+  // Compute stripe + chip styles from agent color
+  const stripeStyle = agentColor.color
+    ? { borderLeftColor: agentColor.color, borderLeftWidth: '3px', borderLeftStyle: 'solid' as const }
+    : {};
+  const chipBg = agentColor.color
+    ? `rgba(${parseInt(agentColor.color.slice(1, 3), 16)}, ${parseInt(agentColor.color.slice(3, 5), 16)}, ${parseInt(agentColor.color.slice(5, 7), 16)}, 0.1)`
+    : undefined;
+
   return (
     <article
       role="listitem"
@@ -123,7 +135,11 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         isDragging ? 'rotate-1 scale-[0.97] shadow-xl ring-1 ring-primary/40 opacity-80' : '',
         isActiveTask ? 'border-primary/30 animate-glow-pulse' : '',
       ].filter(Boolean).join(' ')}
-      style={staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms`, animationFillMode: 'both' } : { animationFillMode: 'both' }}
+      style={{ // lint-ok: animationDelay is dynamic stagger ms + stripeStyle is dynamic agent color — both require inline style
+        ...(staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms` } : {}),
+        animationFillMode: 'both',
+        ...stripeStyle,
+      }}
       aria-grabbed={isDragging}
       onClick={() => openDetailPanel(task)}
       onDragStart={(e) => onDragStart?.(e, task.id, column)}
@@ -155,10 +171,15 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
               aria-hidden="true"
               data-testid="avatar"
             >
-              {getInitials(task.assigned)}
+              {agentColor.avatar || getInitials(task.assigned)}
             </div>
-            <span className="text-xs text-text-secondary truncate" data-testid="assigned-name">
-              {task.assigned}
+            {/* Assignee chip — tinted by agent color when personality exists */}
+            <span
+              className="text-xs truncate px-1.5 py-0.5 rounded-md transition-colors duration-fast"
+              style={chipBg ? { backgroundColor: chipBg, color: agentColor.color } : {}} // lint-ok: dynamic rgba chip tint from agent palette color — Tailwind arbitrary values cannot compute rgba at runtime
+              data-testid="assigned-name"
+            >
+              {agentColor.displayName || task.assigned}
             </span>
           </>
         ) : (

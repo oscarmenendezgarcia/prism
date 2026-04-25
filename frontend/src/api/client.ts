@@ -26,6 +26,10 @@ import type {
   TaggerOptions,
   TaggerResult,
   Comment,
+  AgentPersonality,
+  AgentPersonalityInput,
+  AgentPersonalityProposal,
+  McpDiscoveryResult,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -595,3 +599,47 @@ export async function getStageLog(
          : `[PipelineLog] fetch error stage=${stageIndex} status=${res.status}`,
   );
 }
+
+// ---------------------------------------------------------------------------
+// Agent Personalities (ADR-1: agent-personalities)
+// ---------------------------------------------------------------------------
+
+/** List all personality records. */
+export const listAgentPersonalities = (): Promise<AgentPersonality[]> =>
+  apiFetch<AgentPersonality[]>('/agents-personalities');
+
+/** Get personality for a single agentId. Throws on 404. */
+export const getAgentPersonality = (agentId: string): Promise<AgentPersonality> =>
+  apiFetch<AgentPersonality>(`/agents-personalities/${encodeURIComponent(agentId)}`);
+
+/** Create or replace a personality. */
+export const upsertAgentPersonality = (
+  agentId: string,
+  input: AgentPersonalityInput,
+): Promise<AgentPersonality> =>
+  apiFetch<AgentPersonality>(`/agents-personalities/${encodeURIComponent(agentId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
+
+/** Delete a personality (returns null on 204). */
+export const deleteAgentPersonality = (agentId: string): Promise<null> =>
+  apiFetch<null>(`/agents-personalities/${encodeURIComponent(agentId)}`, {
+    method: 'DELETE',
+  });
+
+/** Generate a personality proposal via LLM. Does NOT persist — caller must PUT to save. */
+export const generateAgentPersonality = (
+  agentId: string,
+  hint?: string,
+): Promise<AgentPersonalityProposal> =>
+  apiFetch<AgentPersonalityProposal>('/agents-personalities/generate', {
+    method: 'POST',
+    body: JSON.stringify({ agentId, ...(hint ? { hint } : {}) }),
+  });
+
+/** Discover available MCP tool servers. */
+export const discoverMcpTools = (workingDirectory?: string): Promise<McpDiscoveryResult> => {
+  const qs = workingDirectory ? `?workingDirectory=${encodeURIComponent(workingDirectory)}` : '';
+  return apiFetch<McpDiscoveryResult>(`/agents-personalities/mcp-tools${qs}`);
+};

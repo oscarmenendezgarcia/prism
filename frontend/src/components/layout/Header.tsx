@@ -59,7 +59,12 @@ function PipelineLogToggle() {
   );
 }
 
-export function Header() {
+interface HeaderProps {
+  agentsPageOpen?: boolean;
+  onToggleAgentsPage?: () => void;
+}
+
+export function Header({ agentsPageOpen = false, onToggleAgentsPage }: HeaderProps) {
   const openCreateModal = useAppStore((s) => s.openCreateModal);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -101,6 +106,23 @@ export function Header() {
       <div className="flex items-center">
         {/* Panel Toggles — hidden on mobile */}
         <div className="hidden sm:flex items-center gap-2">
+          {/* Agents page toggle */}
+          {onToggleAgentsPage && (
+            <button
+              onClick={onToggleAgentsPage}
+              aria-label="Toggle agents page"
+              aria-pressed={agentsPageOpen}
+              className={`relative w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-fast ease-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
+                agentsPageOpen
+                  ? 'bg-primary/15 text-primary'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
+                smart_toy
+              </span>
+            </button>
+          )}
           <TerminalToggle />
           <AgentSettingsToggle />
           <RunHistoryToggle />
@@ -165,6 +187,16 @@ export function Header() {
 
               {/* Panel toggles — rendered as menu rows */}
               <div className="flex flex-col">
+                {onToggleAgentsPage && (
+                  <button
+                    type="button"
+                    onClick={() => { onToggleAgentsPage(); setMenuOpen(false); }}
+                    className="flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-surface-variant transition-colors duration-fast"
+                  >
+                    <span className="material-symbols-outlined text-[18px] leading-none text-primary" aria-hidden="true">smart_toy</span>
+                    <span className={agentsPageOpen ? 'text-primary font-medium' : 'text-text-primary'}>Agents</span>
+                  </button>
+                )}
                 <MobileMenuRow label="Terminal" icon="terminal" toggle={<TerminalToggle />} />
                 <MobileMenuRow label="Agent Settings" icon="tune" toggle={<AgentSettingsToggle />} />
                 <MobileMenuRow label="Run History" icon="history" toggle={<RunHistoryToggle />} />
