@@ -186,7 +186,7 @@ Rules:
 // CLI caller (mirrors callCLI in autoTask.js)
 // ---------------------------------------------------------------------------
 
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_MS = 120_000;
 
 /**
  * Spawn the Claude CLI and return its parsed JSON output.
@@ -197,7 +197,7 @@ const TIMEOUT_MS = 30_000;
 function callPersonalityCLI(userPrompt, systemPrompt, dataDir) {
   const settings = readSettings(dataDir || path.join(__dirname, '..', '..', 'data'));
   const cli   = settings?.cli?.binary || settings?.cli?.tool || 'claude';
-  const model = settings?.cli?.model  || 'claude-sonnet-4-5';
+  const model = settings?.cli?.model  || 'haiku';
 
   return new Promise((resolve, reject) => {
     let timer;

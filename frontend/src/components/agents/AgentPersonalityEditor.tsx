@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Modal } from '@/components/shared/Modal';
+import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { ColorPicker, CURATED_PALETTE } from '@/components/agents/ColorPicker';
 import { McpToolPicker } from '@/components/agents/McpToolPicker';
@@ -136,180 +136,168 @@ export function AgentPersonalityEditor({
   }, []);
 
   return (
-    <Modal open onClose={onClose} title={`Edit Personality — ${agent.displayName}`}>
-      <div className="flex flex-col gap-5 min-w-0">
+    <Modal open onClose={onClose}>
+      <ModalHeader onClose={onClose}>
+        <ModalTitle>Edit Personality — {agent.displayName}</ModalTitle>
+      </ModalHeader>
 
-        {/* Display name */}
-        <div>
-          <label htmlFor="ap-display-name" className="text-xs font-medium text-text-secondary block mb-1.5">
-            Display Name <span className="text-error" aria-hidden="true">*</span>
-          </label>
-          <input
-            id="ap-display-name"
-            ref={firstInputRef}
-            type="text"
-            maxLength={DISPLAY_NAME_MAX}
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            disabled={saving || generating}
-            placeholder={agent.displayName}
-            className={[
-              'w-full bg-surface-variant border rounded-md px-3 py-2 text-sm text-text-primary',
-              'focus:outline-none focus:ring-2 focus:ring-primary',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
-              displayNameTrimmed.length === 0 || displayNameTrimmed.length > DISPLAY_NAME_MAX
-                ? 'border-error'
-                : 'border-border',
-            ].join(' ')}
-            aria-describedby="ap-display-name-count"
-          />
-          <p id="ap-display-name-count" className="text-[10px] text-text-disabled mt-1 text-right">
-            {displayNameTrimmed.length}/{DISPLAY_NAME_MAX}
-          </p>
-        </div>
+      <ModalBody>
+        <div className="flex flex-col gap-5">
 
-        {/* Avatar */}
-        <div>
-          <label htmlFor="ap-avatar" className="text-xs font-medium text-text-secondary block mb-1.5">
-            Avatar <span className="text-text-disabled">(optional emoji or initials)</span>
-          </label>
-          <input
-            id="ap-avatar"
-            type="text"
-            value={avatar}
-            onChange={(e) => setAvatar(e.target.value.slice(0, 4))}
-            disabled={saving || generating}
-            placeholder="🤖"
-            maxLength={4}
-            className="w-20 bg-surface-variant border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
-            aria-label="Avatar emoji or initials"
-          />
-        </div>
-
-        {/* Color */}
-        <div>
-          <p className="text-xs font-medium text-text-secondary mb-2">
-            Color <span className="text-error" aria-hidden="true">*</span>
-          </p>
-          <ColorPicker value={color} onChange={setColor} disabled={saving || generating} />
-          <p className="text-[10px] text-text-disabled mt-1 font-mono">{color}</p>
-        </div>
-
-        {/* Persona */}
-        <div>
-          <label htmlFor="ap-persona" className="text-xs font-medium text-text-secondary block mb-1.5">
-            Persona <span className="text-text-disabled">(injected into pipeline prompts)</span>
-          </label>
-          <textarea
-            id="ap-persona"
-            rows={5}
-            value={persona}
-            onChange={(e) => setPersona(e.target.value)}
-            disabled={saving || generating}
-            placeholder="Describe this agent's tone, style, and working philosophy…"
-            className={[
-              'w-full bg-surface-variant border rounded-md px-3 py-2 text-sm text-text-primary',
-              'resize-none focus:outline-none focus:ring-2 focus:ring-primary',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
-              personaLen > PERSONA_MAX ? 'border-error' : 'border-border',
-            ].join(' ')}
-            aria-describedby="ap-persona-count"
-          />
-          <p
-            id="ap-persona-count"
-            className={`text-[10px] mt-1 text-right ${personaLen > PERSONA_MAX ? 'text-error font-medium' : 'text-text-disabled'}`}
-          >
-            {personaLen}/{PERSONA_MAX}
-          </p>
-        </div>
-
-        {/* MCP Tools */}
-        <div>
-          <p className="text-xs font-medium text-text-secondary mb-2">
-            MCP Tool Access
-            <span className="ml-1 text-text-disabled font-normal">(which servers this agent can call)</span>
-          </p>
-          <div className="bg-surface-variant rounded-md px-3 py-2 max-h-40 overflow-y-auto">
-            <McpToolPicker
-              servers={mcpServers}
-              selected={mcpTools}
-              onChange={setMcpTools}
+          <div>
+            <label htmlFor="ap-display-name" className="text-xs font-medium text-text-secondary block mb-1.5">
+              Display Name <span className="text-error" aria-hidden="true">*</span>
+            </label>
+            <input
+              id="ap-display-name"
+              ref={firstInputRef}
+              type="text"
+              maxLength={DISPLAY_NAME_MAX}
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
               disabled={saving || generating}
+              placeholder={agent.displayName}
+              className={[
+                'w-full bg-surface border rounded-lg px-3 py-2 text-sm text-text-primary',
+                'focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/40',
+                'disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast',
+                displayNameTrimmed.length === 0 || displayNameTrimmed.length > DISPLAY_NAME_MAX
+                  ? 'border-error'
+                  : 'border-border',
+              ].join(' ')}
+              aria-describedby="ap-display-name-count"
+            />
+            <p id="ap-display-name-count" className="text-[10px] text-text-disabled mt-1 text-right">
+              {displayNameTrimmed.length}/{DISPLAY_NAME_MAX}
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="ap-avatar" className="text-xs font-medium text-text-secondary block mb-1.5">
+              Avatar <span className="text-text-disabled font-normal">(optional emoji or initials)</span>
+            </label>
+            <input
+              id="ap-avatar"
+              type="text"
+              value={avatar}
+              onChange={(e) => setAvatar(e.target.value.slice(0, 4))}
+              disabled={saving || generating}
+              placeholder="🤖"
+              maxLength={4}
+              className="w-20 bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/40 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
+              aria-label="Avatar emoji or initials"
             />
           </div>
-        </div>
 
-        {/* Regenerate section */}
-        <div className="border-t border-border pt-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="secondary"
-              onClick={hintOpen ? handleRegenerate : () => setHintOpen(true)}
+          <div>
+            <p className="text-xs font-medium text-text-secondary mb-2">
+              Color <span className="text-error" aria-hidden="true">*</span>
+            </p>
+            <ColorPicker value={color} onChange={setColor} disabled={saving || generating} />
+            <p className="text-[10px] text-text-disabled mt-1 font-mono">{color}</p>
+          </div>
+
+          <div>
+            <label htmlFor="ap-persona" className="text-xs font-medium text-text-secondary block mb-1.5">
+              Persona <span className="text-text-disabled font-normal">(injected into pipeline prompts)</span>
+            </label>
+            <textarea
+              id="ap-persona"
+              rows={5}
+              value={persona}
+              onChange={(e) => setPersona(e.target.value)}
               disabled={saving || generating}
-              aria-busy={generating}
+              placeholder="Describe this agent's tone, style, and working philosophy…"
+              className={[
+                'w-full bg-surface border rounded-lg px-3 py-2 text-sm text-text-primary',
+                'resize-none focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/40',
+                'disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast',
+                personaLen > PERSONA_MAX ? 'border-error' : 'border-border',
+              ].join(' ')}
+              aria-describedby="ap-persona-count"
+            />
+            <p
+              id="ap-persona-count"
+              className={`text-[10px] mt-1 text-right ${personaLen > PERSONA_MAX ? 'text-error font-medium' : 'text-text-disabled'}`}
             >
-              {generating ? (
-                <>
-                  <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">
-                    autorenew
-                  </span>
-                  Generating…
-                </>
-              ) : (
-                <>
-                  <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
-                    auto_fix_high
-                  </span>
-                  {hintOpen ? 'Generate with hint' : 'Regenerate'}
-                </>
+              {personaLen}/{PERSONA_MAX}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-xs font-medium text-text-secondary mb-2">
+              MCP Tool Access
+              <span className="ml-1 text-text-disabled font-normal">(which servers this agent can call)</span>
+            </p>
+            <div className="bg-surface border border-border rounded-lg px-3 py-2 max-h-44 overflow-y-auto">
+              <McpToolPicker
+                servers={mcpServers}
+                selected={mcpTools}
+                onChange={setMcpTools}
+                disabled={saving || generating}
+              />
+            </div>
+          </div>
+
+          <div className="border-t border-border pt-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant="secondary"
+                onClick={hintOpen ? handleRegenerate : () => setHintOpen(true)}
+                disabled={saving || generating}
+                aria-busy={generating}
+              >
+                {generating ? (
+                  <>
+                    <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">autorenew</span>
+                    Generating…
+                  </>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">auto_fix_high</span>
+                    {hintOpen ? 'Generate with hint' : 'Regenerate'}
+                  </>
+                )}
+              </Button>
+              {hintOpen && !generating && (
+                <Button variant="ghost" onClick={() => setHintOpen(false)}>Cancel hint</Button>
               )}
-            </Button>
-            {hintOpen && !generating && (
-              <Button variant="ghost" onClick={() => setHintOpen(false)}>Cancel hint</Button>
+            </div>
+            {hintOpen && (
+              <div className="mt-2">
+                <input
+                  type="text"
+                  value={hint}
+                  onChange={(e) => setHint(e.target.value.slice(0, 200))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleRegenerate(); }}
+                  placeholder="Style hint — e.g. 'more direct, less verbose'"
+                  className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/40 transition-all duration-fast"
+                  aria-label="Generation hint"
+                  disabled={generating}
+                />
+              </div>
             )}
           </div>
 
-          {hintOpen && (
-            <div className="mt-2">
-              <input
-                type="text"
-                value={hint}
-                onChange={(e) => setHint(e.target.value.slice(0, 200))}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleRegenerate(); }}
-                placeholder="Style hint — e.g. 'more direct, less verbose'"
-                className="w-full bg-surface-variant border border-border rounded-md px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
-                aria-label="Generation hint"
-                disabled={generating}
-              />
-            </div>
-          )}
         </div>
+      </ModalBody>
 
-        {/* Footer actions */}
-        <div className="flex items-center justify-end gap-2 border-t border-border pt-4">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleSave}
-            disabled={!isValid || saving || generating}
-            aria-busy={saving}
-          >
-            {saving ? (
-              <>
-                <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">
-                  autorenew
-                </span>
-                Saving…
-              </>
-            ) : (
-              'Save'
-            )}
-          </Button>
-        </div>
-
-      </div>
+      <ModalFooter>
+        <Button variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button
+          variant="primary"
+          onClick={handleSave}
+          disabled={!isValid || saving || generating}
+          aria-busy={saving}
+        >
+          {saving ? (
+            <>
+              <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">autorenew</span>
+              Saving…
+            </>
+          ) : 'Save'}
+        </Button>
+      </ModalFooter>
     </Modal>
   );
 }
