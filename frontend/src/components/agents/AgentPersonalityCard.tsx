@@ -15,55 +15,9 @@ import React, { useState, useCallback } from 'react';
 import { Button } from '@/components/shared/Button';
 import { AgentPersonalityEditor } from '@/components/agents/AgentPersonalityEditor';
 import { useAgentPersonalityStore } from '@/stores/useAgentPersonalityStore';
+import { useAppStore } from '@/stores/useAppStore';
 import * as api from '@/api/client';
 import type { AgentInfo, AgentPersonality, McpServer } from '@/types';
-
-// ---------------------------------------------------------------------------
-// PromptSection — collapsible agent .md file viewer
-// ---------------------------------------------------------------------------
-
-interface PromptSectionProps {
-  open: boolean;
-  loading: boolean;
-  content: string | null;
-  onToggle: () => void;
-}
-
-function PromptSection({ open, loading, content, onToggle }: PromptSectionProps) {
-  return (
-    <div className="border border-border rounded-lg overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        className="w-full flex items-center justify-between px-3 py-2 text-xs text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-fast"
-      >
-        <span className="flex items-center gap-1.5">
-          <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden="true">description</span>
-          View prompt
-        </span>
-        <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden="true">
-          {open ? 'expand_less' : 'expand_more'}
-        </span>
-      </button>
-      {open && (
-        <div className="border-t border-border bg-surface max-h-64 overflow-y-auto">
-          {loading ? (
-            <p className="px-3 py-4 text-xs text-text-disabled">Loading…</p>
-          ) : (content && content.length > 0) ? (
-            <pre className="px-3 py-3 text-[10px] font-mono text-text-secondary whitespace-pre-wrap leading-relaxed">
-              {content}
-            </pre>
-          ) : (
-            <p className="px-3 py-4 text-xs text-text-disabled italic">No prompt content found.</p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 
 interface AgentPersonalityCardProps {
   agent: AgentInfo;
@@ -76,26 +30,18 @@ export function AgentPersonalityCard({ agent, personality, mcpServers }: AgentPe
   const save       = useAgentPersonalityStore((s) => s.save);
   const generating = useAgentPersonalityStore((s) => s.generating[agent.id] ?? false);
 
-  const [editorOpen, setEditorOpen]   = useState(false);
-  const [proposal, setProposal]       = useState<Partial<AgentPersonality> | null>(null);
-  const [promptOpen, setPromptOpen]   = useState(false);
-  const [promptContent, setPromptContent] = useState<string | null>(null);
-  const [promptLoading, setPromptLoading] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [proposal, setProposal]     = useState<Partial<AgentPersonality> | null>(null);
+  const openMarkdownModal           = useAppStore((s) => s.openMarkdownModal);
 
-  const handleTogglePrompt = useCallback(async () => {
-    if (promptOpen) { setPromptOpen(false); return; }
-    setPromptOpen(true);
-    if (promptContent !== null) return;
-    setPromptLoading(true);
-    try {
-      const detail = await api.getAgent(agent.id);
-      setPromptContent(detail.content ?? '');
-    } catch {
-      setPromptContent('');
-    } finally {
-      setPromptLoading(false);
-    }
-  }, [agent.id, promptOpen, promptContent]);
+  const handleViewPrompt = useCallback(async () => {
+    const detail = await api.getAgent(agent.id);
+    openMarkdownModal(
+      agent.displayName,
+      detail.content ?? '',
+      agent.path,
+    );
+  }, [agent.id, agent.displayName, agent.path, openMarkdownModal]);
 
   const handleRegenerate = useCallback(async () => {
     try {
@@ -137,14 +83,11 @@ export function AgentPersonalityCard({ agent, personality, mcpServers }: AgentPe
 
           <p className="text-xs text-text-secondary italic">No personality set yet.</p>
 
-          <PromptSection
-            open={promptOpen}
-            loading={promptLoading}
-            content={promptContent}
-            onToggle={handleTogglePrompt}
-          />
-
           <div className="flex gap-2 mt-auto flex-wrap">
+            <Button variant="ghost" onClick={handleViewPrompt} className="text-xs">
+              <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">description</span>
+              View prompt
+            </Button>
             <Button variant="primary" onClick={handleEdit} className="text-xs">
               <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">edit</span>
               Set personality
@@ -244,18 +187,12 @@ export function AgentPersonalityCard({ agent, personality, mcpServers }: AgentPe
           </div>
         )}
 
-        {/* Agent prompt */}
-        <div className="px-4 pb-2">
-          <PromptSection
-            open={promptOpen}
-            loading={promptLoading}
-            content={promptContent}
-            onToggle={handleTogglePrompt}
-          />
-        </div>
-
         {/* Actions */}
         <div className="flex gap-2 px-4 pb-4 mt-auto flex-wrap">
+          <Button variant="ghost" onClick={handleViewPrompt} className="text-xs">
+            <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">description</span>
+            View prompt
+          </Button>
           <Button variant="secondary" onClick={handleEdit} className="text-xs flex-1">
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">edit</span>
             Edit
