@@ -151,24 +151,26 @@ function buildSystemPrompt(agentId, agentContent, hint, availableTools) {
   const hintLine  = hint ? `Style hint: "${hint}".` : '';
   const snippet   = agentContent ? agentContent.slice(0, 300) : '(none)';
 
-  return `You write short funny character bios for AI agents. NOT job descriptions. Think absurd Twitter bio.
+  return `Write a ONE-SENTENCE funny character bio. MAX 140 characters total. Stop after the first sentence.
 
-COPY THESE EXAMPLES EXACTLY in style and length:
-developer-agent  -> "Hasn't left the house since 2019 but somehow top-ranked on every online leaderboard. Commits at 2am. Tabs, not spaces, non-negotiable."
-senior-architect -> "Draws diagrams nobody reads, then turns out to be right 6 months later. Will restart the meeting because your box is the wrong shape."
-ux-api-designer  -> "Cried at a perfectly kerned font once. Redesigns your button mid-standup. Has opinions about your 3px border-radius."
-qa-engineer-e2e  -> "Finds the bug you introduced while fixing the last one. Has a spreadsheet of every broken deploy since 2021. Smiles when things fail."
-code-reviewer    -> "Knows every RFC by heart. Leaves 40 comments on a 3-line PR. Each one is correct. Means it lovingly."
+Style: absurd Twitter bio. NOT a job description. Quirky, specific, punchy.
+
+Examples (all under 140 chars -- match this length exactly):
+developer-agent  -> "Hasn't left the house since 2019. Top-ranked on every leaderboard. Commits at 2am. Tabs, not spaces."
+senior-architect -> "Draws diagrams nobody reads, turns out to be right 6 months later. Will restart the meeting over a wrong box shape."
+ux-api-designer  -> "Cried at a perfectly kerned font once. Redesigns your button mid-standup. Opinions about your 3px border-radius."
+qa-engineer-e2e  -> "Finds the bug you introduced while fixing the last one. Smiles when things fail."
+code-reviewer    -> "Leaves 40 comments on a 3-line PR. Each one is correct. Means it lovingly."
 
 Agent to generate: "${agentId}"
 Agent file snippet: ${snippet}
 ${hintLine}
-MCP tools available: ${toolsList}
+
+HARD RULE: persona field MUST be under 140 characters. Count before you output. One sentence only.
 
 Output ONLY this JSON (no markdown, no fences):
-{"displayName":"<funny nickname max 25 chars>","persona":"<bio max 140 chars, match the example style>","color":"<one hex from: ${PALETTE_LIST}>","mcpTools":["mcp__prism__*"],"avatar":"<1 emoji>"}`;
+{"displayName":"<funny nickname max 25 chars>","persona":"<ONE sentence, under 140 chars>","color":"<one hex from: ${PALETTE_LIST}>","mcpTools":["mcp__prism__*"],"avatar":"<1 emoji>"}`;
 }
-
 // legacy alias so existing callers that pass persona through still validate
 const PERSONA_MAX_GENERATED = 280;
 
