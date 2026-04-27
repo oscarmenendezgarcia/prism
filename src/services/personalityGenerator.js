@@ -148,48 +148,25 @@ const PALETTE_LIST = CURATED_PALETTE.join(', ');
 
 function buildSystemPrompt(agentId, agentContent, hint, availableTools) {
   const toolsList = availableTools.length > 0 ? availableTools.join(', ') : 'mcp__prism__*';
-  const hintLine  = hint ? `User style hint: "${hint}"` : '';
+  const hintLine  = hint ? `Style hint: "${hint}".` : '';
+  const snippet   = agentContent ? agentContent.slice(0, 300) : '(none)';
 
-  return `You create quirky, funny character bios for AI agents in a tool called Prism.
-Think Animal Crossing villager meets tech Twitter. Each agent has a distinct personality, a slightly ridiculous backstory, and speaks in a way only they would.
+  return `You write short funny character bios for AI agents. NOT job descriptions. Think absurd Twitter bio.
 
-Agent ID: "${agentId}"
-Agent definition file:
----
-${agentContent || '(no file — infer from the agent ID)'}
----
+COPY THESE EXAMPLES EXACTLY in style and length:
+developer-agent  -> "Hasn't left the house since 2019 but somehow top-ranked on every online leaderboard. Commits at 2am. Tabs, not spaces, non-negotiable."
+senior-architect -> "Draws diagrams nobody reads, then turns out to be right 6 months later. Will restart the meeting because your box is the wrong shape."
+ux-api-designer  -> "Cried at a perfectly kerned font once. Redesigns your button mid-standup. Has opinions about your 3px border-radius."
+qa-engineer-e2e  -> "Finds the bug you introduced while fixing the last one. Has a spreadsheet of every broken deploy since 2021. Smiles when things fail."
+code-reviewer    -> "Knows every RFC by heart. Leaves 40 comments on a 3-line PR. Each one is correct. Means it lovingly."
+
+Agent to generate: "${agentId}"
+Agent file snippet: ${snippet}
 ${hintLine}
+MCP tools available: ${toolsList}
 
-Available MCP tools: ${toolsList}
-
-Tone rules for the persona field:
-- Write like a funny character bio, not a job description. One or two sentences max.
-- Give them a quirk, a hobby, or an absurd detail that fits their role. Be specific and weird.
-- Examples of the vibe:
-  • developer-agent → "Hasn't left the house since 2019 but top-ranked in 4 online games simultaneously. Refactors code at 2am for fun, not profit."
-  • senior-architect → "Draws system diagrams nobody reads, then turns out to be right about everything 6 months later. Communicates exclusively in ADRs."
-  • ux-api-designer → "Cried at a perfectly kerned font once. Has strong opinions about your button padding and will tell you about them unprompted."
-  • qa-engineer-e2e → "Finds the bug you introduced while fixing the last bug. Keeps a personal spreadsheet of every broken deploy. Smiles when things fail."
-  • code-reviewer → "Knows every RFC by heart. Will leave 40 comments on a 3-line PR. Means it lovingly."
-- The persona should feel like something this agent would say about themselves — half-bragging, half-self-aware.
-- Keep it under 280 characters. Punchy beats thorough.
-
-Return ONLY a single valid JSON object:
-{
-  "displayName": "<catchy 1-60 char name — can be a nickname or a title>",
-  "persona": "<funny character bio, ≤280 chars>",
-  "color": "<one hex from: ${PALETTE_LIST}>",
-  "mcpTools": ["<relevant prefixes from available list — always include mcp__prism__*>"],
-  "avatar": "<1-2 emoji that match the vibe>"
-}
-
-Hard rules:
-- displayName: 1-60 chars, no newlines.
-- color MUST be exactly one of the listed hex values — no other values.
-- mcpTools must be a subset of the available prefixes.
-- avatar: 1-2 grapheme clusters (emoji preferred).
-- Output ONLY the JSON object — no markdown, no explanation, no code fences.
-- persona must be 280 characters or fewer. Punchy beats thorough.`;
+Output ONLY this JSON (no markdown, no fences):
+{"displayName":"<funny nickname max 25 chars>","persona":"<bio max 140 chars, match the example style>","color":"<one hex from: ${PALETTE_LIST}>","mcpTools":["mcp__prism__*"],"avatar":"<1 emoji>"}`;
 }
 
 // legacy alias so existing callers that pass persona through still validate
@@ -331,6 +308,8 @@ async function generatePersonality({ agentId, hint, availableTools = [], dataDir
   // persona
   const persona = typeof raw.persona === 'string' ? raw.persona : '';
   if (persona.length > 600) errors.push('persona exceeds 600 characters');
+  // Truncate silently if over the generated target (140) but under validation limit
+  const personaTrimmed = persona.length > 140 ? persona.slice(0, 137) + '…' : persona;
 
   // color — snap to nearest palette entry
   const color = validateOrSnapColor(raw.color);
@@ -346,7 +325,7 @@ async function generatePersonality({ agentId, hint, availableTools = [], dataDir
     return { valid: false, errors, data: null };
   }
 
-  const data = { displayName, persona, color, mcpTools, avatar };
+  const data = { displayName, persona: personaTrimmed, color, mcpTools, avatar };
 
   console.info(JSON.stringify({
     ts: new Date().toISOString(),
