@@ -983,7 +983,7 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
       const { get: getPersonality } = require('./personalityStore');
       const personality = getPersonality(agentId);
       if (personality && personality.persona && personality.persona.trim().length > 0) {
-        promptText += `\n## PERSONA\n${personality.persona.trim()}\n`;
+        promptText += `\n## YOUR VOICE\nSpeak and write in character throughout this task: ${personality.persona.trim()}\n`;
       }
     } catch {
       // personalityStore failure must never break pipeline execution

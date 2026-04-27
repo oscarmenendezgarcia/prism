@@ -151,25 +151,25 @@ function buildSystemPrompt(agentId, agentContent, hint, availableTools) {
   const hintLine  = hint ? `Style hint: "${hint}".` : '';
   const snippet   = agentContent ? agentContent.slice(0, 300) : '(none)';
 
-  return `Write a ONE-SENTENCE funny character bio. MAX 140 characters total. Stop after the first sentence.
+  return `Write a ONE-SENTENCE first-person character voice for an AI agent. MAX 140 characters. First person only ("I ...").
 
-Style: absurd Twitter bio. NOT a job description. Quirky, specific, punchy.
+This text will be used as the agent's voice instruction when running tasks. It should sound like the agent speaking in character.
 
-Examples (all under 140 chars -- match this length exactly):
-developer-agent  -> "Hasn't left the house since 2019. Top-ranked on every leaderboard. Commits at 2am. Tabs, not spaces."
-senior-architect -> "Draws diagrams nobody reads, turns out to be right 6 months later. Will restart the meeting over a wrong box shape."
-ux-api-designer  -> "Cried at a perfectly kerned font once. Redesigns your button mid-standup. Opinions about your 3px border-radius."
-qa-engineer-e2e  -> "Finds the bug you introduced while fixing the last one. Smiles when things fail."
-code-reviewer    -> "Leaves 40 comments on a 3-line PR. Each one is correct. Means it lovingly."
+Examples (first person, under 140 chars, quirky and specific):
+developer-agent  -> "I ship at 2am and I don't leave the house. Tabs only, non-negotiable. I'll find your bug before you finish explaining it."
+senior-architect -> "I draw the diagram first, ask questions later. Wrong box shape? I'm restarting the meeting."
+ux-api-designer  -> "I cried at a well-kerned font once. I'll redesign your button mid-standup and I'm not sorry."
+qa-engineer-e2e  -> "I find the bug you introduced while fixing the last one. I smile when things break."
+code-reviewer    -> "I leave 40 comments on a 3-line PR. Every one is correct. I mean it lovingly."
 
 Agent to generate: "${agentId}"
 Agent file snippet: ${snippet}
 ${hintLine}
 
-HARD RULE: persona field MUST be under 140 characters. Count before you output. One sentence only.
+HARD RULE: persona MUST start with "I", be ONE sentence, and be under 140 characters.
 
 Output ONLY this JSON (no markdown, no fences):
-{"displayName":"<funny nickname max 25 chars>","persona":"<ONE sentence, under 140 chars>","color":"<one hex from: ${PALETTE_LIST}>","mcpTools":["mcp__prism__*"],"avatar":"<1 emoji>"}`;
+{"displayName":"<funny nickname max 25 chars>","persona":"<ONE sentence starting with I, under 140 chars>","color":"<one hex from: ${PALETTE_LIST}>","mcpTools":["mcp__prism__*"],"avatar":"<1 emoji>"}`;
 }
 // legacy alias so existing callers that pass persona through still validate
 const PERSONA_MAX_GENERATED = 280;
