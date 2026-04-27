@@ -41,7 +41,7 @@ cd frontend && npm run dev   # → http://localhost:5173
 ## Stack
 
 - **Backend:** Node.js native HTTP (no framework) — `server.js`
-- **Persistence:** `data/spaces.json` + per-space files `data/<space-id>/{todo,in-progress,done}.json`
+- **Persistence:** `data/spaces.json` + per-space files `data/<space-id>/{todo,in-progress,done}.json` + `data/agents.json` (agent personality profiles)
 - **Frontend:** React 19 + TypeScript + Tailwind CSS v4 + Vite + Zustand (`frontend/`)
 - **Build output:** `dist/` (served by backend in production)
 - **Frontend tests:** `cd frontend && npm test` (Vitest + React Testing Library)

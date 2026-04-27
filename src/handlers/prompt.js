@@ -20,6 +20,7 @@ const { COLUMNS }                        = require('../constants');
 const { getAgentsDir, AGENT_ID_RE }      = require('./agents');
 const { readSettings }                   = require('./settings');
 const { buildCommentGuidanceLines }      = require('../utils/promptComments');
+const { buildKanbanBlock, buildGitInstructionsBlock } = require('../utils/promptBuilder');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -83,49 +84,38 @@ function buildPromptText(options) {
     }
   }
 
+  // ── PERSONA (ADR-1 agent-personalities T-005) ─────────────────────────────
+  // Injected BEFORE agent instructions so the agent reads its "self" context first.
+  const { agentId } = options;
+  if (agentId) {
+    try {
+      const { get: getPersonality } = require('../services/personalityStore');
+      const personality = getPersonality(agentId);
+      if (personality && personality.persona && personality.persona.trim().length > 0) {
+        lines.push(`\n## PERSONA\n${personality.persona.trim()}`);
+      }
+    } catch {
+      // personalityStore failure must never break prompt generation
+    }
+  }
+
   // ── AGENT INSTRUCTIONS ────────────────────────────────────────────────────
   lines.push('\n## AGENT INSTRUCTIONS');
   lines.push(agentContent);
 
   // ── KANBAN INSTRUCTIONS ───────────────────────────────────────────────────
   if (settings.prompts.includeKanbanBlock) {
-    lines.push('\n## KANBAN INSTRUCTIONS');
-    lines.push(`Prism Kanban server is running at http://localhost:3000`);
-    lines.push(`Space ID: ${space.id}`);
-    lines.push(`Task ID: ${task.id}  ← this task already exists. Do NOT create a new kanban task.`);
-    lines.push(`Move THIS task through the board: todo → in-progress (immediately) → done (when finished).`);
-    lines.push('Use the MCP tools (mcp__prism__kanban_*) to manage the board:');
-    lines.push('  - kanban_list_spaces: list all spaces');
-    lines.push('  - kanban_list_tasks: list tasks in a column');
-    lines.push('  - kanban_get_task: get a single task by ID');
-    lines.push('  - kanban_move_task: move a task between columns (todo → in-progress → done)');
-    lines.push('  - kanban_update_task: update task fields or attach artifacts');
-    lines.push('  - kanban_create_task: create new tasks (only if genuinely needed for a sub-task)');
-    lines.push('  - kanban_add_comment: post a note or question on the task');
-    lines.push('  - kanban_answer_comment: answer an existing question comment');
-    lines.push('  - kanban_get_run_status: check pipeline run status');
-    lines.push('');
-    lines.push('STOP and post a question (do NOT assume) when ANY of these is true:');
-    lines.push('  • A required artifact (spec, wireframe, ADR) is missing or unreadable and you cannot proceed without it');
-    lines.push('  • You face ≥2 valid options and nothing in the brief lets you choose — name both options in the question');
-    lines.push('  • Resolving an ambiguity would require changing ≥2 files in a non-obvious way');
-    lines.push('  • You need a dependency or pattern not mentioned in the design');
-    lines.push('  • A decision is irreversible or cross-team and you have no explicit approval');
-    lines.push('');
-    lines.push('How to post a question:');
-    lines.push(`  mcp__prism__kanban_add_comment({ spaceId: "${space.id}", taskId: "${task.id}", author: "<your-agent-id>", type: "question", text: "<question — include the two options you are choosing between>", targetAgent: "<agent-id if another pipeline agent can answer, omit for human>" })`);
-    lines.push('The pipeline pauses automatically. Resume once the question is answered via kanban_answer_comment.');
+    // buildKanbanBlock is the single source of truth for the full tool list,
+    // STOP conditions, and add_comment snippet. buildCommentGuidanceLines appends
+    // the POST A NOTE / HANDOFF SUMMARY guidance that must follow it.
+    lines.push('\n' + buildKanbanBlock(space.id, task.id));
     lines.push('');
     lines.push(...buildCommentGuidanceLines(space.id, task.id));
   }
 
   // ── GIT INSTRUCTIONS ──────────────────────────────────────────────────────
   if (settings.prompts.includeGitBlock) {
-    lines.push('\n## GIT INSTRUCTIONS');
-    lines.push('- Work on the current feature branch (do not create new branches unless specified)');
-    lines.push('- Commit format: [dev] T-XXX: <task title>');
-    lines.push('- Stage only task-relevant files (never git add -A or git add .)');
-    lines.push('- Never commit to main directly');
+    lines.push('\n' + buildGitInstructionsBlock());
   }
 
   // ── PROJECT CONTEXT ───────────────────────────────────────────────────────
@@ -235,6 +225,7 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
     taskColumn:       taskResult.column,
     space:            spaceResult.space,
     agentContent,
+    agentId,
     settings,
     customInstructions,
     workingDirectory: workingDirectory || settings.prompts.workingDirectory,

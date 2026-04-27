@@ -8,10 +8,11 @@
  *   Portals: modals + Toast
  */
 
-import React, { useEffect } from 'react'; // useEffect kept for loadSpaces/loadSettings/loadSystemInfo
+import React, { useEffect, useState } from 'react'; // useEffect kept for loadSpaces/loadSettings/loadSystemInfo
 import { Header } from '@/components/layout/Header';
 import { SpaceTabs } from '@/components/layout/SpaceTabs';
 import { Board } from '@/components/board/Board';
+import { AgentsPage } from '@/components/agents/AgentsPage';
 import { TerminalPanel } from '@/components/terminal/TerminalPanel';
 import { ConfigPanel } from '@/components/config/ConfigPanel';
 import { AgentSettingsPanel } from '@/components/agent-launcher/AgentSettingsPanel';
@@ -89,6 +90,8 @@ function AppContent() {
   const logPanelOpen           = usePipelineLogStore((s) => s.logPanelOpen);
 
   const [autoTaskModalOpen, setAutoTaskModalOpen] = React.useState(false);
+  // Agents page view toggle
+  const [agentsPageOpen, setAgentsPageOpen] = useState(false);
 
   useEffect(() => {
     loadSpaces();
@@ -102,24 +105,37 @@ function AppContent() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header />
+      <Header agentsPageOpen={agentsPageOpen} onToggleAgentsPage={() => setAgentsPageOpen((v) => !v)} />
 
       <div className="flex-1 overflow-hidden flex flex-col">
-        <SpaceTabs />
-        {/* Board + optional side panels (TerminalPanel, ConfigPanel) in a flex row.
-            Board uses flex-1 so it shrinks gracefully when panels are open.
-            Layout order: Board | TerminalPanel | ConfigPanel (ADR-1 §5.1). */}
-        <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 overflow-hidden relative transition-all duration-300 ease-out">
-            <Board />
-            <AutoTaskFAB onClick={() => setAutoTaskModalOpen(true)} />
+        {agentsPageOpen ? (
+          /* Agents page — full content area, with optional settings panel */
+          <div className="flex flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto">
+              <AgentsPage />
+            </div>
+            {configPanelOpen && <ConfigPanel />}
+            {agentSettingsPanelOpen && <AgentSettingsPanel />}
           </div>
-          <TerminalPanel />
-          {historyPanelOpen && <RunHistoryPanel />}
-          {logPanelOpen && pipelineState !== null && <PipelineLogPanel />}
-          {configPanelOpen && <ConfigPanel />}
-          {agentSettingsPanelOpen && <AgentSettingsPanel />}
-        </div>
+        ) : (
+          <>
+            <SpaceTabs />
+            {/* Board + optional side panels (TerminalPanel, ConfigPanel) in a flex row.
+                Board uses flex-1 so it shrinks gracefully when panels are open.
+                Layout order: Board | TerminalPanel | ConfigPanel (ADR-1 §5.1). */}
+            <div className="flex flex-1 overflow-hidden">
+              <div className="flex-1 overflow-hidden relative transition-all duration-300 ease-out">
+                <Board />
+                <AutoTaskFAB onClick={() => setAutoTaskModalOpen(true)} />
+              </div>
+              <TerminalPanel />
+              {historyPanelOpen && <RunHistoryPanel />}
+              {logPanelOpen && pipelineState !== null && <PipelineLogPanel />}
+              {configPanelOpen && <ConfigPanel />}
+              {agentSettingsPanelOpen && <AgentSettingsPanel />}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Task detail panel — z-50, above board (z-0/10), below modals (z-60+).

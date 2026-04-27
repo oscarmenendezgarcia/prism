@@ -496,3 +496,59 @@ export interface AgentRunsResponse {
   runs: AgentRunRecord[];
   total: number;
 }
+
+// ---------------------------------------------------------------------------
+// Agent Personalities types (ADR-1: agent-personalities)
+// ---------------------------------------------------------------------------
+
+/**
+ * A persisted agent personality profile — stored globally in data/agents.json.
+ * Color is one of 16 curated swatches (see CURATED_PALETTE in personalityGenerator.js).
+ */
+export interface AgentPersonality {
+  agentId: string;          // kebab-case; must match a file in ~/.claude/agents/
+  displayName: string;      // 1..60 chars
+  color: string;            // hex from CURATED_PALETTE, e.g. "#7C3AED"
+  persona: string;          // 0..600 chars; injected into pipeline prompts when non-empty
+  mcpTools: string[];       // e.g. ["mcp__prism__*", "mcp__figma__*"]
+  avatar?: string;          // optional 1..2 grapheme clusters (emoji or initials)
+  source: 'manual' | 'generated';
+  generatedAt?: string;     // ISO timestamp when source === 'generated'
+  updatedAt: string;        // ISO timestamp of last modification
+}
+
+/**
+ * LLM-generated personality proposal.
+ * Caller must PUT to /api/v1/agents-personalities/:agentId to persist.
+ */
+export interface AgentPersonalityProposal {
+  displayName: string;
+  persona: string;
+  color: string;
+  mcpTools: string[];
+  avatar?: string;
+}
+
+/** Input payload for PUT /api/v1/agents-personalities/:agentId */
+export interface AgentPersonalityInput {
+  displayName: string;
+  color: string;
+  persona?: string;
+  mcpTools: string[];
+  avatar?: string;
+  source?: 'manual' | 'generated';
+  generatedAt?: string;
+}
+
+/** A discovered MCP server from mcpDiscovery. */
+export interface McpServer {
+  id: string;
+  source: 'built-in' | '~/.claude.json' | '~/.claude/settings.json' | '.mcp.json';
+  toolPrefix: string;   // e.g. "mcp__prism__*"
+  description?: string;
+}
+
+/** Response from GET /api/v1/agents-personalities/mcp-tools */
+export interface McpDiscoveryResult {
+  servers: McpServer[];
+}

@@ -58,6 +58,20 @@ const {
 } = require('../handlers/comments');
 
 const {
+  AP_LIST_ROUTE,
+  AP_MCP_ROUTE,
+  AP_GENERATE_ROUTE,
+  AP_SINGLE_ROUTE,
+  handleListPersonalities,
+  handleGetPersonality,
+  handleUpsertPersonality,
+  handleDeletePersonality,
+  handleGeneratePersonality,
+  handleDiscoverMcp,
+} = require('../handlers/agentsPersonalities');
+const { setDataDir: setPersonalityStoreDataDir, invalidateCache: invalidatePersonalityCache } = require('../services/personalityStore');
+
+const {
   PIPELINE_RUNS_LIST_ROUTE,
   PIPELINE_RUNS_SINGLE_ROUTE,
   PIPELINE_RUNS_LOG_ROUTE,
@@ -120,6 +134,11 @@ const SETTINGS_ROUTE      = /^\/api\/v1\/settings$/;
  * @returns {Function} `async (req, res) => void`
  */
 function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
+  // Wire personality store to the server's data directory so isolated test
+  // servers each get their own storage and the cache is coherent per instance.
+  setPersonalityStoreDataDir(dataDir);
+  invalidatePersonalityCache();
+
   return async function mainRouter(req, res) {
     const { method } = req;
     const urlPath    = req.url.split('?')[0];
@@ -350,6 +369,39 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
         return sendJSON(res, 200, { deleted: true, id: result.id });
       }
 
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Agent personality routes — MUST be before agent launcher routes to avoid
+    // the /agents pattern swallowing /agents-personalities paths.
+    // Route priority within the group:
+    //   1. AP_MCP_ROUTE       (/agents-personalities/mcp-tools)
+    //   2. AP_GENERATE_ROUTE  (/agents-personalities/generate)
+    //   3. AP_LIST_ROUTE      (/agents-personalities)
+    //   4. AP_SINGLE_ROUTE    (/agents-personalities/:agentId)
+    // -------------------------------------------------------------------------
+    if (AP_MCP_ROUTE.test(urlPath)) {
+      if (method === 'GET') return handleDiscoverMcp(req, res);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    if (AP_GENERATE_ROUTE.test(urlPath)) {
+      if (method === 'POST') return handleGeneratePersonality(req, res, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    if (AP_LIST_ROUTE.test(urlPath)) {
+      if (method === 'GET') return handleListPersonalities(req, res);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const apSingleMatch = AP_SINGLE_ROUTE.exec(urlPath);
+    if (apSingleMatch) {
+      const agentId = apSingleMatch[1];
+      if (method === 'GET')    return handleGetPersonality(req, res, agentId);
+      if (method === 'PUT')    return handleUpsertPersonality(req, res, agentId);
+      if (method === 'DELETE') return handleDeletePersonality(req, res, agentId);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 
