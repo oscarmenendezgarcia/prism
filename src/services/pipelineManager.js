@@ -31,6 +31,7 @@ const { spawn, execSync }       = require('child_process');
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
 const worktreeManager = require('./worktreeManager');
+const { buildCommentGuidanceLines } = require('../utils/promptComments');
 const {
   buildKanbanBlock,
   buildGitContextBlock,
@@ -110,6 +111,9 @@ const DEFAULT_RESOLVER_TIMEOUT_MS = 300_000;   // 5 min
 
 /** Map<runId, { interval: ReturnType<setInterval>, stageIndex: number }> */
 const activeProcesses = new Map();
+
+/** Store instance injected via init(). Used to look up tasks in SQLite. */
+let _store = null;
 
 /** Timestamp when this Node.js process was started (used as a PID stale guard). */
 const BOOT_TIME = Date.now();
@@ -1007,6 +1011,8 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   // Kanban instructions — always included so agents can move tasks and post questions.
   // buildKanbanBlock includes stop conditions, note/handoff guidance, and MCP examples.
   promptText += '\n' + buildKanbanBlock(spaceId, taskId) + '\n';
+  promptText += '\n';
+  promptText += buildCommentGuidanceLines(spaceId, taskId).join('\n') + '\n';
 
   // For the developer stage: require compilation gate before closing.
   // Prevents QA from launching against code that does not compile.
@@ -1220,7 +1226,8 @@ async function spawnStage(dataDir, run, stageIndex) {
  *
  * @param {string} dataDir - Root data directory.
  */
-function init(dataDir) {
+function init(dataDir, store) {
+  if (store) _store = store;
   const dir = runsDir(dataDir);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -1402,7 +1409,9 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
   const stageList = stages && stages.length > 0 ? stages : DEFAULT_STAGES;
 
   // --- Validate task exists and is in 'todo'. ---
-  const taskResult = findTaskInDataDir(spaceId, taskId, dataDir);
+  const taskResult = _store
+    ? _store.getTaskWithColumn(spaceId, taskId)
+    : findTaskInDataDir(spaceId, taskId, dataDir);
   if (!taskResult) {
     const err = new Error(`Task '${taskId}' not found in space '${spaceId}'.`);
     err.code = 'TASK_NOT_FOUND';

@@ -663,7 +663,7 @@ async function run() {
     assert(typeof res.body.updatedAt === 'string', 'updatedAt should be set');
   });
 
-  await test('TC-033 end-to-end: question + targetAgent not in run.stages → comment.targetAgent persists', async () => {
+  await test('TC-033 end-to-end: question + invalid targetAgent → run blocked + comment.needsHuman=true', async () => {
     // Create a task and seed a run where targetAgent (ux-api-designer) is NOT in stages
     const taskRes2 = await req('POST', `/api/v1/spaces/${spaceId}/tasks`, {
       title: 'E2E targetAgent validation task',
@@ -708,6 +708,22 @@ async function run() {
     assert(runState.status === 200, `GET run: ${runState.status}`);
     assert(runState.body.status === 'blocked', `Expected blocked, got ${runState.body.status}`);
     assert(runState.body.blockedReason?.commentId === questionRes.body.id, 'blockedReason should point to the question');
+
+    // Verify comment.needsHuman=true — pipelineManager marks it synchronously when
+    // targetAgent is not in run.stages. Comments are embedded in the task JSON.
+    const tasksRes_e2e = await req('GET', `/api/v1/spaces/${spaceId}/tasks`);
+    assert(tasksRes_e2e.status === 200, `GET tasks: ${tasksRes_e2e.status}`);
+    const allTasks_e2e = [
+      ...(tasksRes_e2e.body.todo          || []),
+      ...(tasksRes_e2e.body['in-progress'] || []),
+      ...(tasksRes_e2e.body.done          || []),
+    ];
+    const task_e2e = allTasks_e2e.find((t) => t.id === taskId_e2e);
+    assert(task_e2e, 'task_e2e not found in GET /tasks response');
+    const comment_e2e = (task_e2e.comments || []).find((c) => c.id === questionRes.body.id);
+    assert(comment_e2e, 'question comment not found in task_e2e.comments');
+    assert(comment_e2e.needsHuman === true,
+      `Expected comment.needsHuman=true after invalid targetAgent, got ${comment_e2e.needsHuman}`);
   });
 
   // ─────────────────────────────────────────────────────────────────────────

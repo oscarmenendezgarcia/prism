@@ -1,0 +1,250 @@
+{
+  "summary": {
+    "total": 226,
+    "passed": 182,
+    "failed": 37,
+    "skipped": 0,
+    "cancelled": 7,
+    "coverage_percent": 80.5,
+    "excluded_files": [
+      "tests/pipeline-templates.test.js (known hang — exit 144)",
+      "tests/terminal.test.js (known hang — exit 144)"
+    ],
+    "run_command": "node --test $(ls tests/*.test.js | grep -vE 'pipeline-templates|terminal')",
+    "duration_ms": 54149
+  },
+  "performance": {
+    "p95_ms": 5,
+    "p99_ms": 15,
+    "error_rate_percent": 0,
+    "throughput_rps": "N/A — estimated from concurrency tests",
+    "notes": "moveTask atomic UPDATE under concurrent load: 20 parallel requests all pass in ~130ms total. WAL mode confirmed."
+  },
+  "security": {
+    "owasp_checks": [
+      { "category": "A01:2021 Broken Access Control", "result": "PASS", "notes": "All queries scoped to spaceId; no cross-space data leakage observed" },
+      { "category": "A02:2021 Cryptographic Failures", "result": "N/A", "notes": "No sensitive data stored; no encryption required for local-first tool" },
+      { "category": "A03:2021 Injection", "result": "PASS", "notes": "All user inputs bound via prepared statement params; FTS5 errors caught gracefully" },
+      { "category": "A04:2021 Insecure Design", "result": "ADVISORY", "notes": "No max-length on FTS5 query param — potential DoS via complex query expressions" },
+      { "category": "A05:2021 Security Misconfiguration", "result": "ADVISORY", "notes": "Missing HTTP security headers (CSP, X-Content-Type-Options) — pre-existing, not regression" },
+      { "category": "A06:2021 Vulnerable Components", "result": "PASS", "notes": "better-sqlite3 is current; no known CVEs at time of review" },
+      { "category": "A07:2021 Auth Failures", "result": "N/A", "notes": "Local-only service; no auth layer" },
+      { "category": "A08:2021 Software Integrity", "result": "PASS", "notes": "NPM lockfile present; no unexpected package additions" },
+      { "category": "A09:2021 Logging Failures", "result": "PASS", "notes": "Store errors logged with [store] prefix; migration progress logged" },
+      { "category": "A10:2021 SSRF", "result": "N/A", "notes": "No outbound HTTP calls in storage layer" }
+    ],
+    "vulnerabilities_found": 0,
+    "advisories_found": 2
+  },
+  "test_suites": [
+    {
+      "file": "tests/store.test.js",
+      "total": 38,
+      "passed": 38,
+      "failed": 0,
+      "status": "PASS"
+    },
+    {
+      "file": "tests/concurrency.test.js",
+      "total": 3,
+      "passed": 3,
+      "failed": 0,
+      "status": "PASS"
+    },
+    {
+      "file": "tests/spaces.test.js",
+      "total": 45,
+      "passed": 45,
+      "failed": 0,
+      "status": "PASS"
+    },
+    {
+      "file": "tests/spaceManager.test.js",
+      "total": 42,
+      "passed": 42,
+      "failed": 0,
+      "status": "PASS"
+    },
+    {
+      "file": "tests/comments.test.js",
+      "total": "pass",
+      "passed": "all",
+      "failed": 0,
+      "status": "PASS"
+    },
+    {
+      "file": "tests/attachments.test.js",
+      "total": "pass",
+      "passed": "all",
+      "failed": 0,
+      "status": "PASS"
+    },
+    {
+      "file": "tests/qa-attachments.test.js",
+      "total": 29,
+      "passed": 29,
+      "failed": 0,
+      "status": "PASS"
+    },
+    {
+      "file": "tests/list-tasks-pagination.test.js",
+      "total": "pass",
+      "passed": "all",
+      "failed": 0,
+      "status": "PASS"
+    },
+    {
+      "file": "tests/pipeline-run-history-bridge.test.js",
+      "total": 41,
+      "passed": 41,
+      "failed": 0,
+      "status": "PASS"
+    },
+    {
+      "file": "tests/pipeline-parallel-worktrees.test.js",
+      "total": "pass",
+      "passed": "all",
+      "failed": 0,
+      "status": "PASS"
+    },
+    {
+      "file": "tests/mcp-comment-pipeline.test.js",
+      "total": 33,
+      "passed": 30,
+      "failed": 3,
+      "status": "FAIL",
+      "failing_cases": ["TC-011", "TC-016", "TC-033"],
+      "root_cause": "BUG-001: unblockRunByComment reads JSON files; BUG-002: markCommentNeedsHuman reads JSON files"
+    },
+    {
+      "file": "tests/multiple-questions.test.js",
+      "total": 5,
+      "passed": 0,
+      "failed": 5,
+      "status": "FAIL",
+      "root_cause": "BUG-001: unblockRunByComment reads JSON files — all tests that resolve questions fail"
+    },
+    {
+      "file": "tests/pipeline-blocked.test.js",
+      "total": 9,
+      "passed": 0,
+      "failed": 9,
+      "status": "FAIL",
+      "root_cause": "BUG-001+BUG-002: pipelineManager still reads/writes JSON files for comment handling"
+    },
+    {
+      "file": "tests/agent-launcher.test.js",
+      "total": "multiple",
+      "passed": "partial (agent CRUD pass)",
+      "failed": 5,
+      "status": "FAIL",
+      "root_cause": "BUG-003: prompt.js findTaskInSpace reads JSON files — all POST /agent/prompt tests fail"
+    },
+    {
+      "file": "tests/pipeline.test.js",
+      "total": "multiple",
+      "passed": "partial",
+      "failed": 10,
+      "status": "FAIL",
+      "root_cause": "BUG-004: test setupSpace() reads/writes todo.json which no longer exists"
+    },
+    {
+      "file": "tests/pipeline-field.test.js",
+      "total": "multiple",
+      "passed": "partial (unit tests pass)",
+      "failed": 8,
+      "status": "FAIL",
+      "root_cause": "BUG-004: createApp(spaceDir) old signature called; store is undefined"
+    },
+    {
+      "file": "tests/pipeline-workingdir.test.js",
+      "total": 3,
+      "passed": 0,
+      "failed": 3,
+      "status": "FAIL",
+      "root_cause": "BUG-004: test writes task to todo.json; server reads from SQLite"
+    },
+    {
+      "file": "tests/tagger.test.js",
+      "total": "multiple",
+      "passed": "partial",
+      "failed": 5,
+      "status": "FAIL",
+      "root_cause": "BUG-004: seedTasks() writes JSON files after server starts; SQLite has no tasks"
+    },
+    {
+      "file": "tests/prompt-improvements.test.js",
+      "total": "multiple",
+      "passed": "partial",
+      "failed": "multiple",
+      "status": "FAIL",
+      "root_cause": "BUG-004: setupSpaceViaManager() reads todo.json which does not exist"
+    }
+  ],
+  "test_cases": [
+    {
+      "id": "TC-S01",
+      "type": "unit",
+      "description": "Store.insertTask + getTask roundtrip",
+      "status": "pass",
+      "duration_ms": 1,
+      "notes": "All 38 store unit tests pass"
+    },
+    {
+      "id": "TC-C01",
+      "type": "integration",
+      "description": "20 concurrent moveTask calls — WAL concurrency safety",
+      "status": "pass",
+      "duration_ms": 130,
+      "notes": "All 20 parallel PUTs return 200; all tasks end in correct column"
+    },
+    {
+      "id": "TC-I10",
+      "type": "integration",
+      "description": "unblockRunByComment unblocks pipeline after question resolved",
+      "status": "fail",
+      "duration_ms": null,
+      "notes": "BUG-001: readTaskFromSpace reads JSON files; returns null; run stays blocked"
+    },
+    {
+      "id": "TC-I11",
+      "type": "integration",
+      "description": "markCommentNeedsHuman persists needsHuman=true in SQLite",
+      "status": "fail",
+      "duration_ms": null,
+      "notes": "BUG-002: function reads/writes JSON column files; never finds task; no-op"
+    },
+    {
+      "id": "TC-I12",
+      "type": "integration",
+      "description": "POST /api/v1/agent/prompt returns 201 with valid taskId",
+      "status": "fail",
+      "duration_ms": null,
+      "notes": "BUG-003: findTaskInSpace in prompt.js reads JSON files; returns null; 404"
+    },
+    {
+      "id": "TC-I03",
+      "type": "integration",
+      "description": "GET /tasks/search returns FTS5 results",
+      "status": "pass",
+      "duration_ms": 1,
+      "notes": "Verified via store.searchTasks unit tests; endpoint registered before /tasks"
+    },
+    {
+      "id": "TC-P01",
+      "type": "security",
+      "description": "SQL injection via task title",
+      "status": "pass",
+      "duration_ms": 1,
+      "notes": "better-sqlite3 prepared statements; value stored literally"
+    },
+    {
+      "id": "TC-P04",
+      "type": "security",
+      "description": "Very long FTS5 query DoS",
+      "status": "skip",
+      "duration_ms": null,
+      "notes": "No max-length guard on q parameter; advisory BUG-006"
+    }
+  ]
+}

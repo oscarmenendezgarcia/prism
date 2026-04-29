@@ -266,6 +266,12 @@ function createStore(dataDir) {
     return rowToTask(stmts.getTask.get(spaceId, taskId));
   }
 
+  function getTaskWithColumn(spaceId, taskId) {
+    const row = stmts.getTask.get(spaceId, taskId);
+    if (!row) return null;
+    return { task: rowToTask(row), column: row.column };
+  }
+
   function insertTask(task, spaceId, column) {
     stmts.insertTask.run(
       task.id,
@@ -436,6 +442,7 @@ function createStore(dataDir) {
     getTasksByColumn,
     getAllTasksForSpace,
     getTask,
+    getTaskWithColumn,
     insertTask,
     upsertTask,
     updateTask,

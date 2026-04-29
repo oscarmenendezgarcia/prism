@@ -81,7 +81,7 @@ function startServer(options = {}) {
 
   // Step 2b: Initialize pipeline manager (startup recovery).
   // Marks any run with status='running' as 'interrupted' from a previous crash.
-  pipelineManager.init(dataDir);
+  pipelineManager.init(dataDir, store);
   // Propagate pipeline.agentsDir from settings to env (if not already set via env var).
   if (!process.env.PIPELINE_AGENTS_DIR) {
     const startupSettings = readSettings(dataDir);
