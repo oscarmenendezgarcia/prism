@@ -148,7 +148,7 @@ function findTaskInSpace(spaceId, taskId, dataDir) {
  * POST /api/v1/agent/prompt
  * Assemble full prompt, write to data/.prompts/, return path + CLI command.
  */
-async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
+async function handleGeneratePrompt(req, res, dataDir, spaceManager, store) {
   let body;
   try {
     body = await parseBody(req);
@@ -194,7 +194,10 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager) {
   }
   const agentContent = fs.readFileSync(agentPath, 'utf8');
 
-  const taskResult = findTaskInSpace(spaceId, taskId, dataDir);
+  // Post-migration: use the SQLite store when available; fall back to JSON files (legacy / unit tests).
+  const taskResult = store
+    ? store.getTaskWithColumn(spaceId, taskId)
+    : findTaskInSpace(spaceId, taskId, dataDir);
   if (!taskResult) {
     return sendError(res, 404, 'TASK_NOT_FOUND', `Task '${taskId}' was not found in space '${spaceId}'.`, {
       suggestion: 'Confirm the taskId and spaceId are correct. The task may have been moved or deleted.',

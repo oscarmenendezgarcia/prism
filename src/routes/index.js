@@ -360,7 +360,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     }
 
     if (AGENT_PROMPT_ROUTE.test(urlPath)) {
-      if (method === 'POST') return handleGeneratePrompt(req, res, dataDir, spaceManager);
+      if (method === 'POST') return handleGeneratePrompt(req, res, dataDir, spaceManager, store);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 
