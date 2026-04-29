@@ -648,6 +648,8 @@ function createApp(spaceId, store) {
   // Search handler
   // -------------------------------------------------------------------------
 
+  const MAX_QUERY_LEN = 200;
+
   function handleSearchTasks(req, res) {
     const qs    = new URL(req.url, 'http://x').searchParams;
     const query = qs.get('q');
@@ -655,6 +657,11 @@ function createApp(spaceId, store) {
     if (!query || query.trim().length === 0) {
       return sendError(res, 400, 'VALIDATION_ERROR',
         'Query parameter q is required and must not be empty');
+    }
+
+    if (query.trim().length > MAX_QUERY_LEN) {
+      return sendError(res, 400, 'VALIDATION_ERROR',
+        `Query must not exceed ${MAX_QUERY_LEN} characters`);
     }
 
     const limitRaw = qs.get('limit');
