@@ -157,14 +157,13 @@ describe('Pipeline + Working Directory (BUG-004)', () => {
     assert.strictEqual(spaceRes.status, 201);
     const spaceId = spaceRes.body.id;
 
-    // Create a task in the space
-    const taskId = crypto.randomUUID();
-    const spaceDir = path.join(dataDir, 'spaces', spaceId);
-    fs.mkdirSync(spaceDir, { recursive: true });
-    const task = { id: taskId, title: 'Test task with working dir', type: 'feature', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    fs.writeFileSync(path.join(spaceDir, 'todo.json'), JSON.stringify([task]), 'utf8');
-    fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]), 'utf8');
-    fs.writeFileSync(path.join(spaceDir, 'done.json'), JSON.stringify([]), 'utf8');
+    // Create a task in the space via REST API
+    const taskRes = await request(port, 'POST', `/api/v1/spaces/${spaceId}/tasks`, {
+      title: 'Test task with working dir',
+      type:  'feature',
+    });
+    assert.strictEqual(taskRes.status, 201);
+    const taskId = taskRes.body.id;
 
     // Launch pipeline run
     const runRes = await request(port, 'POST', '/api/v1/runs', {
@@ -201,14 +200,13 @@ describe('Pipeline + Working Directory (BUG-004)', () => {
     const spaceId = spaceRes.body.id;
     assert.strictEqual(spaceRes.body.workingDirectory, workingDir);
 
-    // Create task in the space
-    const taskId = crypto.randomUUID();
-    const spaceDir = path.join(dataDir, 'spaces', spaceId);
-    fs.mkdirSync(spaceDir, { recursive: true });
-    const task = { id: taskId, title: 'Task in subdir project', type: 'feature', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    fs.writeFileSync(path.join(spaceDir, 'todo.json'), JSON.stringify([task]), 'utf8');
-    fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]), 'utf8');
-    fs.writeFileSync(path.join(spaceDir, 'done.json'), JSON.stringify([]), 'utf8');
+    // Create task via REST API
+    const taskRes2 = await request(port, 'POST', `/api/v1/spaces/${spaceId}/tasks`, {
+      title: 'Task in subdir project',
+      type:  'feature',
+    });
+    assert.strictEqual(taskRes2.status, 201);
+    const taskId = taskRes2.body.id;
 
     // Launch a pipeline run in this space with workingDirectory
     const runRes = await request(port, 'POST', '/api/v1/runs', {
@@ -237,14 +235,13 @@ describe('Pipeline + Working Directory (BUG-004)', () => {
     const spaceId = spaceRes.body.id;
     assert.ok(!spaceRes.body.workingDirectory);
 
-    // Create task
-    const taskId = crypto.randomUUID();
-    const spaceDir = path.join(dataDir, 'spaces', spaceId);
-    fs.mkdirSync(spaceDir, { recursive: true });
-    const task = { id: taskId, title: 'No working dir task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    fs.writeFileSync(path.join(spaceDir, 'todo.json'), JSON.stringify([task]), 'utf8');
-    fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]), 'utf8');
-    fs.writeFileSync(path.join(spaceDir, 'done.json'), JSON.stringify([]), 'utf8');
+    // Create task via REST API
+    const taskRes3 = await request(port, 'POST', `/api/v1/spaces/${spaceId}/tasks`, {
+      title: 'No working dir task',
+      type:  'chore',
+    });
+    assert.strictEqual(taskRes3.status, 201);
+    const taskId = taskRes3.body.id;
 
     // Launch pipeline run
     const runRes = await request(port, 'POST', '/api/v1/runs', {

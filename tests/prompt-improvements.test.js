@@ -78,26 +78,28 @@ function createSpaceWithTask(dataDir, taskOverrides = {}) {
 }
 
 /**
- * Create a space + task via spaceManager so the server's space registry is consistent.
+ * Create a space + task in SQLite via spaceManager + store so the server sees them.
+ * Uses the same prism.db that the running server opens.
  * Returns { spaceId, taskId }.
  */
 function setupSpaceViaManager(dataDir) {
   const { createSpaceManager } = require('../src/services/spaceManager');
-  const sm     = createSpaceManager(dataDir);
+  const { migrate }            = require('../src/services/migrator');
+
+  // Open the same SQLite DB the server is using.
+  const store  = migrate(dataDir);
+  const sm     = createSpaceManager(store);
   const result = sm.createSpace(`prompt-test-${crypto.randomUUID().slice(0, 8)}`);
   const spaceId = result.space.id;
 
-  const taskId   = crypto.randomUUID();
-  const todoPath = path.join(dataDir, 'spaces', spaceId, 'todo.json');
-  const tasks    = JSON.parse(fs.readFileSync(todoPath, 'utf8'));
-  tasks.push({
-    id: taskId,
-    title: 'Prompt test task',
-    type: 'chore',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  });
-  fs.writeFileSync(todoPath, JSON.stringify(tasks), 'utf8');
+  const taskId = crypto.randomUUID();
+  const now    = new Date().toISOString();
+  store.insertTask(
+    { id: taskId, title: 'Prompt test task', type: 'chore', createdAt: now, updatedAt: now },
+    spaceId,
+    'todo',
+  );
+  store.close();
 
   return { spaceId, taskId };
 }

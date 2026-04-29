@@ -794,25 +794,26 @@ describe('REST integration — pipeline endpoints', () => {
     delete process.env.PIPELINE_NO_SPAWN;
   });
 
-  // Helper: create a space with a task via spaceManager directly (bypasses HTTP).
-  function setupSpace() {
-    const { createSpaceManager } = require('../src/services/spaceManager');
-    const sm      = createSpaceManager(dataDir);
-    const result  = sm.createSpace(`test-space-${crypto.randomUUID().slice(0, 8)}`);
-    const spaceId = result.space.id;
+  // Helper: create a space with a task via the REST API.
+  async function setupSpace() {
+    const spaceRes = await request(port, 'POST', '/api/v1/spaces', {
+      name: `test-space-${crypto.randomUUID().slice(0, 8)}`,
+    });
+    assert.equal(spaceRes.status, 201, `setupSpace: space create failed ${JSON.stringify(spaceRes.body)}`);
+    const spaceId = spaceRes.body.id;
 
-    // Add a task directly into the todo column.
-    const taskId  = crypto.randomUUID();
-    const todoPath = path.join(dataDir, 'spaces', spaceId, 'todo.json');
-    const tasks    = JSON.parse(fs.readFileSync(todoPath, 'utf8'));
-    tasks.push({ id: taskId, title: 'Pipeline test task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    fs.writeFileSync(todoPath, JSON.stringify(tasks), 'utf8');
+    const taskRes = await request(port, 'POST', `/api/v1/spaces/${spaceId}/tasks`, {
+      title: 'Pipeline test task',
+      type:  'chore',
+    });
+    assert.equal(taskRes.status, 201, `setupSpace: task create failed ${JSON.stringify(taskRes.body)}`);
+    const taskId = taskRes.body.id;
 
     return { spaceId, taskId };
   }
 
   test('POST /api/v1/runs returns 201 with run object for task in todo', async () => {
-    const { spaceId, taskId } = setupSpace();
+    const { spaceId, taskId } = await setupSpace();
     const res = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect'] });
 
     assert.equal(res.status, 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`);
@@ -825,16 +826,17 @@ describe('REST integration — pipeline endpoints', () => {
 
   test('POST /api/v1/runs returns 422 TASK_NOT_IN_TODO for task already in-progress', async () => {
     const { createSpaceManager } = require('../src/services/spaceManager');
+    const { migrate } = require('../src/services/migrator');
     const sm       = createSpaceManager(dataDir);
     const result   = sm.createSpace(`space-inprog-${crypto.randomUUID().slice(0, 6)}`);
     const spaceId  = result.space.id;
     const taskId   = crypto.randomUUID();
 
-    // Put task in in-progress column directly.
-    const inProgressPath = path.join(dataDir, 'spaces', spaceId, 'in-progress.json');
-    const tasks = JSON.parse(fs.readFileSync(inProgressPath, 'utf8'));
-    tasks.push({ id: taskId, title: 'Running task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    fs.writeFileSync(inProgressPath, JSON.stringify(tasks), 'utf8');
+    // Put task in in-progress column directly via SQLite store.
+    const store2 = migrate(dataDir);
+    const now = new Date().toISOString();
+    store2.insertTask({ id: taskId, title: 'Running task', type: 'chore', createdAt: now, updatedAt: now }, spaceId, 'in-progress');
+    store2.close();
 
     const res = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect'] });
 
@@ -862,7 +864,7 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   test('GET /api/v1/runs/:runId returns 200 with run object', async () => {
-    const { spaceId, taskId } = setupSpace();
+    const { spaceId, taskId } = await setupSpace();
     const createRes = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect'] });
     assert.equal(createRes.status, 201);
 
@@ -885,7 +887,7 @@ describe('REST integration — pipeline endpoints', () => {
     // Test the LOG_NOT_AVAILABLE path by using a run that has 2 stages and
     // querying stage-1 which has not started yet (stage-0 may already have a log
     // file if a real claude process ran, but stage-1 will not yet exist).
-    const { spaceId, taskId } = setupSpace();
+    const { spaceId, taskId } = await setupSpace();
     const createRes = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect', 'developer-agent'] });
     assert.equal(createRes.status, 201);
 
@@ -898,7 +900,7 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   test('DELETE /api/v1/runs/:runId returns 200 { deleted: true }', async () => {
-    const { spaceId, taskId } = setupSpace();
+    const { spaceId, taskId } = await setupSpace();
     const createRes = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect'] });
     assert.equal(createRes.status, 201);
 
@@ -970,7 +972,7 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   test('POST /api/v1/runs/:runId/stop returns 422 RUN_NOT_STOPPABLE when run is already completed', async () => {
-    const { spaceId, taskId } = setupSpace();
+    const { spaceId, taskId } = await setupSpace();
     const createRes = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect'] });
     assert.equal(createRes.status, 201);
 
@@ -989,7 +991,7 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   test('GET /api/v1/runs/:runId/stages/99/log returns 404 STAGE_NOT_FOUND', async () => {
-    const { spaceId, taskId } = setupSpace();
+    const { spaceId, taskId } = await setupSpace();
     const createRes = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect'] });
     assert.equal(createRes.status, 201);
 
@@ -1001,7 +1003,7 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   test('GET /api/v1/runs/:runId/stages/0/log returns 200 text/plain when log exists', async () => {
-    const { spaceId, taskId } = setupSpace();
+    const { spaceId, taskId } = await setupSpace();
     const createRes = await request(port, 'POST', '/api/v1/runs', { spaceId, taskId, stages: ['senior-architect'] });
     assert.equal(createRes.status, 201);
 
@@ -1626,21 +1628,25 @@ describe('REST integration — checkpoints', () => {
     delete process.env.PIPELINE_NO_SPAWN;
   });
 
-  function setupSpace() {
-    const { createSpaceManager } = require('../src/services/spaceManager');
-    const sm      = createSpaceManager(dataDir);
-    const result  = sm.createSpace(`test-space-ckpt-${crypto.randomUUID().slice(0, 8)}`);
-    const spaceId = result.space.id;
-    const taskId  = crypto.randomUUID();
-    const todoPath = path.join(dataDir, 'spaces', spaceId, 'todo.json');
-    const tasks    = JSON.parse(fs.readFileSync(todoPath, 'utf8'));
-    tasks.push({ id: taskId, title: 'Checkpoint test task', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-    fs.writeFileSync(todoPath, JSON.stringify(tasks), 'utf8');
+  async function setupSpace() {
+    const spaceRes = await request(port, 'POST', '/api/v1/spaces', {
+      name: `test-space-ckpt-${crypto.randomUUID().slice(0, 8)}`,
+    });
+    assert.equal(spaceRes.status, 201, `setupSpace(ckpt): space create failed ${JSON.stringify(spaceRes.body)}`);
+    const spaceId = spaceRes.body.id;
+
+    const taskRes = await request(port, 'POST', `/api/v1/spaces/${spaceId}/tasks`, {
+      title: 'Checkpoint test task',
+      type:  'chore',
+    });
+    assert.equal(taskRes.status, 201, `setupSpace(ckpt): task create failed ${JSON.stringify(taskRes.body)}`);
+    const taskId = taskRes.body.id;
+
     return { spaceId, taskId };
   }
 
   test('POST /api/v1/runs accepts and persists checkpoints', async () => {
-    const { spaceId, taskId } = setupSpace();
+    const { spaceId, taskId } = await setupSpace();
     const res = await request(port, 'POST', '/api/v1/runs', {
       spaceId,
       taskId,
@@ -1653,7 +1659,7 @@ describe('REST integration — checkpoints', () => {
   });
 
   test('POST /api/v1/runs returns 400 when checkpoints is not an array', async () => {
-    const { spaceId, taskId } = setupSpace();
+    const { spaceId, taskId } = await setupSpace();
     const res = await request(port, 'POST', '/api/v1/runs', {
       spaceId,
       taskId,
