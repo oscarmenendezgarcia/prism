@@ -11,8 +11,6 @@
 
 'use strict';
 
-const path = require('path');
-
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { createApp }                      = require('../handlers/tasks');
 const { handleStatic }                   = require('../handlers/static');
@@ -114,12 +112,13 @@ const SETTINGS_ROUTE      = /^\/api\/v1\/settings$/;
  *
  * @param {object} deps
  * @param {string}   deps.dataDir      - Absolute path to the data directory.
+ * @param {object}   deps.store        - Open Store instance (SQLite).
  * @param {object}   deps.spaceManager - SpaceManager instance.
  * @param {Function} deps.getApp       - `(spaceId) => app` cache accessor.
  * @param {Function} deps.evictApp     - `(spaceId) => void` cache eviction.
  * @returns {Function} `async (req, res) => void`
  */
-function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
+function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
   return async function mainRouter(req, res) {
     const { method } = req;
     const urlPath    = req.url.split('?')[0];
@@ -148,8 +147,7 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
       }
 
       if (method === 'POST') {
-        const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
-        return handleTaggerRun(req, res, spaceId, spaceDataDir, dataDir);
+        return handleTaggerRun(req, res, spaceId, store, dataDir);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
@@ -170,8 +168,7 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
       }
 
       if (method === 'POST') {
-        const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
-        return handleAutoTaskGenerate(req, res, spaceId, spaceDataDir, spaceResult.space.workingDirectory, dataDir);
+        return handleAutoTaskGenerate(req, res, spaceId, store, spaceResult.space.workingDirectory, dataDir);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
@@ -191,8 +188,7 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
       }
 
       if (method === 'POST') {
-        const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
-        return handleAutoTaskConfirm(req, res, spaceId, spaceDataDir);
+        return handleAutoTaskConfirm(req, res, spaceId, store);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
@@ -215,10 +211,8 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
         return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
       }
 
-      const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
-
       if (method === 'PATCH') {
-        return handleUpdateComment(req, res, spaceDataDir, taskId, commentId);
+        return handleUpdateComment(req, res, store, spaceId, taskId, commentId, dataDir);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
@@ -235,10 +229,8 @@ function createRouter({ dataDir, spaceManager, getApp, evictApp }) {
         return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
       }
 
-      const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
-
       if (method === 'POST') {
-        return handleCreateComment(req, res, spaceDataDir, taskId);
+        return handleCreateComment(req, res, store, spaceId, taskId, dataDir);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',

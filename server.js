@@ -65,16 +65,17 @@ function startServer(options = {}) {
   const dataDir = options.dataDir || DEFAULT_DATA_DIR;
   const port    = options.port !== undefined ? options.port : DEFAULT_PORT;
 
-  // Step 1: Run migrator before anything else.
+  // Step 1: Run migrator + open SQLite store before anything else.
+  let store;
   try {
-    migrate(dataDir);
+    store = migrate(dataDir);
   } catch (err) {
     console.error('[startup] Migration failed — server cannot start:', err);
     process.exit(1);
   }
 
-  // Step 2: Create SpaceManager and ensure all space directories exist.
-  const spaceManager = createSpaceManager(dataDir);
+  // Step 2: Create SpaceManager bound to the store and ensure default space.
+  const spaceManager = createSpaceManager(store);
   spaceManager.ensureAllSpaces();
 
   // Step 2b: Initialize pipeline manager (startup recovery).
@@ -94,9 +95,7 @@ function startServer(options = {}) {
 
   function getApp(spaceId) {
     if (!appCache.has(spaceId)) {
-      const spaceDataDir = path.join(dataDir, 'spaces', spaceId);
-      const app          = createApp(spaceDataDir);
-      app.ensureDataFiles();
+      const app = createApp(spaceId, store);
       appCache.set(spaceId, app);
     }
     return appCache.get(spaceId);
@@ -107,7 +106,7 @@ function startServer(options = {}) {
   }
 
   // Step 4: Build the main request handler via the router factory.
-  const mainRouter = createRouter({ dataDir, spaceManager, getApp, evictApp });
+  const mainRouter = createRouter({ dataDir, store, spaceManager, getApp, evictApp });
 
   // Step 4b: Tagger startup info — log the configured CLI.
   // Server start is NOT blocked — tagger is not a core feature (ADR-1 §Consequences).
@@ -156,6 +155,9 @@ if (require.main === module) {
     server.close(() => {
       console.log('[server] HTTP server closed.');
     });
+
+    try { store.close(); } catch { /* ignore — may already be closed */ }
+    console.log('[server] SQLite store closed.');
 
     const active = typeof getActiveProcessCount === 'function' ? getActiveProcessCount() : 0;
     if (active === 0) {

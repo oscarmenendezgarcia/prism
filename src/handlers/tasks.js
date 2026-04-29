@@ -3,13 +3,12 @@
 /**
  * Task router factory.
  *
- * ADR-002: Direct disk persistence via JSON files in ./data/.
+ * ADR-002 (SQLite edition): Persistence via Store (better-sqlite3).
  *
- * createApp() returns an isolated router bound to a specific data directory.
- * All file I/O is scoped to `dataDir`; no module-level mutable state is used.
+ * createApp(spaceId, store) returns an isolated router for a specific space.
+ * All storage calls are delegated to the Store instance — no direct file I/O.
  */
 
-const fs   = require('fs');
 const path = require('path');
 
 const { COLUMNS }                          = require('../constants');
@@ -25,18 +24,16 @@ const DESCRIPTION_MAX_LEN  = 1000;
 const ASSIGNED_MAX_LEN     = 50;
 const PIPELINE_MAX_STAGES  = 20;
 const PIPELINE_STAGE_MAX_LEN = 50;
-// Agent IDs must be safe identifier strings — no path separators or traversal
-// segments. Allows lowercase letters, digits, and hyphens only.
 const PIPELINE_STAGE_ID_RE = /^[a-z0-9-]+$/;
 
 const ATTACHMENT_MAX_COUNT         = 20;
 const ATTACHMENT_NAME_MAX_LEN      = 100;
-const ATTACHMENT_TEXT_MAX_BYTES    = 100 * 1024;   // 100 KB
-const ATTACHMENT_FILE_MAX_BYTES    = 5 * 1024 * 1024; // 5 MB
+const ATTACHMENT_TEXT_MAX_BYTES    = 100 * 1024;
+const ATTACHMENT_FILE_MAX_BYTES    = 5 * 1024 * 1024;
 const VALID_ATTACHMENT_TYPES       = ['text', 'file'];
 
 // ---------------------------------------------------------------------------
-// Route patterns (compiled once — reused for every request)
+// Route patterns
 // ---------------------------------------------------------------------------
 
 const TASK_MOVE_ROUTE               = /^\/tasks\/([^/]+)\/move$/;
@@ -45,15 +42,7 @@ const TASK_ATTACHMENT_CONTENT_ROUTE = /^\/tasks\/([^/]+)\/attachments\/(\d+)$/;
 const TASK_SINGLE_ROUTE             = /^\/tasks\/([^/]+)$/;
 
 // ---------------------------------------------------------------------------
-// Pipeline field validation (T-001)
-//
-// Shared by handleCreateTask, handleUpdateTask, and handleAutoTaskGenerate.
-// Kept at module scope (not inside createApp) so autoTask.js can require it.
-//
-// Returns:
-//   { valid: true,  data: string[] }  — non-empty trimmed pipeline
-//   { valid: true,  data: undefined } — absent or empty ("clear" semantics)
-//   { valid: false, error: string }   — invalid type / length
+// Pipeline field validation (exported for autoTask.js)
 // ---------------------------------------------------------------------------
 
 /**
@@ -72,7 +61,7 @@ function validatePipelineField(value) {
   }
 
   if (value.length === 0) {
-    return { valid: true, data: undefined }; // empty = clear the field
+    return { valid: true, data: undefined };
   }
 
   if (value.length > PIPELINE_MAX_STAGES) {
@@ -87,8 +76,6 @@ function validatePipelineField(value) {
     if (element.trim().length > PIPELINE_STAGE_MAX_LEN) {
       return { valid: false, error: `pipeline[${i}] must not exceed ${PIPELINE_STAGE_MAX_LEN} characters` };
     }
-    // BUG-002: Reject path-like characters to prevent path traversal.
-    // Agent IDs must be lowercase alphanumeric with hyphens only.
     if (!PIPELINE_STAGE_ID_RE.test(element.trim())) {
       return { valid: false, error: `pipeline[${i}] must contain only lowercase letters, digits, and hyphens` };
     }
@@ -102,52 +89,13 @@ function validatePipelineField(value) {
 // ---------------------------------------------------------------------------
 
 /**
- * Create a router and supporting helpers bound to the given data directory.
+ * Create a router and supporting helpers bound to the given space.
  *
- * @param {string} dataDir - Absolute path to the directory holding column JSON files.
+ * @param {string}               spaceId - The space ID this router serves.
+ * @param {import('../services/store').Store} store   - The open Store instance.
  * @returns {{ router: Function, ensureDataFiles: Function }}
  */
-function createApp(dataDir) {
-  const COLUMN_FILES = {
-    todo:          path.join(dataDir, 'todo.json'),
-    'in-progress': path.join(dataDir, 'in-progress.json'),
-    done:          path.join(dataDir, 'done.json'),
-  };
-
-  // -------------------------------------------------------------------------
-  // Disk persistence helpers (ADR-002: no in-memory cache)
-  // -------------------------------------------------------------------------
-
-  function readColumn(column) {
-    const filePath = COLUMN_FILES[column];
-    const raw    = fs.readFileSync(filePath, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      console.warn(`[readColumn] ${filePath} contained non-Array data; treating as [].`);
-      return [];
-    }
-    return parsed;
-  }
-
-  function writeColumn(column, tasks) {
-    const filePath = COLUMN_FILES[column];
-    const tmpPath  = filePath + '.tmp';
-    fs.writeFileSync(tmpPath, JSON.stringify(tasks, null, 2), 'utf8');
-    fs.renameSync(tmpPath, filePath);
-  }
-
-  function ensureDataFiles() {
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
-    }
-    for (const filePath of Object.values(COLUMN_FILES)) {
-      if (!fs.existsSync(filePath)) {
-        fs.writeFileSync(filePath, '[]', 'utf8');
-        console.log(`Created missing data file: ${filePath}`);
-      }
-    }
-  }
-
+function createApp(spaceId, store) {
   // -------------------------------------------------------------------------
   // Attachment validation
   // -------------------------------------------------------------------------
@@ -251,7 +199,6 @@ function createApp(dataDir) {
       errors.push(`assigned must not exceed ${ASSIGNED_MAX_LEN} characters`);
     }
 
-    // T-002: validate optional pipeline field
     const pipelineResult = validatePipelineField(body.pipeline);
     if (!pipelineResult.valid) {
       errors.push(pipelineResult.error);
@@ -271,15 +218,13 @@ function createApp(dataDir) {
         assigned:    typeof assigned === 'string' && assigned.trim().length > 0
                        ? assigned.trim()
                        : undefined,
-        pipeline:    pipelineResult.data, // undefined when absent or empty
+        pipeline:    pipelineResult.data,
       },
     };
   }
 
   // -------------------------------------------------------------------------
   // Attachment content strip helper
-  // Strips attachment content from API responses — content served separately
-  // via GET /tasks/:id/attachments/:index
   // -------------------------------------------------------------------------
 
   function stripAttachmentContent(task) {
@@ -299,25 +244,25 @@ function createApp(dataDir) {
 
   function handleGetTasks(req, res) {
     try {
-      const qs       = new URL(req.url, 'http://x').searchParams;
-      const colFilter = qs.get('column')   || null;
-      const assigned  = qs.get('assigned') || null;
-      const limitRaw  = qs.get('limit');
-      const cursor    = qs.get('cursor')   || null;
+      const qs        = new URL(req.url, 'http://x').searchParams;
+      const colFilter  = qs.get('column')   || null;
+      const assigned   = qs.get('assigned') || null;
+      const limitRaw   = qs.get('limit');
+      const cursor     = qs.get('cursor')   || null;
 
-      // No limit param → return all tasks (frontend use case).
-      // Explicit limit → cap at 200 (MCP/agent use case).
-      const limit = limitRaw != null ? Math.min(200, Math.max(1, parseInt(limitRaw, 10) || 50)) : Infinity;
+      const limit = limitRaw != null
+        ? Math.min(200, Math.max(1, parseInt(limitRaw, 10) || 50))
+        : Infinity;
 
       if (colFilter && !COLUMNS.includes(colFilter)) {
-        return sendError(res, 400, 'VALIDATION_ERROR', `Invalid column '${colFilter}'. Must be one of: ${COLUMNS.join(', ')}`);
+        return sendError(res, 400, 'VALIDATION_ERROR',
+          `Invalid column '${colFilter}'. Must be one of: ${COLUMNS.join(', ')}`);
       }
 
-      // Build flat sequence: todo → in-progress → done
       const columns = colFilter ? [colFilter] : COLUMNS;
       const flat = [];
       for (const col of columns) {
-        for (const task of readColumn(col)) {
+        for (const task of store.getTasksByColumn(spaceId, col)) {
           if (!assigned || task.assigned === assigned) {
             flat.push({ ...task, _col: col });
           }
@@ -326,7 +271,6 @@ function createApp(dataDir) {
 
       const total = flat.length;
 
-      // Decode cursor: base64url of JSON { col, id }
       let startIdx = 0;
       if (cursor) {
         try {
@@ -340,14 +284,12 @@ function createApp(dataDir) {
 
       const page = flat.slice(startIdx, startIdx + limit);
 
-      // Build next cursor if there are more items beyond this page
       let nextCursor = null;
       if (startIdx + limit < total) {
         const last = page[page.length - 1];
         nextCursor = Buffer.from(JSON.stringify({ col: last._col, id: last.id })).toString('base64url');
       }
 
-      // Re-group into columns, strip internal _col field and attachment content
       const result = {};
       for (const col of columns) {
         result[col] = [];
@@ -392,7 +334,6 @@ function createApp(dataDir) {
       type:  data.type,
       ...(data.description !== undefined && { description: data.description }),
       ...(data.assigned    !== undefined && { assigned:    data.assigned }),
-      // T-002: store pipeline only when non-empty (undefined = omit key)
       ...(data.pipeline    !== undefined && { pipeline:    data.pipeline }),
       ...(attachmentResult.data.length > 0 && { attachments: attachmentResult.data }),
       createdAt: now,
@@ -400,12 +341,10 @@ function createApp(dataDir) {
     };
 
     try {
-      const tasks = readColumn('todo');
-      tasks.push(task);
-      writeColumn('todo', tasks);
+      store.insertTask(task, spaceId, 'todo');
       if (task.pipeline) {
         process.stderr.write(JSON.stringify({
-          event: 'task.pipeline_field_set', spaceId: 'unknown',
+          event: 'task.pipeline_field_set', spaceId,
           taskId: task.id, stages: task.pipeline, source: 'api',
         }) + '\n');
       }
@@ -433,45 +372,35 @@ function createApp(dataDir) {
 
     const { to } = body;
     if (!to || !COLUMNS.includes(to)) {
-      return sendError(
-        res,
-        400,
-        'VALIDATION_ERROR',
-        `to is required and must be one of: ${COLUMNS.join(', ')}`
-      );
+      return sendError(res, 400, 'VALIDATION_ERROR',
+        `to is required and must be one of: ${COLUMNS.join(', ')}`);
     }
 
     try {
-      let foundTask           = null;
-      let sourceColumn        = null;
-      let sourceTasksSnapshot = null;
-
-      for (const column of COLUMNS) {
-        const tasks = readColumn(column);
-        const index = tasks.findIndex((t) => t.id === taskId);
-        if (index !== -1) {
-          foundTask           = tasks[index];
-          sourceColumn        = column;
-          sourceTasksSnapshot = tasks;
+      // Find current column first (needed for same-column short-circuit).
+      let sourceColumn = null;
+      for (const col of COLUMNS) {
+        const tasks = store.getTasksByColumn(spaceId, col);
+        if (tasks.find((t) => t.id === taskId)) {
+          sourceColumn = col;
           break;
         }
       }
 
-      if (!foundTask) {
+      if (!sourceColumn) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
 
       if (sourceColumn === to) {
-        return sendJSON(res, 200, { task: foundTask, from: sourceColumn, to });
+        const task = store.getTask(spaceId, taskId);
+        return sendJSON(res, 200, { task, from: sourceColumn, to });
       }
 
-      const updatedSource = sourceTasksSnapshot.filter((t) => t.id !== taskId);
-      writeColumn(sourceColumn, updatedSource);
-
-      const updatedTask  = { ...foundTask, updatedAt: new Date().toISOString() };
-      const targetTasks  = readColumn(to);
-      targetTasks.push(updatedTask);
-      writeColumn(to, targetTasks);
+      // Atomic single-UPDATE move.
+      const updatedTask = store.moveTask(spaceId, taskId, to);
+      if (!updatedTask) {
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+      }
 
       sendJSON(res, 200, { task: updatedTask, from: sourceColumn, to });
     } catch (err) {
@@ -495,17 +424,12 @@ function createApp(dataDir) {
       return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
     }
 
-    // T-003: 'pipeline' added to updatable fields
     const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline'];
     const provided         = UPDATABLE_FIELDS.filter((f) => f in body);
 
     if (provided.length === 0) {
-      return sendError(
-        res,
-        400,
-        'VALIDATION_ERROR',
-        `At least one of the following fields is required: ${UPDATABLE_FIELDS.join(', ')}`
-      );
+      return sendError(res, 400, 'VALIDATION_ERROR',
+        `At least one of the following fields is required: ${UPDATABLE_FIELDS.join(', ')}`);
     }
 
     const errors = [];
@@ -540,7 +464,6 @@ function createApp(dataDir) {
       }
     }
 
-    // T-003: validate pipeline when provided
     let pipelineUpdateResult;
     if ('pipeline' in body) {
       pipelineUpdateResult = validatePipelineField(body.pipeline);
@@ -554,64 +477,37 @@ function createApp(dataDir) {
     }
 
     try {
-      let foundTask   = null;
-      let foundColumn = null;
-      let columnTasks = null;
-
-      for (const column of COLUMNS) {
-        const tasks = readColumn(column);
-        const index = tasks.findIndex((t) => t.id === taskId);
-        if (index !== -1) {
-          foundTask   = tasks[index];
-          foundColumn = column;
-          columnTasks = tasks;
-          break;
-        }
-      }
-
-      if (!foundTask) {
+      const existing = store.getTask(spaceId, taskId);
+      if (!existing) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
 
-      const updatedTask = { ...foundTask, updatedAt: new Date().toISOString() };
+      const patch = { updatedAt: new Date().toISOString() };
 
-      if ('title' in body) updatedTask.title = body.title.trim();
-      if ('type' in body) updatedTask.type = body.type;
+      if ('title' in body) patch.title = body.title.trim();
+      if ('type'  in body) patch.type  = body.type;
+
       if ('description' in body) {
         const trimmed = body.description.trim();
-        if (trimmed.length > 0) {
-          updatedTask.description = trimmed;
-        } else {
-          delete updatedTask.description;
-        }
-      }
-      if ('assigned' in body) {
-        const trimmed = body.assigned.trim();
-        if (trimmed.length > 0) {
-          updatedTask.assigned = trimmed;
-        } else {
-          delete updatedTask.assigned;
-        }
+        patch.description = trimmed.length > 0 ? trimmed : undefined;
       }
 
-      // T-003: apply pipeline update
-      // data: string[] → set; data: undefined (empty array input) → delete key
+      if ('assigned' in body) {
+        const trimmed = body.assigned.trim();
+        patch.assigned = trimmed.length > 0 ? trimmed : undefined;
+      }
+
       if ('pipeline' in body && pipelineUpdateResult) {
+        patch.pipeline = pipelineUpdateResult.data; // undefined = clear
         if (pipelineUpdateResult.data !== undefined) {
-          updatedTask.pipeline = pipelineUpdateResult.data;
           process.stderr.write(JSON.stringify({
             event: 'task.pipeline_field_set', taskId,
             stages: pipelineUpdateResult.data, source: 'api',
           }) + '\n');
-        } else {
-          delete updatedTask.pipeline;
         }
       }
 
-      const taskIndex = columnTasks.findIndex((t) => t.id === taskId);
-      columnTasks[taskIndex] = updatedTask;
-      writeColumn(foundColumn, columnTasks);
-
+      const updatedTask = store.updateTask(spaceId, taskId, patch);
       sendJSON(res, 200, stripAttachmentContent(updatedTask));
     } catch (err) {
       console.error(`PUT tasks/${taskId} error:`, err);
@@ -621,14 +517,10 @@ function createApp(dataDir) {
 
   function handleClearBoard(req, res) {
     try {
-      let totalCount = 0;
-      for (const column of COLUMNS) {
-        totalCount += readColumn(column).length;
-      }
-      for (const column of COLUMNS) {
-        writeColumn(column, []);
-      }
-      sendJSON(res, 200, { deleted: totalCount });
+      // Count first (for the response payload).
+      const total = store.getAllTasksForSpace(spaceId).length;
+      store.clearSpace(spaceId);
+      sendJSON(res, 200, { deleted: total });
     } catch (err) {
       console.error('DELETE tasks error:', err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to clear board');
@@ -637,23 +529,10 @@ function createApp(dataDir) {
 
   function handleDeleteTask(req, res, taskId) {
     try {
-      let deleted = false;
-
-      for (const column of COLUMNS) {
-        const tasks = readColumn(column);
-        const index = tasks.findIndex((t) => t.id === taskId);
-        if (index !== -1) {
-          tasks.splice(index, 1);
-          writeColumn(column, tasks);
-          deleted = true;
-          break;
-        }
-      }
-
+      const deleted = store.deleteTask(spaceId, taskId);
       if (!deleted) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
-
       sendJSON(res, 200, { deleted: true, id: taskId });
     } catch (err) {
       console.error(`DELETE tasks/${taskId} error:`, err);
@@ -686,36 +565,17 @@ function createApp(dataDir) {
     }
 
     try {
-      let foundTask   = null;
-      let foundColumn = null;
-      let columnTasks = null;
-
-      for (const column of COLUMNS) {
-        const tasks = readColumn(column);
-        const index = tasks.findIndex((t) => t.id === taskId);
-        if (index !== -1) {
-          foundTask   = tasks[index];
-          foundColumn = column;
-          columnTasks = tasks;
-          break;
-        }
-      }
-
-      if (!foundTask) {
+      const existing = store.getTask(spaceId, taskId);
+      if (!existing) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
 
-      const updatedTask = { ...foundTask, updatedAt: new Date().toISOString() };
+      const patch = {
+        attachments: attachmentResult.data.length > 0 ? attachmentResult.data : undefined,
+        updatedAt:   new Date().toISOString(),
+      };
 
-      if (attachmentResult.data.length > 0) {
-        updatedTask.attachments = attachmentResult.data;
-      } else {
-        delete updatedTask.attachments;
-      }
-
-      const taskIndex = columnTasks.findIndex((t) => t.id === taskId);
-      columnTasks[taskIndex] = updatedTask;
-      writeColumn(foundColumn, columnTasks);
+      const updatedTask = store.updateTask(spaceId, taskId, patch);
 
       console.log(`[attachment] Updated ${attachmentResult.data.length} attachments for task ${taskId}`);
       sendJSON(res, 200, stripAttachmentContent(updatedTask));
@@ -732,16 +592,7 @@ function createApp(dataDir) {
     }
 
     try {
-      let foundTask = null;
-
-      for (const column of COLUMNS) {
-        const tasks = readColumn(column);
-        const task  = tasks.find((t) => t.id === taskId);
-        if (task) {
-          foundTask = task;
-          break;
-        }
-      }
+      const foundTask = store.getTask(spaceId, taskId);
 
       if (!foundTask) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
@@ -766,6 +617,7 @@ function createApp(dataDir) {
         return sendError(res, 403, 'FORBIDDEN', 'Invalid file path');
       }
 
+      const fs   = require('fs');
       const normalizedPath = path.normalize(attachment.content);
 
       if (!fs.existsSync(normalizedPath)) {
@@ -794,9 +646,6 @@ function createApp(dataDir) {
 
   // -------------------------------------------------------------------------
   // Router
-  //
-  // NOTE: urlPath (taskPath) is already stripped of the space prefix.
-  // It always starts with /tasks or /tasks/...
   // -------------------------------------------------------------------------
 
   async function router(req, res, taskPath) {
@@ -838,8 +687,11 @@ function createApp(dataDir) {
       return handleUpdateTask(req, res, singleMatch[1]);
     }
 
-    return null; // signal: route not matched — let outer router handle
+    return null;
   }
+
+  // ensureDataFiles is a no-op — schema is applied when the Store is opened.
+  function ensureDataFiles() {}
 
   return { router, ensureDataFiles };
 }
