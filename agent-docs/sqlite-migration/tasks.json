@@ -1,0 +1,195 @@
+{
+  "version": "1.0",
+  "project": "prism-sqlite-migration",
+  "date": "2026-04-29",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Add better-sqlite3 dependency",
+      "description": "Add better-sqlite3 to package.json dependencies. Verify prebuilt binary installs cleanly on macOS (arm64) and Linux (amd64). Update Dockerfile build stage to include python3/make/g++ as fallback for native compilation on Alpine arm64.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "npm install completes without errors on macOS arm64 and Linux amd64",
+        "require('better-sqlite3') resolves from a fresh npm install",
+        "Dockerfile build produces a runnable image (docker compose build passes)",
+        "No version pinning left as ^; exact version pinned in package-lock.json"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Implement src/services/store.js — SQLite Store module",
+      "description": "Create the Store factory module. Implement: createStore(dataDir), openDatabase (WAL + foreign_keys + synchronous=NORMAL PRAGMAs), DDL (CREATE TABLE IF NOT EXISTS spaces, tasks with indexes), and all public methods: listSpaces, getSpace, upsertSpace, deleteSpace, getTasksByColumn, getAllTasksForSpace, getTask, insertTask, updateTask, moveTask, deleteTask, clearSpace, close. JSON columns (pipeline, attachments, comments, agent_nicknames) must be serialised on write and parsed on read. moveTask must use BEGIN IMMEDIATE. createStore(':memory:') must open an in-memory DB.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2d",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "createStore(':memory:') returns a usable Store without touching the filesystem",
+        "All nine Store methods return the types documented in blueprint.md §3.3",
+        "moveTask is a single atomic UPDATE (no read-modify-write cycle)",
+        "upsertSpace uses INSERT OR REPLACE; upsertTask uses INSERT OR IGNORE",
+        "JSON columns round-trip correctly: write and read back produces identical JS objects",
+        "close() can be called safely without error",
+        "A unit test file tests/store.test.js covers all public methods against an in-memory DB"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Rewrite src/services/migrator.js — startup SQLite migration",
+      "description": "Replace the existing JSON-to-spaces migration logic with a new migration that: (1) opens the Store, (2) reads spaces.json if present and not already .migrated, (3) for each space inserts it and all its tasks via upsertSpace/upsertTask with INSERT OR IGNORE semantics, (4) renames migrated JSON files to .migrated, (5) also runs the legacy root-level column migration (existing logic) before the spaces migration. Export migrate(dataDir) as before so server.js call site is unchanged. Must be idempotent.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1d",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "Running migrate(dataDir) on a directory with spaces.json and space subdirectories produces a prism.db with all spaces and tasks",
+        "Re-running migrate(dataDir) on an already-migrated dataDir is a no-op (no duplicate rows, no errors)",
+        "JSON files are renamed to .migrated after successful migration",
+        "Legacy root-level column files (todo.json etc.) are still handled as before (test: existing migration tests pass)",
+        "If spaces.json does not exist or is already .migrated, function returns without error"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Write standalone scripts/migrate-to-sqlite.js",
+      "description": "Create a CLI script that wraps the migrator for manual / CI use. Accepts optional --data-dir flag (default: ./data). Calls migrate(dataDir) and prints a human-readable summary. Exits 0 on success, 1 on any error. Must not start the HTTP server.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "0.5d",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "node scripts/migrate-to-sqlite.js prints '✓ Migrated N spaces, M tasks' and exits 0 on a populated data dir",
+        "node scripts/migrate-to-sqlite.js --data-dir /tmp/test-data works correctly",
+        "Exits 1 and prints error message when dataDir is invalid or DB cannot be opened",
+        "Running twice produces identical output ('0 spaces, 0 tasks' on second run = idempotent)"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Refactor src/services/spaceManager.js to use Store",
+      "description": "Replace all readManifest/writeManifest file I/O with Store calls. New signature: createSpaceManager(store). Remove manifestPath, spacesDir, and all fs.mkdirSync/rmSync calls for space directories (DB ON DELETE CASCADE handles cascade). Preserve the full public API (listSpaces, getSpace, createSpace, renameSpace, deleteSpace, ensureAllSpaces, normaliseNicknames). ensureAllSpaces() bootstraps the default space via store if the spaces table is empty.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1d",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "All existing spaces.test.js tests pass without modification",
+        "spaceManager.test.js tests pass without modification",
+        "createSpace creates a row in the spaces table (verified via store.getSpace)",
+        "deleteSpace removes the space and all its tasks (CASCADE verified)",
+        "ensureAllSpaces bootstraps 'default' space when DB is empty",
+        "manifestPath and spacesDir getters removed or return undefined without error"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Refactor src/handlers/tasks.js to use Store",
+      "description": "Change createApp signature from createApp(dataDir) to createApp(spaceId, store). Replace all readColumn/writeColumn calls with store.getTasksByColumn, store.insertTask, store.updateTask, store.moveTask, store.deleteTask, store.clearSpace. ensureDataFiles becomes a no-op. Remove COLUMN_FILES map and all fs imports. Preserve all validation logic, pagination (cursor), stripAttachmentContent, and error responses unchanged.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1.5d",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "All existing tasks-related test files pass without modification (spaces.test.js, attachments.test.js, clear-board.test.js, list-tasks-pagination.test.js, comments.test.js, pipeline-field.test.js)",
+        "GET /api/v1/spaces/:id/tasks returns tasks grouped by column in the existing response shape",
+        "POST creates a task and returns 201 with the same schema",
+        "PUT /tasks/:id/move is atomic (concurrent move + update to same task tested in T-009)",
+        "DELETE /tasks clears all columns and returns { deleted: N }",
+        "No fs or path imports remain in tasks.js"
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Refactor src/handlers/comments.js to use Store",
+      "description": "Replace columnFiles/readColumn/writeColumn helpers with store.getTask and store.updateTask calls. Remove spaceDataDir parameter from handleCreateComment and handleUpdateComment; add (store, spaceId) parameters instead. Update all call sites in src/routes/index.js accordingly. The pipelineManager.blockRunByComment / unblockRunByComment calls are unchanged.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1d",
+      "dependencies": ["T-002", "T-006"],
+      "acceptance_criteria": [
+        "All existing comments.test.js tests pass without modification",
+        "mcp-comment-pipeline.test.js passes without modification",
+        "POST /tasks/:taskId/comments creates a comment embedded in the task row",
+        "PATCH /tasks/:taskId/comments/:commentId updates only the specified comment",
+        "No fs, path, or columnFiles references remain in comments.js"
+      ]
+    },
+    {
+      "id": "T-008",
+      "title": "Update server.js and src/routes/index.js wiring",
+      "description": "In server.js: call createStore(dataDir) after migrate(dataDir); pass store to createSpaceManager(store); change getApp to call createApp(spaceId, store) instead of createApp(spaceDataDir). In src/routes/index.js: update spaceTasksMatch and legacyMatch branches to call getApp(spaceId) without spaceDataDir; update comment handler call sites to pass (store, spaceId) instead of spaceDataDir. Add store.close() to graceful shutdown handler.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": ["T-003", "T-005", "T-006", "T-007"],
+      "acceptance_criteria": [
+        "node server.js starts without errors on a fresh empty dataDir",
+        "node server.js starts without errors on a dataDir with pre-existing JSON files (migration runs automatically)",
+        "store.close() is called on SIGTERM and SIGINT (logged as '[store] closed')",
+        "No spaceDataDir path construction remains in server.js or routes/index.js for task/comment operations"
+      ]
+    },
+    {
+      "id": "T-009",
+      "title": "Add concurrency regression test — parallel writes to same space",
+      "description": "Write a test in tests/concurrency.test.js that starts a test server and fires N=20 concurrent PUT /tasks/:id/move requests (different task IDs, same space) using Promise.all + fetch. Assert that all 20 responses are 200 and that the DB contains each task in the expected column after all requests complete. This is the regression test for the TOCTOU race that motivated this migration.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "1d",
+      "dependencies": ["T-008"],
+      "acceptance_criteria": [
+        "Test passes consistently over 10 consecutive runs (no flakiness)",
+        "All 20 concurrent requests return HTTP 200",
+        "Final task positions in DB match expected columns (no lost updates)",
+        "Test fails reproducibly against the old JSON implementation (documented in a comment)"
+      ]
+    },
+    {
+      "id": "T-010",
+      "title": "Update Dockerfile and docker-compose.yml for SQLite",
+      "description": "Ensure the Dockerfile multi-stage build includes build tools for native addon compilation (python3, make, g++) in the build stage. Confirm the runtime stage still runs as a non-root user. Verify that the data volume mount path is consistent with where prism.db will be written. Add a .dockerignore entry for data/prism.db if needed to prevent accidental image inclusion.",
+      "role": "DevOps",
+      "priority": "Medium",
+      "estimate": "0.5d",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "docker compose build completes without errors",
+        "docker compose up starts the server and prism.db is created in the volume",
+        "Prebuilt binary is used when available (build log shows 'node-pre-gyp' success, not compilation)",
+        "Container runs as non-root user (verified with docker inspect)"
+      ]
+    },
+    {
+      "id": "T-011",
+      "title": "Full regression — existing test suite",
+      "description": "Run the full test suite (npm test) with the new SQLite storage layer in place. All existing tests must pass. Document any test that required changes and the reason.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": ["T-008", "T-009"],
+      "acceptance_criteria": [
+        "npm test exits 0",
+        "Zero test failures across all 25+ existing test files",
+        "Test run time does not increase by more than 20% vs baseline",
+        "Any test that required modification is listed in a comment at the top of that file with the reason"
+      ]
+    },
+    {
+      "id": "T-012",
+      "title": "Update CHANGELOG.md and internal ADR references",
+      "description": "Add a CHANGELOG entry for the SQLite migration. Update the module-layout comment in server.js to reference store.js. Update ADR-002 references in tasks.js and spaceManager.js to point to ADR-1 in agent-docs/sqlite-migration/.",
+      "role": "Developer",
+      "priority": "Low",
+      "estimate": "0.5d",
+      "dependencies": ["T-011"],
+      "acceptance_criteria": [
+        "CHANGELOG.md has an entry under the correct version describing the migration",
+        "server.js module layout comment lists src/services/store.js",
+        "Old ADR-002 inline references updated or annotated as superseded"
+      ]
+    }
+  ]
+}
