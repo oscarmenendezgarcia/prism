@@ -4,7 +4,8 @@
 # ============================================================
 FROM node:20-alpine AS builder
 
-# node-pty requires Python 3, make, and g++ for native compilation via node-gyp.
+# node-pty and better-sqlite3 require Python 3, make, and g++ for native
+# compilation via node-gyp.
 RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
@@ -35,8 +36,9 @@ COPY mcp/ ./mcp/
 # ============================================================
 FROM node:20-alpine AS runtime
 
-# node-pty native bindings need python3/make/g++ only at build time.
-# At runtime only the compiled .node file is required — no extra OS deps.
+# node-pty and better-sqlite3 native bindings need python3/make/g++ only at
+# build time. At runtime only the compiled .node files are required — no
+# extra OS deps. The SQLite library is statically linked into better-sqlite3.
 
 WORKDIR /app
 
