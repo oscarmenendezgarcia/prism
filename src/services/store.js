@@ -215,6 +215,15 @@ function createStore(dataDir) {
     `),
     deleteTask:  db.prepare('DELETE FROM tasks WHERE space_id = ? AND id = ?'),
     clearSpace:  db.prepare('DELETE FROM tasks WHERE space_id = ?'),
+    searchTasks: db.prepare(`
+      SELECT t.*
+        FROM tasks_fts
+        JOIN tasks t ON t.rowid = tasks_fts.rowid
+       WHERE tasks_fts MATCH ?
+         AND t.space_id = ?
+       ORDER BY rank
+       LIMIT ?
+    `),
   };
 
   // ---------------------------------------------------------------------------
@@ -388,18 +397,9 @@ function createStore(dataDir) {
 
     // FTS5 MATCH with rank ordering via bm25() implicit score column.
     // The content-table join ensures we only touch tasks for the given space.
-    const searchStmt = db.prepare(`
-      SELECT t.*
-        FROM tasks_fts
-        JOIN tasks t ON t.rowid = tasks_fts.rowid
-       WHERE tasks_fts MATCH ?
-         AND t.space_id = ?
-       ORDER BY rank
-       LIMIT ?
-    `);
-
+    // Uses the pre-compiled stmts.searchTasks statement (compiled once at startup).
     try {
-      const rows = searchStmt.all(trimmedQuery, spaceId, limit);
+      const rows = stmts.searchTasks.all(trimmedQuery, spaceId, limit);
       return rows.map(rowToTask);
     } catch (err) {
       // FTS5 MATCH throws on malformed query strings (e.g. unmatched quotes).
