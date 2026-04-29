@@ -68,6 +68,20 @@ const DEFAULT_ROWS = 24;
 /** PTY output buffer flush threshold in bytes (4 KB). */
 const OUTPUT_BUFFER_FLUSH_THRESHOLD = 4096;
 
+/** Per-session ring buffer capacity in bytes (default 512 KB). */
+const OUTPUT_RING_BUFFER_BYTES = parseInt(
+  process.env.TERMINAL_OUTPUT_RING_BUFFER_BYTES, 10
+) || 512 * 1024;
+
+/** WS backpressure high-water mark: pause PTY when ws.bufferedAmount exceeds this. */
+const WS_BACKPRESSURE_HIGH_WATERMARK = 1024 * 1024;   // 1 MB
+
+/** WS backpressure low-water mark: resume PTY when ws.bufferedAmount drops below this. */
+const WS_BACKPRESSURE_LOW_WATERMARK = 256 * 1024;     // 256 KB
+
+/** Interval between bufferedAmount checks while a session is paused (ms). */
+const BACKPRESSURE_POLL_INTERVAL_MS = 50;
+
 /** Maximum input data length in characters (per api-spec.json). */
 const MAX_INPUT_LENGTH = 4096;
 
@@ -78,6 +92,116 @@ const COLS_MAX = 500;
 /** Valid row range per api-spec.json (clamped, not rejected). */
 const ROWS_MIN = 1;
 const ROWS_MAX = 200;
+
+// ---------------------------------------------------------------------------
+// OutputRingBuffer — bounded per-session output buffer (T-001)
+// ---------------------------------------------------------------------------
+
+/**
+ * A fixed-capacity circular byte buffer that retains the most-recent `capacity`
+ * bytes of PTY output. When new data would exceed the cap, the oldest bytes are
+ * silently discarded and a `trimmedSinceLastDrain` flag is set.
+ *
+ * Pre-allocates a single `Buffer.allocUnsafe(capacity)` per instance — no
+ * per-chunk allocation.
+ *
+ * @internal — not part of the public module API; exported only for testing.
+ */
+class OutputRingBuffer {
+  /**
+   * @param {number} capacity - Maximum bytes to store. Must be > 0.
+   */
+  constructor(capacity) {
+    this.capacity = capacity;
+    this.buf = Buffer.allocUnsafe(capacity);
+    /** Number of valid bytes currently stored (0 ≤ size ≤ capacity). */
+    this.size = 0;
+    /** Index of the next byte to write (wraps modulo capacity). */
+    this.head = 0;
+    /** True when at least one byte was dropped since the last drain(). */
+    this.trimmedSinceLastDrain = false;
+    /** Total bytes dropped since the last drain() — for logging only. */
+    this.bytesDroppedSinceLastDrain = 0;
+  }
+
+  /**
+   * Append `chunk` bytes to the ring. If appending would exceed capacity, the
+   * oldest bytes are discarded. O(chunk.length) — no reallocation.
+   *
+   * @param {Buffer|string} chunk
+   */
+  append(chunk) {
+    const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const n = data.length;
+    if (n === 0) return;
+
+    if (n > this.capacity) {
+      // Incoming chunk alone exceeds capacity: keep only the last `capacity`
+      // bytes of the chunk and discard everything already stored.
+      this.bytesDroppedSinceLastDrain += this.size + (n - this.capacity);
+      this.trimmedSinceLastDrain = true;
+      data.copy(this.buf, 0, n - this.capacity, n);
+      this.head = 0;
+      this.size = this.capacity;
+      return;
+    }
+
+    if (this.size + n > this.capacity) {
+      // Partial overflow: evict the oldest bytes to make room.
+      const overflow = this.size + n - this.capacity;
+      this.bytesDroppedSinceLastDrain += overflow;
+      this.trimmedSinceLastDrain = true;
+      this.size -= overflow;
+    }
+
+    // Write n bytes at head, splitting across the wrap boundary if needed.
+    const part1Len = Math.min(n, this.capacity - this.head);
+    data.copy(this.buf, this.head, 0, part1Len);
+    if (part1Len < n) {
+      data.copy(this.buf, 0, part1Len, n);
+    }
+    this.head = (this.head + n) % this.capacity;
+    this.size += n;
+  }
+
+  /**
+   * Return all buffered bytes as a UTF-8 string in chronological order, then
+   * reset the buffer to empty.
+   *
+   * @returns {{ data: string, trimmed: boolean, dropped: number }}
+   */
+  drain() {
+    if (this.size === 0 && !this.trimmedSinceLastDrain) {
+      return { data: '', trimmed: false, dropped: 0 };
+    }
+
+    let data = '';
+    if (this.size > 0) {
+      const tail = (this.head - this.size + this.capacity) % this.capacity;
+      if (tail + this.size <= this.capacity) {
+        // Contiguous region: [tail .. tail+size-1]
+        data = this.buf.slice(tail, tail + this.size).toString('utf8');
+      } else {
+        // Wrapped: [tail .. capacity-1] ++ [0 .. head-1]
+        data = Buffer.concat([
+          this.buf.slice(tail, this.capacity),
+          this.buf.slice(0, this.head),
+        ]).toString('utf8');
+      }
+    }
+
+    const trimmed = this.trimmedSinceLastDrain;
+    const dropped = this.bytesDroppedSinceLastDrain;
+
+    // Reset state.
+    this.size = 0;
+    this.head = 0;
+    this.trimmedSinceLastDrain = false;
+    this.bytesDroppedSinceLastDrain = 0;
+
+    return { data, trimmed, dropped };
+  }
+}
 
 // ---------------------------------------------------------------------------
 // node-pty — attempt to load; graceful degradation if unavailable
@@ -162,6 +286,81 @@ function safeSend(ws, payload) {
 }
 
 // ---------------------------------------------------------------------------
+// Backpressure controller (T-003)
+// ---------------------------------------------------------------------------
+
+/**
+ * Inspect the WebSocket's internal send queue after a flush. If the queue has
+ * grown past WS_BACKPRESSURE_HIGH_WATERMARK, pause the PTY so the shell stops
+ * producing data. A polling interval resumes the PTY once the queue drains
+ * below WS_BACKPRESSURE_LOW_WATERMARK.
+ *
+ * This protects against slow consumers (e.g. paused tabs) that cannot drain
+ * ws.bufferedAmount fast enough. The ring buffer caps the server-side string
+ * storage; this function caps the ws internal queue.
+ *
+ * @param {object} session - The active session object.
+ * @internal — exported as `_checkBackpressure` for testing only.
+ */
+function checkBackpressure(session) {
+  if (!session.ws || !session.pty || !session.alive || session.paused) return;
+
+  const bufferedAmount = session.ws.bufferedAmount !== undefined
+    ? session.ws.bufferedAmount
+    : 0;
+
+  if (bufferedAmount < WS_BACKPRESSURE_HIGH_WATERMARK) return;
+
+  try {
+    session.pty.pause();
+  } catch (e) {
+    // node-pty version may not support pause/resume — log once and skip.
+    if (!session._backpressureWarnEmitted) {
+      console.warn(
+        `[terminal] backpressure: pid=${session.pty.pid} pause/resume not supported: ${e.message}`
+      );
+      session._backpressureWarnEmitted = true;
+    }
+    return;
+  }
+
+  session.paused = true;
+  console.log(
+    `[terminal] backpressure: pid=${session.pty.pid} event=paused bufferedAmount=${bufferedAmount}`
+  );
+
+  session.backpressureTimer = setInterval(() => {
+    // Session may have been cleaned up while we were polling.
+    if (!session.ws || !session.alive) {
+      clearInterval(session.backpressureTimer);
+      session.backpressureTimer = null;
+      session.paused = false;
+      return;
+    }
+
+    const current = session.ws.bufferedAmount !== undefined
+      ? session.ws.bufferedAmount
+      : 0;
+
+    if (current <= WS_BACKPRESSURE_LOW_WATERMARK) {
+      clearInterval(session.backpressureTimer);
+      session.backpressureTimer = null;
+
+      try {
+        session.pty.resume();
+      } catch {
+        // Already cleaned up or not supported — ignore.
+      }
+
+      session.paused = false;
+      console.log(
+        `[terminal] backpressure: pid=${session.pty.pid} event=resumed bufferedAmount=${current}`
+      );
+    }
+  }, BACKPRESSURE_POLL_INTERVAL_MS);
+}
+
+// ---------------------------------------------------------------------------
 // PTY session management
 // ---------------------------------------------------------------------------
 
@@ -209,20 +408,26 @@ function createPtySession(session) {
   console.log(`[terminal] spawn: shell=${shell} pid=${pty.pid} cols=${cols} rows=${rows}`);
 
   // Output buffering — batch rapid onData events into fewer WebSocket frames.
-  let outputBuffer = '';
+  // Uses the session's ring buffer (session.ring) to cap memory per session.
   let flushScheduled = false;
 
   function flushOutput() {
     flushScheduled = false;
-    if (outputBuffer.length === 0) return;
-    const data = outputBuffer;
-    outputBuffer = '';
-    safeSend(session.ws, JSON.stringify({ type: 'output', data }));
+    const { data, trimmed, dropped } = session.ring.drain();
+    if (data.length === 0 && !trimmed) return;
+
+    let payload = data;
+    if (trimmed) {
+      payload = '\r\n--- older output trimmed ---\r\n' + data;
+      console.log(`[terminal] trim: pid=${pty.pid} dropped=${dropped} bytes`);
+    }
+    safeSend(session.ws, JSON.stringify({ type: 'output', data: payload }));
+    checkBackpressure(session);
   }
 
   pty.onData((data) => {
-    outputBuffer += data;
-    if (outputBuffer.length >= OUTPUT_BUFFER_FLUSH_THRESHOLD) {
+    session.ring.append(data);
+    if (session.ring.size >= OUTPUT_BUFFER_FLUSH_THRESHOLD) {
       flushOutput();
     } else if (!flushScheduled) {
       flushScheduled = true;
@@ -341,6 +546,12 @@ function cleanupSession(session) {
   // Mark as dead to prevent auto-respawn in onExit handler.
   session.alive = false;
 
+  // Clear any active backpressure polling timer.
+  if (session.backpressureTimer) {
+    clearInterval(session.backpressureTimer);
+    session.backpressureTimer = null;
+  }
+
   if (session.pty) {
     const pid = session.pty.pid;
     try {
@@ -389,6 +600,14 @@ function handleConnection(ws, req, onClose) {
     cols:  DEFAULT_COLS,
     rows:  DEFAULT_ROWS,
     alive: false,
+    /** Bounded output ring buffer — persists across auto-respawns. */
+    ring:  new OutputRingBuffer(OUTPUT_RING_BUFFER_BYTES),
+    /** True while PTY is paused waiting for ws.bufferedAmount to drain. */
+    paused: false,
+    /** setInterval handle for bufferedAmount polling; null when idle. */
+    backpressureTimer: null,
+    /** Set to true once a pause/resume-not-supported warning has been logged. */
+    _backpressureWarnEmitted: false,
   };
 
   // Spawn the initial PTY shell.
@@ -508,4 +727,40 @@ function setupTerminalWebSocket(httpServer) {
   });
 }
 
-module.exports = { setupTerminalWebSocket, MAX_CONNECTIONS };
+/**
+ * Test-only helper: drain `session.ring` and send an `output` message exactly
+ * as the production `flushOutput` closure would. Allows unit tests to verify
+ * sentinel emission without a real PTY or WebSocket server.
+ *
+ * @param {object} session - A mock session with .ring, .ws, .pty, .alive, etc.
+ * @param {number} [pid=0] - PTY pid used in log messages.
+ * @returns {{ payload: string, trimmed: boolean, dropped: number } | null}
+ * @internal — exported for unit testing only.
+ */
+function flushOutputForTesting(session, pid = 0) {
+  const { data, trimmed, dropped } = session.ring.drain();
+  if (data.length === 0 && !trimmed) return null;
+  let payload = data;
+  if (trimmed) {
+    payload = '\r\n--- older output trimmed ---\r\n' + data;
+    console.log(`[terminal] trim: pid=${pid} dropped=${dropped} bytes`);
+  }
+  safeSend(session.ws, JSON.stringify({ type: 'output', data: payload }));
+  checkBackpressure(session);
+  return { payload, trimmed, dropped };
+}
+
+module.exports = {
+  setupTerminalWebSocket,
+  MAX_CONNECTIONS,
+  // @internal — exported for unit testing only; not part of the public API.
+  _OutputRingBuffer: OutputRingBuffer,
+  _checkBackpressure: checkBackpressure,
+  _flushOutputForTesting: flushOutputForTesting,
+  _constants: {
+    OUTPUT_RING_BUFFER_BYTES,
+    WS_BACKPRESSURE_HIGH_WATERMARK,
+    WS_BACKPRESSURE_LOW_WATERMARK,
+    BACKPRESSURE_POLL_INTERVAL_MS,
+  },
+};
