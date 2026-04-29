@@ -645,11 +645,44 @@ function createApp(spaceId, store) {
   }
 
   // -------------------------------------------------------------------------
+  // Search handler
+  // -------------------------------------------------------------------------
+
+  function handleSearchTasks(req, res) {
+    const qs    = new URL(req.url, 'http://x').searchParams;
+    const query = qs.get('q');
+
+    if (!query || query.trim().length === 0) {
+      return sendError(res, 400, 'VALIDATION_ERROR',
+        'Query parameter q is required and must not be empty');
+    }
+
+    const limitRaw = qs.get('limit');
+    const limit    = limitRaw != null
+      ? Math.min(100, Math.max(1, parseInt(limitRaw, 10) || 20))
+      : 20;
+
+    try {
+      const results = store.searchTasks(spaceId, query, { limit });
+      const stripped = results.map(stripAttachmentContent);
+      return sendJSON(res, 200, { results: stripped, total: stripped.length });
+    } catch (err) {
+      console.error('[search] searchTasks error:', err);
+      return sendError(res, 500, 'INTERNAL_ERROR', 'Failed to execute search');
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Router
   // -------------------------------------------------------------------------
 
   async function router(req, res, taskPath) {
     const { method } = req;
+
+    // Search must be matched before the generic /tasks route to avoid collision.
+    if (method === 'GET' && taskPath === '/tasks/search') {
+      return handleSearchTasks(req, res);
+    }
 
     if (method === 'GET' && taskPath === '/tasks') {
       return handleGetTasks(req, res);

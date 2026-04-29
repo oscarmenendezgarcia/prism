@@ -162,6 +162,16 @@ function migrateJsonToSqlite(dataDir, store) {
     console.error('[migrator] ERROR renaming spaces.json:', err.message);
   }
 
+  // Rebuild the FTS5 index to cover all tasks just inserted.
+  // The triggers only fire for INSERT/UPDATE/DELETE happening after the table
+  // was created; INSERT OR IGNORE bypasses them when the table was pre-existing,
+  // so a full rebuild ensures the index is coherent after every migration run.
+  try {
+    store.rebuildFts();
+  } catch (err) {
+    console.error('[migrator] ERROR rebuilding FTS5 index:', err.message);
+  }
+
   const elapsed = Date.now() - t0;
   console.log(`[migrator] SQLite migration — ${migratedSpaces} spaces, ${totalTasks} tasks imported in ${elapsed}ms`);
   return { spaces: migratedSpaces, tasks: totalTasks };

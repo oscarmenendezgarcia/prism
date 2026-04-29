@@ -54,6 +54,32 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_space_column   ON tasks(space_id, column);
 CREATE INDEX IF NOT EXISTS idx_tasks_space_assigned ON tasks(space_id, assigned);
 CREATE INDEX IF NOT EXISTS idx_tasks_updated        ON tasks(updated_at);
+
+-- Full-text search virtual table (content-table mode keeps storage small).
+CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
+  title,
+  description,
+  content='tasks',
+  content_rowid='rowid'
+);
+
+-- Triggers to keep tasks_fts in sync with the tasks table.
+CREATE TRIGGER IF NOT EXISTS tasks_fts_insert AFTER INSERT ON tasks BEGIN
+  INSERT INTO tasks_fts(rowid, title, description)
+    VALUES (new.rowid, new.title, COALESCE(new.description, ''));
+END;
+
+CREATE TRIGGER IF NOT EXISTS tasks_fts_delete AFTER DELETE ON tasks BEGIN
+  INSERT INTO tasks_fts(tasks_fts, rowid, title, description)
+    VALUES ('delete', old.rowid, old.title, COALESCE(old.description, ''));
+END;
+
+CREATE TRIGGER IF NOT EXISTS tasks_fts_update AFTER UPDATE ON tasks BEGIN
+  INSERT INTO tasks_fts(tasks_fts, rowid, title, description)
+    VALUES ('delete', old.rowid, old.title, COALESCE(old.description, ''));
+  INSERT INTO tasks_fts(rowid, title, description)
+    VALUES (new.rowid, new.title, COALESCE(new.description, ''));
+END;
 `;
 
 // ---------------------------------------------------------------------------
@@ -337,6 +363,61 @@ function createStore(dataDir) {
     return info.changes;
   }
 
+  /**
+   * Full-text search over task title and description within a single space.
+   *
+   * Uses FTS5 MATCH operator; results are ordered by relevance (rank).
+   * Returns an empty array when query is blank or contains only whitespace.
+   *
+   * @param {string} spaceId
+   * @param {string} query   - User-supplied search string (FTS5 query syntax).
+   * @param {object} [opts]
+   * @param {number} [opts.limit=20] - Maximum number of results to return.
+   * @returns {Array<object>} Array of task objects in the same shape as getTask().
+   */
+  function searchTasks(spaceId, query, { limit = 20 } = {}) {
+    if (!query || query.trim().length === 0) return [];
+
+    const trimmedQuery = query.trim();
+
+    // FTS5 MATCH with rank ordering via bm25() implicit score column.
+    // The content-table join ensures we only touch tasks for the given space.
+    const searchStmt = db.prepare(`
+      SELECT t.*
+        FROM tasks_fts
+        JOIN tasks t ON t.rowid = tasks_fts.rowid
+       WHERE tasks_fts MATCH ?
+         AND t.space_id = ?
+       ORDER BY rank
+       LIMIT ?
+    `);
+
+    try {
+      const rows = searchStmt.all(trimmedQuery, spaceId, limit);
+      return rows.map(rowToTask);
+    } catch (err) {
+      // FTS5 MATCH throws on malformed query strings (e.g. unmatched quotes).
+      // Return an empty result rather than crashing the handler.
+      console.error(`[store] searchTasks FTS5 error — query="${trimmedQuery}":`, err.message);
+      return [];
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // FTS maintenance
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Rebuild the FTS5 index from scratch using the content-table (tasks).
+   *
+   * Useful after bulk inserts (e.g. migration) where individual INSERT OR IGNORE
+   * statements may not fire triggers for rows that already existed.
+   */
+  function rebuildFts() {
+    db.exec("INSERT INTO tasks_fts(tasks_fts) VALUES ('rebuild')");
+    console.log('[store] FTS5 index rebuilt');
+  }
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
@@ -361,6 +442,8 @@ function createStore(dataDir) {
     moveTask,
     deleteTask,
     clearSpace,
+    searchTasks,
+    rebuildFts,
     // Lifecycle
     close,
   };

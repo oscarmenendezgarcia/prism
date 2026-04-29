@@ -342,3 +342,110 @@ describe('Store — close()', () => {
     assert.doesNotThrow(() => store.close());
   });
 });
+
+// ---------------------------------------------------------------------------
+// searchTasks — FTS5 full-text search
+// ---------------------------------------------------------------------------
+
+describe('Store — searchTasks (FTS5)', () => {
+  let store;
+
+  before(() => {
+    store = createStore(':memory:');
+    store.upsertSpace(makeSpace({ id: 'fts-space' }));
+    store.upsertSpace(makeSpace({ id: 'other-space' }));
+
+    store.insertTask(
+      makeTask({ id: 'fts-t1', title: 'Implement authentication flow', description: 'OAuth2 login integration' }),
+      'fts-space', 'todo',
+    );
+    store.insertTask(
+      makeTask({ id: 'fts-t2', title: 'Fix database migration bug', description: 'Rollback fails on constraint error' }),
+      'fts-space', 'in-progress',
+    );
+    store.insertTask(
+      makeTask({ id: 'fts-t3', title: 'Add search endpoint', description: 'Full-text search using FTS5' }),
+      'fts-space', 'done',
+    );
+    // Task in a different space — must not appear in fts-space results.
+    store.insertTask(
+      makeTask({ id: 'other-t1', title: 'Implement authentication flow', description: 'Same title different space' }),
+      'other-space', 'todo',
+    );
+  });
+
+  it('should_return_matching_tasks_when_query_matches_title', () => {
+    const results = store.searchTasks('fts-space', 'authentication');
+    assert.ok(results.length >= 1, 'Expected at least one result');
+    const ids = results.map((t) => t.id);
+    assert.ok(ids.includes('fts-t1'), 'Expected fts-t1 in results');
+  });
+
+  it('should_return_matching_tasks_when_query_matches_description', () => {
+    const results = store.searchTasks('fts-space', 'OAuth2');
+    assert.ok(results.length >= 1, 'Expected at least one result');
+    assert.equal(results[0].id, 'fts-t1');
+  });
+
+  it('should_return_empty_array_when_query_is_empty_string', () => {
+    const results = store.searchTasks('fts-space', '');
+    assert.deepEqual(results, []);
+  });
+
+  it('should_return_empty_array_when_query_is_only_whitespace', () => {
+    const results = store.searchTasks('fts-space', '   ');
+    assert.deepEqual(results, []);
+  });
+
+  it('should_not_return_tasks_from_other_spaces', () => {
+    const results = store.searchTasks('fts-space', 'authentication');
+    const ids = results.map((t) => t.id);
+    assert.ok(!ids.includes('other-t1'), 'other-space task must not appear in fts-space results');
+  });
+
+  it('should_return_empty_array_when_no_match', () => {
+    const results = store.searchTasks('fts-space', 'nonexistentXYZ123');
+    assert.deepEqual(results, []);
+  });
+
+  it('should_respect_limit_option', () => {
+    const results = store.searchTasks('fts-space', 'a', { limit: 1 });
+    assert.ok(results.length <= 1, 'Results must not exceed limit');
+  });
+
+  it('should_return_empty_array_on_malformed_fts_query', () => {
+    // Unmatched quote is a malformed FTS5 expression — should not throw.
+    const results = store.searchTasks('fts-space', '"unclosed');
+    assert.ok(Array.isArray(results));
+    assert.deepEqual(results, []);
+  });
+
+  it('should_return_task_objects_in_standard_shape', () => {
+    const results = store.searchTasks('fts-space', 'search');
+    assert.ok(results.length >= 1);
+    const task = results[0];
+    assert.ok('id' in task);
+    assert.ok('title' in task);
+    assert.ok('type' in task);
+    assert.ok('createdAt' in task);
+    assert.ok('updatedAt' in task);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rebuildFts — index maintenance
+// ---------------------------------------------------------------------------
+
+describe('Store — rebuildFts()', () => {
+  it('should_rebuild_fts_index_without_throwing', () => {
+    const store = createStore(':memory:');
+    store.upsertSpace(makeSpace({ id: 'rebuild-space' }));
+    store.insertTask(makeTask({ id: 'rb-t1', title: 'Rebuild test' }), 'rebuild-space', 'todo');
+    assert.doesNotThrow(() => store.rebuildFts());
+    // After rebuild the task should still be findable.
+    const results = store.searchTasks('rebuild-space', 'Rebuild');
+    assert.equal(results.length, 1);
+    assert.equal(results[0].id, 'rb-t1');
+    store.close();
+  });
+});
