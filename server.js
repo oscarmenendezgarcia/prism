@@ -134,6 +134,11 @@ function startServer(options = {}) {
     }
   });
 
+  // Attach the store to the server instance so callers (e.g. the direct-
+  // invocation bootstrap and tests that need to close the DB) can reach it
+  // without breaking the existing `server.once('listening', ...)` pattern.
+  server._store = store;
+
   return server;
 }
 
@@ -147,6 +152,7 @@ if (require.main === module) {
   const { setupTerminalWebSocket } = require('./terminal');
   const { getActiveProcessCount } = require('./src/services/pipelineManager');
   const server = startServer();
+  const store  = server._store;
   setupTerminalWebSocket(server);
 
   // Graceful shutdown: wait up to 30s for active pipeline runs to finish

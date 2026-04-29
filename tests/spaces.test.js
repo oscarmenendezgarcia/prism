@@ -727,6 +727,105 @@ async function runTests() {
   });
 
   // =========================================================================
+  // Search endpoint (HIGH-001)
+  // =========================================================================
+
+  suite('GET /api/v1/spaces/:spaceId/tasks/search');
+
+  await test('should_return_matching_tasks_for_valid_query', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      const spaceRes = await post(port, '/api/v1/spaces', { name: 'SearchSpace' });
+      const spaceId  = spaceRes.body.id;
+
+      await createTask(port, spaceId, { title: 'Fix SQLite migration bug', type: 'bug' });
+      await createTask(port, spaceId, { title: 'Add feature for dashboard', type: 'feature' });
+
+      const res = await get(port, `/api/v1/spaces/${spaceId}/tasks/search?q=SQLite`);
+      assert(res.status === 200, `Expected 200, got ${res.status}`);
+      assert(Array.isArray(res.body.results), 'results must be an array');
+      assert(typeof res.body.total === 'number', 'total must be a number');
+      assert(res.body.total === 1, `Expected 1 result, got ${res.body.total}`);
+      assert(res.body.results[0].title === 'Fix SQLite migration bug', 'Wrong task returned');
+    } finally {
+      await close();
+    }
+  });
+
+  await test('should_return_400_when_q_param_is_missing', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      const res = await get(port, '/api/v1/spaces/default/tasks/search');
+      assert(res.status === 400, `Expected 400, got ${res.status}`);
+      assert(res.body.error.code === 'VALIDATION_ERROR', 'Expected VALIDATION_ERROR');
+    } finally {
+      await close();
+    }
+  });
+
+  await test('should_return_400_when_q_param_is_empty_string', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      const res = await get(port, `/api/v1/spaces/default/tasks/search?q=${encodeURIComponent('   ')}`);
+      assert(res.status === 400, `Expected 400, got ${res.status}`);
+      assert(res.body.error.code === 'VALIDATION_ERROR', 'Expected VALIDATION_ERROR');
+    } finally {
+      await close();
+    }
+  });
+
+  await test('should_return_404_for_unknown_space', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      const res = await get(port, '/api/v1/spaces/nonexistent-space/tasks/search?q=anything');
+      assert(res.status === 404, `Expected 404, got ${res.status}`);
+      assert(res.body.error.code === 'SPACE_NOT_FOUND', 'Expected SPACE_NOT_FOUND');
+    } finally {
+      await close();
+    }
+  });
+
+  await test('should_isolate_search_results_between_spaces', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      const spaceA = (await post(port, '/api/v1/spaces', { name: 'SpaceA' })).body.id;
+      const spaceB = (await post(port, '/api/v1/spaces', { name: 'SpaceB' })).body.id;
+
+      await createTask(port, spaceA, { title: 'Unique task in space A', type: 'feature' });
+      await createTask(port, spaceB, { title: 'Different task in space B', type: 'bug' });
+
+      const resA = await get(port, `/api/v1/spaces/${spaceA}/tasks/search?q=Unique`);
+      assert(resA.status === 200, `SpaceA search: expected 200, got ${resA.status}`);
+      assert(resA.body.total === 1, `SpaceA: expected 1 result, got ${resA.body.total}`);
+
+      const resB = await get(port, `/api/v1/spaces/${spaceB}/tasks/search?q=Unique`);
+      assert(resB.status === 200, `SpaceB search: expected 200, got ${resB.status}`);
+      assert(resB.body.total === 0, `SpaceB: expected 0 results, got ${resB.body.total}`);
+    } finally {
+      await close();
+    }
+  });
+
+  await test('should_respect_limit_query_param', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      const spaceRes = await post(port, '/api/v1/spaces', { name: 'LimitSpace' });
+      const spaceId  = spaceRes.body.id;
+
+      // Create 3 tasks all matching "task"
+      for (let i = 1; i <= 3; i++) {
+        await createTask(port, spaceId, { title: `task number ${i}`, type: 'chore' });
+      }
+
+      const res = await get(port, `/api/v1/spaces/${spaceId}/tasks/search?q=task&limit=2`);
+      assert(res.status === 200, `Expected 200, got ${res.status}`);
+      assert(res.body.results.length <= 2, `Expected at most 2 results, got ${res.body.results.length}`);
+    } finally {
+      await close();
+    }
+  });
+
+  // =========================================================================
   // Summary
   // =========================================================================
 
