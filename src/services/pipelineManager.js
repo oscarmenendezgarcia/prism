@@ -451,14 +451,20 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
   }
 
   // Part 3b: check for unresolved questions before advancing to the next stage.
-  // Reads the task from disk after stage completion so agents can post questions
+  // Reads the task after stage completion so agents can post questions
   // and the pipeline will pause until they are resolved.
   // Skip the check if the run was manually resumed (bypassQuestionCheck = true).
+  // Prefers the SQLite store when available; falls back to JSON files (legacy / unit tests).
   {
-    const spacesDir = path.join(dataDir, 'spaces');
-    const task = !run.bypassQuestionCheck
-      ? readTaskFromSpace(spacesDir, run.spaceId, run.taskId)
-      : null;
+    let task = null;
+    if (!run.bypassQuestionCheck) {
+      if (_store) {
+        task = _store.getTask(run.spaceId, run.taskId);
+      } else {
+        const spacesDir = path.join(dataDir, 'spaces');
+        task = readTaskFromSpace(spacesDir, run.spaceId, run.taskId);
+      }
+    }
     if (task) {
       const unresolvedQuestions = (task.comments || []).filter(
         (c) => c.type === 'question' && !c.resolved

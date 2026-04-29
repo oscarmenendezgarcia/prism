@@ -1070,16 +1070,10 @@ async function runCrossAgentResolverTests() {
     return JSON.parse(require('fs').readFileSync(runPath, 'utf8'));
   }
 
-  /** Read comment from task on disk */
-  function readTaskComments(spaceId, taskId) {
-    const spaceDir = require('path').join(tmpDir2, 'spaces', spaceId);
-    for (const col of ['todo', 'in-progress', 'done']) {
-      const f = require('path').join(spaceDir, `${col}.json`);
-      if (!require('fs').existsSync(f)) continue;
-      const tasks = JSON.parse(require('fs').readFileSync(f, 'utf8'));
-      const t = tasks.find((x) => x.id === taskId);
-      if (t) return t.comments || [];
-    }
+  /** Read comments for a task via REST API (works with both SQLite and legacy JSON) */
+  async function readTaskComments(spaceId, taskId) {
+    const r = await req('GET', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`);
+    if (r.status === 200) return r.body;
     return [];
   }
 
