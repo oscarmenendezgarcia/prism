@@ -10,8 +10,9 @@
  * Port: 3000 (or PORT env var)
  *
  * Module layout:
- *   src/services/migrator.js       — startup data migration
- *   src/services/spaceManager.js   — space CRUD and directory management
+ *   src/services/store.js          — SQLite Store (better-sqlite3), all CRUD ops (ADR-1 sqlite-migration)
+ *   src/services/migrator.js       — startup migration: JSON → SQLite (idempotent)
+ *   src/services/spaceManager.js   — space CRUD backed by Store
  *   src/services/pipelineManager.js — pipeline run lifecycle
  *   src/services/agentResolver.js  — agent file resolution for pipeline
  *   src/services/templateManager.js — pipeline template CRUD

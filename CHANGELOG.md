@@ -1,5 +1,41 @@
 # Changelog
 
+## [Unreleased] — sqlite-migration
+
+Replaces JSON file persistence with a single SQLite database (`data/prism.db`).
+All read/write operations are now atomic and serialised at the DB level —
+eliminating the race conditions inherent in the previous read-file / write-file
+pattern.  See `agent-docs/sqlite-migration/ADR-1.md` for the full rationale.
+
+### Added
+- `src/services/store.js`: SQLite Store (28 unit tests in `tests/store.test.js`)
+  — WAL mode, foreign keys, prepared statements for all CRUD operations.
+- `src/services/migrator.js` (rewrite): idempotent migration runner; imports
+  existing JSON files into SQLite on first startup, then becomes a no-op.
+- `scripts/migrate-to-sqlite.js`: standalone migration helper for manual runs.
+- `tests/concurrency.test.js`: 3 regression tests that fire 20 concurrent
+  PUT /tasks/:id/move requests and assert zero lost updates.
+- `better-sqlite3` dependency (native, compiled via node-gyp).
+
+### Changed
+- `src/services/spaceManager.js`: all space CRUD now delegates to Store.
+  Accepts `Store | string` for backward compatibility with existing tests.
+- `src/handlers/tasks.js`: createApp now receives a Store instance instead of
+  reading/writing column JSON files directly.
+- `src/handlers/comments.js`: reads and writes comments via `store.updateTask`
+  instead of column files.
+- `src/handlers/autoTask.js`: `appendTasksToColumn` delegates to `store.insertTask`.
+- `src/handlers/tagger.js`: `readSpaceTasks` reads via `store.getTasksByColumn`.
+- `src/routes/index.js`: router factory accepts and threads the `store` instance.
+- `server.js`: initialises Store via `migrate(dataDir)` at startup; calls
+  `store.close()` in graceful shutdown handler.
+- `Dockerfile`: updated builder-stage comment to document that `python3 make g++`
+  are required for both `node-pty` and `better-sqlite3` native compilation.
+- `tests/spaceManager.test.js`: 5 filesystem-based assertions updated to verify
+  SQLite store state instead of directory/file existence.
+
+---
+
 ## [Unreleased] — run-indicator
 
 ### Added
