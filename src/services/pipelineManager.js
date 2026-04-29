@@ -963,10 +963,15 @@ async function moveKanbanTask(spaceId, taskId, column) {
  * @returns {{ promptText: string, estimatedTokens: number }}
  */
 function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages, workingDirectory, runId) {
-  // readTaskFromSpace uses path.join(baseDataDir, spaceId) for legacy layout.
-  // The production data layout is data/spaces/<spaceId>/, so pass the spaces dir.
-  const spacesDir = path.join(dataDir, 'spaces');
-  const task      = readTaskFromSpace(spacesDir, spaceId, taskId);
+  // Use the SQLite store when available; fall back to legacy JSON file reading.
+  let task;
+  if (_store) {
+    task = _store.getTask(spaceId, taskId);
+  } else {
+    // readTaskFromSpace uses path.join(baseDataDir, spaceId) for legacy layout.
+    const spacesDir = path.join(dataDir, 'spaces');
+    task = readTaskFromSpace(spacesDir, spaceId, taskId);
+  }
 
   const isLastStage = stageIndex === stages.length - 1;
 
@@ -1539,6 +1544,27 @@ function findTaskInDataDir(spaceId, taskId, dataDir) {
  * @param {string} commentId
  */
 function markCommentNeedsHuman(dataDir, spaceId, taskId, commentId) {
+  // Post-migration: use the SQLite store when available.
+  if (_store) {
+    const task = _store.getTask(spaceId, taskId);
+    if (!task) {
+      console.warn(`[pipelineManager] WARN: markCommentNeedsHuman — task ${taskId} not found in space ${spaceId}`);
+      return;
+    }
+    const comments = Array.isArray(task.comments) ? task.comments : [];
+    const cIdx     = comments.findIndex((c) => c.id === commentId);
+    if (cIdx === -1) {
+      console.warn(`[pipelineManager] WARN: markCommentNeedsHuman — comment ${commentId} not found in task ${taskId}`);
+      return;
+    }
+    const now = new Date().toISOString();
+    comments[cIdx] = { ...comments[cIdx], needsHuman: true, updatedAt: now };
+    _store.updateTask(spaceId, taskId, { comments, updatedAt: now });
+    pipelineLog('comment.needs_human', { taskId, commentId, spaceId, reason: 'resolver_failed' });
+    return;
+  }
+
+  // Legacy fallback: read/write JSON column files (used by unit tests that inject no store).
   const spaceDir = path.join(dataDir, 'spaces', spaceId);
   for (const col of ['todo', 'in-progress', 'done']) {
     const filePath = path.join(spaceDir, `${col}.json`);
@@ -1976,9 +2002,15 @@ function unblockRunByComment(dataDir, taskId, commentId) {
   if (!run) return;
   if (run.status !== 'blocked') return;
 
-  // Read the task from disk to check remaining unresolved questions.
-  const spacesDir = path.join(dataDir, 'spaces');
-  const task = readTaskFromSpace(spacesDir, run.spaceId, taskId);
+  // Read the task to check remaining unresolved questions.
+  // Prefer the SQLite store (post-migration) and fall back to JSON files (legacy / unit tests).
+  let task;
+  if (_store) {
+    task = _store.getTask(run.spaceId, taskId);
+  } else {
+    const spacesDir = path.join(dataDir, 'spaces');
+    task = readTaskFromSpace(spacesDir, run.spaceId, taskId);
+  }
   if (!task) return;
 
   const unresolvedQuestions = (task.comments || []).filter(
