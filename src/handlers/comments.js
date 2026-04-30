@@ -22,6 +22,11 @@
 const path = require('path');
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
+// Required at module level (not lazily) so that the same initialized instance
+// (with _store set by pipelineManager.init) is used across all handler calls.
+// Lazy require inside handlers risks getting an uninitialized module instance
+// when the test suite clears pipelineManager from the Node module cache.
+const pipelineManager = require('../services/pipelineManager');
 
 // ---------------------------------------------------------------------------
 // Validation constants
@@ -140,7 +145,6 @@ async function handleCreateComment(req, res, store, spaceId, taskId, dataDir) {
     // Notify pipeline manager when a question is posted.
     if (comment.type === 'question') {
       try {
-        const pipelineManager = require('../services/pipelineManager');
         const resolvedDataDir = dataDir || _resolveDataDir();
         if (resolvedDataDir) pipelineManager.blockRunByComment(resolvedDataDir, taskId, comment);
       } catch (err) {
@@ -256,7 +260,6 @@ async function handleUpdateComment(req, res, store, spaceId, taskId, commentId, 
     // Notify pipeline manager when a question is resolved.
     if (body.resolved === true && existingComment.type === 'question') {
       try {
-        const pipelineManager = require('../services/pipelineManager');
         const resolvedDataDir = dataDir || _resolveDataDir();
         if (resolvedDataDir) pipelineManager.unblockRunByComment(resolvedDataDir, taskId, commentId);
       } catch (err) {

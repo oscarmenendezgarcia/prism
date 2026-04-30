@@ -1072,9 +1072,15 @@ async function runCrossAgentResolverTests() {
 
   /** Read comments for a task via REST API (works with both SQLite and legacy JSON) */
   async function readTaskComments(spaceId, taskId) {
-    const r = await req('GET', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`);
-    if (r.status === 200) return r.body;
-    return [];
+    const r = await req('GET', `/api/v1/spaces/${spaceId}/tasks`);
+    if (r.status !== 200) return [];
+    const allTasks = [
+      ...(r.body.todo || []),
+      ...(r.body['in-progress'] || []),
+      ...(r.body.done || []),
+    ];
+    const task = allTasks.find((t) => t.id === taskId);
+    return task ? (task.comments || []) : [];
   }
 
   // ── Helper: seed a run in 'running' state between stages (stage 0 done, stage 1 pending) ─────
@@ -1183,7 +1189,7 @@ async function runCrossAgentResolverTests() {
     assert(run.resolverActive !== true, `resolver should NOT be active for invalid targetAgent, got resolverActive=${run.resolverActive}`);
 
     // Comment should have needsHuman=true
-    const comments = readTaskComments(spaceId, taskId);
+    const comments = await readTaskComments(spaceId, taskId);
     const theComment = comments.find((c) => c.id === commentId);
     assert(theComment, 'Comment should exist');
     assert(theComment.needsHuman === true, `Expected needsHuman=true, got ${theComment.needsHuman}`);
@@ -1278,7 +1284,7 @@ async function runCrossAgentResolverTests() {
     const run = readRunJson(runId);
     assert(run.resolverActive === true, 'resolverActive should remain true (anti-recursion prevented second spawn)');
     // The comment should NOT have needsHuman set by the anti-recursion path
-    const comments = readTaskComments(spaceId, taskId);
+    const comments = await readTaskComments(spaceId, taskId);
     const q2 = comments.find((c) => c.id === q2Res.body.id);
     assert(q2, 'second question comment should be persisted');
     // needsHuman stays false because the guard path just returns without marking it
