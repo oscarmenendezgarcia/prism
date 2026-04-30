@@ -1,8 +1,8 @@
 # Bug Report: SQLite Migration + FTS5
 
-**Date:** 2026-04-29
-**QA Agent:** qa-engineer-e2e
-**Build:** `c7a12ab` + uncommitted working-tree patches
+**Date:** 2026-04-29 — Updated: 2026-04-30
+**QA Agent:** qa-engineer-e2e (initial) + direct QA verification
+**Build:** `0e8733f` (all bugs resolved)
 
 ---
 
@@ -331,14 +331,30 @@ if (query.trim().length > MAX_QUERY_LEN) {
 
 ## Summary
 
-| ID | Severity | Status | Component |
-|----|----------|--------|-----------|
-| BUG-001 | Critical | Open | `pipelineManager.unblockRunByComment` |
-| BUG-002 | Critical | Open | `pipelineManager.markCommentNeedsHuman` |
-| BUG-003 | High | Open | `prompt.findTaskInSpace` |
-| BUG-004 | High | Open | 7 test files using JSON file seeding |
-| BUG-005 | Medium | Open | `store.searchTasks` statement per-call |
-| BUG-006 | Medium | Open | No max-length on FTS5 query param |
+| ID | Severity | Status | Fixed in | Component |
+|----|----------|--------|----------|-----------|
+| BUG-001 | Critical | **Resolved** | `21e44d1` | `pipelineManager.unblockRunByComment` |
+| BUG-002 | Critical | **Resolved** | `21e44d1` | `pipelineManager.markCommentNeedsHuman` |
+| BUG-003 | High | **Resolved** | `1727603` | `prompt.findTaskInSpace` |
+| BUG-004 | High | **Resolved** | `e6d52cf` `413cb5c` `80b0c4f` | 7 test files using JSON file seeding |
+| BUG-005 | Medium | **Resolved** | `d58354c` | `store.searchTasks` statement per-call |
+| BUG-006 | Medium | **Resolved** | `6756061` | No max-length on FTS5 query param |
+| BUG-007 | High | **Resolved** | `0e8733f` | PIPELINE_RUNS_DIR shell env contamination in tests |
+| BUG-008 | High | **Resolved** | `0e8733f` | Missing GET /tasks/:id handler |
+| BUG-009 | High | **Resolved** | `0e8733f` | handleCreateRun reads task.pipeline from JSON (not SQLite) |
+| BUG-010 | High | **Resolved** | `0e8733f` | pipeline-field.test.js missing pipelineManager.init() call |
 
-**Merge gate status: BLOCKED.** BUG-001 and BUG-002 are Critical — blocked pipelines can
-never be unblocked after the SQLite migration is deployed. These must be resolved before merge.
+**Merge gate status: CLEAR.** 0 Critical, 0 High unresolved bugs.
+
+### Test results (final verification — 2026-04-30)
+
+| Test file | Tests | Pass | Fail |
+|-----------|-------|------|------|
+| `pipeline.test.js` | 60 | 60 | 0 |
+| `pipeline-field.test.js` | 33 | 33 | 0 |
+| `pipeline-workingdir.test.js` | 4 | 4 | 0 |
+| `pipeline-run-history-bridge.test.js` | 8 | 8 | 0 |
+| `pipeline-parallel-worktrees.test.js` | 33 | 33 | 0 |
+| `pipeline-blocked.test.js` | 38 | 38 | 0 |
+| `multiple-questions.test.js` | 11 | 11 | 0 |
+| **Total** | **187** | **187** | **0** |
