@@ -39,7 +39,7 @@ docker compose up -d
 # → http://localhost:3000
 ```
 
-No Node.js or build tools required locally. Board data persists in `./data/`.
+No Node.js or build tools required locally. Board data persists in `./data/prism.db` (SQLite).
 
 The board works without an API key. To enable agent pipelines, set `ANTHROPIC_API_KEY`:
 
@@ -224,7 +224,7 @@ Both paths are in `.gitignore` and are never committed to the main repo.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | HTTP server port |
-| `DATA_DIR` | `./data` | JSON persistence directory |
+| `DATA_DIR` | `./data` | Directory where `prism.db` (SQLite) is stored |
 | `ALLOWED_ORIGINS` | `http://localhost:3000,...` | Allowed WebSocket origins — set to your public URL if running behind a reverse proxy |
 | `ANTHROPIC_API_KEY` | — | Required for agent pipelines and auto-task generation |
 
@@ -241,7 +241,7 @@ cd frontend && npm test         # Frontend (Vitest + React Testing Library)
 
 ## Stack
 
-Node.js (no framework) · React 19 · TypeScript · Tailwind CSS v4 · Vite · Zustand · node-pty
+Node.js (no framework) · React 19 · TypeScript · Tailwind CSS v4 · Vite · Zustand · better-sqlite3 · node-pty
 
 ---
 

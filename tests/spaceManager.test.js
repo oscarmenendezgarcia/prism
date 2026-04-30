@@ -174,12 +174,11 @@ async function runTests() {
       assert(typeof result.space.id === 'string',    'id should be a string');
       assert(result.space.id !== 'default',          'id should not be "default"');
 
-      // Directory and column files should exist.
-      const spaceDir = path.join(dir, 'spaces', result.space.id);
-      assert(fs.existsSync(spaceDir),                                        'Space dir should exist');
-      assert(fs.existsSync(path.join(spaceDir, 'todo.json')),        'todo.json should exist');
-      assert(fs.existsSync(path.join(spaceDir, 'in-progress.json')), 'in-progress.json should exist');
-      assert(fs.existsSync(path.join(spaceDir, 'done.json')),        'done.json should exist');
+      // SQLite-backed: no filesystem directories are created.
+      // Verify the space is queryable from the store instead.
+      const found = sm.getSpace(result.space.id);
+      assert(found.ok === true,                     'Space should be retrievable from store');
+      assert(found.space.name === 'Feature Alpha',  'Retrieved space name should match');
     } finally {
       rmTmpDir(dir);
     }
@@ -545,9 +544,11 @@ async function runTests() {
       assert(result.space.agentNicknames['senior-architect'] === 'El Jefe', 'nickname should be persisted');
       assert(result.space.agentNicknames['developer-agent']  === 'Rafa',    'nickname should be persisted');
 
-      // Verify the manifest on disk reflects the nicknames.
-      const onDisk = readJSON(path.join(dir, 'spaces.json'));
-      assert(onDisk[0].agentNicknames['senior-architect'] === 'El Jefe', 'manifest should have nickname');
+      // SQLite-backed: verify persistence by re-reading from a fresh manager instance.
+      const freshSm = createSpaceManager(dir);
+      const onDisk  = freshSm.getSpace('default');
+      assert(onDisk.ok === true, 'Space should be found after persist');
+      assert(onDisk.space.agentNicknames['senior-architect'] === 'El Jefe', 'nickname should survive reload');
     } finally {
       rmTmpDir(dir);
     }
@@ -619,17 +620,19 @@ async function runTests() {
 
   suite('deleteSpace(id)');
 
-  await test('removes the space directory from disk', () => {
+  await test('removes the space from the store on delete', () => {
     const dir = makeTmpDir();
     try {
       const sm      = makeManager(dir);
       const created = sm.createSpace('Temp Space');
       const spaceId = created.space.id;
-      const spaceDir = path.join(dir, 'spaces', spaceId);
-      assert(fs.existsSync(spaceDir), 'Space dir should exist before delete');
+
+      // SQLite-backed: verify space is in store before deletion.
+      assert(sm.getSpace(spaceId).ok === true, 'Space should exist before delete');
 
       sm.deleteSpace(spaceId);
-      assert(!fs.existsSync(spaceDir), 'Space dir should be removed after delete');
+      // Space should no longer be retrievable.
+      assert(sm.getSpace(spaceId).ok === false, 'Space should be removed from store after delete');
     } finally {
       rmTmpDir(dir);
     }
@@ -696,32 +699,34 @@ async function runTests() {
 
   suite('ensureAllSpaces()');
 
-  await test('recreates missing column files for a space', () => {
+  await test('ensureAllSpaces is a no-op when spaces already exist (SQLite)', () => {
     const dir = makeTmpDir();
     try {
       const sm = makeManager(dir);
-      // Manually delete a column file to simulate corruption.
-      const todoPath = path.join(dir, 'spaces', 'default', 'todo.json');
-      fs.unlinkSync(todoPath);
-      assert(!fs.existsSync(todoPath), 'Precondition: todo.json is missing');
+      const before = sm.listSpaces().length;
+      assert(before > 0, 'Precondition: at least one space exists');
 
+      // SQLite-backed: ensureAllSpaces should not create duplicate spaces.
       sm.ensureAllSpaces();
-      assert(fs.existsSync(todoPath), 'ensureAllSpaces should recreate todo.json');
+      const after = sm.listSpaces().length;
+      assert(after === before, 'ensureAllSpaces should not add spaces when one already exists');
     } finally {
       rmTmpDir(dir);
     }
   });
 
-  await test('recreates missing space directory', () => {
+  await test('ensureAllSpaces creates default General space when no spaces exist', () => {
     const dir = makeTmpDir();
     try {
-      const sm    = makeManager(dir);
-      const spDir = path.join(dir, 'spaces', 'default');
-      fs.rmSync(spDir, { recursive: true, force: true });
-      assert(!fs.existsSync(spDir), 'Precondition: space dir is missing');
+      // Use createSpaceManager directly (no seeding) so the DB is empty.
+      const sm = createSpaceManager(dir);
+      assert(sm.listSpaces().length === 0, 'Precondition: no spaces');
 
       sm.ensureAllSpaces();
-      assert(fs.existsSync(spDir), 'ensureAllSpaces should recreate the space directory');
+      const spaces = sm.listSpaces();
+      assert(spaces.length === 1,            'Should have exactly one space after ensureAllSpaces');
+      assert(spaces[0].name === 'General',   'Default space should be named General');
+      assert(spaces[0].id   === 'default',   'Default space should have id "default"');
     } finally {
       rmTmpDir(dir);
     }

@@ -20,9 +20,6 @@
  *   502 TAGGER_CLI_ERROR        — CLI spawn failed, non-zero exit, or invalid JSON response
  */
 
-const fs   = require('fs');
-const path = require('path');
-
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { COLUMNS }                        = require('../constants');
 const { readSettings }                   = require('./settings');
@@ -80,31 +77,19 @@ function coerceBoolean(value) {
 // ---------------------------------------------------------------------------
 
 /**
- * Read all tasks for a given space directory (one or all columns).
+ * Read all tasks for a given space (one or all columns) via the Store.
  *
- * @param {string} spaceDataDir - Absolute path to the space's data directory.
+ * @param {import('../services/store').Store} store
+ * @param {string} spaceId
  * @param {string|null} column  - Column filter or null to read all columns.
  * @returns {{ id: string, title: string, description?: string, type: string, _col: string }[]}
  */
-function readSpaceTasks(spaceDataDir, column) {
+function readSpaceTasks(store, spaceId, column) {
   const columns = column ? [column] : COLUMNS;
   const tasks   = [];
 
   for (const col of columns) {
-    const filePath = path.join(spaceDataDir, `${col}.json`);
-    if (!fs.existsSync(filePath)) continue;
-
-    let parsed;
-    try {
-      parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    } catch {
-      console.warn(`[tagger] Failed to parse ${filePath} — skipping column`);
-      continue;
-    }
-
-    if (!Array.isArray(parsed)) continue;
-
-    for (const task of parsed) {
+    for (const task of store.getTasksByColumn(spaceId, col)) {
       tasks.push({
         id:          task.id,
         title:       task.title,
@@ -248,10 +233,10 @@ function callClaude(cards, improveDescriptions, userPrompt, cli, model) {
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse}  res
  * @param {string}                         spaceId
- * @param {string}                         spaceDataDir - absolute path to space data dir
+ * @param {import('../services/store').Store} store
  * @param {string}                         dataDir      - root data dir (for reading settings)
  */
-async function handleTaggerRun(req, res, spaceId, spaceDataDir, dataDir) {
+async function handleTaggerRun(req, res, spaceId, store, dataDir) {
   const startMs = Date.now();
 
   // 1. Parse body
@@ -296,8 +281,8 @@ async function handleTaggerRun(req, res, spaceId, spaceDataDir, dataDir) {
   const model    = process.env.TAGGER_MODEL || 'haiku';
 
   try {
-    // 6. Read tasks from disk
-    const allTasks = readSpaceTasks(spaceDataDir, column);
+    // 6. Read tasks via store
+    const allTasks = readSpaceTasks(store, spaceId, column);
 
     // 7. Handle empty board
     if (allTasks.length === 0) {

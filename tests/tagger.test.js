@@ -11,6 +11,7 @@
 
 const { test, describe, before, after } = require('node:test');
 const assert       = require('node:assert/strict');
+const crypto       = require('crypto');
 const fs           = require('fs');
 const os           = require('os');
 const path         = require('path');
@@ -78,16 +79,15 @@ function tmpDir() {
 }
 
 function initDataDir(dir) {
+  // Seed a spaces.json so the migrator imports 'default' space into SQLite
+  // before the server starts. The server's ensureAllSpaces() also creates it,
+  // but seeding here guarantees the name matches what tests expect.
   fs.mkdirSync(path.join(dir, 'spaces'), { recursive: true });
   const spaces = [
     { id: 'default', name: 'General', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
   ];
   fs.writeFileSync(path.join(dir, 'spaces.json'), JSON.stringify(spaces), 'utf8');
-  const spaceDir = path.join(dir, 'spaces', 'default');
-  fs.mkdirSync(spaceDir, { recursive: true });
-  for (const col of ['todo', 'in-progress', 'done']) {
-    fs.writeFileSync(path.join(spaceDir, `${col}.json`), '[]', 'utf8');
-  }
+  // No JSON column files — SQLite is the source of truth after migration.
 }
 
 function req(port, method, urlPath, body) {
@@ -123,9 +123,41 @@ function listenPort(srv) {
   return new Promise((resolve) => srv.once('listening', () => resolve(srv.address().port)));
 }
 
+/**
+ * Seed tasks into the SQLite store directly.
+ * Passing an empty array clears all tasks in the specified column.
+ * @param {string} dir   - Data directory (where prism.db lives).
+ * @param {string} spaceId
+ * @param {string} column
+ * @param {object[]} tasks
+ */
 function seedTasks(dir, spaceId, column, tasks) {
-  const filePath = path.join(dir, 'spaces', spaceId, `${column}.json`);
-  fs.writeFileSync(filePath, JSON.stringify(tasks), 'utf8');
+  const { createStore } = require('../src/services/store');
+  const store = createStore(dir);
+
+  // Remove existing tasks in this column to achieve idempotent "set" semantics.
+  const existing = store.getTasksByColumn(spaceId, column);
+  for (const t of existing) {
+    store.deleteTask(spaceId, t.id);
+  }
+
+  // Insert new tasks.
+  const now = new Date().toISOString();
+  for (const task of tasks) {
+    store.insertTask(
+      {
+        id:        task.id || crypto.randomUUID(),
+        title:     task.title,
+        type:      task.type,
+        createdAt: task.createdAt || now,
+        updatedAt: task.updatedAt || now,
+      },
+      spaceId,
+      column,
+    );
+  }
+
+  store.close();
 }
 
 // ---------------------------------------------------------------------------

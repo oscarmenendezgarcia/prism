@@ -93,6 +93,7 @@ before(() => {
   process.env.PIPELINE_AGENTS_DIR     = sharedAgentsDir;
   process.env.PIPELINE_MAX_CONCURRENT = '5';
   process.env.PIPELINE_NO_SPAWN       = '1';
+  delete process.env.PIPELINE_RUNS_DIR;
   // Prevent moveKanbanTask from blocking on a non-existent server.
   process.env.KANBAN_API_URL = 'http://localhost:19998/api/v1';
 });

@@ -3,6 +3,7 @@
     "test": "node --test --test-concurrency=2 tests/*.test.js"
   },
   "dependencies": {
+    "better-sqlite3": "^12.9.0",
     "node-pty": "^1.1.0",
     "ws": "^8.19.0"
   }

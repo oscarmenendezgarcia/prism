@@ -115,21 +115,21 @@ async function startServer(extraEnv = {}) {
 
   const { createApp }          = require('../src/handlers/tasks');
   const { createSpaceManager } = require('../src/services/spaceManager');
+  const { migrate }            = require('../src/services/migrator');
   const pipelineHandlers       = require('../src/handlers/pipeline');
+  const pipelineManager        = require('../src/services/pipelineManager');
 
   const spaceId    = crypto.randomUUID();
-  const spaceDir   = path.join(dataDir, 'spaces', spaceId);
-  fs.mkdirSync(spaceDir, { recursive: true });
 
-  const spacesFile = path.join(dataDir, 'spaces.json');
-  const spaceRecord = {
-    id: spaceId, name: 'Test Space',
-    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-  };
-  fs.writeFileSync(spacesFile, JSON.stringify([spaceRecord]), 'utf8');
+  // Open the SQLite store and create the space with a known ID.
+  const store        = migrate(dataDir);
+  const spaceManager = createSpaceManager(store);
+  spaceManager.createSpace('Test Space', undefined, undefined, undefined, spaceId);
 
-  const _spaceManager = createSpaceManager(dataDir); // eslint-disable-line no-unused-vars
-  const { router: taskRouter, ensureDataFiles } = createApp(spaceDir);
+  // Initialize pipelineManager with this store so createRun can find SQLite tasks.
+  pipelineManager.init(dataDir, store);
+
+  const { router: taskRouter, ensureDataFiles } = createApp(spaceId, store);
   ensureDataFiles();
 
   const server = http.createServer(async (req, res) => {
@@ -285,11 +285,10 @@ describe('handleCreateTask — pipeline field (T-002)', () => {
       assert.equal(res.status, 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`);
       assert.deepEqual(res.body.pipeline, ['developer-agent', 'qa-engineer-e2e']);
 
-      // Verify written to disk
-      const todoPath = path.join(dataDir, 'spaces', spaceId, 'todo.json');
-      const stored   = JSON.parse(fs.readFileSync(todoPath, 'utf8'));
-      const task     = stored.find((t) => t.id === res.body.id);
-      assert.deepEqual(task.pipeline, ['developer-agent', 'qa-engineer-e2e']);
+      // Verify persisted — fetch the task via REST and check the pipeline field.
+      const getRes = await request(port, 'GET', `/api/v1/spaces/${spaceId}/tasks/${res.body.id}`);
+      assert.equal(getRes.status, 200, `Expected 200 fetching task, got ${getRes.status}`);
+      assert.deepEqual(getRes.body.pipeline, ['developer-agent', 'qa-engineer-e2e']);
     } finally {
       await stopServer(server, dataDir, agentsDir);
     }
@@ -479,33 +478,33 @@ describe('handleCreateRun — pipeline resolution (T-004)', () => {
     process.env.PIPELINE_AGENTS_DIR     = agentsDir;
     process.env.PIPELINE_MAX_CONCURRENT = '10';
 
-    // Build space + task directly on disk
-    const spaceId  = crypto.randomUUID();
-    const taskId   = crypto.randomUUID();
-    const spaceDir = path.join(dataDir, 'spaces', spaceId);
-    fs.mkdirSync(spaceDir, { recursive: true });
+    // Build space + task in SQLite.
+    const spaceId = crypto.randomUUID();
+    const taskId  = crypto.randomUUID();
 
+    const { migrate }          = require('../src/services/migrator');
+    const { createSpaceManager } = require('../src/services/spaceManager');
+    const pipelineHandlers       = require('../src/handlers/pipeline');
+    const pipelineManager        = require('../src/services/pipelineManager');
+
+    const pipelineStore = migrate(dataDir);
+    const spaceManager  = createSpaceManager(pipelineStore);
+
+    // Initialize pipelineManager with this store so createRun can find SQLite tasks.
+    pipelineManager.init(dataDir, pipelineStore);
+
+    // Create space (with optional pipeline override)
+    spaceManager.createSpace('Test Space', undefined,
+      spacePipeline || undefined, undefined, spaceId);
+
+    // Insert task into todo column
+    const now = new Date().toISOString();
     const task = {
       id: taskId, title: 'Test task', type: 'chore',
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      createdAt: now, updatedAt: now,
       ...(taskPipeline !== undefined ? { pipeline: taskPipeline } : {}),
     };
-    fs.writeFileSync(path.join(spaceDir, 'todo.json'),        JSON.stringify([task]),  'utf8');
-    fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]),      'utf8');
-    fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([]),      'utf8');
-
-    // Spaces registry (for spaceManager)
-    const spacesFile  = path.join(dataDir, 'spaces.json');
-    const spaceRecord = {
-      id: spaceId, name: 'Test Space',
-      ...(spacePipeline ? { pipeline: spacePipeline } : {}),
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    };
-    fs.writeFileSync(spacesFile, JSON.stringify([spaceRecord]), 'utf8');
-
-    const pipelineHandlers                 = require('../src/handlers/pipeline');
-    const { createSpaceManager }           = require('../src/services/spaceManager');
-    const spaceManager = createSpaceManager(dataDir);
+    pipelineStore.insertTask(task, spaceId, 'todo');
 
     const server = http.createServer(async (req, res) => {
       if (req.method === 'POST' && pipelineHandlers.PIPELINE_RUNS_LIST_ROUTE.test(req.url)) {

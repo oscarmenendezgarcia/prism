@@ -38,6 +38,9 @@ const {
   runDir,
 } = require('../src/services/pipelineManager');
 
+// Prevent stale shell-level env vars from polluting tests that manage their own isolation.
+delete process.env.PIPELINE_RUNS_DIR;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

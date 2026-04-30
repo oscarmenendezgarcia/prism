@@ -209,31 +209,17 @@ function callCLI(prompt, systemPrompt, cli, model) {
 // ---------------------------------------------------------------------------
 
 /**
- * Append tasks to a column JSON file atomically (.tmp → rename).
+ * Append tasks to a column via the Store.
  *
- * @param {string} spaceDataDir
+ * @param {import('../services/store').Store} store
+ * @param {string} spaceId
  * @param {string} column
  * @param {Array<object>} newTasks
  */
-function appendTasksToColumn(spaceDataDir, column, newTasks) {
-  const filePath = path.join(spaceDataDir, `${column}.json`);
-
-  let existing = [];
-  if (fs.existsSync(filePath)) {
-    try {
-      const raw = fs.readFileSync(filePath, 'utf8');
-      existing = JSON.parse(raw);
-      if (!Array.isArray(existing)) existing = [];
-    } catch {
-      console.warn(`[autotask] Failed to parse ${filePath} — starting fresh`);
-      existing = [];
-    }
+function appendTasksToColumn(store, spaceId, column, newTasks) {
+  for (const task of newTasks) {
+    store.insertTask(task, spaceId, column);
   }
-
-  const updated = [...existing, ...newTasks];
-  const tmpPath = `${filePath}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(updated, null, 2), 'utf8');
-  fs.renameSync(tmpPath, filePath);
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +238,7 @@ function appendTasksToColumn(spaceDataDir, column, newTasks) {
  * Response:
  *   { tasksCreated: number, tasks: Task[], preview: boolean }
  */
-async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir, workingDirectory, dataDir) {
+async function handleAutoTaskGenerate(req, res, spaceId, store, workingDirectory, dataDir) {
   const startMs = Date.now();
 
   // 1. Parse body
@@ -381,7 +367,7 @@ async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir, workingDi
 
     // 7. Persist only when not a preview
     if (!preview) {
-      appendTasksToColumn(spaceDataDir, column, tasks);
+      appendTasksToColumn(store, spaceId, column, tasks);
     }
 
     const durationMs = Date.now() - startMs;
@@ -412,7 +398,7 @@ async function handleAutoTaskGenerate(req, res, spaceId, spaceDataDir, workingDi
  * Response:
  *   { tasksCreated: number, tasks: Task[] }
  */
-async function handleAutoTaskConfirm(req, res, spaceId, spaceDataDir) {
+async function handleAutoTaskConfirm(req, res, spaceId, store) {
   let body;
   try {
     body = await parseBody(req);
@@ -467,7 +453,7 @@ async function handleAutoTaskConfirm(req, res, spaceId, spaceDataDir) {
     return sendError(res, 400, 'VALIDATION_ERROR', 'No valid tasks to create');
   }
 
-  appendTasksToColumn(spaceDataDir, column, sanitized);
+  appendTasksToColumn(store, spaceId, column, sanitized);
 
   console.log(JSON.stringify({
     event:        'autotask.confirm.complete',
