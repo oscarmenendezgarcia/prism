@@ -953,3 +953,347 @@ describe('ALLOWED_ORIGINS env var', async () => {
     await stopServer(server);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Suite 11 — OutputRingBuffer unit tests (T-001, T-004)
+// ---------------------------------------------------------------------------
+
+const { _OutputRingBuffer: RingBuffer } = require(path.join(__dirname, '..', 'terminal'));
+
+describe('OutputRingBuffer unit tests', async () => {
+  test('empty buffer drain returns empty data, no trim', async () => {
+    const rb = new RingBuffer(10);
+    const { data, trimmed, dropped } = rb.drain();
+    assert.equal(data, '');
+    assert.equal(trimmed, false);
+    assert.equal(dropped, 0);
+  });
+
+  test('under-capacity append: data returned unchanged, no trim', async () => {
+    const rb = new RingBuffer(10);
+    rb.append('hello');
+    const { data, trimmed, dropped } = rb.drain();
+    assert.equal(data, 'hello');
+    assert.equal(trimmed, false);
+    assert.equal(dropped, 0);
+  });
+
+  test('exact-capacity append: all data retained, no trim', async () => {
+    const rb = new RingBuffer(5);
+    rb.append('ABCDE');
+    const { data, trimmed, dropped } = rb.drain();
+    assert.equal(data, 'ABCDE');
+    assert.equal(trimmed, false);
+    assert.equal(dropped, 0);
+  });
+
+  test('single-chunk overflow: trims oldest bytes, trimmed=true, dropped count correct', async () => {
+    const rb = new RingBuffer(5);
+    rb.append('ABCDE');  // fills exactly
+    rb.append('FGH');    // overflows by 3 → retains DEFGH
+    const { data, trimmed, dropped } = rb.drain();
+    assert.equal(trimmed, true, 'trimmed must be true after overflow');
+    assert.equal(dropped, 3, 'dropped must equal bytes evicted');
+    assert.equal(data, 'DEFGH', 'ring must contain the most-recent 5 bytes');
+  });
+
+  test('multi-chunk overflow: accumulated dropped count across appends', async () => {
+    const rb = new RingBuffer(5);
+    rb.append('ABCDE');  // fills
+    rb.append('FG');     // drops 2 (A,B) → retains CDEFG
+    rb.append('HI');     // drops 2 (C,D) → retains EFGHI
+    const { data, trimmed, dropped } = rb.drain();
+    assert.equal(trimmed, true);
+    assert.equal(dropped, 4, 'accumulated drops across both overflow appends');
+    assert.equal(data, 'EFGHI');
+  });
+
+  test('chunk larger than capacity: only last capacity bytes kept', async () => {
+    const rb = new RingBuffer(5);
+    rb.append('ABCDEFGHIJ');  // 10 bytes > capacity 5
+    const { data, trimmed, dropped } = rb.drain();
+    assert.equal(data, 'FGHIJ', 'must keep only the last capacity bytes');
+    assert.equal(trimmed, true);
+    assert.equal(dropped, 5, 'exactly (n - capacity) bytes dropped when n > capacity and size=0');
+  });
+
+  test('chunk larger than capacity with pre-existing data: counts pre-existing + overflow', async () => {
+    const rb = new RingBuffer(5);
+    rb.append('AB');           // size=2
+    rb.append('CDEFGHIJ');    // 8 bytes, 8 > 5 → dropped = 2 + (8-5) = 5
+    const { data, trimmed, dropped } = rb.drain();
+    assert.equal(data, 'FGHIJ');
+    assert.equal(trimmed, true);
+    assert.equal(dropped, 5);
+  });
+
+  test('drain resets state: second drain returns empty with no trim', async () => {
+    const rb = new RingBuffer(10);
+    rb.append('hello');
+    rb.drain();
+    const { data, trimmed, dropped } = rb.drain();
+    assert.equal(data, '');
+    assert.equal(trimmed, false);
+    assert.equal(dropped, 0);
+  });
+
+  test('Buffer input works the same as string input', async () => {
+    const rb = new RingBuffer(10);
+    rb.append(Buffer.from('hello'));
+    const { data, trimmed } = rb.drain();
+    assert.equal(data, 'hello');
+    assert.equal(trimmed, false);
+  });
+
+  test('multiple appends without overflow accumulate correctly', async () => {
+    const rb = new RingBuffer(10);
+    rb.append('abc');
+    rb.append('def');
+    const { data, trimmed } = rb.drain();
+    assert.equal(data, 'abcdef');
+    assert.equal(trimmed, false);
+  });
+
+  test('wrap-around drain returns bytes in chronological order', async () => {
+    // Force a wrap-around: fill 8 bytes of a 10-byte ring, drain,
+    // then write 6 more so head wraps past the end.
+    const rb = new RingBuffer(10);
+    rb.append('ABCDEFGH');   // head=8, size=8
+    rb.drain();              // reset — size=0, head=0
+    rb.append('12345');      // head=5, size=5
+    rb.append('678');        // head=8, size=8  (no overflow)
+
+    // Now head is near the end. Append 5 more to force wrap.
+    rb.append('IJKLM');      // head=(8+5)%10=3, size=10 (8+5=13>10 → overflow=3, trimmed)
+    const { data, trimmed } = rb.drain();
+    assert.equal(trimmed, true);
+    assert.equal(data.length, 10, 'ring must contain exactly capacity bytes');
+    // After overflow of 3, the oldest 3 bytes (1,2,3) are gone.
+    // Remaining: 45678IJKLM
+    assert.equal(data, '45678IJKLM');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 12 — Sentinel emission (mock-session unit tests, T-004a)
+// ---------------------------------------------------------------------------
+
+const { _flushOutputForTesting } = require(path.join(__dirname, '..', 'terminal'));
+
+const SENTINEL = '--- older output trimmed ---';
+
+/**
+ * Build a minimal mock session for flush tests.
+ * @param {number} ringCapacity
+ */
+function makeMockFlushSession(ringCapacity) {
+  const ring = new RingBuffer(ringCapacity);
+  const received = [];
+  const mockWs = {
+    readyState: 1,
+    constructor: { OPEN: 1 },
+    bufferedAmount: 0,
+    send(payload) { received.push(JSON.parse(payload)); },
+  };
+  const mockPty = { pid: 42, pause() {}, resume() {} };
+  const session = {
+    ws:   mockWs,
+    pty:  mockPty,
+    alive: true,
+    paused: false,
+    backpressureTimer: null,
+    _backpressureWarnEmitted: false,
+    ring,
+  };
+  return { session, ring, received };
+}
+
+describe('Ring buffer sentinel emission', async () => {
+  test('no-trim baseline: small output produces no sentinel and no log', async () => {
+    const { session, ring, received } = makeMockFlushSession(100);
+    ring.append('hello world');  // 11 bytes < 100 capacity
+
+    const result = _flushOutputForTesting(session, 1);
+    assert.ok(result !== null, 'flush must return a result');
+    assert.equal(result.trimmed, false, 'trimmed must be false for under-capacity output');
+    assert.equal(result.dropped, 0, 'no bytes should be dropped');
+    assert.ok(!result.payload.includes(SENTINEL), 'no sentinel for under-capacity output');
+    assert.equal(received.length, 1, 'one WS message sent');
+    assert.ok(!received[0].data.includes(SENTINEL), 'WS message must not contain sentinel');
+  });
+
+  test('overflow trim: sentinel prepended when ring overflows', async () => {
+    const SMALL_CAP = 20;
+    const { session, ring, received } = makeMockFlushSession(SMALL_CAP);
+    // Append more bytes than the ring can hold → forces overflow.
+    ring.append('This is definitely more than twenty bytes');
+
+    const result = _flushOutputForTesting(session, 1);
+    assert.ok(result !== null, 'flush must return a result');
+    assert.equal(result.trimmed, true, 'trimmed must be true after overflow');
+    assert.ok(result.dropped > 0, 'some bytes must have been dropped');
+    assert.ok(result.payload.includes(SENTINEL), 'payload must contain sentinel');
+    // Sentinel comes before the data.
+    const sentinelIdx = result.payload.indexOf(SENTINEL);
+    assert.ok(sentinelIdx < result.payload.lastIndexOf('A') || sentinelIdx === 0 ||
+      sentinelIdx < result.payload.length - 1,
+      'sentinel must appear before retained data');
+    assert.equal(received.length, 1, 'one WS message sent');
+    assert.ok(received[0].data.includes(SENTINEL), 'WS message data must contain sentinel');
+    // Total output is bounded: retained data ≤ capacity, plus sentinel.
+    const nonSentinelData = received[0].data.replace('\r\n--- older output trimmed ---\r\n', '');
+    assert.ok(nonSentinelData.length <= SMALL_CAP, 'retained data must not exceed capacity');
+  });
+
+  test('empty ring flush returns null (no WS message sent)', async () => {
+    const { session, received } = makeMockFlushSession(100);
+    // ring is empty — flush should be a no-op.
+    const result = _flushOutputForTesting(session, 1);
+    assert.equal(result, null, 'flush on empty ring must return null');
+    assert.equal(received.length, 0, 'no WS message must be sent for empty ring');
+  });
+
+  test('sentinel format: exact prefix is \\r\\n--- older output trimmed ---\\r\\n', async () => {
+    const { session, ring } = makeMockFlushSession(5);
+    ring.append('ABCDEFGHIJ');  // 10 bytes > 5 cap → trimmed
+
+    const result = _flushOutputForTesting(session, 1);
+    assert.ok(result !== null);
+    assert.ok(
+      result.payload.startsWith('\r\n--- older output trimmed ---\r\n'),
+      'payload must start with the exact sentinel string'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Suite 13 — Backpressure controller unit tests (T-003, T-004c)
+// ---------------------------------------------------------------------------
+
+const { _checkBackpressure, _constants } = require(path.join(__dirname, '..', 'terminal'));
+const { WS_BACKPRESSURE_HIGH_WATERMARK, WS_BACKPRESSURE_LOW_WATERMARK, BACKPRESSURE_POLL_INTERVAL_MS } = _constants;
+
+/**
+ * Build a minimal mock session for backpressure tests.
+ * @param {{ bufferedAmount?: number, pauseThrows?: boolean }} opts
+ */
+function makeMockSession(opts = {}) {
+  const { bufferedAmount = 0, pauseThrows = false } = opts;
+  let currentBufferedAmount = bufferedAmount;
+
+  const mockPty = {
+    pid: 9999,
+    pauseCalled: 0,
+    resumeCalled: 0,
+    pause() {
+      if (pauseThrows) throw new Error('not supported');
+      this.pauseCalled++;
+    },
+    resume() {
+      this.resumeCalled++;
+    },
+  };
+
+  const mockWs = {
+    get bufferedAmount() { return currentBufferedAmount; },
+    set bufferedAmount(v) { currentBufferedAmount = v; },
+    readyState: 1,  // OPEN
+    constructor: { OPEN: 1 },
+  };
+
+  return {
+    ws: mockWs,
+    pty: mockPty,
+    alive: true,
+    paused: false,
+    backpressureTimer: null,
+    _backpressureWarnEmitted: false,
+  };
+}
+
+describe('Backpressure controller', async () => {
+  test('pty.pause not called when bufferedAmount is below HIGH_WATERMARK', async () => {
+    const session = makeMockSession({ bufferedAmount: WS_BACKPRESSURE_HIGH_WATERMARK - 1 });
+    _checkBackpressure(session);
+    assert.equal(session.pty.pauseCalled, 0, 'pause must not be called below high-watermark');
+    assert.equal(session.paused, false);
+    assert.equal(session.backpressureTimer, null);
+  });
+
+  test('pty.pause called when bufferedAmount >= HIGH_WATERMARK', async () => {
+    const session = makeMockSession({ bufferedAmount: WS_BACKPRESSURE_HIGH_WATERMARK });
+    _checkBackpressure(session);
+    assert.equal(session.pty.pauseCalled, 1, 'pause must be called at high-watermark');
+    assert.equal(session.paused, true);
+    assert.ok(session.backpressureTimer !== null, 'polling timer must be started');
+    // Clean up timer.
+    clearInterval(session.backpressureTimer);
+  });
+
+  test('pty.resume called after bufferedAmount drops to 0', async () => {
+    const session = makeMockSession({ bufferedAmount: WS_BACKPRESSURE_HIGH_WATERMARK + 1 });
+    _checkBackpressure(session);
+    assert.equal(session.pty.pauseCalled, 1, 'pause must be called');
+    assert.equal(session.paused, true);
+
+    // Simulate the WS queue draining.
+    session.ws.bufferedAmount = 0;
+
+    // Wait long enough for at least 3 poll cycles.
+    await sleep(BACKPRESSURE_POLL_INTERVAL_MS * 5);
+
+    assert.equal(session.pty.resumeCalled, 1, 'resume must be called once ws queue drains');
+    assert.equal(session.paused, false);
+    assert.equal(session.backpressureTimer, null, 'timer must be cleared after resume');
+  });
+
+  test('second checkBackpressure call while paused is a no-op', async () => {
+    const session = makeMockSession({ bufferedAmount: WS_BACKPRESSURE_HIGH_WATERMARK + 1 });
+    _checkBackpressure(session);
+    _checkBackpressure(session);  // second call — already paused
+    assert.equal(session.pty.pauseCalled, 1, 'pause must only be called once');
+    clearInterval(session.backpressureTimer);
+  });
+
+  test('pty.pause failure is caught and logged once; subsequent calls also skip', async () => {
+    const session = makeMockSession({
+      bufferedAmount: WS_BACKPRESSURE_HIGH_WATERMARK + 1,
+      pauseThrows: true,
+    });
+
+    const warnings = [];
+    const origWarn = console.warn;
+    console.warn = (...args) => { warnings.push(args.join(' ')); };
+
+    try {
+      _checkBackpressure(session);  // first call — warn emitted
+      _checkBackpressure(session);  // second call — warn must NOT be repeated
+    } finally {
+      console.warn = origWarn;
+    }
+
+    assert.equal(session.paused, false, 'session must not be marked paused if pause() threw');
+    assert.equal(session.backpressureTimer, null, 'no timer should be set if pause failed');
+    assert.equal(
+      warnings.filter((w) => w.includes('backpressure')).length,
+      1,
+      'warn must be emitted exactly once'
+    );
+  });
+
+  test('polling timer stopped when session.alive becomes false', async () => {
+    const session = makeMockSession({ bufferedAmount: WS_BACKPRESSURE_HIGH_WATERMARK + 1 });
+    _checkBackpressure(session);
+    assert.equal(session.paused, true);
+
+    // Simulate disconnect (cleanupSession sets alive=false and ws=null).
+    session.alive = false;
+    session.ws = null;
+
+    await sleep(BACKPRESSURE_POLL_INTERVAL_MS * 3);
+
+    // Timer should have cleared itself.
+    assert.equal(session.backpressureTimer, null, 'timer must self-clear after session dies');
+    assert.equal(session.paused, false);
+  });
+});
