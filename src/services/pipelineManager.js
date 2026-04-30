@@ -2400,4 +2400,5 @@ module.exports = {
   buildResolverPrompt,
   shellEscape,
   DEFAULT_STAGES,
+  getStore: () => _store,
 };

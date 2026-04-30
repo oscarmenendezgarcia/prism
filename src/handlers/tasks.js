@@ -515,6 +515,19 @@ function createApp(spaceId, store) {
     }
   }
 
+  function handleGetTask(req, res, taskId) {
+    try {
+      const task = store.getTask(spaceId, taskId);
+      if (!task) {
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+      }
+      sendJSON(res, 200, task);
+    } catch (err) {
+      console.error(`GET tasks/${taskId} error:`, err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to get task');
+    }
+  }
+
   function handleClearBoard(req, res) {
     try {
       // Count first (for the response payload).
@@ -719,6 +732,10 @@ function createApp(spaceId, store) {
     }
 
     const singleMatch = TASK_SINGLE_ROUTE.exec(taskPath);
+    if (method === 'GET' && singleMatch) {
+      return handleGetTask(req, res, singleMatch[1]);
+    }
+
     if (method === 'DELETE' && singleMatch) {
       return handleDeleteTask(req, res, singleMatch[1]);
     }

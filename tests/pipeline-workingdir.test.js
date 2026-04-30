@@ -124,6 +124,8 @@ describe('Pipeline + Working Directory (BUG-004)', () => {
   });
 
   after(async () => {
+    delete process.env.PIPELINE_RUNS_DIR;
+    delete process.env.PIPELINE_AGENTS_DIR;
     return new Promise((resolve) => {
       if (server) {
         if (typeof server.closeAllConnections === 'function') server.closeAllConnections();

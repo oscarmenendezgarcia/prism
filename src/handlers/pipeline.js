@@ -79,21 +79,30 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
   let resolvedFrom   = resolvedStages ? 'explicit' : undefined;
 
   if (!resolvedStages) {
-    // Try task.pipeline — read the task from disk using the same path pipelineManager uses.
-    const spaceDir = path.join(dataDir, 'spaces', spaceId);
-    for (const col of ['todo', 'in-progress', 'done']) {
-      const filePath = path.join(spaceDir, `${col}.json`);
-      if (!fs.existsSync(filePath)) continue;
-      try {
-        const tasks   = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-        const found   = Array.isArray(tasks) ? tasks.find((t) => t.id === taskId) : null;
-        if (found && Array.isArray(found.pipeline) && found.pipeline.length > 0) {
-          resolvedStages = found.pipeline;
-          resolvedFrom   = 'task';
+    // Try task.pipeline — prefer SQLite store when available (post-migration), fall back to JSON files.
+    const pmStore = pipelineManager.getStore();
+    if (pmStore) {
+      const taskResult = pmStore.getTaskWithColumn(spaceId, taskId);
+      if (taskResult && Array.isArray(taskResult.task.pipeline) && taskResult.task.pipeline.length > 0) {
+        resolvedStages = taskResult.task.pipeline;
+        resolvedFrom   = 'task';
+      }
+    } else {
+      const spaceDir = path.join(dataDir, 'spaces', spaceId);
+      for (const col of ['todo', 'in-progress', 'done']) {
+        const filePath = path.join(spaceDir, `${col}.json`);
+        if (!fs.existsSync(filePath)) continue;
+        try {
+          const tasks   = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          const found   = Array.isArray(tasks) ? tasks.find((t) => t.id === taskId) : null;
+          if (found && Array.isArray(found.pipeline) && found.pipeline.length > 0) {
+            resolvedStages = found.pipeline;
+            resolvedFrom   = 'task';
+          }
+          if (found) break;
+        } catch (err) {
+          console.warn(JSON.stringify({ event: 'run.task_pipeline_read_error', spaceId, taskId, col, message: err.message }));
         }
-        if (found) break;
-      } catch (err) {
-        console.warn(JSON.stringify({ event: 'run.task_pipeline_read_error', spaceId, taskId, col, message: err.message }));
       }
     }
   }
