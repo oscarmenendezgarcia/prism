@@ -738,9 +738,15 @@ async function runCommentDrivenTests() {
   process.env.PIPELINE_NO_SPAWN       = '1';
   process.env.PIPELINE_RUNS_DIR       = require('path').join(tmpServerDir, 'runs');
 
-  // Clear module cache so env vars are picked up
+  // Clear ALL project source files from module cache so the fresh server picks up
+  // new env vars AND so dynamic requires inside handlers (e.g. comments.js →
+  // pipelineManager) resolve to the same initialized instance as the server.
+  // Clearing only pipelineManager leaves server.js + handlers cached, causing
+  // them to hold a stale PM reference while the comments handler gets a
+  // fresh (uninitialized) PM via its own dynamic require.
+  const _cdProjectRoot = require('path').join(__dirname, '..');
   for (const key of Object.keys(require.cache)) {
-    if (key.includes('pipelineManager') || key.includes('agentResolver')) {
+    if (key.startsWith(_cdProjectRoot) && !key.includes('node_modules') && !key.includes('/tests/')) {
       delete require.cache[key];
     }
   }
@@ -1025,9 +1031,12 @@ async function runCrossAgentResolverTests() {
   process.env.PIPELINE_NO_SPAWN       = '1';
   process.env.PIPELINE_RUNS_DIR       = require('path').join(tmpDir2, 'runs');
 
-  // Clear module cache so env vars are picked up fresh
+  // Clear ALL project source files from module cache so the fresh server picks up
+  // new env vars AND so dynamic requires inside handlers (e.g. comments.js →
+  // pipelineManager) resolve to the same initialized instance as the server.
+  const _rsvProjectRoot = require('path').join(__dirname, '..');
   for (const key of Object.keys(require.cache)) {
-    if (key.includes('pipelineManager') || key.includes('agentResolver')) {
+    if (key.startsWith(_rsvProjectRoot) && !key.includes('node_modules') && !key.includes('/tests/')) {
       delete require.cache[key];
     }
   }

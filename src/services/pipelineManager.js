@@ -1239,6 +1239,19 @@ async function spawnStage(dataDir, run, stageIndex) {
  */
 function init(dataDir, store) {
   if (store) _store = store;
+
+  // Re-register this module instance in the require cache.
+  // In test environments the cache is sometimes cleared between server restarts,
+  // causing lazy require() calls in route handlers to create a second, uninitialized
+  // instance (with _store=null) instead of returning this initialized one.
+  // Re-registering here guarantees a single initialized instance per process.
+  try {
+    const selfPath = require.resolve(__filename);
+    if (!require.cache[selfPath]) {
+      require.cache[selfPath] = module;
+    }
+  } catch { /* ignore — not critical */ }
+
   const dir = runsDir(dataDir);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
