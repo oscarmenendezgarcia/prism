@@ -5,7 +5,7 @@
 
 ![Prism](docs/banner.png)
 
-Prism gives your AI pipelines a place to work. Agents create tasks, move them across columns, write to an embedded terminal, and stream live logs — all from a single interface you can run locally or in Docker.
+Prism is the operating environment for AI agent pipelines. Agents create tasks, move them across a Kanban board, write to an embedded terminal, and stream live logs — all from a single interface you run locally or in Docker.
 
 ![Prism demo](docs/prism-demo.gif)
 
@@ -13,14 +13,16 @@ Prism gives your AI pipelines a place to work. Agents create tasks, move them ac
 
 ## What it does
 
-Most Kanban tools are built for humans to track human work. Prism is different: it's designed as the **operating environment for AI agent pipelines**.
+Most Kanban tools are built for humans tracking human work. Prism is built for agents.
 
 - **Agents manage the board** — via MCP tools, Claude Code agents create tasks, update status, and attach artifacts as they work
 - **Run pipelines from any task** — one click launches a multi-stage pipeline (architect → UX → developer → QA) against a task card
+- **Global task search** — ⌘K / Ctrl+K to search across all spaces instantly, powered by SQLite FTS5
 - **Live log viewer** — stream stage-by-stage output in real time as each agent runs
-- **Embedded terminal** — full PTY shell inside the UI, useful for monitoring agent sessions
+- **Embedded terminal** — full PTY shell inside the UI for monitoring agent sessions
 - **Multiple spaces** — organise work across projects, each with its own board and pipeline config
 - **Auto-task generation** — describe a feature in natural language; Prism generates structured task cards via Claude
+- **Durable SQLite persistence** — all board state lives in a single `prism.db` file; no external database required
 
 ---
 
@@ -39,7 +41,7 @@ docker compose up -d
 # → http://localhost:3000
 ```
 
-No Node.js or build tools required locally. Board data persists in `./data/prism.db` (SQLite).
+No Node.js or build tools required locally. Board data persists in `./data/prism.db`.
 
 The board works without an API key. To enable agent pipelines, set `ANTHROPIC_API_KEY`:
 
@@ -59,27 +61,27 @@ The Docker image ships with **Claude Code** (`claude`) installed globally:
 docker compose exec prism claude --version
 ```
 
-This is the CLI that agent pipelines use when they run inside the container. No extra setup is needed — `ANTHROPIC_API_KEY` is forwarded from your host environment via `docker-compose.yml`.
+This is the CLI that agent pipelines use when they run inside the container. No extra setup needed — `ANTHROPIC_API_KEY` is forwarded from your host environment via `docker-compose.yml`.
 
 > **Want to use `opencode` instead?**  
 > `opencode` is not pre-installed, but you can add it by extending the Dockerfile:
 >
 > ```dockerfile
-> FROM ghcr.io/oscarmenendezgarcia/prism:latest   # or use build: . locally
+> FROM ghcr.io/oscarmenendezgarcia/prism:latest
 > RUN npm install -g opencode
 > ```
 >
-> Rebuild with `docker compose build`. Note that Prism's prompt-generation layer has partial support for `opencode`-style invocations; behaviour may differ from the Claude Code path.
+> Rebuild with `docker compose build`. Prism's prompt-generation layer has partial support for `opencode`-style invocations; behaviour may differ from the Claude Code path.
 
 ---
 
 ### Giving agents access to your project repos
 
-Agents that write code need to read and modify files on disk. There are two approaches:
+Agents that write code need to read and modify files on disk. Two options:
 
 #### Option A — Mount a volume (recommended for Docker)
 
-Add one extra volume entry per project in `docker-compose.yml`:
+Add a volume entry per project in `docker-compose.yml`:
 
 ```yaml
 services:
@@ -89,9 +91,7 @@ services:
       - /home/user/myproject:/workspace/myproject     # ← your repo
 ```
 
-Inside the container the project lives at `/workspace/myproject`. When you configure a **Space** in Prism, set its *Working Directory* to that same path so pipeline agents work in the right place.
-
-You can mount as many projects as you need:
+Set the Space's *Working Directory* to `/workspace/myproject` so pipeline agents work in the right place. Mount as many projects as needed:
 
 ```yaml
       - /home/user/projectA:/workspace/projectA
@@ -100,7 +100,7 @@ You can mount as many projects as you need:
 
 #### Option B — Run Prism locally (without Docker)
 
-If you prefer direct host filesystem access with no volume mapping or path translation, run Prism natively:
+For direct host filesystem access with no volume mapping:
 
 ```bash
 npm install
@@ -108,7 +108,7 @@ cd frontend && npm install && npm run build && cd ..
 ANTHROPIC_API_KEY=sk-... node server.js
 ```
 
-Agents launched from a Space whose *Working Directory* is an absolute host path (e.g. `/Users/alice/myproject`) have full, native access to those files with no extra configuration.
+Agents launched from a Space whose *Working Directory* points to an absolute host path have full, native access to those files.
 
 ---
 
@@ -158,7 +158,7 @@ Available tools: `kanban_list_tasks`, `kanban_create_task`, `kanban_update_task`
 
 ## Running locally (without Docker)
 
-**Prerequisites:** Node.js ≥ 18 and build tools for `node-pty`:
+**Prerequisites:** Node.js ≥ 18 and native build tools for `better-sqlite3` and `node-pty`:
 
 | OS | Command |
 |----|---------|
@@ -174,7 +174,7 @@ node server.js
 # → http://localhost:3000
 ```
 
-**Development mode** (with HMR):
+**Development mode** (Vite HMR):
 
 ```bash
 node server.js &
@@ -185,13 +185,11 @@ cd frontend && npm run dev   # → http://localhost:5173
 
 ## Parallel pipeline runs — git worktree isolation
 
-When two pipeline runs target the **same working directory**, they could race on git operations (checkouts, commits, rebases). Prism automatically provisions an isolated git worktree for each conflicting run so they never interfere.
+When two pipeline runs target the **same working directory**, Prism automatically provisions an isolated git worktree for each conflicting run so they never interfere.
 
-### How it works
-
-- **Solo run** — the first run on a directory works directly in the main checkout. No worktree is created. Fully backward compatible.
-- **Concurrent run** — any subsequent run that starts while another is still active in the same directory gets its own worktree at `.worktrees/run-<short-runId>`, branched off the current HEAD as `pipeline/run-<short-runId>`.
-- **Cleanup** — worktrees are removed automatically when a run reaches a terminal state (`completed`, `failed`, `interrupted`, `aborted`). Orphaned worktrees (no matching run) are reaped on the next server startup.
+- **Solo run** — works directly in the main checkout. No worktree created.
+- **Concurrent run** — gets its own worktree at `.worktrees/run-<short-runId>`, branched off current HEAD.
+- **Cleanup** — worktrees are removed automatically when a run reaches a terminal state (`completed`, `failed`, `interrupted`, `aborted`). Orphaned worktrees are reaped on the next server startup.
 
 ### Branch naming
 
@@ -199,13 +197,7 @@ When two pipeline runs target the **same working directory**, they could race on
 pipeline/run-<first-8-chars-of-runId>
 ```
 
-The worktree lives at:
-
-```
-<space-workingDirectory>/.worktrees/run-<first-8-chars-of-runId>
-```
-
-Both paths are in `.gitignore` and are never committed to the main repo.
+Both the worktree path and branch are in `.gitignore` and are never committed to the main repo.
 
 ### Environment variables
 
@@ -213,9 +205,7 @@ Both paths are in `.gitignore` and are never committed to the main repo.
 |----------|---------|-------------|
 | `PIPELINE_WORKTREE_ENABLED` | `1` | Set to `0` to disable worktree provisioning entirely |
 | `PIPELINE_WORKTREE_DIR` | `.worktrees` | Subdirectory under the space working directory |
-| `PIPELINE_DELETE_BRANCH_ON_FAILURE` | `0` | Set to `1` to delete the `pipeline/run-*` branch when a run fails or is aborted |
-
-> See `agent-docs/parallel-worktrees/ADR-1.md` for the full design rationale.
+| `PIPELINE_DELETE_BRANCH_ON_FAILURE` | `0` | Set to `1` to delete the `pipeline/run-*` branch on failure or abort |
 
 ---
 
@@ -241,7 +231,7 @@ cd frontend && npm test         # Frontend (Vitest + React Testing Library)
 
 ## Stack
 
-Node.js (no framework) · React 19 · TypeScript · Tailwind CSS v4 · Vite · Zustand · better-sqlite3 · node-pty
+Node.js (no framework) · React 19 · TypeScript · Tailwind CSS v4 · Vite · Zustand · SQLite (better-sqlite3) · node-pty
 
 ---
 
