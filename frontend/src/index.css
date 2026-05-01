@@ -144,7 +144,11 @@
 
   /* ── Animation tokens ────────────────────────────────────────────────── */
   --animate-fade-in-up:       fade-in-up 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
-  --animate-scale-in:         scale-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-scale-in:         scale-in 240ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-search-in:        search-in 200ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-search-out:       search-out 140ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  --animate-backdrop-in:      backdrop-in 180ms cubic-bezier(0.0, 0, 0.2, 1) both;
+  --animate-backdrop-out:     backdrop-out 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
   --animate-slide-in-bottom:  slide-in-bottom 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
   --animate-slide-in-right:   slide-in-right 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
   --animate-slide-out-right:  slide-out-right 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
@@ -411,8 +415,28 @@ html.dark {
 
 /* Modal / popover spring entrance */
 @keyframes scale-in {
-  from { opacity: 0; transform: scale(0.96); }
-  to   { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: scale(0.93) translateY(6px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+
+/* Command-palette / search modal — drops from slightly above */
+@keyframes search-in {
+  from { opacity: 0; transform: scale(0.97) translateY(-10px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+@keyframes search-out {
+  from { opacity: 1; transform: scale(1)    translateY(0); }
+  to   { opacity: 0; transform: scale(0.97) translateY(-6px); }
+}
+
+/* Backdrop fade */
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes backdrop-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
 }
 
 /* Sheet slide in from bottom */
@@ -487,6 +511,16 @@ html.dark {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* Stagger delay utilities — used in place of inline animation-delay */
+.stagger-delay-0 { animation-delay:   0ms; }
+.stagger-delay-1 { animation-delay:  28ms; }
+.stagger-delay-2 { animation-delay:  56ms; }
+.stagger-delay-3 { animation-delay:  84ms; }
+.stagger-delay-4 { animation-delay: 112ms; }
+.stagger-delay-5 { animation-delay: 140ms; }
+.stagger-delay-6 { animation-delay: 168ms; }
+.stagger-delay-7 { animation-delay: 200ms; }
 
 /* Drag drop-target column border pulse */
 @keyframes drop-pulse {

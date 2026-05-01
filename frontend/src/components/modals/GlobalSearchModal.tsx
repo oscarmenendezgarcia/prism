@@ -44,10 +44,11 @@ interface ResultItemProps {
   id:       string;
 }
 
-function ResultItem({ result, selected, onSelect, id }: ResultItemProps) {
+function ResultItem({ result, selected, onSelect, id, index = 0 }: ResultItemProps & { index?: number }) {
   const { task, spaceName, column } = result;
   const colLabel = COLUMN_LABELS[column] ?? column;
   const colColor = COLUMN_COLORS[column] ?? 'text-text-secondary bg-surface-variant';
+  const staggerClass = `stagger-delay-${Math.min(index, 7)}`;
 
   return (
     <li
@@ -55,7 +56,7 @@ function ResultItem({ result, selected, onSelect, id }: ResultItemProps) {
       role="option"
       aria-selected={selected}
       onClick={onSelect}
-      className={`flex flex-col gap-1 px-4 py-3 cursor-pointer transition-colors duration-100 border-b border-border/50 last:border-b-0 ${
+      className={`flex flex-col gap-1 px-4 py-3 cursor-pointer transition-all duration-150 border-b border-border/50 last:border-b-0 animate-stagger-in ${staggerClass} ${
         selected ? 'bg-primary/10' : 'hover:bg-surface-variant'
       }`}
     >
@@ -168,6 +169,8 @@ export function GlobalSearchModal({ open, onClose }: GlobalSearchModalProps) {
       onClose={onClose}
       labelId={titleId}
       className="max-w-[560px]"
+      enterAnimation="animate-search-in"
+      exitAnimation="animate-search-out"
     >
       {/* Search input — no ModalHeader so the input IS the header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
@@ -222,6 +225,7 @@ export function GlobalSearchModal({ open, onClose }: GlobalSearchModalProps) {
             key={result.task.id}
             id={`${listboxId}-item-${i}`}
             result={result}
+            index={i}
             selected={i === selectedIndex}
             onSelect={() => activateResult(result)}
           />

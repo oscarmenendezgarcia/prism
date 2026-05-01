@@ -98,7 +98,7 @@ const AUTOTASK_GENERATE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/autotask\/generate
 const AUTOTASK_CONFIRM_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/autotask\/confirm$/;
 // Global search route — MUST be registered before LEGACY_TASKS_ROUTE
 // to avoid being swallowed by the /api/v1/tasks/* shim.
-const SEARCH_ROUTE        = /^\/api\/v1\/tasks\/search$/;
+const SEARCH_ROUTE        = /^\/api\/v1\/tasks\/search(\?|$)/;
 // Legacy: /api/v1/tasks and everything under it.
 const LEGACY_TASKS_ROUTE  = /^\/api\/v1(\/tasks.*)$/;
 // Settings route
