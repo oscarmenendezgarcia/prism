@@ -477,6 +477,7 @@ describe('handleCreateRun — pipeline resolution (T-004)', () => {
 
     process.env.PIPELINE_AGENTS_DIR     = agentsDir;
     process.env.PIPELINE_MAX_CONCURRENT = '10';
+    process.env.PIPELINE_NO_SPAWN       = '1';
 
     // Build space + task in SQLite.
     const spaceId = crypto.randomUUID();
@@ -525,6 +526,7 @@ describe('handleCreateRun — pipeline resolution (T-004)', () => {
   }
 
   async function stopPipelineServer(server, dataDir, agentsDir) {
+    delete process.env.PIPELINE_NO_SPAWN;
     if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(dataDir,   { recursive: true, force: true });
