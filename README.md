@@ -1,7 +1,7 @@
 # Prism
 
 [![CI](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml/badge.svg)](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-0.3.0--beta-blue)
+![version](https://img.shields.io/badge/version-0.5.0--beta-blue)
 
 ![Prism](docs/banner.png)
 
