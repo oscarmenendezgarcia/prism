@@ -109,6 +109,7 @@ describe('Pipeline + Working Directory (BUG-004)', () => {
     // Set up environment
     process.env.PIPELINE_AGENTS_DIR = agentsDir;
     process.env.PIPELINE_RUNS_DIR   = path.join(dataDir, 'runs');
+    process.env.PIPELINE_NO_SPAWN   = '1';
 
     // Import and start server
     const { startServer } = require('../server');
@@ -126,6 +127,7 @@ describe('Pipeline + Working Directory (BUG-004)', () => {
   after(async () => {
     delete process.env.PIPELINE_RUNS_DIR;
     delete process.env.PIPELINE_AGENTS_DIR;
+    delete process.env.PIPELINE_NO_SPAWN;
     return new Promise((resolve) => {
       if (server) {
         if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
