@@ -30,6 +30,10 @@ Object.defineProperty(window, 'matchMedia', {
     disconnect() {}
   };
 
+// scrollIntoView is not implemented in jsdom.
+// GlobalSearchModal uses it to keep the selected result visible.
+Element.prototype.scrollIntoView = () => {};
+
 // IntersectionObserver is not implemented in jsdom.
 // useLazyImage and CardImage rely on this.
 (globalThis as typeof globalThis & { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver =

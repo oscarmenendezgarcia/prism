@@ -54,6 +54,7 @@ const {
   handleCreateComment,
   handleUpdateComment,
 } = require('../handlers/comments');
+const { handleSearchTasks } = require('../handlers/search');
 
 const {
   PIPELINE_RUNS_LIST_ROUTE,
@@ -95,6 +96,9 @@ const TAGGER_RUN_ROUTE       = /^\/api\/v1\/spaces\/([^/]+)\/tagger\/run$/;
 // Auto-task routes — also before SPACES_TASKS_ROUTE.
 const AUTOTASK_GENERATE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/autotask\/generate$/;
 const AUTOTASK_CONFIRM_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/autotask\/confirm$/;
+// Global search route — MUST be registered before LEGACY_TASKS_ROUTE
+// to avoid being swallowed by the /api/v1/tasks/* shim.
+const SEARCH_ROUTE        = /^\/api\/v1\/tasks\/search(\?|$)/;
 // Legacy: /api/v1/tasks and everything under it.
 const LEGACY_TASKS_ROUTE  = /^\/api\/v1(\/tasks.*)$/;
 // Settings route
@@ -498,6 +502,17 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       if (method === 'GET')    return handleGetTemplate(req, res, templateId, dataDir);
       if (method === 'PUT')    return handleUpdateTemplate(req, res, templateId, dataDir);
       if (method === 'DELETE') return handleDeleteTemplate(req, res, templateId, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Global search route: GET /api/v1/tasks/search
+    // MUST be before LEGACY_TASKS_ROUTE to avoid being swallowed by the shim.
+    // -------------------------------------------------------------------------
+    if (SEARCH_ROUTE.test(urlPath)) {
+      if (method === 'GET') {
+        return handleSearchTasks(req, res, store, spaceManager);
+      }
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

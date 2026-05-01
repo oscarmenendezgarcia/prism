@@ -224,6 +224,14 @@ function createStore(dataDir) {
        ORDER BY rank
        LIMIT ?
     `),
+    searchAllTasks: db.prepare(`
+      SELECT t.*, t.space_id AS _space_id, t.column AS _column
+        FROM tasks_fts
+        JOIN tasks t ON t.rowid = tasks_fts.rowid
+       WHERE tasks_fts MATCH ?
+       ORDER BY rank
+       LIMIT ?
+    `),
   };
 
   // ---------------------------------------------------------------------------
@@ -409,6 +417,38 @@ function createStore(dataDir) {
     }
   }
 
+  /**
+   * Full-text search over task title and description across ALL spaces.
+   *
+   * Uses FTS5 MATCH operator; results are ordered by relevance (BM25 rank).
+   * Returns an empty array when query is blank or contains only whitespace.
+   *
+   * @param {string} query           - User-supplied search string (FTS5 query syntax).
+   * @param {object} [opts]
+   * @param {number} [opts.limit=20] - Maximum number of results to return.
+   * @returns {Array<{ task: object, spaceId: string, column: string }>}
+   */
+  function searchAllTasks(query, { limit = 20 } = {}) {
+    if (!query || query.trim().length === 0) return [];
+
+    const trimmedQuery = query.trim();
+
+    try {
+      const rows = stmts.searchAllTasks.all(trimmedQuery, limit);
+      return rows.map((row) => ({
+        task:    rowToTask(row),
+        spaceId: row._space_id,
+        column:  row._column,
+      }));
+    } catch (err) {
+      // FTS5 MATCH throws on malformed query strings (e.g. unmatched quotes).
+      // Return an empty result rather than crashing the handler.
+      console.error(`[store] searchAllTasks FTS5 error — query="${trimmedQuery}":`, err.message);
+      return [];
+    }
+  }
+
+
   // ---------------------------------------------------------------------------
   // FTS maintenance
   // ---------------------------------------------------------------------------
@@ -450,6 +490,7 @@ function createStore(dataDir) {
     deleteTask,
     clearSpace,
     searchTasks,
+    searchAllTasks,
     rebuildFts,
     // Lifecycle
     close,

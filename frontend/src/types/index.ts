@@ -444,6 +444,25 @@ export interface ConfigFileSaveResult {
 }
 
 // ---------------------------------------------------------------------------
+// Global search types (ADR-1: global-search)
+// ---------------------------------------------------------------------------
+
+/** A single result row returned by GET /api/v1/tasks/search. */
+export interface SearchResult {
+  task:      Task;
+  spaceId:   string;
+  spaceName: string;
+  column:    Column;
+}
+
+/** Response shape for GET /api/v1/tasks/search. */
+export interface SearchResponse {
+  query:   string;
+  count:   number;
+  results: SearchResult[];
+}
+
+// ---------------------------------------------------------------------------
 // Agent run history types (ADR-1: Agent Run History)
 // ---------------------------------------------------------------------------
 

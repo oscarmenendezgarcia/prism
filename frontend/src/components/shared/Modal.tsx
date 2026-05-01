@@ -11,6 +11,9 @@ interface ModalProps {
   children: React.ReactNode;
   className?: string;
   role?: 'dialog' | 'alertdialog';
+  /** Override enter/exit animation classes on the content box. */
+  enterAnimation?: string;
+  exitAnimation?: string;
 }
 
 export function Modal({
@@ -21,6 +24,8 @@ export function Modal({
   children,
   className = '',
   role = 'dialog',
+  enterAnimation = 'animate-scale-in',
+  exitAnimation = 'animate-modal-out',
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -106,7 +111,7 @@ export function Modal({
     <ModalCloseContext.Provider value={handleClose}>
       <div
         ref={overlayRef}
-        className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 backdrop-blur-[40px] backdrop-saturate-[200%]"
+        className={`fixed inset-0 z-[150] flex items-center justify-center bg-black/40 backdrop-blur-[40px] backdrop-saturate-[200%] ${isClosing ? 'animate-backdrop-out' : 'animate-backdrop-in'}`}
         role={role}
         aria-modal="true"
         aria-labelledby={labelId}
@@ -114,7 +119,7 @@ export function Modal({
         onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
       >
         <div
-          className={`bg-surface glass-heavy border border-border rounded-modal shadow-modal w-full max-w-lg mx-4 flex flex-col ${isClosing ? 'animate-modal-out' : 'animate-scale-in'} ${className}`}
+          className={`bg-surface glass-heavy border border-border rounded-modal shadow-modal w-full max-w-lg mx-4 flex flex-col ${isClosing ? exitAnimation : enterAnimation} ${className}`}
           onClick={(e) => e.stopPropagation()}
         >
           {children}
