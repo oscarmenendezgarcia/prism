@@ -266,6 +266,15 @@ interface AppState {
     patch: { resolved?: boolean; text?: string },
   ) => Promise<void>;
 
+  // ── Global search (ADR-1: global-search) ─────────────────────────────────
+
+  /** Whether the GlobalSearchModal is currently open. */
+  isGlobalSearchOpen: boolean;
+  /** Open the GlobalSearchModal. */
+  openGlobalSearch: () => void;
+  /** Close the GlobalSearchModal. */
+  closeGlobalSearch: () => void;
+
   // ── Tagger agent (ADR-1: Tagger Agent) ───────────────────────────────────
 
   /** True while a tagger API call is in flight. Disables the TaggerButton. */
@@ -1244,6 +1253,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw err;
     }
   },
+
+  // ── Global search (ADR-1: global-search) ─────────────────────────────────
+
+  isGlobalSearchOpen: false,
+  openGlobalSearch:   () => set({ isGlobalSearchOpen: true }),
+  closeGlobalSearch:  () => set({ isGlobalSearchOpen: false }),
 
   // ── Tagger agent (ADR-1: Tagger Agent) ───────────────────────────────────
 

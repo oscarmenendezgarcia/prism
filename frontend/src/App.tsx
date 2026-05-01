@@ -26,6 +26,7 @@ import { SpaceModal } from '@/components/modals/SpaceModal';
 import { DeleteSpaceDialog } from '@/components/modals/DeleteSpaceDialog';
 import { PipelineConfirmModal } from '@/components/modals/PipelineConfirmModal';
 import { TaggerReviewModal } from '@/components/modals/TaggerReviewModal';
+import { GlobalSearchModal } from '@/components/modals/GlobalSearchModal';
 import { AutoTaskFAB } from '@/components/AutoTaskFAB';
 import { AutoTaskModal } from '@/components/AutoTaskModal';
 import { Toast } from '@/components/shared/Toast';
@@ -87,6 +88,9 @@ function AppContent() {
   const pipelineState          = useAppStore((s) => s.pipelineState);
   const historyPanelOpen       = useRunHistoryStore((s) => s.historyPanelOpen);
   const logPanelOpen           = usePipelineLogStore((s) => s.logPanelOpen);
+  const isGlobalSearchOpen     = useAppStore((s) => s.isGlobalSearchOpen);
+  const openGlobalSearch       = useAppStore((s) => s.openGlobalSearch);
+  const closeGlobalSearch      = useAppStore((s) => s.closeGlobalSearch);
 
   const [autoTaskModalOpen, setAutoTaskModalOpen] = React.useState(false);
 
@@ -95,6 +99,34 @@ function AppContent() {
     loadSettings();
     loadSystemInfo();
   }, [loadSpaces, loadSettings, loadSystemInfo]);
+
+  // Global ⌘K / Ctrl+K keyboard shortcut — opens GlobalSearchModal.
+  // Does NOT fire when focus is already inside a text input / textarea /
+  // contenteditable that is NOT the search input itself (ADR-1 §FR-3, NFR-4).
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!(e.key === 'k' && (e.metaKey || e.ctrlKey))) return;
+
+      const target = e.target as HTMLElement;
+      const tag    = target.tagName.toLowerCase();
+      const isTextInput =
+        tag === 'textarea' ||
+        (tag === 'input' && (target as HTMLInputElement).type !== 'hidden') ||
+        target.isContentEditable;
+
+      // Allow the shortcut to fire when the focused element is the search input
+      // (role="combobox") so the user can re-open without moving focus elsewhere.
+      const isSearchInput = target.getAttribute('role') === 'combobox';
+
+      if (isTextInput && !isSearchInput) return;
+
+      e.preventDefault();
+      openGlobalSearch();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [openGlobalSearch]);
 
   usePolling(); // includes external-run detection on each idle tick
   useAgentCompletion();
@@ -135,6 +167,7 @@ function AppContent() {
       <DeleteSpaceDialog />
       <PipelineConfirmModal />
       <TaggerReviewModal />
+      <GlobalSearchModal open={isGlobalSearchOpen} onClose={closeGlobalSearch} />
       <AutoTaskModal
         open={autoTaskModalOpen}
         onClose={() => {

@@ -26,6 +26,7 @@ import type {
   TaggerOptions,
   TaggerResult,
   Comment,
+  SearchResponse,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -532,6 +533,26 @@ export const runTagger = (spaceId: string, opts: TaggerOptions = {}): Promise<Ta
       ...(opts.prompt !== undefined ? { prompt: opts.prompt } : {}),
     }),
   });
+
+// ---------------------------------------------------------------------------
+// Global task search API (ADR-1: global-search)
+// ---------------------------------------------------------------------------
+
+/**
+ * Search for tasks by title or description across all project spaces.
+ * Uses FTS5 full-text search; results ranked by BM25 relevance.
+ *
+ * GET /api/v1/tasks/search?q=<text>&limit=<n>
+ *
+ * @param q      - Search query (1–200 chars).
+ * @param limit  - Maximum results (1–50, default 20).
+ * @param signal - AbortSignal to cancel an in-flight request.
+ * @returns Parsed SearchResponse with ranked results across all spaces.
+ */
+export function searchTasks(q: string, limit = 20, signal?: AbortSignal): Promise<SearchResponse> {
+  const qs = new URLSearchParams({ q, limit: String(limit) });
+  return apiFetch<SearchResponse>(`/tasks/search?${qs.toString()}`, { signal });
+}
 
 // ---------------------------------------------------------------------------
 // Pipeline log viewer API (ADR-1: log-viewer)
