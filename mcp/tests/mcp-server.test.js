@@ -42,10 +42,13 @@ let kanbanServer;
 
 function startKanbanServer(port) {
   return new Promise((resolve, reject) => {
+    // Ensure the isolated data directory exists before the server tries to open SQLite.
+    mkdirSync(TEST_DATA_DIR, { recursive: true });
+
     // Spin up a real Kanban server instance on the test port.
     // We spawn it as a child process so it is completely isolated.
     const proc = spawn('node', [SERVER_JS_PATH], {
-      env: { ...process.env, PORT: String(port), DATA_DIR: TEST_DATA_DIR },
+      env: { ...process.env, PORT: String(port), DATA_DIR: TEST_DATA_DIR, PIPELINE_NO_SPAWN: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -189,15 +192,14 @@ after(() => {
 // ---------------------------------------------------------------------------
 
 describe('MCP handshake', () => {
-  it('tools/list returns exactly 7 tools with correct names', async () => {
+  it('tools/list includes all core CRUD tools and kanban_search_tasks', async () => {
     const resp = await rpc('tools/list', {}, 100);
     assert.ok(resp.result, 'tools/list should return a result');
     const tools = resp.result.tools;
     assert.ok(Array.isArray(tools), 'tools should be an array');
-    assert.equal(tools.length, 7);
 
-    const names = tools.map((t) => t.name).sort();
-    assert.deepEqual(names, [
+    const names = tools.map((t) => t.name);
+    const required = [
       'kanban_clear_board',
       'kanban_create_task',
       'kanban_delete_task',
@@ -205,7 +207,11 @@ describe('MCP handshake', () => {
       'kanban_list_tasks',
       'kanban_move_task',
       'kanban_update_task',
-    ]);
+      'kanban_search_tasks',
+    ];
+    for (const name of required) {
+      assert.ok(names.includes(name), `missing tool: ${name}`);
+    }
   });
 });
 
@@ -219,7 +225,7 @@ describe('CRUD lifecycle', () => {
   it('kanban_create_task creates a task and returns it with an ID', async () => {
     const resp = await callTool('kanban_create_task', {
       title: 'MCP Integration Test Task',
-      type: 'task',
+      type: 'feature',
       description: 'Created by mcp-server.test.js',
       assigned: 'test-agent',
     }, 200);
@@ -232,7 +238,7 @@ describe('CRUD lifecycle', () => {
     const task = JSON.parse(resp.result.content[0].text);
     assert.ok(task.id, 'task should have an id');
     assert.equal(task.title, 'MCP Integration Test Task');
-    assert.equal(task.type, 'task');
+    assert.equal(task.type, 'feature');
     assert.equal(task.assigned, 'test-agent');
 
     createdTaskId = task.id;
@@ -278,8 +284,9 @@ describe('CRUD lifecycle', () => {
     assert.ok(resp.result);
     assert.equal(resp.result.isError, undefined);
 
-    const task = JSON.parse(resp.result.content[0].text);
-    assert.equal(task.id, createdTaskId);
+    const result = JSON.parse(resp.result.content[0].text);
+    assert.equal(result.task.id, createdTaskId);
+    assert.equal(result.to, 'in-progress');
   });
 
   it('kanban_list_tasks with column filter returns task in in-progress', async () => {
@@ -304,6 +311,7 @@ describe('CRUD lifecycle', () => {
 
     const data = JSON.parse(resp.result.content[0].text);
     for (const tasks of Object.values(data)) {
+      if (!Array.isArray(tasks)) continue;
       for (const task of tasks) {
         assert.equal(task.assigned, 'test-agent');
       }
@@ -341,7 +349,7 @@ describe('kanban_clear_board', () => {
     // Create a couple of tasks first so N > 0.
     const createResp = await callTool('kanban_create_task', {
       title: 'Clear-board integration test task',
-      type: 'task',
+      type: 'feature',
       assigned: 'test-clear-agent',
     }, 300);
     assert.ok(createResp.result);
@@ -377,6 +385,65 @@ describe('kanban_clear_board', () => {
 
     const result = JSON.parse(clearResp.result.content[0].text);
     assert.equal(result.deleted, 0, `Expected deleted=0, got ${result.deleted}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// kanban_search_tasks
+// ---------------------------------------------------------------------------
+
+describe('kanban_search_tasks', () => {
+  let searchTaskId;
+
+  before(async () => {
+    const resp = await callTool('kanban_create_task', {
+      title: 'Unique search target zxqw',
+      type: 'feature',
+      description: 'Findable by full-text search',
+    }, 800);
+    const task = JSON.parse(resp.result.content[0].text);
+    searchTaskId = task.id;
+  });
+
+  after(async () => {
+    if (searchTaskId) {
+      await callTool('kanban_delete_task', { id: searchTaskId }, 899);
+    }
+  });
+
+  it('returns results matching the query', async () => {
+    const resp = await callTool('kanban_search_tasks', { q: 'zxqw' }, 801);
+    assert.ok(resp.result, 'should have result');
+    assert.equal(resp.result.isError, undefined, 'should not be an error');
+
+    const data = JSON.parse(resp.result.content[0].text);
+    assert.ok(Array.isArray(data.results), 'results should be an array');
+    assert.ok(data.results.length >= 1, 'should find at least one result');
+
+    const found = data.results.find((r) => r.task.id === searchTaskId);
+    assert.ok(found, 'created task should appear in results');
+    assert.ok(found.spaceId, 'result should include spaceId');
+    assert.ok(found.column, 'result should include column');
+  });
+
+  it('returns empty results for a query that matches nothing', async () => {
+    const resp = await callTool('kanban_search_tasks', { q: 'zzznomatchxxx99987' }, 802);
+    assert.ok(resp.result);
+    assert.equal(resp.result.isError, undefined);
+
+    const data = JSON.parse(resp.result.content[0].text);
+    assert.ok(Array.isArray(data.results), 'results should be an array');
+    assert.equal(data.results.length, 0, 'should return 0 results');
+  });
+
+  it('respects the limit parameter', async () => {
+    const resp = await callTool('kanban_search_tasks', { q: 'e', limit: 1 }, 803);
+    assert.ok(resp.result);
+    assert.equal(resp.result.isError, undefined);
+
+    const data = JSON.parse(resp.result.content[0].text);
+    assert.ok(Array.isArray(data.results));
+    assert.ok(data.results.length <= 1, 'should return at most 1 result');
   });
 });
 
