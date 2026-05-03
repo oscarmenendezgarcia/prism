@@ -448,6 +448,23 @@ export async function findActiveRunForTask({ spaceId, taskId }) {
 }
 
 // ---------------------------------------------------------------------------
+// Search — cross-space full-text search
+// ---------------------------------------------------------------------------
+
+/**
+ * Search tasks by text across all spaces using FTS5 BM25 ranking.
+ * Calls GET /tasks/search?q=<query>[&limit=<n>].
+ *
+ * @param {{ q: string, limit?: number }} params
+ * @returns {Promise<{ query: string, count: number, results: Array<{task: object, spaceId: string, spaceName: string, column: string}> }|{ error: true, code: string, message: string }>}
+ */
+export async function searchTasks({ q, limit }) {
+  const qs = new URLSearchParams({ q });
+  if (limit) qs.set('limit', String(limit));
+  return request('GET', `/tasks/search?${qs.toString()}`);
+}
+
+// ---------------------------------------------------------------------------
 // Activity feed — ADR-1 (Activity Feed) §T-008
 // ---------------------------------------------------------------------------
 

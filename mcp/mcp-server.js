@@ -39,6 +39,7 @@ import {
   renameSpace,
   deleteSpace,
   listActivity,
+  searchTasks,
   startPipeline,
   getRunStatus,
   resumePipeline,
@@ -55,7 +56,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const SERVER_NAME    = 'prism';
-const SERVER_VERSION = '2.1.0';
+const SERVER_VERSION = '2.2.0';
 const KANBAN_API_URL = process.env.KANBAN_API_URL ?? 'http://localhost:3000/api/v1';
 
 // ---------------------------------------------------------------------------
@@ -425,6 +426,34 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
+// Tool: kanban_search_tasks (new — cross-space FTS)
+// ---------------------------------------------------------------------------
+
+server.tool(
+  'kanban_search_tasks',
+  'Search tasks by text across all spaces. ' +
+  'Matches against task title and description using full-text search (FTS5, BM25 ranking). ' +
+  'Returns results with the task object, spaceId, spaceName, and column for each match. ' +
+  'Use this instead of iterating kanban_get_task over all spaces when you do not know the spaceId.',
+  {
+    q: z
+      .string()
+      .min(1)
+      .describe('Search query (matches title and description).'),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(50)
+      .optional()
+      .describe('Maximum number of results to return (1–50). Defaults to 20.'),
+  },
+  withTiming('kanban_search_tasks', async ({ q, limit }) => {
+    return searchTasks({ q, limit });
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Tool: kanban_start_pipeline (new — ADR-1 mcp-start-pipeline)
 // ---------------------------------------------------------------------------
 
@@ -632,6 +661,6 @@ const transport = new StdioServerTransport();
 
 log('INFO', `Starting ${SERVER_NAME} v${SERVER_VERSION}`);
 log('INFO', `Kanban API URL: ${KANBAN_API_URL}`);
-log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_start_pipeline, kanban_get_run_status, kanban_resume_pipeline, kanban_stop_pipeline, kanban_add_comment, kanban_answer_comment');
+log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_search_tasks, kanban_start_pipeline, kanban_get_run_status, kanban_resume_pipeline, kanban_stop_pipeline, kanban_add_comment, kanban_answer_comment');
 
 await server.connect(transport);
