@@ -236,6 +236,52 @@ async function runTests() {
     assert(res.body.error.code === 'INVALID_LIMIT', `expected INVALID_LIMIT, got ${res.body.error.code}`);
   });
 
+  // ── UUID direct lookup ────────────────────────────────────────────────────
+
+  suite('GET /api/v1/tasks/search — UUID direct lookup');
+
+  await test('should_return_task_when_q_is_exact_task_id', async () => {
+    // Use one of the tasks we created above — spaceA, "Deploy to staging"
+    // The /spaces/:id/tasks endpoint returns a board { todo: [], "in-progress": [], done: [] }
+    const allRes = await request('GET', `/api/v1/spaces/${spaceA.id}/tasks`);
+    assert(allRes.status === 200, `expected 200 listing tasks, got ${allRes.status}`);
+    const deployTask = allRes.body.todo.find((t) => t.title === 'Deploy to staging');
+    assert(deployTask, 'expected to find Deploy to staging task in todo column');
+
+    const res = await request('GET', `/api/v1/tasks/search?q=${deployTask.id}`);
+    assert(res.status === 200, `expected 200, got ${res.status}`);
+    assert(res.body.count === 1, `expected count=1, got ${res.body.count}`);
+    assert(res.body.results.length === 1, 'expected exactly 1 result');
+
+    const result = res.body.results[0];
+    assert(result.task.id === deployTask.id, `task id mismatch: ${result.task.id}`);
+    assert(result.spaceId === spaceA.id, `spaceId mismatch: ${result.spaceId}`);
+    assert(typeof result.spaceName === 'string', 'spaceName must be a string');
+    assert(result.column === 'todo', `expected column=todo, got ${result.column}`);
+    assert(res.body.query === deployTask.id, 'query must echo the UUID back');
+  });
+
+  await test('should_return_0_results_for_uuid_that_does_not_exist', async () => {
+    const fakeUuid = '00000000-0000-0000-0000-000000000000';
+    const res = await request('GET', `/api/v1/tasks/search?q=${fakeUuid}`);
+    assert(res.status === 200, `expected 200, got ${res.status}`);
+    assert(res.body.count === 0, `expected count=0, got ${res.body.count}`);
+    assert(res.body.results.length === 0, 'expected empty results');
+  });
+
+  await test('should_find_uuid_in_second_space', async () => {
+    // Board response: { todo: [], "in-progress": [], done: [] }
+    const allRes = await request('GET', `/api/v1/spaces/${spaceB.id}/tasks`);
+    assert(allRes.status === 200, `expected 200 listing tasks, got ${allRes.status}`);
+    const bTask = allRes.body.todo[0];
+    assert(bTask, 'expected at least one task in spaceB todo column');
+
+    const res = await request('GET', `/api/v1/tasks/search?q=${bTask.id}`);
+    assert(res.status === 200, `expected 200, got ${res.status}`);
+    assert(res.body.count === 1, `expected count=1, got ${res.body.count}`);
+    assert(res.body.results[0].spaceId === spaceB.id, 'should find task in spaceB');
+  });
+
   // ── 405 Method not allowed ────────────────────────────────────────────────
 
   suite('GET /api/v1/tasks/search — 405 method not allowed');
