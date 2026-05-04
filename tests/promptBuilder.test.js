@@ -344,6 +344,13 @@ async function runTests() {
 
       assert(promptText.includes('POST A NOTE'),       'pipelineManager prompt must include note guidance');
       assert(promptText.includes('HANDOFF SUMMARY'),   'pipelineManager prompt must include handoff guidance');
+
+      // Regression: POST A NOTE and HANDOFF SUMMARY must NOT appear twice.
+      // buildKanbanBlock already contains them — buildCommentGuidanceLines must NOT be appended separately.
+      const postANoteCount    = (promptText.match(/POST A NOTE/g) || []).length;
+      const handoffCount      = (promptText.match(/HANDOFF SUMMARY/g) || []).length;
+      assert(postANoteCount === 1,  `POST A NOTE must appear exactly once in prompt, got ${postANoteCount}`);
+      assert(handoffCount   === 1,  `HANDOFF SUMMARY must appear exactly once in prompt, got ${handoffCount}`);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
