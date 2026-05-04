@@ -150,6 +150,52 @@ describe('searchAllTasks — cross-space search', () => {
   });
 });
 
+describe('getTaskById — cross-space ID lookup', () => {
+  let store;
+
+  beforeEach(() => {
+    store = createStore(':memory:');
+    store.upsertSpace(makeSpace('space-a', 'Alpha'));
+    store.upsertSpace(makeSpace('space-b', 'Beta'));
+    store.insertTask(makeTask('task-in-a', 'Task A', 'desc A'), 'space-a', 'todo');
+    store.insertTask(makeTask('task-in-b', 'Task B', 'desc B'), 'space-b', 'in-progress');
+  });
+
+  it('should_find_task_in_first_space', () => {
+    const result = store.getTaskById('task-in-a');
+    assert.ok(result, 'expected non-null result');
+    assert.equal(result.task.id, 'task-in-a');
+    assert.equal(result.spaceId, 'space-a');
+    assert.equal(result.column, 'todo');
+  });
+
+  it('should_find_task_in_second_space', () => {
+    const result = store.getTaskById('task-in-b');
+    assert.ok(result, 'expected non-null result');
+    assert.equal(result.task.id, 'task-in-b');
+    assert.equal(result.spaceId, 'space-b');
+    assert.equal(result.column, 'in-progress');
+  });
+
+  it('should_return_null_for_unknown_id', () => {
+    const result = store.getTaskById('does-not-exist');
+    assert.equal(result, null);
+  });
+
+  it('should_return_task_with_correct_shape', () => {
+    const result = store.getTaskById('task-in-a');
+    assert.ok(result);
+    const { task, spaceId, column } = result;
+    assert.equal(typeof task.id, 'string');
+    assert.equal(typeof task.title, 'string');
+    assert.equal(typeof task.type, 'string');
+    assert.ok('createdAt' in task);
+    assert.ok('updatedAt' in task);
+    assert.equal(typeof spaceId, 'string');
+    assert.equal(typeof column, 'string');
+  });
+});
+
 describe('searchAllTasks — malformed FTS5 query resilience', () => {
   let store;
 

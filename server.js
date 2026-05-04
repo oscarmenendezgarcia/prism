@@ -33,6 +33,8 @@
 
 const http = require('http');
 const path = require('path');
+const fs   = require('fs');
+const os   = require('os');
 
 const { migrate }            = require('./src/services/migrator');
 const { createSpaceManager } = require('./src/services/spaceManager');
@@ -41,13 +43,20 @@ const { readSettings }       = require('./src/handlers/settings');
 const { createApp }          = require('./src/handlers/tasks');
 const { cleanupOldPromptFiles } = require('./src/handlers/prompt');
 const { createRouter }       = require('./src/routes');
+const { resolveDataDir }     = require('./src/utils/dataDir');
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_PORT     = parseInt(process.env.PORT || '3000', 10);
-const DEFAULT_DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const DEFAULT_PORT = parseInt(process.env.PORT || '3000', 10);
+
+const _dataDirResult = resolveDataDir({
+  env:         process.env,
+  packageRoot: __dirname,
+  homedir:     os.homedir(),
+});
+const DEFAULT_DATA_DIR = _dataDirResult.path;
 
 // ---------------------------------------------------------------------------
 // Server factory — exported for use by tests and direct invocation
@@ -63,8 +72,31 @@ const DEFAULT_DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
  * @returns {import('http').Server}
  */
 function startServer(options = {}) {
-  const dataDir = options.dataDir || DEFAULT_DATA_DIR;
-  const port    = options.port !== undefined ? options.port : DEFAULT_PORT;
+  // Resolve the data directory for this invocation.
+  // If options.dataDir is provided (e.g. from CLI --data-dir flag or tests),
+  // honour it directly. Otherwise use the module-level resolved default.
+  let dataDir, dataDirMode;
+  if (options.dataDir) {
+    dataDir     = options.dataDir;
+    dataDirMode = 'env';
+  } else {
+    const resolved = resolveDataDir({
+      env:         process.env,
+      packageRoot: __dirname,
+      homedir:     os.homedir(),
+    });
+    dataDir     = resolved.path;
+    dataDirMode = resolved.mode;
+  }
+
+  const port = options.port !== undefined ? options.port : DEFAULT_PORT;
+
+  // Ensure the data directory exists before the migrator attempts to open it.
+  fs.mkdirSync(dataDir, { recursive: true });
+
+  if (!options.silent) {
+    console.log(`[startup] data dir: ${dataDir} (mode=${dataDirMode})`);
+  }
 
   // Step 1: Run migrator + open SQLite store before anything else.
   let store;
