@@ -35,6 +35,7 @@ const {
   buildKanbanBlock,
   buildGitContextBlock,
   buildCompileGateBlock,
+  buildResolvedQuestionsBlock,
 } = require('../utils/promptBuilder');
 
 // Resolve the claude binary path once at startup so caffeinate (and sh) can
@@ -1008,6 +1009,14 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
         promptText += `- ${att.name}: ${att.content}\n`;
       }
     }
+  }
+
+  // Include resolved Q&A from previous pipeline blocks so the next stage agent
+  // knows what was decided without re-asking the same questions.
+  // Only questions that were asked AND fully resolved (with an answer comment) are shown.
+  if (task && Array.isArray(task.comments) && task.comments.length > 0) {
+    const resolvedBlock = buildResolvedQuestionsBlock(task.comments);
+    if (resolvedBlock) promptText += '\n' + resolvedBlock + '\n';
   }
 
   // Include git context so agents can evaluate what work has already been done.
