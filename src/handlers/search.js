@@ -3,12 +3,17 @@
 /**
  * Search handler — GET /api/v1/tasks/search
  *
- * Cross-space full-text search using the FTS5 tasks_fts index.
- * Returns tasks matching the query across all spaces, ranked by BM25 relevance.
+ * Cross-space search. Two modes:
+ *   1. UUID lookup — if q matches a UUID pattern, does a direct ID lookup (O(1)).
+ *      FTS5 cannot index UUIDs (tokeniser strips hyphens/hex runs), so a text
+ *      search on a UUID would always return 0 results.
+ *   2. FTS5 full-text search — for all other queries, uses the tasks_fts index
+ *      with BM25 relevance ranking.
  *
  * Query parameters:
  *   q     {string}  required  — Search query (1–200 chars, trimmed).
  *   limit {integer} optional  — Max results to return (1–50, default 20).
+ *                               Ignored for UUID lookups (result is 0 or 1).
  *
  * Response shape (200):
  *   { query, count, results: [{ task, spaceId, spaceName, column }] }
@@ -25,6 +30,9 @@ const MAX_QUERY_LENGTH = 200;
 const DEFAULT_LIMIT    = 20;
 const MAX_LIMIT        = 50;
 const MIN_LIMIT        = 1;
+
+// UUID v4 canonical form: 8-4-4-4-12 hex digits separated by hyphens.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * GET /api/v1/tasks/search?q=<text>&limit=<n>
@@ -72,7 +80,29 @@ function handleSearchTasks(req, res, store, spaceManager) {
     limit = parsed;
   }
 
-  // 4. Execute cross-space FTS5 search.
+  // 4a. UUID shortcut: if q is a full UUID, skip FTS5 and do a direct ID lookup.
+  //     FTS5 tokenises on word boundaries and does not index hyphenated hex runs,
+  //     so a UUID query against the FTS index always returns 0 results.
+  if (UUID_PATTERN.test(trimmedQ)) {
+    const found = store.getTaskById(trimmedQ);
+    const results = [];
+    if (found) {
+      const space = spaceManager.getSpace(found.spaceId);
+      if (space && space.space) {
+        results.push({
+          task:      found.task,
+          spaceId:   found.spaceId,
+          spaceName: space.space.name,
+          column:    found.column,
+        });
+      }
+    }
+    const elapsedMs = Date.now() - startMs;
+    console.log(`[search] uuid-lookup q="${trimmedQ}" results=${results.length} elapsed_ms=${elapsedMs}`);
+    return sendJSON(res, 200, { query: trimmedQ, count: results.length, results });
+  }
+
+  // 4b. Execute cross-space FTS5 search.
   const rawResults = store.searchAllTasks(trimmedQ, { limit });
 
   // 5. Enrich each result with the space name (defensive — skip if space not found).

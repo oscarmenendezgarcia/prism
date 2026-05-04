@@ -190,6 +190,9 @@ function createStore(dataDir) {
     getTask: db.prepare(
       'SELECT * FROM tasks WHERE space_id = ? AND id = ?'
     ),
+    getTaskById: db.prepare(
+      'SELECT *, space_id AS _space_id, column AS _column FROM tasks WHERE id = ? LIMIT 1'
+    ),
     insertTask: db.prepare(`
       INSERT INTO tasks
         (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, created_at, updated_at)
@@ -287,6 +290,24 @@ function createStore(dataDir) {
     const row = stmts.getTask.get(spaceId, taskId);
     if (!row) return null;
     return { task: rowToTask(row), column: row.column };
+  }
+
+  /**
+   * Look up a task by ID across ALL spaces (no spaceId required).
+   * Returns { task, spaceId, column } or null when not found.
+   * Uses a direct primary-key scan — O(1), does not go through FTS5.
+   *
+   * @param {string} taskId
+   * @returns {{ task: object, spaceId: string, column: string } | null}
+   */
+  function getTaskById(taskId) {
+    const row = stmts.getTaskById.get(taskId);
+    if (!row) return null;
+    return {
+      task:    rowToTask(row),
+      spaceId: row._space_id,
+      column:  row._column,
+    };
   }
 
   function insertTask(task, spaceId, column) {
@@ -483,6 +504,7 @@ function createStore(dataDir) {
     getAllTasksForSpace,
     getTask,
     getTaskWithColumn,
+    getTaskById,
     insertTask,
     upsertTask,
     updateTask,

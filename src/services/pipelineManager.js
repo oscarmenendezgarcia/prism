@@ -31,11 +31,11 @@ const { spawn, execSync }       = require('child_process');
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
 const worktreeManager = require('./worktreeManager');
-const { buildCommentGuidanceLines } = require('../utils/promptComments');
 const {
   buildKanbanBlock,
   buildGitContextBlock,
   buildCompileGateBlock,
+  buildResolvedQuestionsBlock,
 } = require('../utils/promptBuilder');
 
 // Resolve the claude binary path once at startup so caffeinate (and sh) can
@@ -1011,6 +1011,14 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     }
   }
 
+  // Include resolved Q&A from previous pipeline blocks so the next stage agent
+  // knows what was decided without re-asking the same questions.
+  // Only questions that were asked AND fully resolved (with an answer comment) are shown.
+  if (task && Array.isArray(task.comments) && task.comments.length > 0) {
+    const resolvedBlock = buildResolvedQuestionsBlock(task.comments);
+    if (resolvedBlock) promptText += '\n' + resolvedBlock + '\n';
+  }
+
   // Include git context so agents can evaluate what work has already been done.
   // IMPORTANT: Only included when workingDirectory is explicitly set — falling back
   // to process.cwd() would expose Prism's own git history to agents that have no
@@ -1020,10 +1028,9 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   if (gitCtxBlock) promptText += gitCtxBlock + '\n';
 
   // Kanban instructions — always included so agents can move tasks and post questions.
-  // buildKanbanBlock includes stop conditions, note/handoff guidance, and MCP examples.
+  // buildKanbanBlock includes: stop conditions, note/handoff guidance, and MCP examples.
+  // Do NOT also call buildCommentGuidanceLines — its content is already inside buildKanbanBlock.
   promptText += '\n' + buildKanbanBlock(spaceId, taskId) + '\n';
-  promptText += '\n';
-  promptText += buildCommentGuidanceLines(spaceId, taskId).join('\n') + '\n';
 
   // For the developer stage: require compilation gate before closing.
   // Prevents QA from launching against code that does not compile.

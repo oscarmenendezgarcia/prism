@@ -1,6 +1,39 @@
 {
+  "name": "prism-kanban",
+  "version": "0.6.0",
+  "description": "Local-first kanban + agent pipeline runner with terminal and MCP integration.",
+  "bin": {
+    "prism": "bin/cli.js"
+  },
+  "main": "server.js",
+  "files": [
+    "bin/",
+    "src/",
+    "dist/",
+    "terminal.js",
+    "server.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "kanban",
+    "agents",
+    "claude-code",
+    "pipeline",
+    "local-first"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/oscarmenendezgarcia/prism"
+  },
   "scripts": {
-    "test": "node --test --test-concurrency=2 tests/*.test.js"
+    "test": "node --test --test-concurrency=2 tests/*.test.js",
+    "prepare": "node bin/prepare.js",
+    "start": "node server.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",

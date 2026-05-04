@@ -6,6 +6,7 @@
  *   buildGitContextBlock(workingDirectory)
  *   buildGitInstructionsBlock()
  *   buildCompileGateBlock()
+ *   buildResolvedQuestionsBlock(comments)
  *
  * Run with: node tests/promptBuilder.test.js
  */
@@ -21,6 +22,7 @@ const {
   buildGitContextBlock,
   buildGitInstructionsBlock,
   buildCompileGateBlock,
+  buildResolvedQuestionsBlock,
 } = require('../src/utils/promptBuilder');
 
 // ---------------------------------------------------------------------------
@@ -344,6 +346,13 @@ async function runTests() {
 
       assert(promptText.includes('POST A NOTE'),       'pipelineManager prompt must include note guidance');
       assert(promptText.includes('HANDOFF SUMMARY'),   'pipelineManager prompt must include handoff guidance');
+
+      // Regression: POST A NOTE and HANDOFF SUMMARY must NOT appear twice.
+      // buildKanbanBlock already contains them — buildCommentGuidanceLines must NOT be appended separately.
+      const postANoteCount    = (promptText.match(/POST A NOTE/g) || []).length;
+      const handoffCount      = (promptText.match(/HANDOFF SUMMARY/g) || []).length;
+      assert(postANoteCount === 1,  `POST A NOTE must appear exactly once in prompt, got ${postANoteCount}`);
+      assert(handoffCount   === 1,  `HANDOFF SUMMARY must appear exactly once in prompt, got ${handoffCount}`);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -389,6 +398,158 @@ async function runTests() {
         assert(!promptText.includes('## MANDATORY COMPILE GATE'),
           `compile gate must NOT appear for ${agentId}`);
       }
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // buildResolvedQuestionsBlock()
+  // ---------------------------------------------------------------------------
+
+  suite('buildResolvedQuestionsBlock()');
+
+  await test('returns empty string when comments is empty', () => {
+    assertEqual(buildResolvedQuestionsBlock([]), '', 'empty array → empty string');
+  });
+
+  await test('returns empty string when comments is undefined/null', () => {
+    assertEqual(buildResolvedQuestionsBlock(undefined), '', 'undefined → empty string');
+    assertEqual(buildResolvedQuestionsBlock(null),      '', 'null → empty string');
+  });
+
+  await test('returns empty string when no questions are resolved', () => {
+    const comments = [
+      { id: 'q1', type: 'question', author: 'dev', text: 'Which approach?', resolved: false },
+      { id: 'n1', type: 'note',     author: 'dev', text: 'Assumption: using X', resolved: false },
+    ];
+    assertEqual(buildResolvedQuestionsBlock(comments), '', 'unresolved question → no block');
+  });
+
+  await test('returns empty string when only notes present (no questions)', () => {
+    const comments = [
+      { id: 'n1', type: 'note', author: 'dev', text: 'Note content', resolved: false },
+    ];
+    assertEqual(buildResolvedQuestionsBlock(comments), '', 'notes only → empty string');
+  });
+
+  await test('includes resolved question and its answer', () => {
+    const comments = [
+      { id: 'q1', type: 'question', author: 'developer-agent', text: 'Use A or B?', resolved: true },
+      { id: 'a1', type: 'answer',   author: 'senior-architect', text: 'Use A.', parentId: 'q1' },
+    ];
+    const block = buildResolvedQuestionsBlock(comments);
+    assert(block.includes('## RESOLVED QUESTIONS'),   'includes section header');
+    assert(block.includes('developer-agent'),          'includes question author');
+    assert(block.includes('Use A or B?'),              'includes question text');
+    assert(block.includes('senior-architect'),         'includes answer author');
+    assert(block.includes('Use A.'),                   'includes answer text');
+  });
+
+  await test('includes multiple resolved Q&A pairs', () => {
+    const comments = [
+      { id: 'q1', type: 'question', author: 'dev', text: 'Q1 text?', resolved: true },
+      { id: 'a1', type: 'answer',   author: 'user', text: 'A1 text.', parentId: 'q1' },
+      { id: 'q2', type: 'question', author: 'dev', text: 'Q2 text?', resolved: true },
+      { id: 'a2', type: 'answer',   author: 'user', text: 'A2 text.', parentId: 'q2' },
+    ];
+    const block = buildResolvedQuestionsBlock(comments);
+    assert(block.includes('Q1 text?'), 'Q1 question present');
+    assert(block.includes('A1 text.'), 'A1 answer present');
+    assert(block.includes('Q2 text?'), 'Q2 question present');
+    assert(block.includes('A2 text.'), 'A2 answer present');
+  });
+
+  await test('handles resolved question without a matching answer comment', () => {
+    const comments = [
+      { id: 'q1', type: 'question', author: 'dev', text: 'Only question?', resolved: true },
+    ];
+    const block = buildResolvedQuestionsBlock(comments);
+    assert(block.includes('## RESOLVED QUESTIONS'), 'section header present');
+    assert(block.includes('Only question?'),         'question text present');
+    assert(block.includes('answer not recorded'),    'fallback text present');
+  });
+
+  await test('does not include unresolved questions alongside resolved ones', () => {
+    const comments = [
+      { id: 'q1', type: 'question', author: 'dev', text: 'Resolved Q?',   resolved: true  },
+      { id: 'a1', type: 'answer',   author: 'user', text: 'Answer.',       parentId: 'q1' },
+      { id: 'q2', type: 'question', author: 'dev', text: 'Unresolved Q?', resolved: false },
+    ];
+    const block = buildResolvedQuestionsBlock(comments);
+    assert( block.includes('Resolved Q?'),   'resolved question present');
+    assert(!block.includes('Unresolved Q?'), 'unresolved question absent');
+  });
+
+  await test('does not include notes in the resolved questions block', () => {
+    const comments = [
+      { id: 'q1', type: 'question', author: 'dev', text: 'Q text?', resolved: true },
+      { id: 'a1', type: 'answer',   author: 'user', text: 'Answer.', parentId: 'q1' },
+      { id: 'n1', type: 'note',     author: 'dev', text: 'Note text', resolved: false },
+    ];
+    const block = buildResolvedQuestionsBlock(comments);
+    assert(!block.includes('Note text'), 'note text must not appear in resolved Q block');
+  });
+
+  await test('prompt tells agent not to re-ask resolved questions', () => {
+    const comments = [
+      { id: 'q1', type: 'question', author: 'dev', text: 'Q?', resolved: true },
+      { id: 'a1', type: 'answer',   author: 'user', text: 'A.', parentId: 'q1' },
+    ];
+    const block = buildResolvedQuestionsBlock(comments);
+    assert(block.includes('do not re-ask'), 'must instruct agent not to re-ask');
+  });
+
+  await test('buildStagePrompt includes RESOLVED QUESTIONS when task has resolved comments', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-rq-'));
+    try {
+      const spaceId  = 'test-space-rq';
+      const taskId   = require('crypto').randomUUID();
+      const spaceDir = path.join(tmpDir, 'spaces', spaceId);
+      fs.mkdirSync(spaceDir, { recursive: true });
+      const task = {
+        id: taskId, title: 'RQ Task', type: 'feature',
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        comments: [
+          { id: 'q1', type: 'question', author: 'developer-agent', text: 'Use X or Y?', resolved: true },
+          { id: 'a1', type: 'answer',   author: 'senior-architect', text: 'Use X.', parentId: 'q1' },
+        ],
+      };
+      fs.writeFileSync(path.join(spaceDir, 'todo.json'),        JSON.stringify([task]), 'utf8');
+      fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]),     'utf8');
+      fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([]),     'utf8');
+
+      const { buildStagePrompt } = require('../src/services/pipelineManager');
+      const { promptText } = buildStagePrompt(tmpDir, spaceId, taskId, 0, 'developer-agent', ['developer-agent']);
+      assert(promptText.includes('## RESOLVED QUESTIONS'), 'prompt must include RESOLVED QUESTIONS block');
+      assert(promptText.includes('Use X or Y?'),           'prompt must include question text');
+      assert(promptText.includes('Use X.'),                'prompt must include answer text');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  await test('buildStagePrompt omits RESOLVED QUESTIONS when task has no resolved comments', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-norq-'));
+    try {
+      const spaceId  = 'test-space-norq';
+      const taskId   = require('crypto').randomUUID();
+      const spaceDir = path.join(tmpDir, 'spaces', spaceId);
+      fs.mkdirSync(spaceDir, { recursive: true });
+      const task = {
+        id: taskId, title: 'No RQ Task', type: 'feature',
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+        comments: [
+          { id: 'n1', type: 'note', author: 'dev', text: 'Just a note', resolved: false },
+        ],
+      };
+      fs.writeFileSync(path.join(spaceDir, 'todo.json'),        JSON.stringify([task]), 'utf8');
+      fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]),     'utf8');
+      fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([]),     'utf8');
+
+      const { buildStagePrompt } = require('../src/services/pipelineManager');
+      const { promptText } = buildStagePrompt(tmpDir, spaceId, taskId, 0, 'developer-agent', ['developer-agent']);
+      assert(!promptText.includes('## RESOLVED QUESTIONS'), 'prompt must NOT include RESOLVED QUESTIONS when no resolved Qs');
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

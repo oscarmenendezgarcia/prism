@@ -116,6 +116,52 @@ function buildGitInstructionsBlock() {
 }
 
 // ---------------------------------------------------------------------------
+// Resolved Q&A block
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the ## RESOLVED QUESTIONS block from a task's comment array.
+ *
+ * Included in the stage prompt when one or more question comments on the task
+ * have been resolved. Each question is paired with its answer comment
+ * (identified by parentId) so the next agent knows what was decided during
+ * the pipeline's blocked phase.
+ *
+ * Returns an empty string when there are no resolved questions.
+ *
+ * @param {Array<object>} comments - The full comments array from the task.
+ * @returns {string}
+ */
+function buildResolvedQuestionsBlock(comments) {
+  if (!Array.isArray(comments) || comments.length === 0) return '';
+
+  const resolvedQuestions = comments.filter((c) => c.type === 'question' && c.resolved);
+  if (resolvedQuestions.length === 0) return '';
+
+  const lines = [
+    '## RESOLVED QUESTIONS',
+    'The following questions were raised and answered during this pipeline run.',
+    'Apply these decisions in your work — do not re-ask them.',
+    '',
+  ];
+
+  for (const q of resolvedQuestions) {
+    const answer = comments.find((c) => c.type === 'answer' && c.parentId === q.id);
+    lines.push(`**Q (${q.author}):** ${q.text}`);
+    if (answer) {
+      lines.push(`**A (${answer.author}):** ${answer.text}`);
+    } else {
+      // Question was marked resolved without a separate answer comment
+      // (e.g. resolved programmatically or via direct PATCH).
+      lines.push('**A:** *(resolved — answer not recorded)*');
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Compile gate
 // ---------------------------------------------------------------------------
 
@@ -143,4 +189,5 @@ module.exports = {
   buildGitContextBlock,
   buildGitInstructionsBlock,
   buildCompileGateBlock,
+  buildResolvedQuestionsBlock,
 };
