@@ -31,7 +31,6 @@ const { spawn, execSync }       = require('child_process');
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
 const worktreeManager = require('./worktreeManager');
-const { buildCommentGuidanceLines } = require('../utils/promptComments');
 const {
   buildKanbanBlock,
   buildGitContextBlock,
@@ -1020,10 +1019,9 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   if (gitCtxBlock) promptText += gitCtxBlock + '\n';
 
   // Kanban instructions — always included so agents can move tasks and post questions.
-  // buildKanbanBlock includes stop conditions, note/handoff guidance, and MCP examples.
+  // buildKanbanBlock includes: stop conditions, note/handoff guidance, and MCP examples.
+  // Do NOT also call buildCommentGuidanceLines — its content is already inside buildKanbanBlock.
   promptText += '\n' + buildKanbanBlock(spaceId, taskId) + '\n';
-  promptText += '\n';
-  promptText += buildCommentGuidanceLines(spaceId, taskId).join('\n') + '\n';
 
   // For the developer stage: require compilation gate before closing.
   // Prevents QA from launching against code that does not compile.
