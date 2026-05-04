@@ -157,8 +157,8 @@ rm -rf ~/.prism          # remove data directory (if using the default global pa
 The npm global bin directory may not be on your `PATH`. Find it and add it:
 
 ```bash
-npm bin -g            # prints something like /Users/you/.nvm/versions/node/v22.x.x/bin
-export PATH="$(npm bin -g):$PATH"
+npm prefix -g         # prints something like /Users/you/.nvm/versions/node/v22.x.x
+export PATH="$(npm prefix -g)/bin:$PATH"
 ```
 
 Add the `export` line to your shell profile to make it permanent.

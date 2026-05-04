@@ -68,6 +68,8 @@ _need_node() {
     return 0  # node not found
   fi
   major=$(_node_major)
+  # Guard: treat empty or non-numeric major as "need install"
+  [ -z "$major" ] && return 0
   # Return 0 (need install) if major is less than required
   if [ "$major" -lt "$NODE_MIN_MAJOR" ] 2>/dev/null; then
     return 0
@@ -121,13 +123,19 @@ npm install -g prism-kanban
 
 # Verify the CLI is on PATH
 if ! command -v prism > /dev/null 2>&1; then
-  # nvm-managed bins may not be in PATH in non-interactive shells; try npm bin -g
-  NPM_BIN_DIR="$(npm bin -g 2>/dev/null || true)"
+  # nvm-managed bins may not be in PATH in non-interactive shells.
+  # Use npm prefix -g to find the global bin dir (compatible with npm 6+; unlike the
+  # deprecated 'bin' sub-command removed in npm 10, prefix -g works on all versions).
+  NPM_PREFIX="$(npm prefix -g 2>/dev/null || true)"
+  NPM_BIN_DIR=""
+  if [ -n "$NPM_PREFIX" ]; then
+    NPM_BIN_DIR="$NPM_PREFIX/bin"
+  fi
   if [ -n "$NPM_BIN_DIR" ] && [ -x "$NPM_BIN_DIR/prism" ]; then
     export PATH="$NPM_BIN_DIR:$PATH"
   else
     warn "The 'prism' binary was not found in PATH after installation."
-    warn "You may need to run: export PATH=\"\$(npm bin -g):\$PATH\""
+    warn "You may need to run: export PATH=\"\$(npm prefix -g)/bin:\$PATH\""
     warn "Then run: prism init $*"
     exit 0
   fi
