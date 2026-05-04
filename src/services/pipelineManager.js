@@ -1341,62 +1341,53 @@ function init(dataDir, store) {
         continue;
       }
 
-      const stage      = run.stageStatuses[runningStageIdx];
-      const pid        = stage.pid;
-      const startedAt  = stage.startedAt ? new Date(stage.startedAt).getTime() : 0;
+      const stage    = run.stageStatuses[runningStageIdx];
+      const pid      = stage.pid;
+      const doneFile = stageDonePath(dataDir, run.runId, runningStageIdx);
 
-      // Boot-time guard: if the stage started before this server booted,
-      // treat the PID as stale even if another process with the same PID is alive.
-      const pidIsStale = startedAt < BOOT_TIME;
+      // 1. Sentinel exists → stage finished while the server was down. Process exit code.
+      if (fs.existsSync(doneFile)) {
+        let exitCode = 1;
+        try {
+          const raw = fs.readFileSync(doneFile, 'utf8').trim();
+          exitCode = parseInt(raw, 10);
+          if (isNaN(exitCode)) exitCode = 1;
+        } catch { /* read error — treat as failure */ }
+        pipelineLog('stage.sentinel_detected_on_reattach', { runId: run.runId, runningStageIdx, exitCode });
+        handleStageClose(dataDir, run.runId, runningStageIdx, exitCode).catch((err) => {
+          console.warn(`[pipelineManager] WARN: handleStageClose on reattach failed for run ${run.runId}:`, err.message);
+        });
+        continue;
+      }
 
-      if (!pidIsStale && pid && isProcessAlive(pid)) {
-        // Process is still running — re-attach polling so completion is detected.
+      // 2. PID alive → detached agent survived the restart. Re-attach polling, do NOT kill.
+      // Agents are spawned with detached:true and unref'd, so they legitimately outlive
+      // the server. Trade-off: PID reuse may cause occasional false re-attach; the polling
+      // loop's isProcessAlive checks plus the per-stage timeout will eventually catch it.
+      if (pid && isProcessAlive(pid)) {
         const agentId     = run.stages[runningStageIdx];
         const baseTimeout = parseInt(process.env.PIPELINE_STAGE_TIMEOUT_MS || String(DEFAULT_STAGE_TIMEOUT_MS), 10);
         const timeoutMs   = agentId === 'orchestrator' ? baseTimeout * 6 : baseTimeout;
-        const doneFile    = stageDonePath(dataDir, run.runId, runningStageIdx);
+        const startedAt   = stage.startedAt ? new Date(stage.startedAt).getTime() : BOOT_TIME;
 
-        const interval = startPolling(dataDir, run.runId, runningStageIdx, doneFile, startedAt || BOOT_TIME, timeoutMs);
+        const interval = startPolling(dataDir, run.runId, runningStageIdx, doneFile, startedAt, timeoutMs);
         activeProcesses.set(run.runId, { interval, stageIndex: runningStageIdx });
         pipelineLog('run.reattached', { runId: run.runId, runningStageIdx, pid });
-      } else {
-        // PID is dead or stale — but check if the done-sentinel was written
-        // before we mark as interrupted. The stage may have completed cleanly
-        // while the server was down (e.g. code-reviewer writing its sentinel
-        // after the server restarted and lost the polling interval).
-        const doneFile = stageDonePath(dataDir, run.runId, runningStageIdx);
-        if (fs.existsSync(doneFile)) {
-          let exitCode = 1;
-          try {
-            const raw = fs.readFileSync(doneFile, 'utf8').trim();
-            exitCode = parseInt(raw, 10);
-            if (isNaN(exitCode)) exitCode = 1;
-          } catch { /* read error — treat as failure */ }
-          pipelineLog('stage.sentinel_detected_on_reattach', { runId: run.runId, runningStageIdx, exitCode });
-          // Process the completed stage asynchronously.
-          handleStageClose(dataDir, run.runId, runningStageIdx, exitCode).catch((err) => {
-            console.warn(`[pipelineManager] WARN: handleStageClose on reattach failed for run ${run.runId}:`, err.message);
-          });
-        } else {
-          // No sentinel — stage truly did not complete. Mark interrupted.
-          // Defensively kill the process group: the agent may still be running even when
-          // flagged as stale, because detached+unref'd processes survive server restarts.
-          if (pid && pid !== process.pid) {
-            try { process.kill(-pid, 'SIGTERM'); } catch { /* already gone */ }
-          }
-          run.status    = 'interrupted';
-          run.updatedAt = new Date().toISOString();
-          for (const s of run.stageStatuses) {
-            if (s.status === 'running') {
-              s.status     = 'interrupted';
-              s.finishedAt = run.updatedAt;
-            }
-          }
-          writeJSON(runJsonFile, run);
-          upsertRegistryEntry(dataDir, { runId: run.runId, spaceId: run.spaceId, taskId: run.taskId, status: 'interrupted', createdAt: run.createdAt, updatedAt: run.updatedAt });
-          console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart, PID dead)`);
+        continue;
+      }
+
+      // 3. PID dead and no sentinel → genuinely interrupted. No defensive kill (nothing alive to kill).
+      run.status    = 'interrupted';
+      run.updatedAt = new Date().toISOString();
+      for (const s of run.stageStatuses) {
+        if (s.status === 'running') {
+          s.status     = 'interrupted';
+          s.finishedAt = run.updatedAt;
         }
       }
+      writeJSON(runJsonFile, run);
+      upsertRegistryEntry(dataDir, { runId: run.runId, spaceId: run.spaceId, taskId: run.taskId, status: 'interrupted', createdAt: run.createdAt, updatedAt: run.updatedAt });
+      console.warn(`[pipelineManager] WARN: run ${run.runId} interrupted (PID ${pid} dead, no sentinel)`);
     } catch (err) {
       console.warn(`[pipelineManager] WARN: could not process run entry '${entry}':`, err.message);
     }
