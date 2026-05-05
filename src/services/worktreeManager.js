@@ -271,17 +271,33 @@ async function teardown(worktreeMeta, opts = {}) {
  *
  * @param {string}   dataDir           - Root data directory containing runs/.
  * @param {string[]} workingDirectories - List of workingDirectory values gathered from known runs.
+ * @param {object}   [store]           - Optional SQLite store (post-migration). When provided,
+ *                                       runs are queried from SQLite rather than run.json files.
  */
-async function reapOrphans(dataDir, workingDirectories) {
+async function reapOrphans(dataDir, workingDirectories, store) {
   const runsDir = process.env.PIPELINE_RUNS_DIR || path.join(dataDir, 'runs');
 
   const TERMINAL_STATUSES = new Set(['completed', 'failed', 'interrupted', 'aborted']);
 
   /**
-   * Build a map of runId → status from the runs directory for fast lookup.
+   * Build a map of runId → status.
+   * Uses SQLite when a store is provided; falls back to reading run.json files.
    */
   function buildRunStatusMap() {
     const map = new Map();
+
+    if (store) {
+      // Post-migration: query all runs from SQLite.
+      try {
+        const allRuns = store.listRuns();
+        for (const run of allRuns) {
+          if (run && run.runId) map.set(run.runId, run.status);
+        }
+      } catch { /* ignore — best-effort */ }
+      return map;
+    }
+
+    // Legacy fallback: read run.json files.
     if (!fs.existsSync(runsDir)) return map;
     let entries;
     try { entries = fs.readdirSync(runsDir); } catch { return map; }
@@ -328,7 +344,7 @@ async function reapOrphans(dataDir, workingDirectories) {
 
       let reason;
       if (!matchedRunId) {
-        // No matching run.json — orphan.
+        // No matching run record — orphan.
         reason = 'orphan';
       } else if (TERMINAL_STATUSES.has(matchedStatus)) {
         reason = matchedStatus;
