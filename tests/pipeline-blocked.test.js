@@ -83,13 +83,20 @@ function makeRequest(port) {
 // ---------------------------------------------------------------------------
 
 /**
- * Write a fake run.json directly into the data/runs/<runId>/ directory
- * so we can test block/unblock without actually spawning Claude.
+ * Seed a fake run into the pipeline store so we can test block/unblock
+ * without actually spawning Claude.
+ *
+ * When the server is running (store initialised via migrate()), we write
+ * directly to the SQLite store so pipelineManager can find the run.
+ * In pure unit-test contexts (no server, no store), we fall back to writing
+ * run.json + runs.json files for backward compatibility.
  */
 function seedRun(dataDir, runId, overrides = {}) {
   const now     = new Date().toISOString();
   const runsDir = path.join(dataDir, 'runs');
   const runDirP = path.join(runsDir, runId);
+  // Always create the run directory — logs and sentinels live here even
+  // when state is stored in SQLite.
   fs.mkdirSync(runDirP, { recursive: true });
 
   const run = {
@@ -101,26 +108,32 @@ function seedRun(dataDir, runId, overrides = {}) {
     status:  overrides.status  ?? 'running',
     stageStatuses: [
       { index: 0, agentId: 'developer-agent', status: overrides.stage0Status ?? 'running', exitCode: null, startedAt: now, finishedAt: null },
-      { index: 1, agentId: 'qa-engineer-e2e',  status: 'pending', exitCode: null, startedAt: null, finishedAt: null },
+      { index: 1, agentId: 'qa-engineer-e2e', status: 'pending', exitCode: null, startedAt: null, finishedAt: null },
     ],
     createdAt: now,
     updatedAt: now,
     ...overrides,
   };
 
-  fs.writeFileSync(path.join(runDirP, 'run.json'), JSON.stringify(run, null, 2), 'utf8');
-
-  // Also update the registry
-  const registryPath = path.join(runsDir, 'runs.json');
-  let registry = [];
-  if (fs.existsSync(registryPath)) {
-    try { registry = JSON.parse(fs.readFileSync(registryPath, 'utf8')); } catch {}
+  // Use the SQLite store when the server has initialised one.
+  const pm    = require('../src/services/pipelineManager');
+  const store = pm.getStore();
+  if (store) {
+    store.upsertRun(run);
+  } else {
+    // Legacy fallback for unit tests that run without a server / store.
+    fs.writeFileSync(path.join(runDirP, 'run.json'), JSON.stringify(run, null, 2), 'utf8');
+    const registryPath = path.join(runsDir, 'runs.json');
+    let registry = [];
+    if (fs.existsSync(registryPath)) {
+      try { registry = JSON.parse(fs.readFileSync(registryPath, 'utf8')); } catch {}
+    }
+    const idx     = registry.findIndex((r) => r.runId === runId);
+    const summary = { runId, spaceId: run.spaceId, taskId: run.taskId, status: run.status, createdAt: run.createdAt };
+    if (idx === -1) registry.push(summary);
+    else registry[idx] = summary;
+    fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
   }
-  const idx = registry.findIndex((r) => r.runId === runId);
-  const summary = { runId, spaceId: run.spaceId, taskId: run.taskId, status: run.status, createdAt: run.createdAt };
-  if (idx === -1) registry.push(summary);
-  else registry[idx] = summary;
-  fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
 
   return run;
 }
@@ -293,9 +306,12 @@ async function run() {
       `BUG-001 regression: blockedReason should be absent after unblock, got ${JSON.stringify(res.body.blockedReason)}`,
     );
 
-    // Also verify on disk
-    const runJsonPath = path.join(dataDir, 'runs', runWithReason, 'run.json');
-    const persisted   = JSON.parse(fs.readFileSync(runJsonPath, 'utf8'));
+    // Also verify persisted state (via store when available, file otherwise).
+    const pmRef = require('../src/services/pipelineManager');
+    const storeRef = pmRef.getStore();
+    const persisted = storeRef
+      ? storeRef.getRun(runWithReason)
+      : JSON.parse(fs.readFileSync(path.join(dataDir, 'runs', runWithReason, 'run.json'), 'utf8'));
     assert(
       persisted.blockedReason == null,
       `BUG-001 regression: persisted blockedReason should be absent, got ${JSON.stringify(persisted.blockedReason)}`,
@@ -1075,6 +1091,9 @@ async function runCrossAgentResolverTests() {
 
   /** Read run.json directly from disk */
   function readRunJson(runId) {
+    const pm    = require('../src/services/pipelineManager');
+    const store = pm.getStore();
+    if (store) return store.getRun(runId);
     const runPath = require('path').join(tmpDir2, 'runs', runId, 'run.json');
     return JSON.parse(require('fs').readFileSync(runPath, 'utf8'));
   }
@@ -1123,22 +1142,29 @@ async function runCrossAgentResolverTests() {
       ...opts,
     };
 
-    require('fs').writeFileSync(
-      require('path').join(runDirPath, 'run.json'),
-      JSON.stringify(run, null, 2), 'utf8',
-    );
+    // Use the SQLite store when the server has initialised one.
+    const pm    = require('../src/services/pipelineManager');
+    const store = pm.getStore();
+    if (store) {
+      store.upsertRun(run);
+    } else {
+      // Legacy fallback for contexts without a store.
+      require('fs').writeFileSync(
+        require('path').join(runDirPath, 'run.json'),
+        JSON.stringify(run, null, 2), 'utf8',
+      );
 
-    // Registry
-    const registryPath = require('path').join(runsDir2, 'runs.json');
-    let registry = [];
-    if (require('fs').existsSync(registryPath)) {
-      try { registry = JSON.parse(require('fs').readFileSync(registryPath, 'utf8')); } catch {}
+      const registryPath = require('path').join(runsDir2, 'runs.json');
+      let registry = [];
+      if (require('fs').existsSync(registryPath)) {
+        try { registry = JSON.parse(require('fs').readFileSync(registryPath, 'utf8')); } catch {}
+      }
+      const idx = registry.findIndex((r) => r.runId === runId);
+      const summary = { runId, spaceId, taskId, status: run.status, createdAt: run.createdAt };
+      if (idx === -1) registry.push(summary);
+      else registry[idx] = summary;
+      require('fs').writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
     }
-    const idx = registry.findIndex((r) => r.runId === runId);
-    const summary = { runId, spaceId, taskId, status: run.status, createdAt: run.createdAt };
-    if (idx === -1) registry.push(summary);
-    else registry[idx] = summary;
-    require('fs').writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
 
     return runId;
   }
@@ -1266,17 +1292,22 @@ async function runCrossAgentResolverTests() {
 
     await waitStatus(runId, (r) => r.currentStage >= 1 || r.status === 'blocked', 5000);
 
-    // Manually set resolverActive=true in run.json to simulate an in-flight resolver
-    const runPath = require('path').join(tmpDir2, 'runs', runId, 'run.json');
-    let runState = JSON.parse(require('fs').readFileSync(runPath, 'utf8'));
-    // Ensure the run is in blocked state first
+    // Manually set resolverActive=true to simulate an in-flight resolver.
+    // Ensure the run is in blocked state first.
+    let runState = readRunJson(runId);
     if (runState.status !== 'blocked') {
-      // Block it manually
       await req('POST', `/api/v1/runs/${runId}/block`, {});
-      runState = JSON.parse(require('fs').readFileSync(runPath, 'utf8'));
+      runState = readRunJson(runId);
     }
-    runState.resolverActive = true;
-    require('fs').writeFileSync(runPath, JSON.stringify(runState, null, 2), 'utf8');
+    // Persist resolverActive=true via store (SQLite) or filesystem.
+    const pmR5    = require('../src/services/pipelineManager');
+    const storeR5 = pmR5.getStore();
+    if (storeR5) {
+      storeR5.upsertRun({ ...runState, resolverActive: true });
+    } else {
+      const runPath = require('path').join(tmpDir2, 'runs', runId, 'run.json');
+      require('fs').writeFileSync(runPath, JSON.stringify({ ...runState, resolverActive: true }, null, 2), 'utf8');
+    }
 
     // Post a second question with targetAgent — should be blocked by anti-recursion guard
     const q2Res = await req('POST', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`, {
