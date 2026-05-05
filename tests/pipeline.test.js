@@ -1188,11 +1188,13 @@ describe('pipelineManager — init() PID re-attach', () => {
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  test('init kills stale-but-alive process group on restart (no sentinel)', async () => {
+  test('init preserves a detached agent that survived a server restart (no sentinel)', async () => {
+    // Detached agents legitimately outlive the server; init() must re-attach to
+    // them, not SIGTERM them. Regression test for pipeline-restart-recovery.
     const { spawn } = require('child_process');
     const dataDir = tmpDir();
     const runsDir = path.join(dataDir, 'runs');
-    const runId   = 'run-stale-kill';
+    const runId   = 'run-survive-restart';
     const runDir  = path.join(runsDir, runId);
     fs.mkdirSync(runDir, { recursive: true });
 
@@ -1201,11 +1203,11 @@ describe('pipelineManager — init() PID re-attach', () => {
     child.unref();
     const childPid = child.pid;
 
-    const staleDate = new Date(0).toISOString();
+    const oldDate  = new Date(0).toISOString();
     const runState = {
       runId,
-      spaceId: 'space-kill',
-      taskId:  'task-kill',
+      spaceId: 'space-survive',
+      taskId:  'task-survive',
       stages:  ['developer-agent'],
       currentStage: 0,
       status:  'running',
@@ -1214,45 +1216,49 @@ describe('pipelineManager — init() PID re-attach', () => {
         agentId: 'developer-agent',
         status: 'running',
         exitCode: null,
-        startedAt: staleDate,
+        startedAt: oldDate,
         finishedAt: null,
         pid: childPid,
       }],
-      createdAt: staleDate,
-      updatedAt: staleDate,
+      createdAt: oldDate,
+      updatedAt: oldDate,
     };
     fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(runState), 'utf8');
-    const registry = [{ runId, spaceId: 'space-kill', taskId: 'task-kill', status: 'running', createdAt: staleDate }];
+    const registry = [{ runId, spaceId: 'space-survive', taskId: 'task-survive', status: 'running', createdAt: oldDate }];
     fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify(registry), 'utf8');
 
     delete require.cache[require.resolve('../src/services/pipelineManager')];
     const pm = require('../src/services/pipelineManager');
     pm.init(dataDir);
 
-    // SIGTERM delivery is async — give the OS a tick to reap the process.
+    // Give init() a tick to settle.
     await new Promise((r) => setTimeout(r, 50));
 
-    // isProcessAlive uses kill(pid, 0) — if the process is gone it throws.
     let alive = true;
     try { process.kill(childPid, 0); } catch { alive = false; }
-    assert.equal(alive, false, 'stale-but-alive process should be killed by init()');
+    assert.equal(alive, true, 'detached agent must survive init() when PID is alive');
 
     const after = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
-    assert.equal(after.status, 'interrupted', 'run should be marked interrupted');
+    assert.equal(after.status, 'running', 'run should remain running (re-attached)');
+    assert.equal(after.stageStatuses[0].status, 'running', 'stage should remain running');
 
+    // Cleanup the spawned helper.
+    try { process.kill(childPid, 'SIGTERM'); } catch { /* already gone */ }
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  test('init marks run interrupted when stage startedAt is before boot time (stale PID)', () => {
+  test('init re-attaches when PID is alive even if startedAt is before boot time (server-restart recovery)', () => {
+    // Detached agent processes legitimately survive a server restart. init() must
+    // re-attach polling to the live PID instead of marking the run interrupted just
+    // because startedAt < BOOT_TIME (regression test for pipeline-restart-recovery).
     const dataDir = tmpDir();
     const runsDir = path.join(dataDir, 'runs');
-    const runId   = 'run-stale-pid';
+    const runId   = 'run-alive-old-startedAt';
     const runDir  = path.join(runsDir, runId);
     fs.mkdirSync(runDir, { recursive: true });
 
-    // Use current process PID but a very old startedAt (before any boot time)
     const alivePid  = process.pid;
-    const staleDate = new Date(0).toISOString(); // epoch — definitely before BOOT_TIME
+    const oldDate   = new Date(0).toISOString(); // epoch — well before any BOOT_TIME
 
     const runState = {
       runId,
@@ -1266,16 +1272,16 @@ describe('pipelineManager — init() PID re-attach', () => {
         agentId: 'developer-agent',
         status: 'running',
         exitCode: null,
-        startedAt: staleDate,
+        startedAt: oldDate,
         finishedAt: null,
         pid: alivePid,
       }],
-      createdAt: staleDate,
-      updatedAt: staleDate,
+      createdAt: oldDate,
+      updatedAt: oldDate,
     };
     fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(runState), 'utf8');
 
-    const registry = [{ runId, spaceId: 'space-1', taskId: 'task-1', status: 'running', createdAt: staleDate }];
+    const registry = [{ runId, spaceId: 'space-1', taskId: 'task-1', status: 'running', createdAt: oldDate }];
     fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify(registry), 'utf8');
 
     delete require.cache[require.resolve('../src/services/pipelineManager')];
@@ -1283,7 +1289,8 @@ describe('pipelineManager — init() PID re-attach', () => {
     pm.init(dataDir);
 
     const after = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
-    assert.equal(after.status, 'interrupted', 'stale PID run should be interrupted regardless of PID liveness');
+    assert.equal(after.status, 'running', 'alive PID should keep run running (re-attached)');
+    assert.equal(after.stageStatuses[0].status, 'running', 'alive stage should remain running');
 
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
