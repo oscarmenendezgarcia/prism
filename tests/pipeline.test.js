@@ -946,14 +946,18 @@ describe('REST integration — pipeline endpoints', () => {
       createdAt:    new Date().toISOString(),
       updatedAt:    new Date().toISOString(),
     };
-    fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
-
-    // Register in runs.json so the handler can find it.
-    const { runsDir: getRunsDir } = pm;
-    const registryPath = path.join(getRunsDir(dataDir), 'runs.json');
-    const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
-    registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'running', createdAt: runState.createdAt });
-    fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    // Seed into SQLite store when available, fall back to disk for legacy contexts.
+    const storeStop = pm.getStore();
+    if (storeStop) {
+      storeStop.upsertRun(runState);
+    } else {
+      fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
+      const { runsDir: getRunsDir } = pm;
+      const registryPath = path.join(getRunsDir(dataDir), 'runs.json');
+      const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
+      registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'running', createdAt: runState.createdAt });
+      fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    }
 
     const stopRes = await request(port, 'POST', `/api/v1/runs/${runId}/stop`);
 
@@ -981,12 +985,19 @@ describe('REST integration — pipeline endpoints', () => {
 
     const runId = createRes.body.runId;
 
-    // Force the run to completed state directly on disk.
+    // Force the run to completed state — use the SQLite store when available
+    // (post-migration the server no longer writes run.json to disk).
     const pm = require('../src/services/pipelineManager');
-    const runPath = path.join(pm.runDir(dataDir, runId), 'run.json');
-    const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
-    runState.status = 'completed';
-    fs.writeFileSync(runPath, JSON.stringify(runState), 'utf8');
+    const store = pm.getStore();
+    if (store) {
+      const currentRun = store.getRun(runId);
+      store.upsertRun({ ...currentRun, status: 'completed' });
+    } else {
+      const runPath = path.join(pm.runDir(dataDir, runId), 'run.json');
+      const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+      runState.status = 'completed';
+      fs.writeFileSync(runPath, JSON.stringify(runState), 'utf8');
+    }
 
     const stopRes = await request(port, 'POST', `/api/v1/runs/${runId}/stop`);
     assert.equal(stopRes.status, 422);
@@ -1310,6 +1321,10 @@ describe('pipelineManager — checkpoints', () => {
     process.env.PIPELINE_MAX_CONCURRENT = '5';
     process.env.KANBAN_API_URL          = 'http://localhost:19999/api/v1';
     process.env.PIPELINE_NO_SPAWN       = '1';
+    // Pin PIPELINE_RUNS_DIR to this test's dataDir so concurrent test files
+    // running alongside (--test-concurrency=2) cannot redirect writes elsewhere.
+    const prevRunsDir = process.env.PIPELINE_RUNS_DIR;
+    process.env.PIPELINE_RUNS_DIR = path.join(dataDir, 'runs');
 
     const { spaceId, taskId } = createSpaceWithTask(dataDir);
 
@@ -1339,6 +1354,8 @@ describe('pipelineManager — checkpoints', () => {
       delete process.env.PIPELINE_MAX_CONCURRENT;
       delete process.env.KANBAN_API_URL;
       delete process.env.PIPELINE_NO_SPAWN;
+      if (prevRunsDir !== undefined) process.env.PIPELINE_RUNS_DIR = prevRunsDir;
+      else delete process.env.PIPELINE_RUNS_DIR;
       fs.rmSync(dataDir,   { recursive: true, force: true });
       fs.rmSync(agentsDir, { recursive: true, force: true });
     }
@@ -1350,6 +1367,11 @@ describe('pipelineManager — checkpoints', () => {
     const runId   = 'run-checkpoint-test';
     const runDir  = path.join(runsDir, runId);
     fs.mkdirSync(runDir, { recursive: true });
+
+    // Pin PIPELINE_RUNS_DIR to this test's runsDir so concurrent test files
+    // running alongside (--test-concurrency=2) cannot redirect reads/writes.
+    const prevRunsDirChk = process.env.PIPELINE_RUNS_DIR;
+    process.env.PIPELINE_RUNS_DIR = runsDir;
 
     // Two-stage run with a checkpoint before stage 1.
     const runState = {
@@ -1407,6 +1429,8 @@ describe('pipelineManager — checkpoints', () => {
 
     // Clean up any spawned intervals.
     await pm.abortAll(dataDir).catch(() => {});
+    if (prevRunsDirChk !== undefined) process.env.PIPELINE_RUNS_DIR = prevRunsDirChk;
+    else delete process.env.PIPELINE_RUNS_DIR;
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
@@ -1704,12 +1728,17 @@ describe('REST integration — checkpoints', () => {
       createdAt:    new Date().toISOString(),
       updatedAt:    new Date().toISOString(),
     };
-    fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
-
-    const registryPath = path.join(pm.runsDir(dataDir), 'runs.json');
-    const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
-    registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'paused', createdAt: runState.createdAt });
-    fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    // Seed into SQLite store when available, fall back to disk for legacy contexts.
+    const storePaused = pm.getStore();
+    if (storePaused) {
+      storePaused.upsertRun(runState);
+    } else {
+      fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
+      const registryPath = path.join(pm.runsDir(dataDir), 'runs.json');
+      const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
+      registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'paused', createdAt: runState.createdAt });
+      fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    }
 
     const resumeRes = await request(port, 'POST', `/api/v1/runs/${runId}/resume`);
 

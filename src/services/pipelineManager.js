@@ -1259,12 +1259,9 @@ function init(dataDir, store) {
   // In test environments the cache is sometimes cleared between server restarts,
   // causing lazy require() calls in route handlers to create a second, uninitialized
   // instance (with _store=null) instead of returning this initialized one.
-  // Re-registering here guarantees a single initialized instance per process.
+  // Always overwrite — the server's initialized instance must always win the slot.
   try {
-    const selfPath = require.resolve(__filename);
-    if (!require.cache[selfPath]) {
-      require.cache[selfPath] = module;
-    }
+    require.cache[require.resolve(__filename)] = module;
   } catch { /* ignore — not critical */ }
 
   const dir = runsDir(dataDir);
