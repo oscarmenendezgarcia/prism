@@ -937,7 +937,6 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   test('POST /api/v1/runs/:runId/stop returns 200 with interrupted run', async () => {
-    const pm    = require('../src/services/pipelineManager');
     const runId = crypto.randomUUID();
 
     // Write a fake run in 'running' state directly — no process spawned,
@@ -997,7 +996,6 @@ describe('REST integration — pipeline endpoints', () => {
 
     // Force the run to completed state — use the SQLite store when available
     // (post-migration the server no longer writes run.json to disk).
-    const pm = require('../src/services/pipelineManager');
     const store = pm.getStore();
     if (store) {
       const currentRun = store.getRun(runId);

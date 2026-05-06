@@ -266,10 +266,9 @@ async function run() {
     await new Promise((r) => setTimeout(r, 100));
 
     const runState = readRunJson(dataDir, runId);
-    // Pipeline resumes: status becomes 'running' again (executeNextStage fires via setImmediate).
-    // Since PIPELINE_NO_SPAWN is not set, the stage runner is invoked but will fail to spawn
-    // (no claude binary). Status may be 'failed' after the spawn attempt, which is acceptable —
-    // the important thing is it is NOT 'blocked'.
+    // Pipeline resumes: status becomes 'running' (or 'completed' if PIPELINE_NO_SPAWN=1
+    // sentinel processing fires within the timeout). The important invariant is that
+    // the run is NOT 'blocked' anymore.
     assert(runState.status !== 'blocked',
       `Expected run to be unblocked, got status=${runState.status}`);
   });
