@@ -669,34 +669,46 @@ function removeRegistryEntry(dataDir, runId) {
 // ---------------------------------------------------------------------------
 
 /**
- * Read full run state from disk.
+ * Read full run state.
+ * Delegates to the SQLite store when available; falls back to reading
+ * `run.json` from disk (used by unit tests that inject no store).
  *
  * @param {string} dataDir
  * @param {string} runId
  * @returns {object|null}
  */
 function readRun(dataDir, runId) {
+  if (_store) return _store.getRun(runId);
   return readJSON(runJsonPath(dataDir, runId), null);
 }
 
 /**
- * Write full run state to disk atomically.
+ * Persist full run state atomically.
+ * Delegates to the SQLite store when available (single INSERT OR REPLACE
+ * statement — resolves the double-write race-condition bug B1).
+ * Falls back to atomic JSON file writes when no store is present.
  *
  * @param {string} dataDir
  * @param {object} run
  */
 function writeRun(dataDir, run) {
   run.updatedAt = new Date().toISOString();
-  writeJSON(runJsonPath(dataDir, run.runId), run);
-  // Keep registry summary in sync.
-  upsertRegistryEntry(dataDir, {
-    runId:     run.runId,
-    spaceId:   run.spaceId,
-    taskId:    run.taskId,
-    status:    run.status,
-    createdAt: run.createdAt,
-    updatedAt: run.updatedAt,
-  });
+  if (_store) {
+    const t0 = Date.now();
+    _store.upsertRun(run);
+    pipelineLog('run.persisted', { runId: run.runId, status: run.status, latencyMs: Date.now() - t0 });
+  } else {
+    // File fallback — used by unit tests without a store.
+    writeJSON(runJsonPath(dataDir, run.runId), run);
+    upsertRegistryEntry(dataDir, {
+      runId:     run.runId,
+      spaceId:   run.spaceId,
+      taskId:    run.taskId,
+      status:    run.status,
+      createdAt: run.createdAt,
+      updatedAt: run.updatedAt,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -739,13 +751,16 @@ function hasActiveRunInDir(dataDir, workingDirectory) {
     if (run && run.workingDirectory === workingDirectory) return true;
   }
 
-  // Slow path: check the registry for any active-status run targeting the same dir.
-  // This covers pending runs that haven't entered activeProcesses yet.
+  // Slow path: check active runs for any targeting the same working directory.
+  // Uses the store index when available; falls back to the registry file.
   const ACTIVE_STATUSES = new Set(['pending', 'running', 'blocked', 'paused']);
-  const registry = readRegistry(dataDir);
-  for (const entry of registry) {
-    if (!ACTIVE_STATUSES.has(entry.status)) continue;
-    const run = readRun(dataDir, entry.runId);
+  const candidates = _store
+    ? _store.listActiveRuns()
+    : readRegistry(dataDir)
+        .filter((r) => ACTIVE_STATUSES.has(r.status))
+        .map((r) => readRun(dataDir, r.runId))
+        .filter(Boolean);
+  for (const run of candidates) {
     if (run && run.workingDirectory === workingDirectory) return true;
   }
 
@@ -1244,43 +1259,84 @@ function init(dataDir, store) {
   // In test environments the cache is sometimes cleared between server restarts,
   // causing lazy require() calls in route handlers to create a second, uninitialized
   // instance (with _store=null) instead of returning this initialized one.
-  // Re-registering here guarantees a single initialized instance per process.
+  // Always overwrite — the server's initialized instance must always win the slot.
   try {
-    const selfPath = require.resolve(__filename);
-    if (!require.cache[selfPath]) {
-      require.cache[selfPath] = module;
-    }
+    require.cache[require.resolve(__filename)] = module;
   } catch { /* ignore — not critical */ }
 
   const dir = runsDir(dataDir);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
-    return;
-  }
-
-  let entries;
-  try {
-    entries = fs.readdirSync(dir);
-  } catch (err) {
-    console.warn('[pipelineManager] WARN: could not read runs dir:', err.message);
+    // Even when the directory didn't exist, there may be active runs in the
+    // store that need to be processed (e.g. after a PIPELINE_RUNS_DIR change).
+    if (_store) {
+      const activeRuns = _store.listActiveRuns();
+      if (activeRuns.length > 0) {
+        _processRunsOnStartup(dataDir, activeRuns, new Set());
+      }
+    }
     return;
   }
 
   // Collect unique workingDirectories for the reapOrphans sweep below.
   const knownWorkingDirs = new Set();
 
-  for (const entry of entries) {
-    const runJsonFile = path.join(dir, entry, 'run.json');
-    if (!fs.existsSync(runJsonFile)) continue;
-
+  if (_store) {
+    // ── New path: read active runs from SQLite ─────────────────────────────
+    const activeRuns = _store.listActiveRuns();
+    _processRunsOnStartup(dataDir, activeRuns, knownWorkingDirs);
+  } else {
+    // ── Legacy path: scan filesystem ──────────────────────────────────────
+    let entries;
     try {
-      const run = JSON.parse(fs.readFileSync(runJsonFile, 'utf8'));
-      if (!run) continue;
+      entries = fs.readdirSync(dir);
+    } catch (err) {
+      console.warn('[pipelineManager] WARN: could not read runs dir:', err.message);
+      return;
+    }
+
+    const runsFromFiles = [];
+    for (const entry of entries) {
+      const runJsonFile = path.join(dir, entry, 'run.json');
+      if (!fs.existsSync(runJsonFile)) continue;
+      try {
+        const run = JSON.parse(fs.readFileSync(runJsonFile, 'utf8'));
+        if (run) runsFromFiles.push(run);
+      } catch (err) {
+        console.warn(`[pipelineManager] WARN: could not parse run file '${runJsonFile}':`, err.message);
+      }
+    }
+    _processRunsOnStartup(dataDir, runsFromFiles, knownWorkingDirs);
+  }
+
+  // Garbage-collect orphaned worktrees from unclean shutdowns (parallel-worktrees T-008).
+  // Run asynchronously — init() is synchronous overall; reapOrphans is a best-effort sweep.
+  if (knownWorkingDirs.size > 0) {
+    worktreeManager.reapOrphans(dataDir, [...knownWorkingDirs], _store).catch((err) => {
+      console.warn('[pipelineManager] WARN: reapOrphans failed:', err.message);
+    });
+  }
+}
+
+/**
+ * Process a list of runs on server startup: re-attach, interrupt, or handle
+ * resolver state as appropriate. Mutates `knownWorkingDirs` in place.
+ *
+ * Extracted to avoid duplication between the store path and the legacy file path.
+ *
+ * @param {string}   dataDir
+ * @param {object[]} runs              - Run objects to process.
+ * @param {Set}      knownWorkingDirs  - Mutated: working directories collected for reapOrphans.
+ */
+function _processRunsOnStartup(dataDir, runs, knownWorkingDirs) {
+  for (const run of runs) {
+    try {
+      if (!run || !run.runId) continue;
 
       // Collect workingDirectory for reapOrphans sweep (parallel-worktrees).
       if (run.workingDirectory) knownWorkingDirs.add(run.workingDirectory);
 
-      // T-010: Handle blocked runs with an active resolver on restart.
+      // Handle blocked runs with an active resolver on restart.
       if (run.status === 'blocked' && run.resolverActive === true) {
         const resolverPid        = run.blockedReason?.resolverPid;
         const resolverStartedAt  = run.blockedReason?.resolverStartedAt
@@ -1296,7 +1352,6 @@ function init(dataDir, store) {
             10
           );
           const doneFile = resolverDonePath(dataDir, run.runId, commentId);
-          // Reconstruct a minimal comment object for handleResolverClose.
           const comment = {
             id:          commentId,
             targetAgent: run.blockedReason?.targetAgent,
@@ -1312,12 +1367,7 @@ function init(dataDir, store) {
             delete run.blockedReason.resolverPid;
             delete run.blockedReason.resolverStartedAt;
           }
-          run.updatedAt = new Date().toISOString();
-          writeJSON(runJsonFile, run);
-          upsertRegistryEntry(dataDir, {
-            runId: run.runId, spaceId: run.spaceId, taskId: run.taskId,
-            status: run.status, createdAt: run.createdAt, updatedAt: run.updatedAt,
-          });
+          writeRun(dataDir, run);
           markCommentNeedsHuman(dataDir, run.spaceId, run.taskId, commentId);
           pipelineLog('resolver.dead_on_restart', { runId: run.runId, commentId });
         }
@@ -1333,81 +1383,57 @@ function init(dataDir, store) {
 
       if (runningStageIdx === -1) {
         // No stage is marked running — interrupt at run level.
-        run.status    = 'interrupted';
-        run.updatedAt = new Date().toISOString();
-        writeJSON(runJsonFile, run);
-        upsertRegistryEntry(dataDir, { runId: run.runId, spaceId: run.spaceId, taskId: run.taskId, status: 'interrupted', createdAt: run.createdAt, updatedAt: run.updatedAt });
+        run.status = 'interrupted';
+        writeRun(dataDir, run);
         console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart)`);
         continue;
       }
 
-      const stage      = run.stageStatuses[runningStageIdx];
-      const pid        = stage.pid;
-      const startedAt  = stage.startedAt ? new Date(stage.startedAt).getTime() : 0;
+      const stage    = run.stageStatuses[runningStageIdx];
+      const pid      = stage.pid;
+      const doneFile = stageDonePath(dataDir, run.runId, runningStageIdx);
 
-      // Boot-time guard: if the stage started before this server booted,
-      // treat the PID as stale even if another process with the same PID is alive.
-      const pidIsStale = startedAt < BOOT_TIME;
+      // 1. Sentinel exists → stage finished while the server was down. Process exit code.
+      if (fs.existsSync(doneFile)) {
+        let exitCode = 1;
+        try {
+          const raw = fs.readFileSync(doneFile, 'utf8').trim();
+          exitCode = parseInt(raw, 10);
+          if (isNaN(exitCode)) exitCode = 1;
+        } catch { /* read error — treat as failure */ }
+        pipelineLog('stage.sentinel_detected_on_reattach', { runId: run.runId, runningStageIdx, exitCode });
+        handleStageClose(dataDir, run.runId, runningStageIdx, exitCode).catch((err) => {
+          console.warn(`[pipelineManager] WARN: handleStageClose on reattach failed for run ${run.runId}:`, err.message);
+        });
+        continue;
+      }
 
-      if (!pidIsStale && pid && isProcessAlive(pid)) {
-        // Process is still running — re-attach polling so completion is detected.
+      // 2. PID alive → detached agent survived the restart. Re-attach polling, do NOT kill.
+      if (pid && isProcessAlive(pid)) {
         const agentId     = run.stages[runningStageIdx];
         const baseTimeout = parseInt(process.env.PIPELINE_STAGE_TIMEOUT_MS || String(DEFAULT_STAGE_TIMEOUT_MS), 10);
         const timeoutMs   = agentId === 'orchestrator' ? baseTimeout * 6 : baseTimeout;
-        const doneFile    = stageDonePath(dataDir, run.runId, runningStageIdx);
+        const startedAt   = stage.startedAt ? new Date(stage.startedAt).getTime() : BOOT_TIME;
 
-        const interval = startPolling(dataDir, run.runId, runningStageIdx, doneFile, startedAt || BOOT_TIME, timeoutMs);
+        const interval = startPolling(dataDir, run.runId, runningStageIdx, doneFile, startedAt, timeoutMs);
         activeProcesses.set(run.runId, { interval, stageIndex: runningStageIdx });
         pipelineLog('run.reattached', { runId: run.runId, runningStageIdx, pid });
-      } else {
-        // PID is dead or stale — but check if the done-sentinel was written
-        // before we mark as interrupted. The stage may have completed cleanly
-        // while the server was down (e.g. code-reviewer writing its sentinel
-        // after the server restarted and lost the polling interval).
-        const doneFile = stageDonePath(dataDir, run.runId, runningStageIdx);
-        if (fs.existsSync(doneFile)) {
-          let exitCode = 1;
-          try {
-            const raw = fs.readFileSync(doneFile, 'utf8').trim();
-            exitCode = parseInt(raw, 10);
-            if (isNaN(exitCode)) exitCode = 1;
-          } catch { /* read error — treat as failure */ }
-          pipelineLog('stage.sentinel_detected_on_reattach', { runId: run.runId, runningStageIdx, exitCode });
-          // Process the completed stage asynchronously.
-          handleStageClose(dataDir, run.runId, runningStageIdx, exitCode).catch((err) => {
-            console.warn(`[pipelineManager] WARN: handleStageClose on reattach failed for run ${run.runId}:`, err.message);
-          });
-        } else {
-          // No sentinel — stage truly did not complete. Mark interrupted.
-          // Defensively kill the process group: the agent may still be running even when
-          // flagged as stale, because detached+unref'd processes survive server restarts.
-          if (pid && pid !== process.pid) {
-            try { process.kill(-pid, 'SIGTERM'); } catch { /* already gone */ }
-          }
-          run.status    = 'interrupted';
-          run.updatedAt = new Date().toISOString();
-          for (const s of run.stageStatuses) {
-            if (s.status === 'running') {
-              s.status     = 'interrupted';
-              s.finishedAt = run.updatedAt;
-            }
-          }
-          writeJSON(runJsonFile, run);
-          upsertRegistryEntry(dataDir, { runId: run.runId, spaceId: run.spaceId, taskId: run.taskId, status: 'interrupted', createdAt: run.createdAt, updatedAt: run.updatedAt });
-          console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart, PID dead)`);
+        continue;
+      }
+
+      // 3. PID dead and no sentinel → genuinely interrupted.
+      run.status = 'interrupted';
+      for (const s of run.stageStatuses) {
+        if (s.status === 'running') {
+          s.status     = 'interrupted';
+          s.finishedAt = new Date().toISOString();
         }
       }
+      writeRun(dataDir, run);
+      console.warn(`[pipelineManager] WARN: run ${run.runId} interrupted (PID ${pid} dead, no sentinel)`);
     } catch (err) {
-      console.warn(`[pipelineManager] WARN: could not process run entry '${entry}':`, err.message);
+      console.warn(`[pipelineManager] WARN: could not process run '${run?.runId ?? '?'}' on startup:`, err.message);
     }
-  }
-
-  // Garbage-collect orphaned worktrees from unclean shutdowns (parallel-worktrees T-008).
-  // Run asynchronously — init() is synchronous overall; reapOrphans is a best-effort sweep.
-  if (knownWorkingDirs.size > 0) {
-    worktreeManager.reapOrphans(dataDir, [...knownWorkingDirs]).catch((err) => {
-      console.warn('[pipelineManager] WARN: reapOrphans failed:', err.message);
-    });
   }
 }
 
@@ -1940,14 +1966,18 @@ function attemptCrossAgentResolution(dataDir, run, comment) {
 // ---------------------------------------------------------------------------
 
 /**
- * Search the registry for an active run (pending/running/paused/blocked) for a given taskId.
- * Returns the full run object from disk, or null if no active run exists.
+ * Return the most-recently-updated active run for a given taskId, or null.
+ * Active statuses: pending, running, paused, blocked.
+ *
+ * Delegates to the SQLite store when available; falls back to the legacy
+ * `runs.json` registry scan when no store is present.
  *
  * @param {string} dataDir
  * @param {string} taskId
  * @returns {object|null}
  */
 function findActiveRunByTaskId(dataDir, taskId) {
+  if (_store) return _store.findActiveRunByTaskId(taskId);
   const registry = readRegistry(dataDir);
   const ACTIVE_STATUSES = ['pending', 'running', 'paused', 'blocked'];
   const entry = registry.find(
@@ -2169,12 +2199,14 @@ async function getRun(runId, dataDir) {
 }
 
 /**
- * List all run summaries from the registry.
+ * List all run summaries.
+ * Delegates to the SQLite store when available; falls back to the registry file.
  *
  * @param {string} dataDir
  * @returns {Promise<object[]>}
  */
 async function listRuns(dataDir) {
+  if (_store) return _store.listRuns();
   return readRegistry(dataDir);
 }
 
@@ -2330,14 +2362,18 @@ async function deleteRun(runId, dataDir) {
     }
   }
 
-  // Remove run directory.
+  // Remove run directory (logs, sentinels, prompts — still on disk).
   const dir = runDir(dataDir, runId);
   if (fs.existsSync(dir)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
-  // Remove from registry.
-  removeRegistryEntry(dataDir, runId);
+  // Remove from store or registry file.
+  if (_store) {
+    _store.deleteRun(runId);
+  } else {
+    removeRegistryEntry(dataDir, runId);
+  }
 }
 
 /**

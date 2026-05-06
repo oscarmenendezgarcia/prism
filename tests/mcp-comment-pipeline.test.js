@@ -87,13 +87,20 @@ function makeRequest(port) {
 // ---------------------------------------------------------------------------
 
 /**
- * Write a fake run.json + registry entry directly into dataDir/runs/<runId>/.
- * This lets us test auto-block/unblock without spawning an actual Claude agent.
+ * Seed a fake run into the pipeline store (or, for legacy unit tests, into
+ * run.json + runs.json on disk) so we can test auto-block/unblock without
+ * actually spawning a Claude agent.
+ *
+ * When the server is running (SQLite store initialised via migrate()), we
+ * write directly to the store so pipelineManager can find the run via the
+ * store index.  In pure unit-test contexts (no store) we fall back to files.
  */
 function seedRun(dataDir, runId, overrides = {}) {
-  const now      = new Date().toISOString();
-  const runsDir  = path.join(dataDir, 'runs');
-  const runDirP  = path.join(runsDir, runId);
+  const now     = new Date().toISOString();
+  const runsDir = path.join(dataDir, 'runs');
+  const runDirP = path.join(runsDir, runId);
+  // Always create the run directory — logs and sentinels live here even when
+  // run state is stored in SQLite.
   fs.mkdirSync(runDirP, { recursive: true });
 
   const run = {
@@ -105,7 +112,7 @@ function seedRun(dataDir, runId, overrides = {}) {
     status:  overrides.status  ?? 'running',
     stageStatuses: [
       {
-        index: 0,
+        index:      0,
         agentId:    'developer-agent',
         status:     overrides.stage0Status ?? 'pending',
         exitCode:   null,
@@ -113,7 +120,7 @@ function seedRun(dataDir, runId, overrides = {}) {
         finishedAt: null,
       },
       {
-        index: 1,
+        index:      1,
         agentId:    'qa-engineer-e2e',
         status:     'pending',
         exitCode:   null,
@@ -126,25 +133,25 @@ function seedRun(dataDir, runId, overrides = {}) {
     ...overrides,
   };
 
-  fs.writeFileSync(path.join(runDirP, 'run.json'), JSON.stringify(run, null, 2), 'utf8');
-
-  // Update the registry
-  const registryPath = path.join(runsDir, 'runs.json');
-  let registry = [];
-  if (fs.existsSync(registryPath)) {
-    try { registry = JSON.parse(fs.readFileSync(registryPath, 'utf8')); } catch {}
+  // Use the SQLite store when the server has initialised one (post-migration).
+  const pm    = require('./helpers/../../src/services/pipelineManager');
+  const store = pm.getStore();
+  if (store) {
+    store.upsertRun(run);
+  } else {
+    // Legacy fallback for unit tests that run without a server / store.
+    fs.writeFileSync(path.join(runDirP, 'run.json'), JSON.stringify(run, null, 2), 'utf8');
+    const registryPath = path.join(runsDir, 'runs.json');
+    let registry = [];
+    if (fs.existsSync(registryPath)) {
+      try { registry = JSON.parse(fs.readFileSync(registryPath, 'utf8')); } catch {}
+    }
+    const idx     = registry.findIndex((r) => r.runId === runId);
+    const summary = { runId, spaceId: run.spaceId, taskId: run.taskId, status: run.status, createdAt: run.createdAt };
+    if (idx === -1) registry.push(summary);
+    else registry[idx] = summary;
+    fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
   }
-  const idx     = registry.findIndex((r) => r.runId === runId);
-  const summary = {
-    runId,
-    spaceId:   run.spaceId,
-    taskId:    run.taskId,
-    status:    run.status,
-    createdAt: run.createdAt,
-  };
-  if (idx === -1) registry.push(summary);
-  else registry[idx] = summary;
-  fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
 
   return run;
 }

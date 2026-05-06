@@ -1,0 +1,128 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "sqlite-pipeline-runs",
+  "date": "2026-05-04",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Añadir tabla pipeline_runs y CRUD al store",
+      "description": "Extender src/services/store.js con: DDL para la tabla pipeline_runs (run_id PK, space_id, task_id, status, data TEXT JSON, created_at, updated_at) e índices (status, task_id, space_id, updated_at DESC, task_id+status). Prepared statements y métodos: getRun(runId), upsertRun(run) (INSERT OR REPLACE), listRuns({limit, offset, orderBy}), listActiveRuns() (status IN pending/running/blocked/paused), findActiveRunByTaskId(taskId) (último activo, ORDER BY updated_at DESC LIMIT 1), deleteRun(runId).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "createStore(':memory:') expone getRun, upsertRun, listRuns, listActiveRuns, findActiveRunByTaskId, deleteRun.",
+        "El método upsertRun serializa el run completo en la columna data y replica spaceId/taskId/status/createdAt/updatedAt en columnas indexadas.",
+        "getRun devuelve el objeto deserializado (mismo shape que el run.json original) o null.",
+        "listRuns ordena por updated_at DESC por defecto y respeta limit/offset cuando se pasan.",
+        "findActiveRunByTaskId solo retorna runs con status en {pending, running, blocked, paused}.",
+        "deleteRun devuelve boolean indicando si la fila existía.",
+        "PRAGMA journal_mode=WAL ya activa (heredado del schema actual)."
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Unit tests del nuevo runStore",
+      "description": "Crear tests/runStore.test.js usando createStore(':memory:'). Cubre: insertar y leer un run; upsertRun replace de un run existente; listRuns con orden por updated_at; listActiveRuns filtra terminales (completed/failed/interrupted/aborted); findActiveRunByTaskId devuelve el más reciente cuando hay varios; deleteRun true/false según exista; lectura de un runId inexistente devuelve null; persistencia del JSON blob preserva campos anidados (stageStatuses, worktree, blockedReason).",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "Cobertura del módulo runStore > 90%.",
+        "Test 'preserves nested fields' verifica que stageStatuses y worktree sobreviven round-trip.",
+        "Test 'findActiveRunByTaskId returns latest active' inserta 2 runs activos y 1 completado para la misma task."
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Phase 3 del migrator: importar run.json a SQLite",
+      "description": "En src/services/migrator.js añadir migrateRunsJsonToSqlite(dataDir, store): escanear data/runs/<dirname>/, leer run.json si existe, llamar store.upsertRun(run) salvo que store.getRun(runId) ya exista (idempotencia), renombrar el fichero a run.json.migrated. Al final, renombrar data/runs/runs.json a runs.json.migrated. Loggear '[migrator] Phase 3 — N runs imported in Xms'. Llamar a esta función desde migrate(dataDir, store) tras Phase 2.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "Ejecutar migrate() dos veces seguidas no duplica filas en pipeline_runs.",
+        "Run con runId que ya existe en SQLite no sobrescribe la fila pero sí renombra el JSON a .migrated.",
+        "runs.json se renombra a runs.json.migrated tras procesar todos los directorios.",
+        "Errores de parseo de un run.json se loggean y no detienen la importación de los demás.",
+        "data/runs/<runId>/stage-N.log NO se toca (siguen en disco)."
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Refactor pipelineManager: readRun / writeRun delegan en store",
+      "description": "En src/services/pipelineManager.js: (a) reescribir readRun(dataDir, runId) como _store.getRun(runId); (b) reescribir writeRun(dataDir, run) para llamar _store.upsertRun(run) tras setear run.updatedAt — eliminar la doble escritura a run.json y runs.json; (c) deprecar readJSON/writeJSON internos solo para runs (mantener para los inject signals); (d) eliminar upsertRegistryEntry/removeRegistryEntry/readRegistry y reemplazar sus usos por las llamadas equivalentes al store; (e) listRuns(dataDir) → return _store.listRuns(); (f) findActiveRunByTaskId(dataDir, taskId) → _store.findActiveRunByTaskId(taskId). Mantener todas las firmas de export idénticas.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1d",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "El módulo no llama a runJsonPath ni a runsRegistryPath para leer o escribir el estado del run (sí pueden quedar exportados para compat o para resolver paths de stage-N.* — usados por sentinels/logs).",
+        "Todos los exports actuales (createRun, listRuns, getRun, stopRun, deleteRun, resumeRun, blockRun, unblockRun, blockRunByComment, unblockRunByComment, findActiveRunByTaskId, etc.) mantienen la misma firma.",
+        "Tests existentes en tests/pipeline*.test.js siguen pasando (puede requerir ajustes en helpers que pre-creen ficheros run.json — esos helpers deben usar el store).",
+        "deleteRun borra fila de pipeline_runs Y borra el directorio data/runs/<runId>/."
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Refactor pipelineManager.init() para leer runs activos del store",
+      "description": "Reescribir init(dataDir, store) para iterar _store.listActiveRuns() en vez de readdirSync(runsDir). Mantener la lógica de re-attach (sentinel exists / PID alive / PID dead) intacta — solo cambia la fuente de los runs. Persistir cambios de estado (interrupted) vía writeRun (que ya delega en store).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": ["T-004"],
+      "acceptance_criteria": [
+        "init() no llama a readdirSync(runsDir) para descubrir runs (sí puede crearse el directorio si no existe, para los logs).",
+        "Re-attach por sentinel sigue funcionando (test pipeline.test.js cubre este flujo).",
+        "Re-attach por PID vivo sigue funcionando.",
+        "Runs con PID muerto y sin sentinel se marcan como 'interrupted' en SQLite."
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Integration test: persistencia tras restart del servidor",
+      "description": "Crear tests/pipeline-sqlite-restart.test.js: arrancar app con tmpDir, crear un run con createRun (mockear el spawn para evitar lanzar claude), simular un escenario donde el run quedó 'completed' y verificar que tras cerrar el store y reabrirlo (createStore(tmpDir)) el run sigue presente con todos sus campos. Segundo escenario: un run con status 'running' y PID inexistente se marca 'interrupted' al llamar a init().",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": ["T-004", "T-005"],
+      "acceptance_criteria": [
+        "Un run persistido con upsertRun aparece en una nueva instancia del store creada sobre el mismo dataDir.",
+        "init() sobre un dataDir con un run 'running' + PID muerto deja el run con status 'interrupted'.",
+        "El test usa PIPELINE_NO_SPAWN=1 (patrón ya existente en otros tests) para evitar fork de claude."
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Auditar y ajustar tests existentes que tocan run.json/runs.json directamente",
+      "description": "Grep en tests/ por 'runs.json', 'run.json', 'runJsonPath'. Cualquier test que pre-cree o lea estos ficheros debe pasar a usar pipelineManager.getRun(runId, dataDir) o store.upsertRun(run). Documentar en el commit qué tests se ajustaron.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "0.5d",
+      "dependencies": ["T-004"],
+      "acceptance_criteria": [
+        "Grep 'runs.json' en tests/ devuelve 0 resultados (o solo strings literales en aserciones de error/legacy).",
+        "Toda la suite npm test pasa en verde.",
+        "El test pipeline-parallel-worktrees.test.js (que probablemente pre-crea runs) sigue pasando."
+      ]
+    },
+    {
+      "id": "T-008",
+      "title": "Smoke test manual + checklist de rollback",
+      "description": "Tras aplicar los cambios: (1) borrar data/prism.db local; (2) arrancar node server.js — verificar que [migrator] Phase 3 importa N runs y los .migrated aparecen; (3) abrir la UI y verificar que la lista de runs muestra todos; (4) crear un run nuevo con kanban_start_pipeline, matar el server, reiniciar — verificar que init() lo marca interrupted o re-attacha según corresponda; (5) probar rollback: parar server, mv data/runs/*/run.json.migrated → run.json, sqlite3 data/prism.db 'DROP TABLE pipeline_runs;', volver al binario anterior — la app vuelve a funcionar.",
+      "role": "QA",
+      "priority": "Medium",
+      "estimate": "0.25d",
+      "dependencies": ["T-006", "T-007"],
+      "acceptance_criteria": [
+        "El log [migrator] Phase 3 — N runs imported aparece tras la primera arrancada.",
+        "Una segunda arrancada no muestra nuevas importaciones (idempotente).",
+        "El procedimiento de rollback descrito en el ADR funciona end-to-end."
+      ]
+    }
+  ]
+}

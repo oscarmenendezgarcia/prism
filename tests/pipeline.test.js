@@ -347,6 +347,10 @@ describe('pipelineManager — createRun validations', () => {
     process.env.PIPELINE_MAX_CONCURRENT = '5';
     // Use a bogus KANBAN_API_URL so moveKanbanTask fails silently and does not hang.
     process.env.KANBAN_API_URL = 'http://localhost:19999/api/v1';
+    // SAFETY: prevent a real claude process from being spawned. Without this guard
+    // the spawned agent uses its own MCP config (port 3000) and interacts with the
+    // production kanban using phantom space/task IDs — the "surrogate task" bug (f3149d95).
+    process.env.PIPELINE_NO_SPAWN = '1';
 
     const { spaceId, taskId } = createSpaceWithTask(dataDir);
 
@@ -380,12 +384,11 @@ describe('pipelineManager — createRun validations', () => {
       const registry = JSON.parse(fs.readFileSync(registryFile, 'utf8'));
       assert.ok(registry.some((r) => r.runId === run.runId));
     } finally {
-      // Kill the spawned claude subprocess to prevent it from starting a
-      // node server.js that inherits the test PIPELINE_AGENTS_DIR env var.
       if (run) await pm.abortAll(dataDir).catch(() => {});
       delete process.env.PIPELINE_AGENTS_DIR;
       delete process.env.PIPELINE_MAX_CONCURRENT;
       delete process.env.KANBAN_API_URL;
+      delete process.env.PIPELINE_NO_SPAWN;
       fs.rmSync(dataDir,   { recursive: true, force: true });
       fs.rmSync(agentsDir, { recursive: true, force: true });
     }
@@ -748,6 +751,10 @@ describe('REST integration — pipeline endpoints', () => {
   let port;
   let dataDir;
   let agentsDir;
+  // Stable reference to the server's pipelineManager module (with _store set).
+  // Captured in before() so it stays valid even if concurrent describe blocks
+  // later clear require.cache and produce a storeless module instance.
+  let pm;
 
   before(async () => {
     dataDir   = tmpDir();
@@ -775,11 +782,14 @@ describe('REST integration — pipeline endpoints', () => {
       server.once('listening', () => { port = server.address().port; resolve(); });
       server.once('error', reject);
     });
+
+    // Capture the server's pipelineManager instance (has _store set via init()).
+    // Must be done AFTER server.listening fires, i.e. after init() has run.
+    pm = require('../src/services/pipelineManager');
   });
 
   after(async () => {
     try {
-      const pm = require('../src/services/pipelineManager');
       await pm.abortAll(dataDir);
     } catch { /* best-effort */ }
     if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
@@ -927,7 +937,6 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   test('POST /api/v1/runs/:runId/stop returns 200 with interrupted run', async () => {
-    const pm    = require('../src/services/pipelineManager');
     const runId = crypto.randomUUID();
 
     // Write a fake run in 'running' state directly — no process spawned,
@@ -946,14 +955,18 @@ describe('REST integration — pipeline endpoints', () => {
       createdAt:    new Date().toISOString(),
       updatedAt:    new Date().toISOString(),
     };
-    fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
-
-    // Register in runs.json so the handler can find it.
-    const { runsDir: getRunsDir } = pm;
-    const registryPath = path.join(getRunsDir(dataDir), 'runs.json');
-    const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
-    registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'running', createdAt: runState.createdAt });
-    fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    // Seed into SQLite store when available, fall back to disk for legacy contexts.
+    const storeStop = pm.getStore();
+    if (storeStop) {
+      storeStop.upsertRun(runState);
+    } else {
+      fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
+      const { runsDir: getRunsDir } = pm;
+      const registryPath = path.join(getRunsDir(dataDir), 'runs.json');
+      const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
+      registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'running', createdAt: runState.createdAt });
+      fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    }
 
     const stopRes = await request(port, 'POST', `/api/v1/runs/${runId}/stop`);
 
@@ -981,12 +994,18 @@ describe('REST integration — pipeline endpoints', () => {
 
     const runId = createRes.body.runId;
 
-    // Force the run to completed state directly on disk.
-    const pm = require('../src/services/pipelineManager');
-    const runPath = path.join(pm.runDir(dataDir, runId), 'run.json');
-    const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
-    runState.status = 'completed';
-    fs.writeFileSync(runPath, JSON.stringify(runState), 'utf8');
+    // Force the run to completed state — use the SQLite store when available
+    // (post-migration the server no longer writes run.json to disk).
+    const store = pm.getStore();
+    if (store) {
+      const currentRun = store.getRun(runId);
+      store.upsertRun({ ...currentRun, status: 'completed' });
+    } else {
+      const runPath = path.join(pm.runDir(dataDir, runId), 'run.json');
+      const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+      runState.status = 'completed';
+      fs.writeFileSync(runPath, JSON.stringify(runState), 'utf8');
+    }
 
     const stopRes = await request(port, 'POST', `/api/v1/runs/${runId}/stop`);
     assert.equal(stopRes.status, 422);
@@ -1188,11 +1207,13 @@ describe('pipelineManager — init() PID re-attach', () => {
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  test('init kills stale-but-alive process group on restart (no sentinel)', async () => {
+  test('init preserves a detached agent that survived a server restart (no sentinel)', async () => {
+    // Detached agents legitimately outlive the server; init() must re-attach to
+    // them, not SIGTERM them. Regression test for pipeline-restart-recovery.
     const { spawn } = require('child_process');
     const dataDir = tmpDir();
     const runsDir = path.join(dataDir, 'runs');
-    const runId   = 'run-stale-kill';
+    const runId   = 'run-survive-restart';
     const runDir  = path.join(runsDir, runId);
     fs.mkdirSync(runDir, { recursive: true });
 
@@ -1201,11 +1222,11 @@ describe('pipelineManager — init() PID re-attach', () => {
     child.unref();
     const childPid = child.pid;
 
-    const staleDate = new Date(0).toISOString();
+    const oldDate  = new Date(0).toISOString();
     const runState = {
       runId,
-      spaceId: 'space-kill',
-      taskId:  'task-kill',
+      spaceId: 'space-survive',
+      taskId:  'task-survive',
       stages:  ['developer-agent'],
       currentStage: 0,
       status:  'running',
@@ -1214,45 +1235,49 @@ describe('pipelineManager — init() PID re-attach', () => {
         agentId: 'developer-agent',
         status: 'running',
         exitCode: null,
-        startedAt: staleDate,
+        startedAt: oldDate,
         finishedAt: null,
         pid: childPid,
       }],
-      createdAt: staleDate,
-      updatedAt: staleDate,
+      createdAt: oldDate,
+      updatedAt: oldDate,
     };
     fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(runState), 'utf8');
-    const registry = [{ runId, spaceId: 'space-kill', taskId: 'task-kill', status: 'running', createdAt: staleDate }];
+    const registry = [{ runId, spaceId: 'space-survive', taskId: 'task-survive', status: 'running', createdAt: oldDate }];
     fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify(registry), 'utf8');
 
     delete require.cache[require.resolve('../src/services/pipelineManager')];
     const pm = require('../src/services/pipelineManager');
     pm.init(dataDir);
 
-    // SIGTERM delivery is async — give the OS a tick to reap the process.
+    // Give init() a tick to settle.
     await new Promise((r) => setTimeout(r, 50));
 
-    // isProcessAlive uses kill(pid, 0) — if the process is gone it throws.
     let alive = true;
     try { process.kill(childPid, 0); } catch { alive = false; }
-    assert.equal(alive, false, 'stale-but-alive process should be killed by init()');
+    assert.equal(alive, true, 'detached agent must survive init() when PID is alive');
 
     const after = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
-    assert.equal(after.status, 'interrupted', 'run should be marked interrupted');
+    assert.equal(after.status, 'running', 'run should remain running (re-attached)');
+    assert.equal(after.stageStatuses[0].status, 'running', 'stage should remain running');
 
+    // Cleanup the spawned helper.
+    try { process.kill(childPid, 'SIGTERM'); } catch { /* already gone */ }
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  test('init marks run interrupted when stage startedAt is before boot time (stale PID)', () => {
+  test('init re-attaches when PID is alive even if startedAt is before boot time (server-restart recovery)', () => {
+    // Detached agent processes legitimately survive a server restart. init() must
+    // re-attach polling to the live PID instead of marking the run interrupted just
+    // because startedAt < BOOT_TIME (regression test for pipeline-restart-recovery).
     const dataDir = tmpDir();
     const runsDir = path.join(dataDir, 'runs');
-    const runId   = 'run-stale-pid';
+    const runId   = 'run-alive-old-startedAt';
     const runDir  = path.join(runsDir, runId);
     fs.mkdirSync(runDir, { recursive: true });
 
-    // Use current process PID but a very old startedAt (before any boot time)
     const alivePid  = process.pid;
-    const staleDate = new Date(0).toISOString(); // epoch — definitely before BOOT_TIME
+    const oldDate   = new Date(0).toISOString(); // epoch — well before any BOOT_TIME
 
     const runState = {
       runId,
@@ -1266,16 +1291,16 @@ describe('pipelineManager — init() PID re-attach', () => {
         agentId: 'developer-agent',
         status: 'running',
         exitCode: null,
-        startedAt: staleDate,
+        startedAt: oldDate,
         finishedAt: null,
         pid: alivePid,
       }],
-      createdAt: staleDate,
-      updatedAt: staleDate,
+      createdAt: oldDate,
+      updatedAt: oldDate,
     };
     fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(runState), 'utf8');
 
-    const registry = [{ runId, spaceId: 'space-1', taskId: 'task-1', status: 'running', createdAt: staleDate }];
+    const registry = [{ runId, spaceId: 'space-1', taskId: 'task-1', status: 'running', createdAt: oldDate }];
     fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify(registry), 'utf8');
 
     delete require.cache[require.resolve('../src/services/pipelineManager')];
@@ -1283,7 +1308,8 @@ describe('pipelineManager — init() PID re-attach', () => {
     pm.init(dataDir);
 
     const after = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
-    assert.equal(after.status, 'interrupted', 'stale PID run should be interrupted regardless of PID liveness');
+    assert.equal(after.status, 'running', 'alive PID should keep run running (re-attached)');
+    assert.equal(after.stageStatuses[0].status, 'running', 'alive stage should remain running');
 
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
@@ -1303,6 +1329,10 @@ describe('pipelineManager — checkpoints', () => {
     process.env.PIPELINE_MAX_CONCURRENT = '5';
     process.env.KANBAN_API_URL          = 'http://localhost:19999/api/v1';
     process.env.PIPELINE_NO_SPAWN       = '1';
+    // Pin PIPELINE_RUNS_DIR to this test's dataDir so concurrent test files
+    // running alongside (--test-concurrency=2) cannot redirect writes elsewhere.
+    const prevRunsDir = process.env.PIPELINE_RUNS_DIR;
+    process.env.PIPELINE_RUNS_DIR = path.join(dataDir, 'runs');
 
     const { spaceId, taskId } = createSpaceWithTask(dataDir);
 
@@ -1332,6 +1362,8 @@ describe('pipelineManager — checkpoints', () => {
       delete process.env.PIPELINE_MAX_CONCURRENT;
       delete process.env.KANBAN_API_URL;
       delete process.env.PIPELINE_NO_SPAWN;
+      if (prevRunsDir !== undefined) process.env.PIPELINE_RUNS_DIR = prevRunsDir;
+      else delete process.env.PIPELINE_RUNS_DIR;
       fs.rmSync(dataDir,   { recursive: true, force: true });
       fs.rmSync(agentsDir, { recursive: true, force: true });
     }
@@ -1343,6 +1375,11 @@ describe('pipelineManager — checkpoints', () => {
     const runId   = 'run-checkpoint-test';
     const runDir  = path.join(runsDir, runId);
     fs.mkdirSync(runDir, { recursive: true });
+
+    // Pin PIPELINE_RUNS_DIR to this test's runsDir so concurrent test files
+    // running alongside (--test-concurrency=2) cannot redirect reads/writes.
+    const prevRunsDirChk = process.env.PIPELINE_RUNS_DIR;
+    process.env.PIPELINE_RUNS_DIR = runsDir;
 
     // Two-stage run with a checkpoint before stage 1.
     const runState = {
@@ -1400,6 +1437,8 @@ describe('pipelineManager — checkpoints', () => {
 
     // Clean up any spawned intervals.
     await pm.abortAll(dataDir).catch(() => {});
+    if (prevRunsDirChk !== undefined) process.env.PIPELINE_RUNS_DIR = prevRunsDirChk;
+    else delete process.env.PIPELINE_RUNS_DIR;
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
@@ -1697,12 +1736,17 @@ describe('REST integration — checkpoints', () => {
       createdAt:    new Date().toISOString(),
       updatedAt:    new Date().toISOString(),
     };
-    fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
-
-    const registryPath = path.join(pm.runsDir(dataDir), 'runs.json');
-    const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
-    registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'paused', createdAt: runState.createdAt });
-    fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    // Seed into SQLite store when available, fall back to disk for legacy contexts.
+    const storePaused = pm.getStore();
+    if (storePaused) {
+      storePaused.upsertRun(runState);
+    } else {
+      fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
+      const registryPath = path.join(pm.runsDir(dataDir), 'runs.json');
+      const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
+      registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'paused', createdAt: runState.createdAt });
+      fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    }
 
     const resumeRes = await request(port, 'POST', `/api/v1/runs/${runId}/resume`);
 

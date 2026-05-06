@@ -11,6 +11,7 @@ Esta carpeta contiene dos tipos de contenido:
 
 | Archivo | Propósito |
 |---------|-----------|
+| `installation.md` | Guía de instalación — one-liner, qué hace `prism init`, uso básico y troubleshooting |
 | `architecture.md` | Stack, modelo de datos, flujo del pipeline y ADRs clave |
 | `endpoints.md` | Referencia completa de la REST API — rutas, parámetros y shapes de respuesta |
 | `mcp-server.md` | Referencia de las herramientas MCP — todos los `kanban_*` con parámetros y ejemplos |

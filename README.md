@@ -1,7 +1,7 @@
 # Prism
 
 [![CI](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml/badge.svg)](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-0.5.0--beta-blue)
+![version](https://img.shields.io/badge/version-0.6.0--beta-blue)
 
 ![Prism](docs/banner.png)
 
@@ -34,7 +34,45 @@ Most Kanban tools are built for humans tracking human work. Prism is built for a
 
 ---
 
-## Quick start
+## Installation
+
+### One-liner (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oscarmenendezgarcia/prism/main/install.sh | sh
+```
+
+This single command:
+1. Detects whether Node.js ≥ 20 is installed — if not, installs the LTS release automatically via [nvm](https://github.com/nvm-sh/nvm)
+2. Runs `npm install -g prism-kanban`
+3. Runs `prism init` to create the data directory and write a default `settings.json`
+
+After installation:
+
+```bash
+prism start          # start the server → http://localhost:3000
+prism --help         # list all commands and flags
+```
+
+**Pass extra flags to `prism init`** (e.g. a custom data directory):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/oscarmenendezgarcia/prism/main/install.sh | sh -s -- --data-dir /custom/path
+```
+
+> For full details — prerequisites, what files `prism init` creates, nvm setup and troubleshooting — see [`docs/installation.md`](docs/installation.md).
+
+### npm (manual)
+
+```bash
+npm install -g prism-kanban
+prism init           # create data dir + settings.json
+prism start          # → http://localhost:3000
+```
+
+---
+
+## Quick start (Docker)
 
 ```bash
 docker compose up -d
@@ -158,7 +196,7 @@ Available tools: `kanban_list_tasks`, `kanban_create_task`, `kanban_update_task`
 
 ## Running locally (without Docker)
 
-**Prerequisites:** Node.js ≥ 18 and native build tools for `better-sqlite3` and `node-pty`:
+**Prerequisites:** Node.js ≥ 20 and native build tools for `better-sqlite3` and `node-pty`:
 
 | OS | Command |
 |----|---------|

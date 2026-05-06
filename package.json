@@ -10,6 +10,8 @@
     "bin/",
     "src/",
     "dist/",
+    "mcp/",
+    "agents/",
     "terminal.js",
     "server.js",
     "README.md",
