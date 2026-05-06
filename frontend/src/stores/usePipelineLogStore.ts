@@ -8,6 +8,7 @@
  */
 
 import { create } from 'zustand';
+import type { StageMetrics } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Store shape
@@ -58,9 +59,9 @@ interface PipelineLogState {
 
   // ── T-008: Prompt/Log toggle ───────────────────────────────────────────────
 
-  /** Which view is active in the log panel per stage: 'log' (default) or 'prompt'. */
-  stageView: Record<number, 'log' | 'prompt'>;
-  setStageView: (stageIndex: number, view: 'log' | 'prompt') => void;
+  /** Which view is active in the log panel per stage: 'log' (default), 'prompt', or 'metrics'. */
+  stageView: Record<number, 'log' | 'prompt' | 'metrics'>;
+  setStageView: (stageIndex: number, view: 'log' | 'prompt' | 'metrics') => void;
 
   /**
    * Per-stage prompt content cache. Keyed by stageIndex.
@@ -73,6 +74,27 @@ interface PipelineLogState {
   /** Per-stage prompt loading flag. */
   stagePromptLoading: Record<number, boolean>;
   setStagePromptLoading: (stageIndex: number, loading: boolean) => void;
+
+  // ── T-007: Stage Metrics view ──────────────────────────────────────────────
+
+  /**
+   * Per-stage metrics cache. Keyed by stageIndex.
+   * null  → not yet fetched or not available (425 Too Early).
+   * StageMetrics → fetched and parsed.
+   */
+  stageMetrics: Record<number, StageMetrics | null>;
+  setStageMetrics: (stageIndex: number, metrics: StageMetrics | null) => void;
+
+  /** Per-stage metrics loading flag. */
+  stageMetricsLoading: Record<number, boolean>;
+  setStageMetricsLoading: (stageIndex: number, loading: boolean) => void;
+
+  /**
+   * Per-stage metrics error. null = no error.
+   * Set to a human-readable message on fetch failures that are not MetricsNotAvailableError.
+   */
+  stageMetricsError: Record<number, string | null>;
+  setStageMetricsError: (stageIndex: number, error: string | null) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,15 +102,18 @@ interface PipelineLogState {
 // ---------------------------------------------------------------------------
 
 export const usePipelineLogStore = create<PipelineLogState>((set) => ({
-  logPanelOpen:       false,
-  unseenCount:        0,
-  selectedStageIndex: 0,
-  stageLogs:          {},
-  stageLoading:       {},
-  stageErrors:        {},
-  stageView:          {},
-  stagePrompts:       {},
-  stagePromptLoading: {},
+  logPanelOpen:        false,
+  unseenCount:         0,
+  selectedStageIndex:  0,
+  stageLogs:           {},
+  stageLoading:        {},
+  stageErrors:         {},
+  stageView:           {},
+  stagePrompts:        {},
+  stagePromptLoading:  {},
+  stageMetrics:        {},
+  stageMetricsLoading: {},
+  stageMetricsError:   {},
 
   setLogPanelOpen: (open) => set({ logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) }),
 
@@ -114,12 +139,15 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
 
   clearStageLogs: () =>
     set({
-      stageLogs:          {},
-      stageLoading:       {},
-      stageErrors:        {},
-      stageView:          {},
-      stagePrompts:       {},
-      stagePromptLoading: {},
+      stageLogs:           {},
+      stageLoading:        {},
+      stageErrors:         {},
+      stageView:           {},
+      stagePrompts:        {},
+      stagePromptLoading:  {},
+      stageMetrics:        {},
+      stageMetricsLoading: {},
+      stageMetricsError:   {},
     }),
 
   setStageView: (stageIndex, view) =>
@@ -135,5 +163,20 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   setStagePromptLoading: (stageIndex, loading) =>
     set((state) => ({
       stagePromptLoading: { ...state.stagePromptLoading, [stageIndex]: loading },
+    })),
+
+  setStageMetrics: (stageIndex, metrics) =>
+    set((state) => ({
+      stageMetrics: { ...state.stageMetrics, [stageIndex]: metrics },
+    })),
+
+  setStageMetricsLoading: (stageIndex, loading) =>
+    set((state) => ({
+      stageMetricsLoading: { ...state.stageMetricsLoading, [stageIndex]: loading },
+    })),
+
+  setStageMetricsError: (stageIndex, error) =>
+    set((state) => ({
+      stageMetricsError: { ...state.stageMetricsError, [stageIndex]: error },
     })),
 }));

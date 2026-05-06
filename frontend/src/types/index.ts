@@ -318,6 +318,89 @@ export interface PipelinePromptPreview {
   prompts: PipelinePromptPreviewEntry[];
 }
 
+// ---------------------------------------------------------------------------
+// Stage Metrics (ADR-1: log-metrics-parser §2.2)
+// ---------------------------------------------------------------------------
+
+export interface StageMetricsDuration {
+  wallMs: number | null;
+  apiMs: number | null;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+export interface StageMetricsCostEntry {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  costUsd: number;
+}
+
+export interface StageMetricsCost {
+  totalUsd: number | null;
+  perModel: StageMetricsCostEntry[];
+}
+
+export interface StageMetricsToolEntry {
+  name: string;
+  calls: number;
+  errors: number;
+}
+
+export interface StageMetricsTools {
+  totalCalls: number;
+  errors: number;
+  byName: StageMetricsToolEntry[];
+}
+
+export interface StageMetricsFiles {
+  modified: string[];
+  read: string[];
+}
+
+export interface StageMetricsErrorSample {
+  tool: string;
+  message: string;
+  preview: string;
+}
+
+export interface StageMetricsErrors {
+  rateLimitEvents: number;
+  permissionDenials: number;
+  toolErrors: number;
+  samples: StageMetricsErrorSample[];
+}
+
+export interface StageMetricsParser {
+  parsedAt: string;
+  parserVersion: string;
+  lineCount: number;
+  unknownEvents: number;
+  warnings: string[];
+}
+
+/** StageMetrics response from GET /api/v1/runs/:runId/stages/:stageIndex/metrics. */
+export interface StageMetrics {
+  schemaVersion: number;
+  runId: string;
+  stageIndex: number;
+  source: string;
+  agentId: string | null;
+  model: string | null;
+  duration: StageMetricsDuration;
+  turns: number | null;
+  stopReason: string | null;
+  terminalReason: string | null;
+  cost: StageMetricsCost;
+  tools: StageMetricsTools;
+  files: StageMetricsFiles;
+  errors: StageMetricsErrors;
+  summary: string | null;
+  parser: StageMetricsParser;
+}
+
 /** CLI tool configuration. */
 export interface CliSettings {
   tool: 'claude' | 'opencode' | 'custom';

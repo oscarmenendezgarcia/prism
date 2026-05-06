@@ -21,6 +21,7 @@ import { getBackendRun, getStagePrompt, PromptNotAvailableError } from '@/api/cl
 import { StageTabBar } from './StageTabBar';
 import { LogViewer } from './LogViewer';
 import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
+import { StageMetricsPanel } from './StageMetricsPanel';
 import type { BackendStageStatus } from '@/types';
 
 /** How often (ms) to refresh the run status (for stageStatuses icons). */
@@ -238,31 +239,23 @@ export function PipelineLogPanel() {
         />
       )}
 
-      {/* T-008: Prompt / Log toggle — only shown when a run is active */}
+      {/* T-008: Prompt / Log / Metrics toggle — only shown when a run is active */}
       {runId && (
         <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
-          <button
-            onClick={() => setStageView(selectedStageIndex, 'log')}
-            aria-pressed={currentView === 'log'}
-            className={`text-xs px-2.5 py-1 rounded transition-colors duration-150 ${
-              currentView === 'log'
-                ? 'bg-primary text-white'
-                : 'text-text-secondary hover:text-primary hover:bg-surface-variant'
-            }`}
-          >
-            Log
-          </button>
-          <button
-            onClick={() => setStageView(selectedStageIndex, 'prompt')}
-            aria-pressed={currentView === 'prompt'}
-            className={`text-xs px-2.5 py-1 rounded transition-colors duration-150 ${
-              currentView === 'prompt'
-                ? 'bg-primary text-white'
-                : 'text-text-secondary hover:text-primary hover:bg-surface-variant'
-            }`}
-          >
-            Prompt
-          </button>
+          {(['log', 'prompt', 'metrics'] as const).map((view) => (
+            <button
+              key={view}
+              onClick={() => setStageView(selectedStageIndex, view)}
+              aria-pressed={currentView === view}
+              className={`text-xs px-2.5 py-1 rounded capitalize transition-colors duration-150 ${
+                currentView === view
+                  ? 'bg-primary text-white'
+                  : 'text-text-secondary hover:text-primary hover:bg-surface-variant'
+              }`}
+            >
+              {view}
+            </button>
+          ))}
         </div>
       )}
 
@@ -281,6 +274,26 @@ export function PipelineLogPanel() {
               isLoading={currentLoading}
               error={currentError}
             />
+          ) : currentView === 'metrics' ? (
+            /* Metrics view — T-007 */
+            effectiveRunId ? (
+              <StageMetricsPanel
+                runId={effectiveRunId}
+                stageIndex={effectiveStageIndex}
+                storeKey={selectedStageIndex}
+                isRunning={isRunning}
+              />
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+                <span
+                  className="material-symbols-outlined text-4xl text-text-disabled leading-none"
+                  aria-hidden="true"
+                >
+                  query_stats
+                </span>
+                <p className="text-sm text-text-secondary">No run available.</p>
+              </div>
+            )
           ) : (
             /* Prompt view */
             <div className="flex flex-1 flex-col min-h-0 overflow-y-auto p-3">
