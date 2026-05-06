@@ -325,6 +325,8 @@ describe('Pipeline prompt endpoints — REST integration', () => {
   let port;
   let dataDir;
   let agentsDir;
+  // Stable reference captured after server.listen() so _store is already set.
+  let pm;
 
   before(async () => {
     dataDir   = tmpDir();
@@ -352,6 +354,9 @@ describe('Pipeline prompt endpoints — REST integration', () => {
       server.once('listening', () => { port = server.address().port; resolve(); });
       server.once('error', reject);
     });
+
+    // Capture pipelineManager AFTER server starts so _store is already initialised.
+    pm = require('../src/services/pipelineManager');
   });
 
   after(async () => {
@@ -374,10 +379,10 @@ describe('Pipeline prompt endpoints — REST integration', () => {
     });
 
     test('returns 200 text/plain when prompt file exists', async () => {
-      const { stagePromptPath, runDir } = require('../src/services/pipelineManager');
+      const { stagePromptPath, runDir } = pm;
       const runId = crypto.randomUUID();
 
-      // Manually create run.json and prompt file.
+      // Manually create run dir and seed run into SQLite (or disk fallback).
       const runDirectory = runDir(dataDir, runId);
       fs.mkdirSync(runDirectory, { recursive: true });
 
@@ -392,7 +397,12 @@ describe('Pipeline prompt endpoints — REST integration', () => {
         createdAt:    new Date().toISOString(),
         updatedAt:    new Date().toISOString(),
       };
-      fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(run), 'utf8');
+      const storeP = pm.getStore();
+      if (storeP) {
+        storeP.upsertRun(run);
+      } else {
+        fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(run), 'utf8');
+      }
 
       // Write the prompt file.
       const promptContent = '## TASK CONTEXT\nTitle: Test task\n';
@@ -407,7 +417,7 @@ describe('Pipeline prompt endpoints — REST integration', () => {
     });
 
     test('returns 404 PROMPT_NOT_AVAILABLE when prompt file missing', async () => {
-      const { runDir } = require('../src/services/pipelineManager');
+      const { runDir } = pm;
       const runId = crypto.randomUUID();
 
       const runDirectory = runDir(dataDir, runId);
@@ -424,7 +434,12 @@ describe('Pipeline prompt endpoints — REST integration', () => {
         createdAt:    new Date().toISOString(),
         updatedAt:    new Date().toISOString(),
       };
-      fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(run), 'utf8');
+      const storeQ = pm.getStore();
+      if (storeQ) {
+        storeQ.upsertRun(run);
+      } else {
+        fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(run), 'utf8');
+      }
 
       const res = await request(port, 'GET', `/api/v1/runs/${runId}/stages/0/prompt`);
       assert.strictEqual(res.status, 404);
