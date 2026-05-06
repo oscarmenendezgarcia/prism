@@ -165,39 +165,129 @@ describe('listTasks', () => {
 // getTask
 // ---------------------------------------------------------------------------
 
-describe('getTask', () => {
-  beforeEach(() => {
-    mockHandler = (req, res) => {
-      if (req.method === 'GET' && req.url === '/api/v1/tasks') {
-        respond(res, 200, MOCK_TASKS);
-      }
-    };
-  });
+// Mock spaces and space-scoped task data used across getTask tests.
+const MOCK_SPACES = [
+  { id: 'space-1', name: 'Alpha' },
+  { id: 'space-2', name: 'Beta' },
+];
 
-  it('returns the task with a column field when found in todo', async () => {
+// Tasks in space-2 only — used for cross-space search tests.
+const MOCK_TASKS_SPACE2 = {
+  todo:          [{ id: 'task-x', title: 'Task X', type: 'feature', createdAt: '2026-02-01T00:00:00.000Z', updatedAt: '2026-02-01T00:00:00.000Z' }],
+  'in-progress': [],
+  done:          [],
+};
+
+/**
+ * Wire up the mock server to serve the space-based endpoints used by
+ * getTask's all-spaces iteration path.
+ *
+ * @param {object} [space1Tasks]  - Tasks for space-1 (defaults to MOCK_TASKS).
+ * @param {object} [space2Tasks]  - Tasks for space-2 (defaults to MOCK_TASKS_SPACE2).
+ */
+function setupGetTaskMock(space1Tasks = MOCK_TASKS, space2Tasks = MOCK_TASKS_SPACE2) {
+  mockHandler = (req, res) => {
+    if (req.method !== 'GET') return;
+
+    if (req.url === '/api/v1/spaces') {
+      return respond(res, 200, MOCK_SPACES);
+    }
+    if (req.url === '/api/v1/spaces/space-1/tasks') {
+      return respond(res, 200, space1Tasks);
+    }
+    if (req.url === '/api/v1/spaces/space-2/tasks') {
+      return respond(res, 200, space2Tasks);
+    }
+  };
+}
+
+describe('getTask', () => {
+  beforeEach(() => setupGetTaskMock());
+
+  // --- no-spaceId path (iterates all spaces) ---
+
+  it('returns task with column and spaceId when found in todo (no spaceId given)', async () => {
     const result = await getTask('task-1');
     assert.equal(result.id, 'task-1');
     assert.equal(result.column, 'todo');
     assert.equal(result.title, 'Task One');
+    assert.equal(result.spaceId, 'space-1');
   });
 
-  it('returns the task with correct column when found in in-progress', async () => {
+  it('returns task with correct column when found in in-progress (no spaceId given)', async () => {
     const result = await getTask('task-3');
     assert.equal(result.id, 'task-3');
     assert.equal(result.column, 'in-progress');
+    assert.equal(result.spaceId, 'space-1');
   });
 
-  it('returns the task with correct column when found in done', async () => {
+  it('returns task with correct column when found in done (no spaceId given)', async () => {
     const result = await getTask('task-4');
     assert.equal(result.id, 'task-4');
     assert.equal(result.column, 'done');
+    assert.equal(result.spaceId, 'space-1');
   });
 
-  it('returns TASK_NOT_FOUND error when ID does not exist', async () => {
+  it('finds task in second space when not in first (cross-space search)', async () => {
+    const result = await getTask('task-x');
+    assert.equal(result.id, 'task-x');
+    assert.equal(result.column, 'todo');
+    assert.equal(result.spaceId, 'space-2');
+  });
+
+  it('returns TASK_NOT_FOUND when task absent from all spaces (no spaceId given)', async () => {
     const result = await getTask('nonexistent-id');
     assert.equal(result.error, true);
     assert.equal(result.code, 'TASK_NOT_FOUND');
     assert.match(result.message, /nonexistent-id/);
+  });
+
+  it('returns TASK_NOT_FOUND even if some spaces return errors (skips failed spaces)', async () => {
+    mockHandler = (req, res) => {
+      if (req.method !== 'GET') return;
+      if (req.url === '/api/v1/spaces') return respond(res, 200, MOCK_SPACES);
+      // space-1 errors out; space-2 also has no match.
+      if (req.url === '/api/v1/spaces/space-1/tasks') return respond(res, 500, { error: { code: 'SERVER_ERROR', message: 'oops' } });
+      if (req.url === '/api/v1/spaces/space-2/tasks') return respond(res, 200, MOCK_TASKS_SPACE2);
+    };
+    const result = await getTask('task-1'); // task-1 is in space-1 which errors
+    assert.equal(result.error, true);
+    assert.equal(result.code, 'TASK_NOT_FOUND');
+  });
+
+  // --- explicit spaceId path ---
+
+  it('returns task with spaceId when spaceId is explicitly provided', async () => {
+    mockHandler = (req, res) => {
+      if (req.method === 'GET' && req.url === '/api/v1/spaces/space-1/tasks') {
+        return respond(res, 200, MOCK_TASKS);
+      }
+    };
+    const result = await getTask('task-2', 'space-1');
+    assert.equal(result.id, 'task-2');
+    assert.equal(result.column, 'todo');
+    assert.equal(result.spaceId, 'space-1');
+  });
+
+  it('returns TASK_NOT_FOUND when explicit spaceId provided but task absent', async () => {
+    mockHandler = (req, res) => {
+      if (req.method === 'GET' && req.url === '/api/v1/spaces/space-1/tasks') {
+        return respond(res, 200, MOCK_TASKS);
+      }
+    };
+    const result = await getTask('nonexistent-id', 'space-1');
+    assert.equal(result.error, true);
+    assert.equal(result.code, 'TASK_NOT_FOUND');
+  });
+
+  it('propagates error when explicit spaceId request fails', async () => {
+    mockHandler = (req, res) => {
+      if (req.method === 'GET' && req.url === '/api/v1/spaces/bad-space/tasks') {
+        return respond(res, 404, { error: { code: 'SPACE_NOT_FOUND', message: 'space not found' } });
+      }
+    };
+    const result = await getTask('task-1', 'bad-space');
+    assert.equal(result.error, true);
   });
 });
 
