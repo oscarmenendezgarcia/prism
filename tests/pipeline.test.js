@@ -347,6 +347,10 @@ describe('pipelineManager — createRun validations', () => {
     process.env.PIPELINE_MAX_CONCURRENT = '5';
     // Use a bogus KANBAN_API_URL so moveKanbanTask fails silently and does not hang.
     process.env.KANBAN_API_URL = 'http://localhost:19999/api/v1';
+    // SAFETY: prevent a real claude process from being spawned. Without this guard
+    // the spawned agent uses its own MCP config (port 3000) and interacts with the
+    // production kanban using phantom space/task IDs — the "surrogate task" bug (f3149d95).
+    process.env.PIPELINE_NO_SPAWN = '1';
 
     const { spaceId, taskId } = createSpaceWithTask(dataDir);
 
@@ -380,12 +384,11 @@ describe('pipelineManager — createRun validations', () => {
       const registry = JSON.parse(fs.readFileSync(registryFile, 'utf8'));
       assert.ok(registry.some((r) => r.runId === run.runId));
     } finally {
-      // Kill the spawned claude subprocess to prevent it from starting a
-      // node server.js that inherits the test PIPELINE_AGENTS_DIR env var.
       if (run) await pm.abortAll(dataDir).catch(() => {});
       delete process.env.PIPELINE_AGENTS_DIR;
       delete process.env.PIPELINE_MAX_CONCURRENT;
       delete process.env.KANBAN_API_URL;
+      delete process.env.PIPELINE_NO_SPAWN;
       fs.rmSync(dataDir,   { recursive: true, force: true });
       fs.rmSync(agentsDir, { recursive: true, force: true });
     }
@@ -748,6 +751,10 @@ describe('REST integration — pipeline endpoints', () => {
   let port;
   let dataDir;
   let agentsDir;
+  // Stable reference to the server's pipelineManager module (with _store set).
+  // Captured in before() so it stays valid even if concurrent describe blocks
+  // later clear require.cache and produce a storeless module instance.
+  let pm;
 
   before(async () => {
     dataDir   = tmpDir();
@@ -775,11 +782,14 @@ describe('REST integration — pipeline endpoints', () => {
       server.once('listening', () => { port = server.address().port; resolve(); });
       server.once('error', reject);
     });
+
+    // Capture the server's pipelineManager instance (has _store set via init()).
+    // Must be done AFTER server.listening fires, i.e. after init() has run.
+    pm = require('../src/services/pipelineManager');
   });
 
   after(async () => {
     try {
-      const pm = require('../src/services/pipelineManager');
       await pm.abortAll(dataDir);
     } catch { /* best-effort */ }
     if (typeof server.closeAllConnections === 'function') server.closeAllConnections();

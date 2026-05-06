@@ -40,8 +40,15 @@ function startTestServer() {
     // previous test runs don't cause path mismatches (seedRun vs. server).
     const prevAgentsDir = process.env.PIPELINE_AGENTS_DIR;
     const prevRunsDir   = process.env.PIPELINE_RUNS_DIR;
+    const prevNoSpawn   = process.env.PIPELINE_NO_SPAWN;
     process.env.PIPELINE_AGENTS_DIR = agentsDir;
     process.env.PIPELINE_RUNS_DIR   = runsDir;
+    // SAFETY: always prevent real claude agent spawning in test servers.
+    // Without this guard, a stage spawned by executeNextStage would launch a
+    // real claude process that uses the MCP config's KANBAN_API_URL (port 3000),
+    // causing it to interact with the production kanban using phantom space/task
+    // IDs from the isolated test DB — the "surrogate task" bug (f3149d95).
+    process.env.PIPELINE_NO_SPAWN   = '1';
 
     const server = startServer({ port: 0, dataDir: tmpDir, silent: true });
 
@@ -67,6 +74,11 @@ function startTestServer() {
               delete process.env.PIPELINE_RUNS_DIR;
             } else {
               process.env.PIPELINE_RUNS_DIR = prevRunsDir;
+            }
+            if (prevNoSpawn === undefined) {
+              delete process.env.PIPELINE_NO_SPAWN;
+            } else {
+              process.env.PIPELINE_NO_SPAWN = prevNoSpawn;
             }
             res();
           });
