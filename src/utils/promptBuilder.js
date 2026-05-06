@@ -40,6 +40,8 @@ function buildKanbanBlock(spaceId, taskId) {
     'Move this task: todo → in-progress (immediately) → done (when finished).',
     'Tools: kanban_move_task · kanban_update_task · kanban_add_comment · kanban_answer_comment',
     '',
+    '⚠️ CRITICAL — DO NOT kill, restart, or spawn `node server.js`. The pipeline runs inside that process; touching it interrupts your own run. The server is already running — assume so without checking.',
+    '',
     'STOP and post a question (do NOT assume) when ANY of these is true:',
     '  • A required artifact (spec, wireframe, ADR) is missing or unreadable',
     '  • You face ≥2 valid options and nothing in the brief lets you choose',
