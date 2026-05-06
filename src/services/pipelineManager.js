@@ -1106,6 +1106,24 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   pipelineLog('stage.started', { runId: run.runId, stageIndex, agentId });
 
+  // Write stage-N.meta.json — declares the source tool for the log metrics parser.
+  // Non-fatal: if this write fails, the parser falls back to first-line sniffing.
+  {
+    const agentMode = process.env.PIPELINE_AGENT_MODE || 'subagent';
+    const source    = agentMode === 'subagent' ? 'claude-code' : 'plain';
+    const metaPath  = path.join(runDir(dataDir, run.runId), `stage-${stageIndex}.meta.json`);
+    try {
+      fs.writeFileSync(metaPath, JSON.stringify({
+        source,
+        schemaVersion: 1,
+        agentId,
+        startedAt: run.stageStatuses[stageIndex].startedAt,
+      }), 'utf8');
+    } catch (metaErr) {
+      console.warn(`[pipelineManager] WARN: could not write meta.json for stage ${stageIndex}:`, metaErr.message);
+    }
+  }
+
   // Build the task prompt to pass via stdin.
   // Use effectiveCwd so isolated runs see the worktree path, not the parent repo.
   const { promptText: taskPrompt } = buildStagePrompt(
@@ -2164,6 +2182,10 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
     run.stageStatuses[i].finishedAt = null;
     const staleFile = stageDonePath(dataDir, run.runId, i);
     try { fs.unlinkSync(staleFile); } catch { /* not present — fine */ }
+
+    // Invalidate any cached metrics sidecar so the parser re-runs on the new log.
+    const metricsFile = path.join(runDir(dataDir, run.runId), `stage-${i}.metrics.json`);
+    try { fs.unlinkSync(metricsFile); } catch { /* not present — fine */ }
   }
 
   run.currentStage       = resumeIndex;
