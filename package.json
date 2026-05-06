@@ -32,6 +32,7 @@
   },
   "scripts": {
     "test": "node --test --test-concurrency=2 tests/*.test.js",
+    "test:report": "node --test --test-concurrency=2 --test-reporter=tap tests/*.test.js 2>&1 | node bin/test-report.js",
     "prepare": "node bin/prepare.js",
     "start": "node server.js"
   },
