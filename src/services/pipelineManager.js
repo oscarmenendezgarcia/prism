@@ -13,7 +13,7 @@
  *
  * Environment variables:
  *   PIPELINE_STAGE_TIMEOUT_MS    - Kill timeout per stage (default: 3600000 = 1h)
- *   PIPELINE_STALL_TIMEOUT_MS    - Kill if no output for this long (default: 300000 = 5min)
+ *   PIPELINE_STALL_TIMEOUT_MS    - Kill if no output for this long (default: 900000 = 15min)
  *   PIPELINE_MAX_CONCURRENT      - Max active runs (default: 5)
  *   PIPELINE_RUNS_DIR            - Override runs directory
  *   PIPELINE_AGENT_MODE          - 'subagent' (default) or 'headless'
@@ -101,7 +101,7 @@ const DEFAULT_MAX_CONCURRENT      = 5;
 // Stall watchdog: kill if no output for this long.  5 min is conservative —
 // tool calls (Bash builds, WebSearch) can be silent for a while, but AskUserQuestion
 // and permission prompts produce no output forever, so we still need a ceiling.
-const DEFAULT_STALL_TIMEOUT_MS    = 300_000;   // 5 min without any output → kill
+const DEFAULT_STALL_TIMEOUT_MS    = 900_000;   // 15 min without any output → kill
 // Resolver agent gets a shorter timeout: it only needs to answer one question.
 const DEFAULT_RESOLVER_TIMEOUT_MS = 300_000;   // 5 min
 
