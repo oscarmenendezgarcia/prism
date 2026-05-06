@@ -60,6 +60,7 @@ const {
   PIPELINE_RUNS_LIST_ROUTE,
   PIPELINE_RUNS_SINGLE_ROUTE,
   PIPELINE_RUNS_LOG_ROUTE,
+  PIPELINE_RUNS_METRICS_ROUTE,
   PIPELINE_RUNS_PROMPT_ROUTE,
   PIPELINE_RUNS_PREVIEW_ROUTE,
   PIPELINE_RUNS_RESUME_ROUTE,
@@ -70,6 +71,7 @@ const {
   handleListRuns,
   handleGetRun,
   handleGetStageLog,
+  handleGetStageMetrics,
   handleGetStagePrompt,
   handlePreviewPrompts,
   handleDeleteRun,
@@ -419,9 +421,10 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     //   4. BLOCK_ROUTE    (/runs/:id/block)                — before SINGLE_ROUTE
     //   5. UNBLOCK_ROUTE  (/runs/:id/unblock)              — before SINGLE_ROUTE
     //   6. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
-    //   7. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
-    //   8. LIST_ROUTE     (/runs)
-    //   9. SINGLE_ROUTE   (/runs/:id)
+    //   7. METRICS_ROUTE  (/runs/:id/stages/:n/metrics)    — before SINGLE_ROUTE
+    //   8. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
+    //   9. LIST_ROUTE     (/runs)
+    //  10. SINGLE_ROUTE   (/runs/:id)
     // -------------------------------------------------------------------------
     if (PIPELINE_RUNS_PREVIEW_ROUTE.test(urlPath)) {
       if (method === 'POST') return handlePreviewPrompts(req, res, dataDir, spaceManager);
@@ -461,6 +464,14 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       const runId      = pipelineLogMatch[1];
       const stageIndex = parseInt(pipelineLogMatch[2], 10);
       if (method === 'GET') return handleGetStageLog(req, res, runId, stageIndex, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const pipelineMetricsMatch = PIPELINE_RUNS_METRICS_ROUTE.exec(urlPath);
+    if (pipelineMetricsMatch) {
+      const runId      = pipelineMetricsMatch[1];
+      const stageIndex = parseInt(pipelineMetricsMatch[2], 10);
+      if (method === 'GET') return handleGetStageMetrics(req, res, runId, stageIndex, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

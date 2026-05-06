@@ -4,12 +4,13 @@
  * Pipeline run route handlers — ADR-1 (mcp-start-pipeline)
  *
  * Routes:
- *   POST   /api/v1/runs                                        → handleCreateRun
- *   POST   /api/v1/runs/preview-prompts                        → handlePreviewPrompts
- *   GET    /api/v1/runs/:runId                                  → handleGetRun
- *   GET    /api/v1/runs/:runId/stages/:stageIndex/log           → handleGetStageLog
- *   GET    /api/v1/runs/:runId/stages/:stageIndex/prompt        → handleGetStagePrompt
- *   DELETE /api/v1/runs/:runId                                  → handleDeleteRun
+ *   POST   /api/v1/runs                                              → handleCreateRun
+ *   POST   /api/v1/runs/preview-prompts                              → handlePreviewPrompts
+ *   GET    /api/v1/runs/:runId                                        → handleGetRun
+ *   GET    /api/v1/runs/:runId/stages/:stageIndex/log                → handleGetStageLog
+ *   GET    /api/v1/runs/:runId/stages/:stageIndex/metrics            → handleGetStageMetrics
+ *   GET    /api/v1/runs/:runId/stages/:stageIndex/prompt             → handleGetStagePrompt
+ *   DELETE /api/v1/runs/:runId                                        → handleDeleteRun
  */
 
 const fs   = require('fs');
@@ -18,17 +19,19 @@ const path = require('path');
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const pipelineManager                    = require('../services/pipelineManager');
 const { resolveAgent, AgentNotFoundError } = require('../services/agentResolver');
+const { parseStageLog }                  = require('../services/logMetrics');
 
 // ---------------------------------------------------------------------------
 // Route patterns (compiled once at module load)
-// NOTE: PIPELINE_RUNS_PREVIEW_ROUTE and PIPELINE_RUNS_PROMPT_ROUTE must be
-//       checked BEFORE PIPELINE_RUNS_LIST_ROUTE and PIPELINE_RUNS_SINGLE_ROUTE
-//       respectively so they don't get swallowed by the more-general patterns.
+// NOTE: more-specific routes must be checked BEFORE more-general ones.
+//   - METRICS_ROUTE and LOG_ROUTE must come before SINGLE_ROUTE
+//   - PREVIEW_ROUTE must come before LIST_ROUTE
 // ---------------------------------------------------------------------------
 
 const PIPELINE_RUNS_LIST_ROUTE    = /^\/api\/v1\/runs$/;
 const PIPELINE_RUNS_SINGLE_ROUTE  = /^\/api\/v1\/runs\/([^/]+)$/;
 const PIPELINE_RUNS_LOG_ROUTE     = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/log$/;
+const PIPELINE_RUNS_METRICS_ROUTE = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/metrics$/;
 const PIPELINE_RUNS_PROMPT_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/prompt$/;
 const PIPELINE_RUNS_PREVIEW_ROUTE = /^\/api\/v1\/runs\/preview-prompts$/;
 const PIPELINE_RUNS_RESUME_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/resume$/;
@@ -211,6 +214,48 @@ async function handleGetStageLog(req, res, runId, stageIndex, dataDir) {
   } catch (err) {
     console.error(`[pipeline] ERROR reading log for run ${runId} stage ${stageIndex}:`, err.message);
     return sendError(res, 500, 'INTERNAL_ERROR', 'Failed to read stage log file');
+  }
+}
+
+/**
+ * GET /api/v1/runs/:runId/stages/:stageIndex/metrics[?force=true]
+ * Return structured metrics extracted from the stage log.
+ *
+ * Responses:
+ *   200  StageMetrics JSON
+ *   404  run or stage does not exist
+ *   425  Too Early — stage has no .log file yet (still starting or not started)
+ *   500  Parse error (partial metrics may be included)
+ */
+async function handleGetStageMetrics(req, res, runId, stageIndex, dataDir) {
+  const run = await pipelineManager.getRun(runId, dataDir);
+  if (!run) {
+    return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
+  }
+
+  if (stageIndex < 0 || stageIndex >= run.stages.length) {
+    return sendError(res, 404, 'STAGE_NOT_FOUND', `Stage ${stageIndex} does not exist in run '${runId}'.`);
+  }
+
+  const logPath = pipelineManager.stageLogPath(dataDir, runId, stageIndex);
+  if (!fs.existsSync(logPath)) {
+    return sendError(res, 425, 'STAGE_NO_OUTPUT',
+      `Stage ${stageIndex} of run '${runId}' has not produced any output yet.`,
+      { suggestion: 'Retry after a few seconds.' });
+  }
+
+  // Parse ?force query param.
+  const urlObj = new URL(req.url, 'http://x');
+  const force  = urlObj.searchParams.get('force') === 'true';
+
+  const agentId = run.stages[stageIndex] ?? 'unknown';
+
+  try {
+    const metrics = await parseStageLog(runId, stageIndex, agentId, dataDir, { force });
+    return sendJSON(res, 200, metrics);
+  } catch (err) {
+    console.error(`[pipeline] ERROR parsing metrics for run ${runId} stage ${stageIndex}:`, err.message);
+    return sendError(res, 500, 'PARSE_ERROR', `Failed to parse stage metrics: ${err.message}`);
   }
 }
 
@@ -456,6 +501,7 @@ module.exports = {
   PIPELINE_RUNS_LIST_ROUTE,
   PIPELINE_RUNS_SINGLE_ROUTE,
   PIPELINE_RUNS_LOG_ROUTE,
+  PIPELINE_RUNS_METRICS_ROUTE,
   PIPELINE_RUNS_PROMPT_ROUTE,
   PIPELINE_RUNS_PREVIEW_ROUTE,
   PIPELINE_RUNS_RESUME_ROUTE,
@@ -466,6 +512,7 @@ module.exports = {
   handleListRuns,
   handleGetRun,
   handleGetStageLog,
+  handleGetStageMetrics,
   handleGetStagePrompt,
   handlePreviewPrompts,
   handleDeleteRun,
