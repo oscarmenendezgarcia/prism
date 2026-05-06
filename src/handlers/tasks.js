@@ -663,6 +663,9 @@ function createApp(spaceId, store) {
 
   const MAX_QUERY_LEN = 200;
 
+  // UUID v4 canonical form — FTS5 cannot tokenise hyphenated hex runs.
+  const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   function handleSearchTasks(req, res) {
     const qs    = new URL(req.url, 'http://x').searchParams;
     const query = qs.get('q');
@@ -672,7 +675,9 @@ function createApp(spaceId, store) {
         'Query parameter q is required and must not be empty');
     }
 
-    if (query.trim().length > MAX_QUERY_LEN) {
+    const trimmedQ = query.trim();
+
+    if (trimmedQ.length > MAX_QUERY_LEN) {
       return sendError(res, 400, 'VALIDATION_ERROR',
         `Query must not exceed ${MAX_QUERY_LEN} characters`);
     }
@@ -683,7 +688,15 @@ function createApp(spaceId, store) {
       : 20;
 
     try {
-      const results = store.searchTasks(spaceId, query, { limit });
+      // UUID shortcut: FTS5 does not tokenise hyphenated hex runs, so a UUID
+      // query would always return 0 results. Do a direct ID lookup instead.
+      if (UUID_PATTERN.test(trimmedQ)) {
+        const task = store.getTask(spaceId, trimmedQ);
+        const results = task ? [stripAttachmentContent(task)] : [];
+        return sendJSON(res, 200, { results, total: results.length });
+      }
+
+      const results = store.searchTasks(spaceId, trimmedQ, { limit });
       const stripped = results.map(stripAttachmentContent);
       return sendJSON(res, 200, { results: stripped, total: stripped.length });
     } catch (err) {
