@@ -329,7 +329,101 @@ function resolveMainTaskTitle(
   return found?.title ?? `Task ${taskId}`;
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
+export const useAppStore = create<AppState>((set, get) => {
+  // ── Internal helpers ───────────────────────────────────────────────────────
+
+  /**
+   * Start (or restart) the 5-second poll loop for a backend pipeline run.
+   * Clears any existing interval before creating a new one — safe to call
+   * from executeOrchestratorRun, resumeInterruptedRun, and resumePipeline.
+   */
+  const startPollLoop = (runIdToWatch: string) => {
+    const existingPollId = get()._agentRunPollId;
+    if (existingPollId !== null) clearInterval(existingPollId);
+
+    const POLL_MS = 5000;
+    const pollId = setInterval(async () => {
+      try {
+        const run = await api.getBackendRun(runIdToWatch);
+        // Keep pipelineState.currentStageIndex in sync with backend.
+        const ps = get().pipelineState;
+        if (ps && ps.runId === runIdToWatch && typeof run.currentStage === 'number') {
+          set({ pipelineState: { ...ps, currentStageIndex: run.currentStage } });
+        }
+        // Surface interrupted state so InterruptedBanner shows.
+        if (run.status === 'interrupted') {
+          clearInterval(pollId);
+          set({ _agentRunPollId: null });
+          get().clearActiveRun();
+          const ps2 = get().pipelineState;
+          if (ps2 && ps2.runId === runIdToWatch && ps2.status !== 'interrupted') {
+            set({ pipelineState: { ...ps2, status: 'interrupted' } });
+          }
+          return;
+        }
+        // Surface paused state so the UI can show "Continue".
+        if (run.status === 'paused') {
+          const psPaused = get().pipelineState;
+          if (psPaused && psPaused.runId === runIdToWatch && psPaused.status !== 'paused') {
+            set({
+              pipelineState: {
+                ...psPaused,
+                status: 'paused',
+                ...(typeof run.pausedBeforeStage === 'number'
+                  ? { currentStageIndex: run.pausedBeforeStage, pausedBeforeStage: run.pausedBeforeStage }
+                  : {}),
+              },
+            });
+          }
+        }
+        if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+          clearInterval(pollId);
+          set({ _agentRunPollId: null });
+          // NOTE (pipeline-run-history-bridge): recordRunFinished() removed here.
+          // The backend writes per-stage history entries directly; no frontend-side
+          // recordRunFinished call is needed for orchestrator/pipeline runs.
+          const finalPs = get().pipelineState;
+          if (finalPs && finalPs.runId === runIdToWatch) {
+            const terminalStatus = run.status === 'completed' ? 'completed' : 'aborted';
+            set({ pipelineState: { ...finalPs, status: terminalStatus } });
+            setTimeout(() => set({ pipelineState: null }), 3000);
+          }
+          get().clearActiveRun();
+          get().loadBoard();
+          const { showToast } = get();
+          if (run.status === 'completed') {
+            showToast('Orchestrator run completed.');
+          } else {
+            showToast(`Orchestrator run ${run.status}.`, 'error');
+          }
+        }
+      } catch {
+        clearInterval(pollId);
+        set({ _agentRunPollId: null });
+        get().clearActiveRun();
+        const ps = get().pipelineState;
+        if (ps && ps.runId === runIdToWatch) {
+          set({ pipelineState: null });
+        }
+      }
+    }, POLL_MS);
+    set({ _agentRunPollId: pollId });
+  };
+
+  // Bonus: when the tab becomes visible again after being in the background,
+  // restart the poll loop if the pipeline is still running but the interval
+  // was cleared (e.g. by a network error while in background).
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      const { pipelineState, _agentRunPollId } = get();
+      if (pipelineState?.runId && pipelineState.status === 'running' && _agentRunPollId === null) {
+        startPollLoop(pipelineState.runId);
+      }
+    });
+  }
+
+  return ({
   // ── System info ─────────────────────────────────────────────────────────
 
   platform: null,
@@ -890,6 +984,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           finishedAt: undefined,
         },
       });
+      // Restart the poll loop — it was cancelled when the run was interrupted.
+      startPollLoop(pipelineState.runId);
     } catch {
       showToast('Failed to resume run.', 'error');
     }
@@ -909,6 +1005,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       try {
         await api.resumeRun(pipelineState.runId);
         set({ pipelineState: { ...pipelineState, status: 'running', pausedBeforeStage: undefined } });
+        // Restart the poll loop — it was paused waiting for checkpoint confirmation.
+        startPollLoop(pipelineState.runId);
         showToast('Pipeline resumed.');
       } catch (err) {
         showToast(`Failed to resume: ${(err as Error).message}`, 'error');
@@ -1040,73 +1138,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // For backend runs (no terminal): poll for completion.
     if (backendRunId) {
-      const runIdToWatch = backendRunId;
-      const POLL_MS = 5000;
-      const pollId = setInterval(async () => {
-        try {
-          const run = await api.getBackendRun(runIdToWatch);
-          // Keep pipelineState.currentStageIndex in sync with backend.
-          const ps = get().pipelineState;
-          if (ps && ps.runId === runIdToWatch && typeof run.currentStage === 'number') {
-            set({ pipelineState: { ...ps, currentStageIndex: run.currentStage } });
-          }
-          // Surface interrupted state so InterruptedBanner shows.
-          if (run.status === 'interrupted') {
-            clearInterval(pollId);
-            set({ _agentRunPollId: null });
-            get().clearActiveRun();
-            const ps2 = get().pipelineState;
-            if (ps2 && ps2.runId === runIdToWatch && ps2.status !== 'interrupted') {
-              set({ pipelineState: { ...ps2, status: 'interrupted' } });
-            }
-            return;
-          }
-          // Part 2: surface paused state so the UI can show "Continue".
-          if (run.status === 'paused') {
-            const ps = get().pipelineState;
-            if (ps && ps.runId === runIdToWatch && ps.status !== 'paused') {
-              set({
-                pipelineState: {
-                  ...ps,
-                  status: 'paused',
-                  ...(typeof run.pausedBeforeStage === 'number'
-                    ? { currentStageIndex: run.pausedBeforeStage, pausedBeforeStage: run.pausedBeforeStage }
-                    : {}),
-                },
-              });
-            }
-          }
-          if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
-            clearInterval(pollId);
-            set({ _agentRunPollId: null });
-            // NOTE (pipeline-run-history-bridge): recordRunFinished() removed here.
-            // The backend writes per-stage history entries directly; no frontend-side
-            // recordRunFinished call is needed for orchestrator/pipeline runs.
-            const finalPs = get().pipelineState;
-            if (finalPs && finalPs.runId === runIdToWatch) {
-              const terminalStatus = run.status === 'completed' ? 'completed' : 'aborted';
-              set({ pipelineState: { ...finalPs, status: terminalStatus } });
-              setTimeout(() => set({ pipelineState: null }), 3000);
-            }
-            get().clearActiveRun();
-            get().loadBoard();
-            if (run.status === 'completed') {
-              showToast('Orchestrator run completed.');
-            } else {
-              showToast(`Orchestrator run ${run.status}.`, 'error');
-            }
-          }
-        } catch {
-          clearInterval(pollId);
-          set({ _agentRunPollId: null });
-          get().clearActiveRun();
-          const ps = get().pipelineState;
-          if (ps && ps.runId === runIdToWatch) {
-            set({ pipelineState: null });
-          }
-        }
-      }, POLL_MS);
-      set({ _agentRunPollId: pollId });
+      startPollLoop(backendRunId);
     }
   },
 
@@ -1292,7 +1324,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setTaggerError: (message: string) => {
     set({ taggerLoading: false, taggerError: message });
   },
-}));
+  }); // end return
+}); // end create
 
 // Convenience selector hooks for common slices
 export const useActiveSpaceId = () => useAppStore((s) => s.activeSpaceId);
