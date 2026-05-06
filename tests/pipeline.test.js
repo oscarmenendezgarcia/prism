@@ -347,6 +347,10 @@ describe('pipelineManager — createRun validations', () => {
     process.env.PIPELINE_MAX_CONCURRENT = '5';
     // Use a bogus KANBAN_API_URL so moveKanbanTask fails silently and does not hang.
     process.env.KANBAN_API_URL = 'http://localhost:19999/api/v1';
+    // SAFETY: prevent a real claude process from being spawned. Without this guard
+    // the spawned agent uses its own MCP config (port 3000) and interacts with the
+    // production kanban using phantom space/task IDs — the "surrogate task" bug (f3149d95).
+    process.env.PIPELINE_NO_SPAWN = '1';
 
     const { spaceId, taskId } = createSpaceWithTask(dataDir);
 
@@ -380,12 +384,11 @@ describe('pipelineManager — createRun validations', () => {
       const registry = JSON.parse(fs.readFileSync(registryFile, 'utf8'));
       assert.ok(registry.some((r) => r.runId === run.runId));
     } finally {
-      // Kill the spawned claude subprocess to prevent it from starting a
-      // node server.js that inherits the test PIPELINE_AGENTS_DIR env var.
       if (run) await pm.abortAll(dataDir).catch(() => {});
       delete process.env.PIPELINE_AGENTS_DIR;
       delete process.env.PIPELINE_MAX_CONCURRENT;
       delete process.env.KANBAN_API_URL;
+      delete process.env.PIPELINE_NO_SPAWN;
       fs.rmSync(dataDir,   { recursive: true, force: true });
       fs.rmSync(agentsDir, { recursive: true, force: true });
     }
@@ -748,6 +751,10 @@ describe('REST integration — pipeline endpoints', () => {
   let port;
   let dataDir;
   let agentsDir;
+  // Stable reference to the server's pipelineManager module (with _store set).
+  // Captured in before() so it stays valid even if concurrent describe blocks
+  // later clear require.cache and produce a storeless module instance.
+  let pm;
 
   before(async () => {
     dataDir   = tmpDir();
@@ -775,11 +782,14 @@ describe('REST integration — pipeline endpoints', () => {
       server.once('listening', () => { port = server.address().port; resolve(); });
       server.once('error', reject);
     });
+
+    // Capture the server's pipelineManager instance (has _store set via init()).
+    // Must be done AFTER server.listening fires, i.e. after init() has run.
+    pm = require('../src/services/pipelineManager');
   });
 
   after(async () => {
     try {
-      const pm = require('../src/services/pipelineManager');
       await pm.abortAll(dataDir);
     } catch { /* best-effort */ }
     if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
@@ -927,7 +937,6 @@ describe('REST integration — pipeline endpoints', () => {
   });
 
   test('POST /api/v1/runs/:runId/stop returns 200 with interrupted run', async () => {
-    const pm    = require('../src/services/pipelineManager');
     const runId = crypto.randomUUID();
 
     // Write a fake run in 'running' state directly — no process spawned,
@@ -946,14 +955,18 @@ describe('REST integration — pipeline endpoints', () => {
       createdAt:    new Date().toISOString(),
       updatedAt:    new Date().toISOString(),
     };
-    fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
-
-    // Register in runs.json so the handler can find it.
-    const { runsDir: getRunsDir } = pm;
-    const registryPath = path.join(getRunsDir(dataDir), 'runs.json');
-    const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
-    registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'running', createdAt: runState.createdAt });
-    fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    // Seed into SQLite store when available, fall back to disk for legacy contexts.
+    const storeStop = pm.getStore();
+    if (storeStop) {
+      storeStop.upsertRun(runState);
+    } else {
+      fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
+      const { runsDir: getRunsDir } = pm;
+      const registryPath = path.join(getRunsDir(dataDir), 'runs.json');
+      const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
+      registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'running', createdAt: runState.createdAt });
+      fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    }
 
     const stopRes = await request(port, 'POST', `/api/v1/runs/${runId}/stop`);
 
@@ -981,12 +994,18 @@ describe('REST integration — pipeline endpoints', () => {
 
     const runId = createRes.body.runId;
 
-    // Force the run to completed state directly on disk.
-    const pm = require('../src/services/pipelineManager');
-    const runPath = path.join(pm.runDir(dataDir, runId), 'run.json');
-    const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
-    runState.status = 'completed';
-    fs.writeFileSync(runPath, JSON.stringify(runState), 'utf8');
+    // Force the run to completed state — use the SQLite store when available
+    // (post-migration the server no longer writes run.json to disk).
+    const store = pm.getStore();
+    if (store) {
+      const currentRun = store.getRun(runId);
+      store.upsertRun({ ...currentRun, status: 'completed' });
+    } else {
+      const runPath = path.join(pm.runDir(dataDir, runId), 'run.json');
+      const runState = JSON.parse(fs.readFileSync(runPath, 'utf8'));
+      runState.status = 'completed';
+      fs.writeFileSync(runPath, JSON.stringify(runState), 'utf8');
+    }
 
     const stopRes = await request(port, 'POST', `/api/v1/runs/${runId}/stop`);
     assert.equal(stopRes.status, 422);
@@ -1310,6 +1329,10 @@ describe('pipelineManager — checkpoints', () => {
     process.env.PIPELINE_MAX_CONCURRENT = '5';
     process.env.KANBAN_API_URL          = 'http://localhost:19999/api/v1';
     process.env.PIPELINE_NO_SPAWN       = '1';
+    // Pin PIPELINE_RUNS_DIR to this test's dataDir so concurrent test files
+    // running alongside (--test-concurrency=2) cannot redirect writes elsewhere.
+    const prevRunsDir = process.env.PIPELINE_RUNS_DIR;
+    process.env.PIPELINE_RUNS_DIR = path.join(dataDir, 'runs');
 
     const { spaceId, taskId } = createSpaceWithTask(dataDir);
 
@@ -1339,6 +1362,8 @@ describe('pipelineManager — checkpoints', () => {
       delete process.env.PIPELINE_MAX_CONCURRENT;
       delete process.env.KANBAN_API_URL;
       delete process.env.PIPELINE_NO_SPAWN;
+      if (prevRunsDir !== undefined) process.env.PIPELINE_RUNS_DIR = prevRunsDir;
+      else delete process.env.PIPELINE_RUNS_DIR;
       fs.rmSync(dataDir,   { recursive: true, force: true });
       fs.rmSync(agentsDir, { recursive: true, force: true });
     }
@@ -1350,6 +1375,11 @@ describe('pipelineManager — checkpoints', () => {
     const runId   = 'run-checkpoint-test';
     const runDir  = path.join(runsDir, runId);
     fs.mkdirSync(runDir, { recursive: true });
+
+    // Pin PIPELINE_RUNS_DIR to this test's runsDir so concurrent test files
+    // running alongside (--test-concurrency=2) cannot redirect reads/writes.
+    const prevRunsDirChk = process.env.PIPELINE_RUNS_DIR;
+    process.env.PIPELINE_RUNS_DIR = runsDir;
 
     // Two-stage run with a checkpoint before stage 1.
     const runState = {
@@ -1407,6 +1437,8 @@ describe('pipelineManager — checkpoints', () => {
 
     // Clean up any spawned intervals.
     await pm.abortAll(dataDir).catch(() => {});
+    if (prevRunsDirChk !== undefined) process.env.PIPELINE_RUNS_DIR = prevRunsDirChk;
+    else delete process.env.PIPELINE_RUNS_DIR;
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
@@ -1704,12 +1736,17 @@ describe('REST integration — checkpoints', () => {
       createdAt:    new Date().toISOString(),
       updatedAt:    new Date().toISOString(),
     };
-    fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
-
-    const registryPath = path.join(pm.runsDir(dataDir), 'runs.json');
-    const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
-    registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'paused', createdAt: runState.createdAt });
-    fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    // Seed into SQLite store when available, fall back to disk for legacy contexts.
+    const storePaused = pm.getStore();
+    if (storePaused) {
+      storePaused.upsertRun(runState);
+    } else {
+      fs.writeFileSync(path.join(runDirectory, 'run.json'), JSON.stringify(runState), 'utf8');
+      const registryPath = path.join(pm.runsDir(dataDir), 'runs.json');
+      const registry = fs.existsSync(registryPath) ? JSON.parse(fs.readFileSync(registryPath, 'utf8')) : [];
+      registry.push({ runId, spaceId: runState.spaceId, taskId: runState.taskId, status: 'paused', createdAt: runState.createdAt });
+      fs.writeFileSync(registryPath, JSON.stringify(registry), 'utf8');
+    }
 
     const resumeRes = await request(port, 'POST', `/api/v1/runs/${runId}/resume`);
 

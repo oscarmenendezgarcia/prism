@@ -90,13 +90,17 @@ function makeRequest(port) {
 // ---------------------------------------------------------------------------
 
 /**
- * Create a space + task via the REST API, then seed a fake 'running' run.json
+ * Create a space + task via the REST API, then seed a fake 'running' run
  * that is between stages (stage 0 completed, stage 1 pending). This state
  * allows `blockRunByComment` to correctly set blockedReason when a question
  * comment is posted via the API.
  *
  * Do NOT seed the run as 'blocked' — that causes blockRunByComment to short-
  * circuit and skip setting blockedReason.
+ *
+ * When the server is using SQLite (store initialised via migrate()), this
+ * function upserts into the SQLite store so pipelineManager.findActiveRunByTaskId
+ * can find it. Falls back to writing run.json + runs.json to disk.
  *
  * @param {Function}  req        - HTTP requester bound to the test server port
  * @param {string}    dataDir    - Temporary data directory for the test server
@@ -124,6 +128,8 @@ async function seedRunBetweenStages(req, dataDir, stages = ['senior-architect', 
   const now     = new Date().toISOString();
   const runsDir = path.join(dataDir, 'runs');
   const runDir  = path.join(runsDir, runId);
+  // Always create the run directory — stage logs and sentinels live here
+  // even when state is stored in SQLite.
   fs.mkdirSync(runDir, { recursive: true });
 
   const run = {
@@ -145,24 +151,48 @@ async function seedRunBetweenStages(req, dataDir, stages = ['senior-architect', 
     createdAt: now,
     updatedAt: now,
   };
-  fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(run, null, 2), 'utf8');
 
-  // Update the registry.
-  const registryPath = path.join(runsDir, 'runs.json');
-  let registry = [];
-  if (fs.existsSync(registryPath)) {
-    try { registry = JSON.parse(fs.readFileSync(registryPath, 'utf8')); } catch {}
+  // Use the SQLite store when the server has initialised one so that
+  // pipelineManager.findActiveRunByTaskId (which queries SQLite when _store is
+  // set) can find this run. Fall back to file-based seeding otherwise.
+  const pm    = require('../src/services/pipelineManager');
+  const store = pm.getStore();
+  if (store) {
+    store.upsertRun(run);
+  } else {
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(run, null, 2), 'utf8');
+    const registryPath = path.join(runsDir, 'runs.json');
+    let registry = [];
+    if (fs.existsSync(registryPath)) {
+      try { registry = JSON.parse(fs.readFileSync(registryPath, 'utf8')); } catch {}
+    }
+    registry.push({ runId, spaceId, taskId, status: 'running', createdAt: now });
+    fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
   }
-  registry.push({ runId, spaceId, taskId, status: 'running', createdAt: now });
-  fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
 
   return { spaceId, taskId, runId };
 }
 
 /**
- * Read the run.json from disk (bypasses in-memory cache — directly reads file).
+ * Read the current run state.
+ *
+ * When the server uses SQLite (store initialised), delegates to the SQLite
+ * store directly (same source of truth as pipelineManager). Falls back to
+ * reading run.json from disk for environments without a store.
+ *
+ * @param {string} dataDir - Root data directory for the test server.
+ * @param {string} runId
+ * @returns {object} Run state object.
  */
 function readRunJson(dataDir, runId) {
+  const pm    = require('../src/services/pipelineManager');
+  const store = pm.getStore();
+  if (store) {
+    const run = store.getRun(runId);
+    if (!run) throw new Error(`run ${runId} not found in SQLite store`);
+    return run;
+  }
+  // Legacy fallback: read from disk (used when no store / pure unit-test context).
   const p = path.join(dataDir, 'runs', runId, 'run.json');
   return JSON.parse(fs.readFileSync(p, 'utf8'));
 }
@@ -236,10 +266,9 @@ async function run() {
     await new Promise((r) => setTimeout(r, 100));
 
     const runState = readRunJson(dataDir, runId);
-    // Pipeline resumes: status becomes 'running' again (executeNextStage fires via setImmediate).
-    // Since PIPELINE_NO_SPAWN is not set, the stage runner is invoked but will fail to spawn
-    // (no claude binary). Status may be 'failed' after the spawn attempt, which is acceptable —
-    // the important thing is it is NOT 'blocked'.
+    // Pipeline resumes: status becomes 'running' (or 'completed' if PIPELINE_NO_SPAWN=1
+    // sentinel processing fires within the timeout). The important invariant is that
+    // the run is NOT 'blocked' anymore.
     assert(runState.status !== 'blocked',
       `Expected run to be unblocked, got status=${runState.status}`);
   });

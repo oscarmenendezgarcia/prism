@@ -55,6 +55,22 @@ CREATE INDEX IF NOT EXISTS idx_tasks_space_column   ON tasks(space_id, column);
 CREATE INDEX IF NOT EXISTS idx_tasks_space_assigned ON tasks(space_id, assigned);
 CREATE INDEX IF NOT EXISTS idx_tasks_updated        ON tasks(updated_at);
 
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+  run_id      TEXT PRIMARY KEY,
+  space_id    TEXT NOT NULL,
+  task_id     TEXT NOT NULL,
+  status      TEXT NOT NULL,
+  data        TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_runs_status      ON pipeline_runs(status);
+CREATE INDEX IF NOT EXISTS idx_runs_task        ON pipeline_runs(task_id);
+CREATE INDEX IF NOT EXISTS idx_runs_space       ON pipeline_runs(space_id);
+CREATE INDEX IF NOT EXISTS idx_runs_updated     ON pipeline_runs(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_runs_task_status ON pipeline_runs(task_id, status);
+
 -- Full-text search virtual table (content-table mode keeps storage small).
 CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
   title,
@@ -119,6 +135,29 @@ function rowToSpace(row) {
   const an = fromJson(row.agent_nicknames);
   if (an !== undefined) space.agentNicknames = an;
   return space;
+}
+
+/**
+ * Deserialise a pipeline_runs row into a run object.
+ * The full run state is stored in the JSON blob `data`; the indexed columns
+ * (space_id, task_id, status, created_at, updated_at) duplicate those fields
+ * for query performance but the blob is the authoritative copy.
+ */
+function rowToRun(row) {
+  if (!row) return null;
+  try {
+    return JSON.parse(row.data);
+  } catch {
+    // Corrupt blob — reconstruct minimal object from indexed columns.
+    return {
+      runId:     row.run_id,
+      spaceId:   row.space_id,
+      taskId:    row.task_id,
+      status:    row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
 }
 
 function rowToTask(row) {
@@ -235,6 +274,38 @@ function createStore(dataDir) {
        ORDER BY rank
        LIMIT ?
     `),
+
+    // ── pipeline_runs ────────────────────────────────────────────────────────
+    getRun: db.prepare(
+      'SELECT * FROM pipeline_runs WHERE run_id = ?'
+    ),
+    upsertRun: db.prepare(`
+      INSERT OR REPLACE INTO pipeline_runs
+        (run_id, space_id, task_id, status, data, created_at, updated_at)
+      VALUES
+        (?, ?, ?, ?, ?, ?, ?)
+    `),
+    listRuns: db.prepare(
+      'SELECT * FROM pipeline_runs ORDER BY updated_at DESC'
+    ),
+    listRunsLimitOffset: db.prepare(
+      'SELECT * FROM pipeline_runs ORDER BY updated_at DESC LIMIT ? OFFSET ?'
+    ),
+    listActiveRuns: db.prepare(`
+      SELECT * FROM pipeline_runs
+       WHERE status IN ('pending', 'running', 'blocked', 'paused')
+       ORDER BY updated_at DESC
+    `),
+    findActiveRunByTaskId: db.prepare(`
+      SELECT * FROM pipeline_runs
+       WHERE task_id = ?
+         AND status IN ('pending', 'running', 'blocked', 'paused')
+       ORDER BY updated_at DESC
+       LIMIT 1
+    `),
+    deleteRun: db.prepare(
+      'DELETE FROM pipeline_runs WHERE run_id = ?'
+    ),
   };
 
   // ---------------------------------------------------------------------------
@@ -471,6 +542,80 @@ function createStore(dataDir) {
 
 
   // ---------------------------------------------------------------------------
+  // Pipeline run operations
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Read a run by ID.
+   * @param {string} runId
+   * @returns {object|null}
+   */
+  function getRun(runId) {
+    return rowToRun(stmts.getRun.get(runId));
+  }
+
+  /**
+   * Insert or replace a run row (atomic — single statement).
+   * The full run object is stored in the `data` JSON blob; indexed columns are
+   * extracted for query performance.
+   *
+   * @param {object} run - Must include runId, spaceId, taskId, status, createdAt, updatedAt.
+   */
+  function upsertRun(run) {
+    stmts.upsertRun.run(
+      run.runId,
+      run.spaceId,
+      run.taskId,
+      run.status,
+      JSON.stringify(run),
+      run.createdAt,
+      run.updatedAt,
+    );
+  }
+
+  /**
+   * List all runs ordered by updated_at DESC.
+   *
+   * @param {object} [opts]
+   * @param {number} [opts.limit]  - Cap on result count.
+   * @param {number} [opts.offset] - Skip this many rows (for pagination).
+   * @returns {object[]}
+   */
+  function listRuns({ limit, offset } = {}) {
+    if (limit !== undefined) {
+      return stmts.listRunsLimitOffset.all(limit, offset ?? 0).map(rowToRun);
+    }
+    return stmts.listRuns.all().map(rowToRun);
+  }
+
+  /**
+   * Return runs whose status is active (pending/running/blocked/paused).
+   * @returns {object[]}
+   */
+  function listActiveRuns() {
+    return stmts.listActiveRuns.all().map(rowToRun);
+  }
+
+  /**
+   * Return the most-recently-updated active run for a given taskId, or null.
+   * @param {string} taskId
+   * @returns {object|null}
+   */
+  function findActiveRunByTaskId(taskId) {
+    return rowToRun(stmts.findActiveRunByTaskId.get(taskId));
+  }
+
+  /**
+   * Delete a run row.
+   * @param {string} runId
+   * @returns {boolean} true if a row was deleted.
+   */
+  function deleteRun(runId) {
+    const info = stmts.deleteRun.run(runId);
+    return info.changes > 0;
+  }
+
+  // ---------------------------------------------------------------------------
   // FTS maintenance
   // ---------------------------------------------------------------------------
 
@@ -514,6 +659,13 @@ function createStore(dataDir) {
     searchTasks,
     searchAllTasks,
     rebuildFts,
+    // Pipeline runs
+    getRun,
+    upsertRun,
+    listRuns,
+    listActiveRuns,
+    findActiveRunByTaskId,
+    deleteRun: deleteRun,
     // Lifecycle
     close,
   };

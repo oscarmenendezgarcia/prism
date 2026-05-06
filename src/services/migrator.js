@@ -178,6 +178,99 @@ function migrateJsonToSqlite(dataDir, store) {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 3 — run.json files → SQLite pipeline_runs
+// ---------------------------------------------------------------------------
+
+/**
+ * Import any `data/runs/<runId>/run.json` files that are not yet in SQLite.
+ *
+ * Idempotent: runs already present in the `pipeline_runs` table are skipped.
+ * After importing (or skipping) each run, its `run.json` is renamed to
+ * `run.json.migrated` so this phase does not re-process it on the next boot.
+ * The `runs.json` registry index is also renamed to `.migrated`.
+ *
+ * Non-fatal: errors on individual run files are logged and skipped so that
+ * one corrupt file never blocks the rest of the import.
+ *
+ * @param {string} dataDir - Root data directory (parent of `runs/`).
+ * @param {import('./store').Store} store
+ */
+function migrateRunsToSqlite(dataDir, store) {
+  // Always use the canonical location within dataDir.
+  // PIPELINE_RUNS_DIR is only for pipelineManager to redirect new run I/O during
+  // tests; the migrator must always scan the data directory itself.
+  const runsBaseDir = path.join(dataDir, 'runs');
+
+  if (!fs.existsSync(runsBaseDir)) return { count: 0 };
+
+  const t0 = Date.now();
+  let count = 0;
+
+  let entries;
+  try {
+    entries = fs.readdirSync(runsBaseDir);
+  } catch (err) {
+    console.error('[migrator] Phase 3 ERROR: could not read runs dir:', err.message);
+    return { count: 0 };
+  }
+
+  for (const entry of entries) {
+    const runJsonFile = path.join(runsBaseDir, entry, 'run.json');
+    if (!fs.existsSync(runJsonFile)) continue;
+
+    let run;
+    try {
+      run = JSON.parse(fs.readFileSync(runJsonFile, 'utf8'));
+    } catch (err) {
+      console.error(`[migrator] Phase 3 ERROR: could not parse ${runJsonFile}:`, err.message);
+      // Rename corrupt file anyway so it is not re-attempted.
+      try { fs.renameSync(runJsonFile, runJsonFile + '.migrated'); } catch { /* ignore */ }
+      continue;
+    }
+
+    if (!run || !run.runId) {
+      console.warn(`[migrator] Phase 3 WARN: skipping ${runJsonFile} — missing runId`);
+      try { fs.renameSync(runJsonFile, runJsonFile + '.migrated'); } catch { /* ignore */ }
+      continue;
+    }
+
+    // Idempotent: if the row already exists in SQLite, skip the insert.
+    const existing = store.getRun(run.runId);
+    if (!existing) {
+      try {
+        store.upsertRun(run);
+        count++;
+      } catch (err) {
+        console.error(`[migrator] Phase 3 ERROR: upsert run ${run.runId}:`, err.message);
+        continue; // Don't rename — try again next boot.
+      }
+    }
+
+    // Rename to .migrated regardless of whether we inserted (idempotent marker).
+    try {
+      fs.renameSync(runJsonFile, runJsonFile + '.migrated');
+    } catch (err) {
+      console.error(`[migrator] Phase 3 ERROR: renaming ${runJsonFile}:`, err.message);
+    }
+  }
+
+  // Rename the registry index (runs.json) — it is derived from run.json files
+  // and is no longer needed once SQLite is the source of truth.
+  const registryFile = path.join(runsBaseDir, 'runs.json');
+  if (fs.existsSync(registryFile)) {
+    try {
+      fs.renameSync(registryFile, registryFile + '.migrated');
+    } catch (err) {
+      console.error('[migrator] Phase 3 ERROR: renaming runs.json:', err.message);
+    }
+  }
+
+  const elapsed = Date.now() - t0;
+  console.log(`[migrator] Phase 3 — ${count} run(s) imported in ${elapsed}ms`);
+  return { count };
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
@@ -201,6 +294,9 @@ function migrate(dataDir) {
 
   // Phase 2: Import JSON files into SQLite (no-op if already done).
   migrateJsonToSqlite(dataDir, store);
+
+  // Phase 3: Import run.json files into pipeline_runs table (no-op if already done).
+  migrateRunsToSqlite(dataDir, store);
 
   return store;
 }
