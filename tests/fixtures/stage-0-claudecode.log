@@ -1,0 +1,9 @@
+{"type":"system","subtype":"init","session_id":"sess-abc123","model":"claude-sonnet-4-6"}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_001","name":"Read","input":{"file_path":"/path/to/file.ts"}}],"usage":{"input_tokens":100,"output_tokens":50}}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_001","content":[{"type":"text","text":"file contents here"}],"is_error":false}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_002","name":"Edit","input":{"file_path":"/path/to/file.ts"}}],"usage":{"input_tokens":110,"output_tokens":60}}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_002","content":[{"type":"text","text":"Edit applied"}],"is_error":false}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"tu_003","name":"Bash","input":{"command":"npm test"}}],"usage":{"input_tokens":120,"output_tokens":70}}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"tu_003","content":[{"type":"text","text":"Tests failed"}],"is_error":true}]}}
+{"type":"rate_limit_event","rate_limit_info":{"status":"ok","rateLimitType":"requests_per_minute","resetsAt":"2026-05-06T14:00:00Z"}}
+{"type":"result","duration_ms":120000,"duration_api_ms":95000,"num_turns":3,"total_cost_usd":1.234,"usage":{"input_tokens":330,"output_tokens":180},"modelUsage":{"claude-sonnet-4-6":{"inputTokens":330,"outputTokens":180,"cacheReadInputTokens":5000,"cacheCreationInputTokens":200,"costUSD":1.234}},"result":"Completed the task successfully.","stop_reason":"end_turn","terminal_reason":"completed","permission_denials":[]}
