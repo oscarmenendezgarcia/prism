@@ -17,11 +17,15 @@ vi.mock('../../src/api/client', () => ({
   getStageLog:    vi.fn().mockResolvedValue(''),
   getBackendRun:  vi.fn().mockResolvedValue({ runId: 'run-1', status: 'running', stages: ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e'], stageStatuses: [], currentStage: 0, spaceId: 's', taskId: 't', createdAt: new Date().toISOString() }),
   getStagePrompt: vi.fn().mockResolvedValue('## TASK CONTEXT\nTitle: Test task\n'),
+  getStageEvents: vi.fn().mockResolvedValue({ schemaVersion: 1, events: [], nextSince: 0, complete: true, stageStatus: 'running' }),
   LogNotAvailableError: class LogNotAvailableError extends Error {
     constructor() { super('LOG_NOT_AVAILABLE'); this.name = 'LogNotAvailableError'; }
   },
   PromptNotAvailableError: class PromptNotAvailableError extends Error {
     constructor() { super('PROMPT_NOT_AVAILABLE'); this.name = 'PromptNotAvailableError'; }
+  },
+  EventsNotAvailableError: class EventsNotAvailableError extends Error {
+    constructor() { super('EVENTS_NOT_AVAILABLE'); this.name = 'EventsNotAvailableError'; }
   },
   // Other methods needed by useAppStore if it is imported transitively
   getSpaces: vi.fn().mockResolvedValue([]),
@@ -77,15 +81,20 @@ const BASE_PIPELINE_STATE = {
 function resetStores() {
   useAppStore.setState({ pipelineState: null } as any);
   usePipelineLogStore.setState({
-    logPanelOpen:       true,
-    selectedStageIndex: 0,
-    stageLogs:          {},
-    stageLoading:       {},
-    stageErrors:        {},
-    stageView:          {},
-    stagePrompts:       {},
-    stagePromptLoading: {},
-  });
+    logPanelOpen:            true,
+    selectedStageIndex:      0,
+    stageLogs:               {},
+    stageLoading:            {},
+    stageErrors:             {},
+    stageView:               {},
+    stagePrompts:            {},
+    stagePromptLoading:      {},
+    stageEvents:             {},
+    stageEventsNextSince:    {},
+    stageEventsLoading:      {},
+    stageEventsError:        {},
+    stageEventsNotAvailable: {},
+  } as any);
 }
 
 beforeEach(() => {
@@ -169,43 +178,48 @@ describe('PipelineLogPanel — no runId state', () => {
 });
 
 describe('PipelineLogPanel — log content routing', () => {
-  it('shows "Waiting for output..." for the running stage with no log content', async () => {
+  it('shows "Waiting for output..." for the running stage with no log content (Raw view)', async () => {
     // Stage 0 is currentStageIndex=0 and pipeline status=running → derived status=running.
+    // Explicitly set view to 'log' (Raw) since default is now 'structured'.
     useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
-    usePipelineLogStore.setState({ stageLogs: {}, stageErrors: {} });
+    usePipelineLogStore.setState({ stageLogs: {}, stageErrors: {}, stageView: { 0: 'log' } });
     await act(async () => { renderPanel(); });
     // The LogViewer should render the running empty state.
     expect(screen.getByText('Waiting for output...')).toBeInTheDocument();
   });
 
-  it('shows "Stage not started yet." for a pending stage (index > currentStageIndex)', async () => {
+  it('shows "Stage not started yet." for a pending stage (index > currentStageIndex, Raw view)', async () => {
     // Stage 3 (QA) is pending while only stage 0 is running.
+    // Explicitly set view to 'log' (Raw) since default is now 'structured'.
     useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
     usePipelineLogStore.setState({
       selectedStageIndex: 3, // QA stage — not started
       stageLogs: {},
       stageErrors: {},
+      stageView: { 3: 'log' },
     });
     await act(async () => { renderPanel(); });
     expect(screen.getByText('Stage not started yet.')).toBeInTheDocument();
   });
 
-  it('displays log content for the selected stage', async () => {
+  it('displays log content for the selected stage (Raw view)', async () => {
     useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
     usePipelineLogStore.setState({
       selectedStageIndex: 0,
       stageLogs: { 0: 'Hello from stage 0 log\nLine 2 of output' },
+      stageView: { 0: 'log' },
     });
     await act(async () => { renderPanel(); });
     expect(screen.getByText(/Hello from stage 0 log/)).toBeInTheDocument();
   });
 
-  it('displays user-friendly error message when stageErrors has an error for the selected stage', async () => {
+  it('displays user-friendly error message when stageErrors has an error for the selected stage (Raw view)', async () => {
     useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
     usePipelineLogStore.setState({
       selectedStageIndex: 0,
       stageLogs:   {},
       stageErrors: { 0: 'Connection refused' },
+      stageView:   { 0: 'log' },
     });
     await act(async () => { renderPanel(); });
     expect(screen.getByText('No se pudo cargar el log.')).toBeInTheDocument();
@@ -227,22 +241,21 @@ describe('PipelineLogPanel — T-008 Prompt/Log toggle', () => {
     vi.useFakeTimers();
   });
 
-  it('renders "Log" and "Prompt" toggle buttons when run is active', async () => {
+  it('renders "Structured", "Raw" and "Prompt" toggle buttons when run is active', async () => {
     useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
     await act(async () => { renderPanel(); });
 
-    const logBtn    = screen.getByRole('button', { name: /^Log$/i });
-    const promptBtn = screen.getByRole('button', { name: /^Prompt$/i });
-    expect(logBtn).toBeInTheDocument();
-    expect(promptBtn).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Structured$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Raw$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Prompt$/i })).toBeInTheDocument();
   });
 
-  it('"Log" button is active by default (aria-pressed=true)', async () => {
+  it('"Structured" button is active by default (aria-pressed=true)', async () => {
     useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
     await act(async () => { renderPanel(); });
 
-    const logBtn = screen.getByRole('button', { name: /^Log$/i });
-    expect(logBtn).toHaveAttribute('aria-pressed', 'true');
+    const structuredBtn = screen.getByRole('button', { name: /^Structured$/i });
+    expect(structuredBtn).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('"Prompt" button has aria-pressed=false by default', async () => {
