@@ -8,7 +8,7 @@
  */
 
 import { create } from 'zustand';
-import type { StageMetrics } from '@/types';
+import type { StageMetrics, PublicEvent } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Store shape
@@ -59,9 +59,9 @@ interface PipelineLogState {
 
   // ── T-008: Prompt/Log toggle ───────────────────────────────────────────────
 
-  /** Which view is active in the log panel per stage: 'log' (default), 'prompt', or 'metrics'. */
-  stageView: Record<number, 'log' | 'prompt' | 'metrics'>;
-  setStageView: (stageIndex: number, view: 'log' | 'prompt' | 'metrics') => void;
+  /** Which view is active in the log panel per stage: 'structured' (default), 'log', 'prompt', or 'metrics'. */
+  stageView: Record<number, 'structured' | 'log' | 'prompt' | 'metrics'>;
+  setStageView: (stageIndex: number, view: 'structured' | 'log' | 'prompt' | 'metrics') => void;
 
   /**
    * Per-stage prompt content cache. Keyed by stageIndex.
@@ -95,6 +95,38 @@ interface PipelineLogState {
    */
   stageMetricsError: Record<number, string | null>;
   setStageMetricsError: (stageIndex: number, error: string | null) => void;
+
+  // ── Structured events view ─────────────────────────────────────────────────
+
+  /**
+   * Per-stage accumulated events list. Grows across polls using ?since= cursor.
+   * Key: stageIndex. Value: PublicEvent[] in chronological order.
+   */
+  stageEvents: Record<number, PublicEvent[]>;
+  appendStageEvents: (stageIndex: number, events: PublicEvent[]) => void;
+  clearStageEvents: (stageIndex: number) => void;
+
+  /**
+   * Per-stage cursor for incremental polling (?since= param).
+   * Updated to `nextSince` from each /events response.
+   */
+  stageEventsNextSince: Record<number, number>;
+  setStageEventsNextSince: (stageIndex: number, nextSince: number) => void;
+
+  /** Per-stage events loading flag (true while a fetch is in-flight). */
+  stageEventsLoading: Record<number, boolean>;
+  setStageEventsLoading: (stageIndex: number, loading: boolean) => void;
+
+  /**
+   * Per-stage events error. null = no error.
+   * Set to a human-readable message on fetch failures (not EventsNotAvailableError).
+   */
+  stageEventsError: Record<number, string | null>;
+  setStageEventsError: (stageIndex: number, error: string | null) => void;
+
+  /** Per-stage "events not available yet" flag (server returned 425). */
+  stageEventsNotAvailable: Record<number, boolean>;
+  setStageEventsNotAvailable: (stageIndex: number, notAvailable: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,18 +134,23 @@ interface PipelineLogState {
 // ---------------------------------------------------------------------------
 
 export const usePipelineLogStore = create<PipelineLogState>((set) => ({
-  logPanelOpen:        false,
-  unseenCount:         0,
-  selectedStageIndex:  0,
-  stageLogs:           {},
-  stageLoading:        {},
-  stageErrors:         {},
-  stageView:           {},
-  stagePrompts:        {},
-  stagePromptLoading:  {},
-  stageMetrics:        {},
-  stageMetricsLoading: {},
-  stageMetricsError:   {},
+  logPanelOpen:            false,
+  unseenCount:             0,
+  selectedStageIndex:      0,
+  stageLogs:               {},
+  stageLoading:            {},
+  stageErrors:             {},
+  stageView:               {},
+  stagePrompts:            {},
+  stagePromptLoading:      {},
+  stageMetrics:            {},
+  stageMetricsLoading:     {},
+  stageMetricsError:       {},
+  stageEvents:             {},
+  stageEventsNextSince:    {},
+  stageEventsLoading:      {},
+  stageEventsError:        {},
+  stageEventsNotAvailable: {},
 
   setLogPanelOpen: (open) => set({ logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) }),
 
@@ -139,15 +176,20 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
 
   clearStageLogs: () =>
     set({
-      stageLogs:           {},
-      stageLoading:        {},
-      stageErrors:         {},
-      stageView:           {},
-      stagePrompts:        {},
-      stagePromptLoading:  {},
-      stageMetrics:        {},
-      stageMetricsLoading: {},
-      stageMetricsError:   {},
+      stageLogs:               {},
+      stageLoading:            {},
+      stageErrors:             {},
+      stageView:               {},
+      stagePrompts:            {},
+      stagePromptLoading:      {},
+      stageMetrics:            {},
+      stageMetricsLoading:     {},
+      stageMetricsError:       {},
+      stageEvents:             {},
+      stageEventsNextSince:    {},
+      stageEventsLoading:      {},
+      stageEventsError:        {},
+      stageEventsNotAvailable: {},
     }),
 
   setStageView: (stageIndex, view) =>
@@ -178,5 +220,41 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   setStageMetricsError: (stageIndex, error) =>
     set((state) => ({
       stageMetricsError: { ...state.stageMetricsError, [stageIndex]: error },
+    })),
+
+  appendStageEvents: (stageIndex, events) =>
+    set((state) => ({
+      stageEvents: {
+        ...state.stageEvents,
+        [stageIndex]: [...(state.stageEvents[stageIndex] ?? []), ...events],
+      },
+    })),
+
+  clearStageEvents: (stageIndex) =>
+    set((state) => ({
+      stageEvents:             { ...state.stageEvents,             [stageIndex]: [] },
+      stageEventsNextSince:    { ...state.stageEventsNextSince,    [stageIndex]: 0 },
+      stageEventsError:        { ...state.stageEventsError,        [stageIndex]: null },
+      stageEventsNotAvailable: { ...state.stageEventsNotAvailable, [stageIndex]: false },
+    })),
+
+  setStageEventsNextSince: (stageIndex, nextSince) =>
+    set((state) => ({
+      stageEventsNextSince: { ...state.stageEventsNextSince, [stageIndex]: nextSince },
+    })),
+
+  setStageEventsLoading: (stageIndex, loading) =>
+    set((state) => ({
+      stageEventsLoading: { ...state.stageEventsLoading, [stageIndex]: loading },
+    })),
+
+  setStageEventsError: (stageIndex, error) =>
+    set((state) => ({
+      stageEventsError: { ...state.stageEventsError, [stageIndex]: error },
+    })),
+
+  setStageEventsNotAvailable: (stageIndex, notAvailable) =>
+    set((state) => ({
+      stageEventsNotAvailable: { ...state.stageEventsNotAvailable, [stageIndex]: notAvailable },
     })),
 }));

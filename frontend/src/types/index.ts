@@ -598,3 +598,87 @@ export interface AgentRunsResponse {
   runs: AgentRunRecord[];
   total: number;
 }
+
+// ---------------------------------------------------------------------------
+// Stage Events (structured log view)
+// ---------------------------------------------------------------------------
+
+/** Base fields shared by every PublicEvent. */
+interface BaseEvent {
+  /** Monotonic event index — used as React key and ?since= cursor. */
+  idx: number;
+  /** Relative time offset (seconds/line index since stage start). */
+  t: number;
+}
+
+export interface SessionStartEvent extends BaseEvent {
+  kind: 'session_start';
+  model?: string;
+}
+
+export interface ToolCallEvent extends BaseEvent {
+  kind: 'tool_call';
+  id: string;
+  name: string;
+  /** First ≤200 bytes of tool input (JSON-stringified). */
+  inputPreview: string;
+}
+
+export interface ToolResultEvent extends BaseEvent {
+  kind: 'tool_result';
+  /** Matches corresponding ToolCallEvent.id */
+  id: string;
+  isError: boolean;
+  bytes: number;
+  /** Computed client-side from paired tool_call timestamp. */
+  durationMs?: number;
+}
+
+export interface AssistantTextEvent extends BaseEvent {
+  kind: 'assistant_text';
+  bytes: number;
+  /** First ≤1000 bytes of assistant text. */
+  preview: string;
+}
+
+export interface ErrorEvent extends BaseEvent {
+  kind: 'error';
+  tool?: string;
+  message: string;
+  preview?: string;
+}
+
+export interface RateLimitEvent extends BaseEvent {
+  kind: 'rate_limit';
+  status: string;
+}
+
+export interface FinalResultEvent extends BaseEvent {
+  kind: 'final_result';
+  durationMs: number;
+  numTurns: number;
+  costUsd: number;
+  stopReason: string;
+}
+
+/** Discriminated union of all event kinds returned by GET /events. */
+export type PublicEvent =
+  | SessionStartEvent
+  | ToolCallEvent
+  | ToolResultEvent
+  | AssistantTextEvent
+  | ErrorEvent
+  | RateLimitEvent
+  | FinalResultEvent;
+
+/** Response from GET /api/v1/runs/:runId/stages/:stageIndex/events */
+export interface EventsResponse {
+  schemaVersion: number;
+  events: PublicEvent[];
+  /** Next value to pass as ?since= for incremental polling. */
+  nextSince: number;
+  /** true if all events up to the log tail were returned. */
+  complete: boolean;
+  /** Current status of the stage — controls polling cadence. */
+  stageStatus: 'pending' | 'running' | 'completed' | 'failed' | 'stalled';
+}

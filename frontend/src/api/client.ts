@@ -28,6 +28,7 @@ import type {
   Comment,
   SearchResponse,
   StageMetrics,
+  EventsResponse,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -607,6 +608,63 @@ export async function getStageMetrics(runId: string, stageIndex: number): Promis
     code
       ? `[StageMetrics] fetch error stage=${stageIndex} code=${code} status=${res.status}`
       : `[StageMetrics] fetch error stage=${stageIndex} status=${res.status}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stage Events API (structured log view, blueprint §2.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sentinel error thrown when the backend returns 425 Too Early.
+ * This means the stage has not produced a .log file yet.
+ */
+export class EventsNotAvailableError extends Error {
+  constructor() {
+    super('EVENTS_NOT_AVAILABLE');
+    this.name = 'EventsNotAvailableError';
+  }
+}
+
+/**
+ * Fetch structured events for a specific pipeline stage.
+ *
+ * GET /api/v1/runs/:runId/stages/:stageIndex/events?since=<idx>
+ *
+ * @param runId       Pipeline run ID.
+ * @param stageIndex  Zero-based stage index.
+ * @param since       Return events with idx >= since (default 0).
+ * @throws {EventsNotAvailableError} When the stage has no .log yet (425 Too Early).
+ * @throws {Error} On any other HTTP error.
+ */
+export async function getStageEvents(
+  runId: string,
+  stageIndex: number,
+  since = 0,
+): Promise<EventsResponse> {
+  const url = `${API_BASE}/runs/${encodeURIComponent(runId)}/stages/${stageIndex}/events?since=${since}`;
+  const res = await fetch(url);
+
+  if (res.ok) {
+    return res.json() as Promise<EventsResponse>;
+  }
+
+  let code: string | undefined;
+  try {
+    const body = await res.json() as { error?: { code?: string } };
+    code = body?.error?.code;
+  } catch {
+    // Non-JSON body — fall through to generic error.
+  }
+
+  if (res.status === 425) {
+    throw new EventsNotAvailableError();
+  }
+
+  throw new Error(
+    code
+      ? `[StageEvents] fetch error stage=${stageIndex} code=${code} status=${res.status}`
+      : `[StageEvents] fetch error stage=${stageIndex} status=${res.status}`,
   );
 }
 
