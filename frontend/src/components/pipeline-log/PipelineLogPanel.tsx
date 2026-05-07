@@ -22,6 +22,7 @@ import { StageTabBar } from './StageTabBar';
 import { LogViewer } from './LogViewer';
 import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
 import { StageMetricsPanel } from './StageMetricsPanel';
+import { StructuredLogView } from './StructuredLogView';
 import type { BackendStageStatus } from '@/types';
 
 /** How often (ms) to refresh the run status (for stageStatuses icons). */
@@ -117,7 +118,7 @@ export function PipelineLogPanel() {
     isRunActive,
   });
 
-  const currentView = stageView[selectedStageIndex] ?? 'log';
+  const currentView = stageView[selectedStageIndex] ?? 'structured';
 
   // Fetch prompt for current stage when the "Prompt" view is selected.
   // Caches the result in the store so repeated tab switches don't re-fetch.
@@ -239,21 +240,29 @@ export function PipelineLogPanel() {
         />
       )}
 
-      {/* T-008: Prompt / Log / Metrics toggle — only shown when a run is active */}
+      {/* View mode toggle: Structured (default) | Raw | Prompt | Metrics */}
       {runId && (
-        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
-          {(['log', 'prompt', 'metrics'] as const).map((view) => (
+        <div
+          className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0"
+          aria-label="Log view mode"
+        >
+          {([
+            { id: 'structured', label: 'Structured' },
+            { id: 'log',        label: 'Raw' },
+            { id: 'prompt',     label: 'Prompt' },
+            { id: 'metrics',    label: 'Metrics' },
+          ] as const).map(({ id, label }) => (
             <button
-              key={view}
-              onClick={() => setStageView(selectedStageIndex, view)}
-              aria-pressed={currentView === view}
+              key={id}
+              aria-pressed={currentView === id}
+              onClick={() => setStageView(selectedStageIndex, id)}
               className={`text-xs px-2.5 py-1 rounded capitalize transition-colors duration-150 ${
-                currentView === view
+                currentView === id
                   ? 'bg-primary text-white'
                   : 'text-text-secondary hover:text-primary hover:bg-surface-variant'
               }`}
             >
-              {view}
+              {label}
             </button>
           ))}
         </div>
@@ -266,7 +275,28 @@ export function PipelineLogPanel() {
           role="tabpanel"
           className="flex flex-1 flex-col min-h-0"
         >
-          {currentView === 'log' ? (
+          {currentView === 'structured' ? (
+            /* Structured view — default (T-003) */
+            effectiveRunId ? (
+              <StructuredLogView
+                runId={effectiveRunId}
+                stageIndex={effectiveStageIndex}
+                storeKey={selectedStageIndex}
+                isRunning={isRunning}
+                isPending={isPending}
+              />
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+                <span
+                  className="material-symbols-outlined text-4xl text-text-disabled leading-none"
+                  aria-hidden="true"
+                >
+                  article
+                </span>
+                <p className="text-sm text-text-secondary">No run available.</p>
+              </div>
+            )
+          ) : currentView === 'log' ? (
             <LogViewer
               content={currentLog}
               isPending={isPending}
