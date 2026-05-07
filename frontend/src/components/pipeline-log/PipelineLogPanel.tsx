@@ -15,11 +15,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
-import { usePipelineLogPolling } from '@/hooks/usePipelineLogPolling';
 import { usePanelResize } from '@/hooks/usePanelResize';
 import { getBackendRun, getStagePrompt, PromptNotAvailableError } from '@/api/client';
 import { StageTabBar } from './StageTabBar';
-import { LogViewer } from './LogViewer';
 import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
 import { StageMetricsPanel } from './StageMetricsPanel';
 import { StructuredLogView } from './StructuredLogView';
@@ -57,9 +55,6 @@ export function PipelineLogPanel() {
   const selectedStageIndex    = usePipelineLogStore((s) => s.selectedStageIndex);
   const setSelectedStageIndex = usePipelineLogStore((s) => s.setSelectedStageIndex);
   const setLogPanelOpen       = usePipelineLogStore((s) => s.setLogPanelOpen);
-  const stageLogs             = usePipelineLogStore((s) => s.stageLogs);
-  const stageLoading          = usePipelineLogStore((s) => s.stageLoading);
-  const stageErrors           = usePipelineLogStore((s) => s.stageErrors);
   const stageView             = usePipelineLogStore((s) => s.stageView);
   const setStageView          = usePipelineLogStore((s) => s.setStageView);
   const stagePrompts          = usePipelineLogStore((s) => s.stagePrompts);
@@ -105,18 +100,6 @@ export function PipelineLogPanel() {
     const id = setInterval(fetchRunStatus, RUN_STATUS_POLL_MS);
     return () => clearInterval(id);
   }, [fetchRunStatus, isRunActive]);
-
-  // Mount polling for the currently selected stage.
-  // - runId: the backend run that contains this stage's log (stage-specific for
-  //   frontend-driven pipelines, or the global runId for backend-native pipelines).
-  // - stageIndex: always 0 for frontend-driven pipelines (each stage is a 1-stage run).
-  // - storeKey: the pipeline-level index used as the log cache key in the store.
-  usePipelineLogPolling({
-    runId:       effectiveRunId,
-    stageIndex:  effectiveStageIndex,
-    storeKey:    selectedStageIndex,
-    isRunActive,
-  });
 
   const currentView = stageView[selectedStageIndex] ?? 'structured';
 
@@ -171,10 +154,6 @@ export function PipelineLogPanel() {
     // Merge richer data from backend if available.
     ...backendStatuses.find((s) => s.index === index),
   }));
-
-  const currentLog     = stageLogs[selectedStageIndex] ?? '';
-  const currentLoading = stageLoading[selectedStageIndex] ?? false;
-  const currentError   = stageErrors[selectedStageIndex] ?? null;
 
   const selectedStatus = stageStatusesForBar[selectedStageIndex]?.status ?? 'pending';
   const isPending  = selectedStatus === 'pending';
@@ -240,15 +219,14 @@ export function PipelineLogPanel() {
         />
       )}
 
-      {/* View mode toggle: Structured (default) | Raw | Prompt | Metrics */}
+      {/* View mode toggle: Logs (default) | Prompt | Metrics */}
       {runId && (
         <div
           className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0"
           aria-label="Log view mode"
         >
           {([
-            { id: 'structured', label: 'Structured' },
-            { id: 'log',        label: 'Raw' },
+            { id: 'structured', label: 'Logs' },
             { id: 'prompt',     label: 'Prompt' },
             { id: 'metrics',    label: 'Metrics' },
           ] as const).map(({ id, label }) => (
@@ -296,14 +274,6 @@ export function PipelineLogPanel() {
                 <p className="text-sm text-text-secondary">No run available.</p>
               </div>
             )
-          ) : currentView === 'log' ? (
-            <LogViewer
-              content={currentLog}
-              isPending={isPending}
-              isRunning={isRunning}
-              isLoading={currentLoading}
-              error={currentError}
-            />
           ) : currentView === 'metrics' ? (
             /* Metrics view — T-007 */
             effectiveRunId ? (

@@ -59,9 +59,9 @@ interface PipelineLogState {
 
   // ── T-008: Prompt/Log toggle ───────────────────────────────────────────────
 
-  /** Which view is active in the log panel per stage: 'structured' (default), 'log', 'prompt', or 'metrics'. */
-  stageView: Record<number, 'structured' | 'log' | 'prompt' | 'metrics'>;
-  setStageView: (stageIndex: number, view: 'structured' | 'log' | 'prompt' | 'metrics') => void;
+  /** Which view is active in the log panel per stage: 'structured' (default), 'prompt', or 'metrics'. */
+  stageView: Record<number, 'structured' | 'prompt' | 'metrics'>;
+  setStageView: (stageIndex: number, view: 'structured' | 'prompt' | 'metrics') => void;
 
   /**
    * Per-stage prompt content cache. Keyed by stageIndex.
