@@ -393,7 +393,8 @@ export interface StageMetrics {
   turns: number | null;
   stopReason: string | null;
   terminalReason: string | null;
-  cost: StageMetricsCost;
+  /** null when the stage has not yet emitted a final_result event (still running). */
+  cost: StageMetricsCost | null;
   tools: StageMetricsTools;
   files: StageMetricsFiles;
   errors: StageMetricsErrors;

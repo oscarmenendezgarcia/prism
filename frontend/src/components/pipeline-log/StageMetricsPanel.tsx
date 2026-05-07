@@ -162,23 +162,29 @@ function MetricsContent({ metrics }: { metrics: StageMetrics }) {
       {/* ── Cost ─────────────────────────────────────────────────────────── */}
       <SectionHeader icon="payments" title="Cost" />
       <div className="bg-surface-elevated rounded-lg px-3 py-1">
-        <MetricRow label="Total" value={formatUsd(cost.totalUsd)} />
-        {cost.perModel.map((m) => (
-          <MetricRow
-            key={m.model}
-            label={m.model}
-            value={
-              <span>
-                <span className="text-text-secondary">{m.inputTokens.toLocaleString()} in</span>
-                {' / '}
-                <span className="text-text-secondary">{m.outputTokens.toLocaleString()} out</span>
-                {m.cacheReadInputTokens > 0 && (
-                  <span className="text-success ml-1">({m.cacheReadInputTokens.toLocaleString()} cached)</span>
-                )}
-              </span>
-            }
-          />
-        ))}
+        {cost == null ? (
+          <MetricRow label="Total" value="—" />
+        ) : (
+          <>
+            <MetricRow label="Total" value={formatUsd(cost.totalUsd)} />
+            {cost.perModel.map((m) => (
+              <MetricRow
+                key={m.model}
+                label={m.model}
+                value={
+                  <span>
+                    <span className="text-text-secondary">{m.inputTokens.toLocaleString()} in</span>
+                    {' / '}
+                    <span className="text-text-secondary">{m.outputTokens.toLocaleString()} out</span>
+                    {m.cacheReadInputTokens > 0 && (
+                      <span className="text-success ml-1">({m.cacheReadInputTokens.toLocaleString()} cached)</span>
+                    )}
+                  </span>
+                }
+              />
+            ))}
+          </>
+        )}
       </div>
 
       {/* ── Top tools ────────────────────────────────────────────────────── */}
