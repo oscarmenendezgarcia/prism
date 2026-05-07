@@ -1,6 +1,6 @@
 /**
  * Component tests for PipelineLogPanel.
- * ADR-1 (log-viewer) T-010: render, close button, stage selection, LogViewer content.
+ * ADR-1 (log-viewer) T-010: render, close button, stage selection, view toggle.
  */
 
 import React from 'react';
@@ -54,10 +54,6 @@ vi.mock('../../src/hooks/usePanelResize', () => ({
   }),
 }));
 
-// Mock usePipelineLogPolling — we don't want real fetches in panel tests.
-vi.mock('../../src/hooks/usePipelineLogPolling', () => ({
-  usePipelineLogPolling: vi.fn(),
-}));
 
 import { PipelineLogPanel } from '../../src/components/pipeline-log/PipelineLogPanel';
 import * as apiClient from '../../src/api/client';
@@ -83,9 +79,6 @@ function resetStores() {
   usePipelineLogStore.setState({
     logPanelOpen:            true,
     selectedStageIndex:      0,
-    stageLogs:               {},
-    stageLoading:            {},
-    stageErrors:             {},
     stageView:               {},
     stagePrompts:            {},
     stagePromptLoading:      {},
@@ -177,60 +170,11 @@ describe('PipelineLogPanel — no runId state', () => {
   });
 });
 
-describe('PipelineLogPanel — log content routing', () => {
-  it('shows "Waiting for output..." for the running stage with no log content (Raw view)', async () => {
-    // Stage 0 is currentStageIndex=0 and pipeline status=running → derived status=running.
-    // Explicitly set view to 'log' (Raw) since default is now 'structured'.
-    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
-    usePipelineLogStore.setState({ stageLogs: {}, stageErrors: {}, stageView: { 0: 'log' } });
-    await act(async () => { renderPanel(); });
-    // The LogViewer should render the running empty state.
-    expect(screen.getByText('Waiting for output...')).toBeInTheDocument();
-  });
-
-  it('shows "Stage not started yet." for a pending stage (index > currentStageIndex, Raw view)', async () => {
-    // Stage 3 (QA) is pending while only stage 0 is running.
-    // Explicitly set view to 'log' (Raw) since default is now 'structured'.
-    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
-    usePipelineLogStore.setState({
-      selectedStageIndex: 3, // QA stage — not started
-      stageLogs: {},
-      stageErrors: {},
-      stageView: { 3: 'log' },
-    });
-    await act(async () => { renderPanel(); });
-    expect(screen.getByText('Stage not started yet.')).toBeInTheDocument();
-  });
-
-  it('displays log content for the selected stage (Raw view)', async () => {
-    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
-    usePipelineLogStore.setState({
-      selectedStageIndex: 0,
-      stageLogs: { 0: 'Hello from stage 0 log\nLine 2 of output' },
-      stageView: { 0: 'log' },
-    });
-    await act(async () => { renderPanel(); });
-    expect(screen.getByText(/Hello from stage 0 log/)).toBeInTheDocument();
-  });
-
-  it('displays user-friendly error message when stageErrors has an error for the selected stage (Raw view)', async () => {
-    useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
-    usePipelineLogStore.setState({
-      selectedStageIndex: 0,
-      stageLogs:   {},
-      stageErrors: { 0: 'Connection refused' },
-      stageView:   { 0: 'log' },
-    });
-    await act(async () => { renderPanel(); });
-    expect(screen.getByText('No se pudo cargar el log.')).toBeInTheDocument();
-  });
-});
-
 // ---------------------------------------------------------------------------
-// T-008: Prompt/Log toggle
+// T-008: view toggle
 // ---------------------------------------------------------------------------
 
-describe('PipelineLogPanel — T-008 Prompt/Log toggle', () => {
+describe('PipelineLogPanel — T-008 view toggle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Fake timers conflict with waitFor — use real timers for these async tests.
@@ -241,21 +185,21 @@ describe('PipelineLogPanel — T-008 Prompt/Log toggle', () => {
     vi.useFakeTimers();
   });
 
-  it('renders "Structured", "Raw" and "Prompt" toggle buttons when run is active', async () => {
+  it('renders "Logs", "Prompt" and "Metrics" toggle buttons when run is active', async () => {
     useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
     await act(async () => { renderPanel(); });
 
-    expect(screen.getByRole('button', { name: /^Structured$/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^Raw$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Logs$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Prompt$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Metrics$/i })).toBeInTheDocument();
   });
 
-  it('"Structured" button is active by default (aria-pressed=true)', async () => {
+  it('"Logs" button is active by default (aria-pressed=true)', async () => {
     useAppStore.setState({ pipelineState: BASE_PIPELINE_STATE } as any);
     await act(async () => { renderPanel(); });
 
-    const structuredBtn = screen.getByRole('button', { name: /^Structured$/i });
-    expect(structuredBtn).toHaveAttribute('aria-pressed', 'true');
+    const logsBtn = screen.getByRole('button', { name: /^Logs$/i });
+    expect(logsBtn).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('"Prompt" button has aria-pressed=false by default', async () => {
