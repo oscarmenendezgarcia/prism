@@ -379,10 +379,18 @@ async function runUnitTests() {
   // Isolate unit tests from stale PIPELINE_RUNS_DIR / PIPELINE_AGENTS_DIR that
   // may have been set by a prior startTestServer() call or inherited from the shell.
   // Unit tests provide an explicit dataDir (tmpPath) so the env override must be absent.
+  //
+  // SAFETY: PIPELINE_NO_SPAWN=1 must be set for unit tests that call pm.unblockRunByComment()
+  // or pm.executeNextStage() directly.  Without it, spawnStage() launches a real claude
+  // process with the hardcoded phantom IDs (sp-unblock/task-unblock-1) — that process
+  // connects to the production MCP server at port 3000 and creates "surrogate task" noise
+  // (the bug that kept spawning developer-agent with unblock-test-1 as the RunId).
   const _savedRunsDir   = process.env.PIPELINE_RUNS_DIR;
   const _savedAgentsDir = process.env.PIPELINE_AGENTS_DIR;
+  const _savedNoSpawn   = process.env.PIPELINE_NO_SPAWN;
   delete process.env.PIPELINE_RUNS_DIR;
   delete process.env.PIPELINE_AGENTS_DIR;
+  process.env.PIPELINE_NO_SPAWN = '1';
 
   suite('Unit: findActiveRunByTaskId');
 
@@ -724,6 +732,8 @@ async function runUnitTests() {
   else process.env.PIPELINE_RUNS_DIR   = _savedRunsDir;
   if (_savedAgentsDir === undefined) delete process.env.PIPELINE_AGENTS_DIR;
   else process.env.PIPELINE_AGENTS_DIR = _savedAgentsDir;
+  if (_savedNoSpawn   === undefined) delete process.env.PIPELINE_NO_SPAWN;
+  else process.env.PIPELINE_NO_SPAWN   = _savedNoSpawn;
 }
 
 // ---------------------------------------------------------------------------
