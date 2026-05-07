@@ -61,6 +61,7 @@ const {
   PIPELINE_RUNS_SINGLE_ROUTE,
   PIPELINE_RUNS_LOG_ROUTE,
   PIPELINE_RUNS_METRICS_ROUTE,
+  PIPELINE_RUNS_EVENTS_ROUTE,
   PIPELINE_RUNS_PROMPT_ROUTE,
   PIPELINE_RUNS_PREVIEW_ROUTE,
   PIPELINE_RUNS_RESUME_ROUTE,
@@ -72,6 +73,7 @@ const {
   handleGetRun,
   handleGetStageLog,
   handleGetStageMetrics,
+  handleGetStageEvents,
   handleGetStagePrompt,
   handlePreviewPrompts,
   handleDeleteRun,
@@ -422,7 +424,8 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     //   5. UNBLOCK_ROUTE  (/runs/:id/unblock)              — before SINGLE_ROUTE
     //   6. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
     //   7. METRICS_ROUTE  (/runs/:id/stages/:n/metrics)    — before SINGLE_ROUTE
-    //   8. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
+    //   8. EVENTS_ROUTE   (/runs/:id/stages/:n/events)     — before SINGLE_ROUTE
+    //   9. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
     //   9. LIST_ROUTE     (/runs)
     //  10. SINGLE_ROUTE   (/runs/:id)
     // -------------------------------------------------------------------------
@@ -472,6 +475,14 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       const runId      = pipelineMetricsMatch[1];
       const stageIndex = parseInt(pipelineMetricsMatch[2], 10);
       if (method === 'GET') return handleGetStageMetrics(req, res, runId, stageIndex, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const pipelineEventsMatch = PIPELINE_RUNS_EVENTS_ROUTE.exec(urlPath);
+    if (pipelineEventsMatch) {
+      const runId      = pipelineEventsMatch[1];
+      const stageIndex = parseInt(pipelineEventsMatch[2], 10);
+      if (method === 'GET') return handleGetStageEvents(req, res, runId, stageIndex, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

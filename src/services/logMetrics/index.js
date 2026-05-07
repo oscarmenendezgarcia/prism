@@ -18,9 +18,10 @@
 const fs   = require('fs');
 const path = require('path');
 
-const { detectAdapter }  = require('./detect');
-const { aggregate }      = require('./aggregator');
-const { read, write }    = require('./cache');
+const { detectAdapter }   = require('./detect');
+const { aggregate }       = require('./aggregator');
+const { read, write }     = require('./cache');
+const { projectEvents }   = require('./events');
 
 // Path helpers: use the same logic as pipelineManager to locate run dirs.
 // The PIPELINE_RUNS_DIR env var mirrors pipelineManager.runsDir().
@@ -203,4 +204,59 @@ async function parseStageLog(runId, stageIndex, agentId, dataDir, opts = {}) {
   return metrics;
 }
 
-module.exports = { parseStageLog, runDir, runsDir };
+/**
+ * Parse a stage log file and return a paginated list of structured PublicEvents.
+ *
+ * Unlike parseStageLog (which aggregates into summary metrics), this function
+ * streams events in document order, projects them to the PublicEvent DTO, and
+ * returns a cursor-based page.
+ *
+ * No sidecar cache is used — re-parsed on each request.  Log files are
+ * typically < 5K lines; a full parse costs < 50 ms in practice.
+ *
+ * @param {string}  runId        - UUID of the pipeline run.
+ * @param {number}  stageIndex   - Zero-based stage index.
+ * @param {string}  agentId      - Agent ID for this stage.
+ * @param {string}  dataDir      - Absolute path to the data directory.
+ * @param {object}  [opts]
+ * @param {number}  [opts.since=0] - Return events with idx >= since.
+ * @returns {Promise<{ events: object[]; nextSince: number; complete: boolean }>}
+ */
+async function parseStageEvents(runId, stageIndex, agentId, dataDir, opts = {}) {
+  const { since = 0 } = opts;
+
+  const dir     = runDir(dataDir, runId);
+  const logPath = path.join(dir, `stage-${stageIndex}.log`);
+
+  // Throws ENOENT when log does not exist — caller maps this to 425.
+  // Use statSync to match existing pattern in parseStageLog.
+  fs.statSync(logPath);
+
+  let adapter;
+  try {
+    ({ adapter } = await detectAdapter(dir, stageIndex, logPath));
+  } catch (err) {
+    console.error(JSON.stringify({
+      component:  'logMetrics',
+      event:      'events_detect_error',
+      runId,
+      stageIndex,
+      message:    err.message,
+    }));
+    adapter = require('./adapters/plainText');
+  }
+
+  let lineStream;
+  if (adapter.createLineStream) {
+    lineStream = adapter.createLineStream(logPath);
+  } else {
+    const readline   = require('readline');
+    const fileStream = fs.createReadStream(logPath, { encoding: 'utf8' });
+    lineStream = require('readline').createInterface({ input: fileStream, crlfDelay: Infinity });
+  }
+
+  const normalizedEvents = adapter.parse(lineStream);
+  return projectEvents(normalizedEvents, { since });
+}
+
+module.exports = { parseStageLog, parseStageEvents, runDir, runsDir };

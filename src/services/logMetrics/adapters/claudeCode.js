@@ -102,8 +102,19 @@ async function* parse(stream) {
             input: block.input ?? null,
           };
         }
-        // text blocks from assistant are not individually tracked — only
-        // the final result.result summary is captured as the stage summary.
+
+        if (block.type === 'text' && typeof block.text === 'string' && block.text.length > 0) {
+          const textBytes = Buffer.byteLength(block.text, 'utf8');
+          const preview   = textBytes <= 1_000
+            ? block.text
+            : Buffer.from(block.text, 'utf8').slice(0, 1_000).toString('utf8');
+          yield {
+            kind:    'assistant_text',
+            t,
+            bytes:   textBytes,
+            preview,
+          };
+        }
       }
       continue;
     }
