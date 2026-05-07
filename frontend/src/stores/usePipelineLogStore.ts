@@ -223,12 +223,20 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
     })),
 
   appendStageEvents: (stageIndex, events) =>
-    set((state) => ({
-      stageEvents: {
-        ...state.stageEvents,
-        [stageIndex]: [...(state.stageEvents[stageIndex] ?? []), ...events],
-      },
-    })),
+    set((state) => {
+      const existing = state.stageEvents[stageIndex] ?? [];
+      // Deduplicate by idx (Map preserves insertion order).
+      // Safety net against polling races where two requests both use since=0:
+      // the second append for already-known idx values is a no-op.
+      const merged = new Map<number, PublicEvent>(existing.map((e) => [e.idx, e]));
+      for (const e of events) merged.set(e.idx, e);
+      return {
+        stageEvents: {
+          ...state.stageEvents,
+          [stageIndex]: Array.from(merged.values()),
+        },
+      };
+    }),
 
   clearStageEvents: (stageIndex) =>
     set((state) => ({

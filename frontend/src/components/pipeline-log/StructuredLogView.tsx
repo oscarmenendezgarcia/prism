@@ -149,6 +149,10 @@ export function StructuredLogView({
 
   const fetchEvents = useCallback(async () => {
     if (!runId) return;
+    // Guard: skip if a fetch is already in-flight for this stage.
+    // Prevents polling race where the interval fires a second since=0 request
+    // before the initial fetch has completed and updated nextSinceRef.
+    if (usePipelineLogStore.getState().stageEventsLoading[storeKey]) return;
     setLoading(storeKey, true);
     setError(storeKey, null);
     try {

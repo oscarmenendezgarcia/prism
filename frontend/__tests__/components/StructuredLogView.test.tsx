@@ -370,6 +370,35 @@ describe('StructuredLogView — states', () => {
     expect(screen.getByText('Retry')).toBeTruthy();
   });
 
+  it('does not fire a second fetch while one is already in-flight (polling race guard)', async () => {
+    // Simulate: stageEventsLoading[0] = true when the component mounts.
+    // fetchEvents should bail out immediately and NOT call getStageEvents.
+    usePipelineLogStore.setState({
+      stageEvents:             { 0: [] },
+      stageEventsLoading:      { 0: true }, // already in-flight
+      stageEventsError:        { 0: null },
+      stageEventsNotAvailable: { 0: false },
+      stageEventsNextSince:    { 0: 0 },
+    } as any);
+
+    vi.mocked(apiClient.getStageEvents).mockClear();
+
+    await act(async () => {
+      render(
+        <StructuredLogView
+          runId="run-1"
+          stageIndex={0}
+          storeKey={0}
+          isRunning={true}
+          isPending={false}
+        />
+      );
+    });
+
+    // getStageEvents must not have been called — the guard blocked it.
+    expect(vi.mocked(apiClient.getStageEvents)).not.toHaveBeenCalled();
+  });
+
   it('renders events when present', async () => {
     usePipelineLogStore.setState({
       stageEvents: {
