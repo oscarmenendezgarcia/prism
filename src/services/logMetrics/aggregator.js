@@ -92,7 +92,7 @@ async function aggregate(events, meta) {
 
   // tool_call map: id → { name, t }
   const toolCalls    = new Map();
-  // tool stats: name → { calls, errors }
+  // tool stats: name → { calls, errors, totalDurationMs }
   const toolStats    = new Map();
 
   const filesModifiedSet = new Set();
@@ -121,7 +121,7 @@ async function aggregate(events, meta) {
         toolCalls.set(ev.id, { name: ev.name, t: ev.t, input: ev.input });
 
         if (!toolStats.has(ev.name)) {
-          toolStats.set(ev.name, { calls: 0, errors: 0 });
+          toolStats.set(ev.name, { calls: 0, errors: 0, totalDurationMs: 0 });
         }
         toolStats.get(ev.name).calls++;
 
@@ -139,16 +139,19 @@ async function aggregate(events, meta) {
 
       case 'tool_result': {
         const call = toolCalls.get(ev.id);
-        if (ev.isError && call) {
-          toolStats.get(call.name).errors++;
-
-          if (errorSamples.length < ERROR_SAMPLES_CAP) {
-            const contentText = ev.bytes > 0 ? `(${ev.bytes} bytes)` : '';
-            errorSamples.push({
-              tool:    call.name,
-              message: `Tool call failed${contentText ? ' — output: ' + contentText : ''}`,
-              preview: null,
-            });
+        if (call) {
+          const durationMs = ev.t - call.t;
+          if (durationMs >= 0) toolStats.get(call.name).totalDurationMs += durationMs;
+          if (ev.isError) {
+            toolStats.get(call.name).errors++;
+            if (errorSamples.length < ERROR_SAMPLES_CAP) {
+              const contentText = ev.bytes > 0 ? `(${ev.bytes} bytes)` : '';
+              errorSamples.push({
+                tool:    call.name,
+                message: `Tool call failed${contentText ? ' — output: ' + contentText : ''}`,
+                preview: null,
+              });
+            }
           }
         }
         break;
@@ -205,7 +208,13 @@ async function aggregate(events, meta) {
   // --- Build tools ---
   const totalErrors = Array.from(toolStats.values()).reduce((s, v) => s + v.errors, 0);
   const byName = Array.from(toolStats.entries())
-    .map(([name, st]) => ({ name, calls: st.calls, errors: st.errors }))
+    .map(([name, st]) => ({
+      name,
+      calls:           st.calls,
+      errors:          st.errors,
+      totalDurationMs: st.totalDurationMs,
+      avgDurationMs:   st.calls > 0 ? Math.round(st.totalDurationMs / st.calls) : 0,
+    }))
     .sort((a, b) => b.calls - a.calls);
 
   const tools = {

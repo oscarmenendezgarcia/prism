@@ -31,7 +31,7 @@ const { parseStageLog }                  = require('../services/logMetrics');
 const PIPELINE_RUNS_LIST_ROUTE    = /^\/api\/v1\/runs$/;
 const PIPELINE_RUNS_SINGLE_ROUTE  = /^\/api\/v1\/runs\/([^/]+)$/;
 const PIPELINE_RUNS_LOG_ROUTE     = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/log$/;
-const PIPELINE_RUNS_METRICS_ROUTE = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/metrics$/;
+const PIPELINE_RUNS_METRICS_ROUTE = /^\/api\/v1\/runs\/([^/]+)\/stages\/([^/]+)\/metrics$/;
 const PIPELINE_RUNS_PROMPT_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/stages\/(\d+)\/prompt$/;
 const PIPELINE_RUNS_PREVIEW_ROUTE = /^\/api\/v1\/runs\/preview-prompts$/;
 const PIPELINE_RUNS_RESUME_ROUTE  = /^\/api\/v1\/runs\/([^/]+)\/resume$/;
@@ -233,7 +233,7 @@ async function handleGetStageMetrics(req, res, runId, stageIndex, dataDir) {
     return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
   }
 
-  if (stageIndex < 0 || stageIndex >= run.stages.length) {
+  if (!Number.isInteger(stageIndex) || stageIndex < 0 || stageIndex >= run.stages.length) {
     return sendError(res, 404, 'STAGE_NOT_FOUND', `Stage ${stageIndex} does not exist in run '${runId}'.`);
   }
 
