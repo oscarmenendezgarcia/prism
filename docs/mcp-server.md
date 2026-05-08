@@ -61,11 +61,44 @@ Run statuses: `pending`, `running`, `completed`, `failed`, `interrupted`
 
 ## Attachments
 
-Attachments can be `type: "text"` (inline content) or `type: "file"` (absolute path on disk).
+Attachments support three types:
 
+| `type` | `content` | Description |
+|--------|-----------|-------------|
+| `"text"` | Inline string | Up to 100 KB of text content |
+| `"file"` | Absolute path | Reads from disk when the user opens the attachment |
+| `"link"` | `https://` URL | Clickable link; opens in a new browser tab |
+
+Examples:
 ```json
-{ "name": "ADR-1.md", "type": "file", "content": "/absolute/path/to/ADR-1.md" }
+{ "name": "ADR-1.md",     "type": "file", "content": "/absolute/path/to/ADR-1.md" }
+{ "name": "notes",        "type": "text", "content": "Implemented JWT auth..." }
+{ "name": "PR #82",       "type": "link", "content": "https://github.com/owner/repo/pull/82" }
+{ "name": "CI Build 124", "type": "link", "content": "https://circleci.com/gh/owner/repo/124" }
 ```
+
+### Link attachments
+
+Agents that produce external URLs (PR links, CI builds, deployment previews, bug-tracker tickets) should prefer `type: "link"` over embedding URLs inside comment text. Link attachments are **durable artifacts** on the card — visible in the Attachments tab, clickable from the UI, and carried through the full merge-by-name pipeline.
+
+```js
+// Example: developer-agent posts a PR link
+kanban_update_task({
+  id: "task-123",
+  spaceId: "space-abc",
+  attachments: [
+    { name: "PR #82", type: "link", content: "https://github.com/owner/repo/pull/82" }
+  ]
+})
+```
+
+**Validation rules for `type: "link"`:**
+- `content` must be a valid URL parseable by the WHATWG `URL` constructor
+- Scheme must be `http:` or `https:` (other schemes are rejected)
+- Max length: 2048 characters
+- The URL is never fetched by the server — it is stored as-is and rendered in the browser
+
+**Content preservation:** unlike `text` and `file` attachments (whose `content` is stripped in list responses), `link` attachment `content` is returned in the task list so the frontend can display the hostname without a second API call.
 
 ### Merge semantics (default behaviour)
 
@@ -81,7 +114,7 @@ To **clear or overwrite** the whole array, pass `mode: "replace"` explicitly:
 { "attachments": [], "mode": "replace" }
 ```
 
-When listing tasks, attachment content is stripped — only `name` and `type` are returned. Fetch content via `GET /spaces/:spaceId/tasks/:id/attachments/:index`.
+When listing tasks, `text` and `file` attachment content is stripped — only `name` and `type` are returned. `link` content (URL) is preserved. Fetch full content for any type via `GET /spaces/:spaceId/tasks/:id/attachments/:index`.
 
 ## Cursor pagination
 
