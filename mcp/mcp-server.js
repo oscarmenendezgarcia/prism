@@ -240,8 +240,8 @@ server.tool(
       .array(
         z.object({
           name:    z.string().describe('Attachment file name (e.g. "ADR-1.md").'),
-          type:    z.enum(['text', 'file']).describe('"text" for inline content, "file" for an absolute path on disk.'),
-          content: z.string().optional().describe('Inline text content (type="text") or absolute file path (type="file").'),
+          type:    z.enum(['text', 'file', 'link']).describe('"text" for inline content, "file" for an absolute path on disk, "link" for an external URL (https://...).'),
+          content: z.string().optional().describe('Inline text content (type="text"), absolute file path (type="file"), or https:// URL (type="link").'),
         })
       )
       .optional()
