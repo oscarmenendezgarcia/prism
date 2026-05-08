@@ -904,6 +904,7 @@ function bridgeWriteRunStarted(dataDir, run, stageIndex, taskTitle, spaceName, c
     if (!fs.existsSync(dataDir)) {
       fs.mkdirSync(dataDir, { recursive: true });
     }
+
     fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', 'utf8');
 
     // Prune to 500 entries.
@@ -2203,7 +2204,8 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
     throw err;
   }
 
-  const wasBlocked = run.status === 'blocked';
+  const wasBlocked        = run.status === 'blocked';
+  const hadStalledOrDied  = ['interrupted', 'failed'].includes(run.status);
 
   // Determine resume index.
   let resumeIndex;
@@ -2257,6 +2259,32 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
   if (wasBlocked) {
     run.bypassQuestionCheck = true;
   }
+  // When resuming an interrupted or failed run, cancel any stale agent-run entries
+  // that were left as 'running' because bridgeUpdateRunFinished couldn't find them
+  // (findIndex returns the first match; duplicate entries from previous resumes
+  // of the same stage remain unclosed). Safe to skip for paused/blocked resumes
+  // because the stage process was never killed in those cases.
+  if (hadStalledOrDied) {
+    try {
+      const now     = new Date().toISOString();
+      const records = readAgentRuns(dataDir);
+      const staleIds = new Set(
+        run.stages.slice(resumeIndex).map((_, i) => `${runId}-${resumeIndex + i}`)
+      );
+      let changed = false;
+      const cleaned = records.map((r) => {
+        if (staleIds.has(r.id) && r.status === 'running') {
+          changed = true;
+          return { ...r, status: 'cancelled', completedAt: now };
+        }
+        return r;
+      });
+      if (changed) writeAgentRuns(dataDir, cleaned);
+    } catch (err) {
+      console.warn('[pipelineManager] WARN: could not cancel stale agent-run entries on resume:', err.message);
+    }
+  }
+
   writeRun(dataDir, run);
 
   pipelineLog('run.resumed', { runId, resumeIndex, agentId: run.stages[resumeIndex] });
