@@ -637,7 +637,7 @@ async function runTests() {
 
     suite('T-006: handleGetTasks — strips content from all attachments');
 
-    await test('GET /tasks never includes content in attachments', async () => {
+    await test('GET /tasks strips content from text/file attachments; preserves content for link', async () => {
       const res = await request('GET', '/api/v1/tasks');
       assert(res.status === 200, `Expected 200, got ${res.status}`);
 
@@ -650,7 +650,13 @@ async function runTests() {
       for (const task of allTasks) {
         if (task.attachments) {
           for (const att of task.attachments) {
-            assert(!('content' in att), `Task ${task.id} has content in attachment '${att.name}'`);
+            if (att.type === 'link') {
+              // Link attachments MUST preserve content so the frontend can extract hostname
+              assert('content' in att, `Task ${task.id}: link attachment '${att.name}' is missing content`);
+              assert(typeof att.content === 'string', `Task ${task.id}: link attachment '${att.name}' content is not a string`);
+            } else {
+              assert(!('content' in att), `Task ${task.id}: ${att.type} attachment '${att.name}' should have content stripped`);
+            }
           }
         }
       }
@@ -729,6 +735,153 @@ async function runTests() {
       assert(Array.isArray(res.body.todo), 'todo column should be an array');
       assert(Array.isArray(res.body['in-progress']), 'in-progress column should be an array');
       assert(Array.isArray(res.body.done), 'done column should be an array');
+    });
+
+    // -------------------------------------------------------------------------
+    // T-002: Link attachment — positive create+read
+    // -------------------------------------------------------------------------
+
+    suite('T-002: link attachment — create and read roundtrip');
+
+    const linkTaskRes = await request('POST', '/api/v1/tasks', {
+      title: 'Link attachment task',
+      type: 'feature',
+      attachments: [{ name: 'PR #82', type: 'link', content: 'https://github.com/owner/repo/pull/82' }],
+    });
+    const linkTaskId = linkTaskRes.body.id;
+
+    await test('POST with link attachment returns 201', async () => {
+      assert(linkTaskRes.status === 201, `Expected 201, got ${linkTaskRes.status}`);
+      assert(Array.isArray(linkTaskRes.body.attachments), 'attachments should be present');
+      assert(linkTaskRes.body.attachments.length === 1, 'Should have 1 attachment');
+    });
+
+    await test('link attachment in list response preserves content (URL)', async () => {
+      const att = linkTaskRes.body.attachments[0];
+      assert(att.type === 'link', `Expected type 'link', got '${att.type}'`);
+      assert(att.name === 'PR #82', `Expected name 'PR #82', got '${att.name}'`);
+      assert(att.content === 'https://github.com/owner/repo/pull/82',
+        `Expected URL content, got '${att.content}'`);
+    });
+
+    await test('GET /tasks/:id/attachments/:index returns link type with content', async () => {
+      const res = await request('GET', `/api/v1/tasks/${linkTaskId}/attachments/0`);
+      assert(res.status === 200, `Expected 200, got ${res.status}`);
+      assert(res.body.type === 'link', `Expected 'link', got '${res.body.type}'`);
+      assert(res.body.content === 'https://github.com/owner/repo/pull/82', 'Content should be the URL');
+      assert(!('source' in res.body), 'source field should not be present for link attachments');
+    });
+
+    await test('link attachment content (URL) is preserved in GET /tasks list', async () => {
+      const res = await request('GET', '/api/v1/tasks');
+      assert(res.status === 200, `Expected 200, got ${res.status}`);
+      const allTasks = [...res.body.todo, ...res.body['in-progress'], ...res.body.done];
+      const found = allTasks.find((t) => t.id === linkTaskId);
+      assert(found !== undefined, 'Link task should appear in board');
+      const linkAtt = (found.attachments ?? []).find((a) => a.type === 'link');
+      assert(linkAtt !== undefined, 'Link attachment should be in the response');
+      assert(linkAtt.content === 'https://github.com/owner/repo/pull/82',
+        `Expected URL, got '${linkAtt.content}'`);
+    });
+
+    // -------------------------------------------------------------------------
+    // T-002: Link attachment — negative validation cases
+    // -------------------------------------------------------------------------
+
+    suite('T-002: link attachment — validation rejections');
+
+    await test('link with ftp:// scheme returns 400', async () => {
+      const res = await request('POST', '/api/v1/tasks', {
+        title: 'T',
+        type: 'chore',
+        attachments: [{ name: 'ftp link', type: 'link', content: 'ftp://files.example.com/thing' }],
+      });
+      assert(res.status === 400, `Expected 400, got ${res.status}`);
+      assert(res.body.error.code === 'VALIDATION_ERROR', 'Expected VALIDATION_ERROR');
+      assert(res.body.error.message.includes('ftp:'), `Error should mention scheme, got: ${res.body.error.message}`);
+    });
+
+    await test('link with custom scheme returns 400', async () => {
+      const res = await request('POST', '/api/v1/tasks', {
+        title: 'T',
+        type: 'chore',
+        attachments: [{ name: 'slack link', type: 'link', content: 'slack://channel/general' }],
+      });
+      assert(res.status === 400, `Expected 400, got ${res.status}`);
+      assert(res.body.error.code === 'VALIDATION_ERROR', 'Expected VALIDATION_ERROR');
+    });
+
+    await test('link with malformed URL returns 400', async () => {
+      const res = await request('POST', '/api/v1/tasks', {
+        title: 'T',
+        type: 'chore',
+        attachments: [{ name: 'bad url', type: 'link', content: 'not a url at all' }],
+      });
+      assert(res.status === 400, `Expected 400, got ${res.status}`);
+      assert(res.body.error.code === 'VALIDATION_ERROR', 'Expected VALIDATION_ERROR');
+    });
+
+    await test('link content exceeding 2048 chars returns 400', async () => {
+      const longUrl = 'https://example.com/' + 'a'.repeat(2040);
+      const res = await request('POST', '/api/v1/tasks', {
+        title: 'T',
+        type: 'chore',
+        attachments: [{ name: 'long url', type: 'link', content: longUrl }],
+      });
+      assert(res.status === 400, `Expected 400, got ${res.status}`);
+      assert(res.body.error.code === 'VALIDATION_ERROR', 'Expected VALIDATION_ERROR');
+      assert(res.body.error.message.includes('2048'), `Error should mention 2048, got: ${res.body.error.message}`);
+    });
+
+    await test('link with http:// scheme is accepted', async () => {
+      const res = await request('POST', '/api/v1/tasks', {
+        title: 'HTTP link task',
+        type: 'chore',
+        attachments: [{ name: 'http link', type: 'link', content: 'http://internal.company.com/ci/build/42' }],
+      });
+      assert(res.status === 201, `Expected 201, got ${res.status}`);
+    });
+
+    // -------------------------------------------------------------------------
+    // T-002: Link attachment — merge-by-name
+    // -------------------------------------------------------------------------
+
+    suite('T-002: link attachment — merge-by-name semantics');
+
+    await test('merge-by-name upserts an existing link attachment (same name)', async () => {
+      const base = await request('POST', '/api/v1/tasks', {
+        title: 'Link merge task',
+        type: 'feature',
+        attachments: [{ name: 'PR #82', type: 'link', content: 'https://github.com/owner/repo/pull/82' }],
+      });
+      assert(base.status === 201, `Expected 201, got ${base.status}`);
+      const tid = base.body.id;
+
+      // Update: upsert same name with new URL
+      const updated = await request('PUT', `/api/v1/tasks/${tid}/attachments`, {
+        attachments: [{ name: 'PR #82', type: 'link', content: 'https://github.com/owner/repo/pull/99' }],
+      });
+      assert(updated.status === 200, `Expected 200, got ${updated.status}`);
+      assert(updated.body.attachments.length === 1, 'Should still have 1 attachment (upserted)');
+      // Verify upserted URL via single-attachment endpoint
+      const get = await request('GET', `/api/v1/tasks/${tid}/attachments/0`);
+      assert(get.body.content === 'https://github.com/owner/repo/pull/99',
+        `Expected updated URL, got '${get.body.content}'`);
+    });
+
+    await test('merge appends a new link when name is different', async () => {
+      const base = await request('POST', '/api/v1/tasks', {
+        title: 'Link merge append task',
+        type: 'feature',
+        attachments: [{ name: 'PR #82', type: 'link', content: 'https://github.com/owner/repo/pull/82' }],
+      });
+      const tid = base.body.id;
+
+      const updated = await request('PUT', `/api/v1/tasks/${tid}/attachments`, {
+        attachments: [{ name: 'CI Build', type: 'link', content: 'https://circleci.com/build/42' }],
+      });
+      assert(updated.status === 200, `Expected 200, got ${updated.status}`);
+      assert(updated.body.attachments.length === 2, `Expected 2, got ${updated.body.attachments.length}`);
     });
 
   } finally {
