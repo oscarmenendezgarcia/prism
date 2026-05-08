@@ -8,6 +8,7 @@
  */
 
 import { create } from 'zustand';
+import type { StageMetrics, PublicEvent } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Store shape
@@ -58,9 +59,9 @@ interface PipelineLogState {
 
   // ── T-008: Prompt/Log toggle ───────────────────────────────────────────────
 
-  /** Which view is active in the log panel per stage: 'log' (default) or 'prompt'. */
-  stageView: Record<number, 'log' | 'prompt'>;
-  setStageView: (stageIndex: number, view: 'log' | 'prompt') => void;
+  /** Which view is active in the log panel per stage: 'structured' (default), 'prompt', or 'metrics'. */
+  stageView: Record<number, 'structured' | 'prompt' | 'metrics'>;
+  setStageView: (stageIndex: number, view: 'structured' | 'prompt' | 'metrics') => void;
 
   /**
    * Per-stage prompt content cache. Keyed by stageIndex.
@@ -73,6 +74,59 @@ interface PipelineLogState {
   /** Per-stage prompt loading flag. */
   stagePromptLoading: Record<number, boolean>;
   setStagePromptLoading: (stageIndex: number, loading: boolean) => void;
+
+  // ── T-007: Stage Metrics view ──────────────────────────────────────────────
+
+  /**
+   * Per-stage metrics cache. Keyed by stageIndex.
+   * null  → not yet fetched or not available (425 Too Early).
+   * StageMetrics → fetched and parsed.
+   */
+  stageMetrics: Record<number, StageMetrics | null>;
+  setStageMetrics: (stageIndex: number, metrics: StageMetrics | null) => void;
+
+  /** Per-stage metrics loading flag. */
+  stageMetricsLoading: Record<number, boolean>;
+  setStageMetricsLoading: (stageIndex: number, loading: boolean) => void;
+
+  /**
+   * Per-stage metrics error. null = no error.
+   * Set to a human-readable message on fetch failures that are not MetricsNotAvailableError.
+   */
+  stageMetricsError: Record<number, string | null>;
+  setStageMetricsError: (stageIndex: number, error: string | null) => void;
+
+  // ── Structured events view ─────────────────────────────────────────────────
+
+  /**
+   * Per-stage accumulated events list. Grows across polls using ?since= cursor.
+   * Key: stageIndex. Value: PublicEvent[] in chronological order.
+   */
+  stageEvents: Record<number, PublicEvent[]>;
+  appendStageEvents: (stageIndex: number, events: PublicEvent[]) => void;
+  clearStageEvents: (stageIndex: number) => void;
+
+  /**
+   * Per-stage cursor for incremental polling (?since= param).
+   * Updated to `nextSince` from each /events response.
+   */
+  stageEventsNextSince: Record<number, number>;
+  setStageEventsNextSince: (stageIndex: number, nextSince: number) => void;
+
+  /** Per-stage events loading flag (true while a fetch is in-flight). */
+  stageEventsLoading: Record<number, boolean>;
+  setStageEventsLoading: (stageIndex: number, loading: boolean) => void;
+
+  /**
+   * Per-stage events error. null = no error.
+   * Set to a human-readable message on fetch failures (not EventsNotAvailableError).
+   */
+  stageEventsError: Record<number, string | null>;
+  setStageEventsError: (stageIndex: number, error: string | null) => void;
+
+  /** Per-stage "events not available yet" flag (server returned 425). */
+  stageEventsNotAvailable: Record<number, boolean>;
+  setStageEventsNotAvailable: (stageIndex: number, notAvailable: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,15 +134,23 @@ interface PipelineLogState {
 // ---------------------------------------------------------------------------
 
 export const usePipelineLogStore = create<PipelineLogState>((set) => ({
-  logPanelOpen:       false,
-  unseenCount:        0,
-  selectedStageIndex: 0,
-  stageLogs:          {},
-  stageLoading:       {},
-  stageErrors:        {},
-  stageView:          {},
-  stagePrompts:       {},
-  stagePromptLoading: {},
+  logPanelOpen:            false,
+  unseenCount:             0,
+  selectedStageIndex:      0,
+  stageLogs:               {},
+  stageLoading:            {},
+  stageErrors:             {},
+  stageView:               {},
+  stagePrompts:            {},
+  stagePromptLoading:      {},
+  stageMetrics:            {},
+  stageMetricsLoading:     {},
+  stageMetricsError:       {},
+  stageEvents:             {},
+  stageEventsNextSince:    {},
+  stageEventsLoading:      {},
+  stageEventsError:        {},
+  stageEventsNotAvailable: {},
 
   setLogPanelOpen: (open) => set({ logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) }),
 
@@ -114,12 +176,20 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
 
   clearStageLogs: () =>
     set({
-      stageLogs:          {},
-      stageLoading:       {},
-      stageErrors:        {},
-      stageView:          {},
-      stagePrompts:       {},
-      stagePromptLoading: {},
+      stageLogs:               {},
+      stageLoading:            {},
+      stageErrors:             {},
+      stageView:               {},
+      stagePrompts:            {},
+      stagePromptLoading:      {},
+      stageMetrics:            {},
+      stageMetricsLoading:     {},
+      stageMetricsError:       {},
+      stageEvents:             {},
+      stageEventsNextSince:    {},
+      stageEventsLoading:      {},
+      stageEventsError:        {},
+      stageEventsNotAvailable: {},
     }),
 
   setStageView: (stageIndex, view) =>
@@ -135,5 +205,64 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   setStagePromptLoading: (stageIndex, loading) =>
     set((state) => ({
       stagePromptLoading: { ...state.stagePromptLoading, [stageIndex]: loading },
+    })),
+
+  setStageMetrics: (stageIndex, metrics) =>
+    set((state) => ({
+      stageMetrics: { ...state.stageMetrics, [stageIndex]: metrics },
+    })),
+
+  setStageMetricsLoading: (stageIndex, loading) =>
+    set((state) => ({
+      stageMetricsLoading: { ...state.stageMetricsLoading, [stageIndex]: loading },
+    })),
+
+  setStageMetricsError: (stageIndex, error) =>
+    set((state) => ({
+      stageMetricsError: { ...state.stageMetricsError, [stageIndex]: error },
+    })),
+
+  appendStageEvents: (stageIndex, events) =>
+    set((state) => {
+      const existing = state.stageEvents[stageIndex] ?? [];
+      // Deduplicate by idx (Map preserves insertion order).
+      // Safety net against polling races where two requests both use since=0:
+      // the second append for already-known idx values is a no-op.
+      const merged = new Map<number, PublicEvent>(existing.map((e) => [e.idx, e]));
+      for (const e of events) merged.set(e.idx, e);
+      return {
+        stageEvents: {
+          ...state.stageEvents,
+          [stageIndex]: Array.from(merged.values()),
+        },
+      };
+    }),
+
+  clearStageEvents: (stageIndex) =>
+    set((state) => ({
+      stageEvents:             { ...state.stageEvents,             [stageIndex]: [] },
+      stageEventsNextSince:    { ...state.stageEventsNextSince,    [stageIndex]: 0 },
+      stageEventsError:        { ...state.stageEventsError,        [stageIndex]: null },
+      stageEventsNotAvailable: { ...state.stageEventsNotAvailable, [stageIndex]: false },
+    })),
+
+  setStageEventsNextSince: (stageIndex, nextSince) =>
+    set((state) => ({
+      stageEventsNextSince: { ...state.stageEventsNextSince, [stageIndex]: nextSince },
+    })),
+
+  setStageEventsLoading: (stageIndex, loading) =>
+    set((state) => ({
+      stageEventsLoading: { ...state.stageEventsLoading, [stageIndex]: loading },
+    })),
+
+  setStageEventsError: (stageIndex, error) =>
+    set((state) => ({
+      stageEventsError: { ...state.stageEventsError, [stageIndex]: error },
+    })),
+
+  setStageEventsNotAvailable: (stageIndex, notAvailable) =>
+    set((state) => ({
+      stageEventsNotAvailable: { ...state.stageEventsNotAvailable, [stageIndex]: notAvailable },
     })),
 }));

@@ -15,12 +15,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
-import { usePipelineLogPolling } from '@/hooks/usePipelineLogPolling';
 import { usePanelResize } from '@/hooks/usePanelResize';
 import { getBackendRun, getStagePrompt, PromptNotAvailableError } from '@/api/client';
 import { StageTabBar } from './StageTabBar';
-import { LogViewer } from './LogViewer';
 import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
+import { StageMetricsPanel } from './StageMetricsPanel';
+import { StructuredLogView } from './StructuredLogView';
 import type { BackendStageStatus } from '@/types';
 
 /** How often (ms) to refresh the run status (for stageStatuses icons). */
@@ -55,9 +55,6 @@ export function PipelineLogPanel() {
   const selectedStageIndex    = usePipelineLogStore((s) => s.selectedStageIndex);
   const setSelectedStageIndex = usePipelineLogStore((s) => s.setSelectedStageIndex);
   const setLogPanelOpen       = usePipelineLogStore((s) => s.setLogPanelOpen);
-  const stageLogs             = usePipelineLogStore((s) => s.stageLogs);
-  const stageLoading          = usePipelineLogStore((s) => s.stageLoading);
-  const stageErrors           = usePipelineLogStore((s) => s.stageErrors);
   const stageView             = usePipelineLogStore((s) => s.stageView);
   const setStageView          = usePipelineLogStore((s) => s.setStageView);
   const stagePrompts          = usePipelineLogStore((s) => s.stagePrompts);
@@ -104,19 +101,7 @@ export function PipelineLogPanel() {
     return () => clearInterval(id);
   }, [fetchRunStatus, isRunActive]);
 
-  // Mount polling for the currently selected stage.
-  // - runId: the backend run that contains this stage's log (stage-specific for
-  //   frontend-driven pipelines, or the global runId for backend-native pipelines).
-  // - stageIndex: always 0 for frontend-driven pipelines (each stage is a 1-stage run).
-  // - storeKey: the pipeline-level index used as the log cache key in the store.
-  usePipelineLogPolling({
-    runId:       effectiveRunId,
-    stageIndex:  effectiveStageIndex,
-    storeKey:    selectedStageIndex,
-    isRunActive,
-  });
-
-  const currentView = stageView[selectedStageIndex] ?? 'log';
+  const currentView = stageView[selectedStageIndex] ?? 'structured';
 
   // Fetch prompt for current stage when the "Prompt" view is selected.
   // Caches the result in the store so repeated tab switches don't re-fetch.
@@ -169,10 +154,6 @@ export function PipelineLogPanel() {
     // Merge richer data from backend if available.
     ...backendStatuses.find((s) => s.index === index),
   }));
-
-  const currentLog     = stageLogs[selectedStageIndex] ?? '';
-  const currentLoading = stageLoading[selectedStageIndex] ?? false;
-  const currentError   = stageErrors[selectedStageIndex] ?? null;
 
   const selectedStatus = stageStatusesForBar[selectedStageIndex]?.status ?? 'pending';
   const isPending  = selectedStatus === 'pending';
@@ -238,31 +219,30 @@ export function PipelineLogPanel() {
         />
       )}
 
-      {/* T-008: Prompt / Log toggle — only shown when a run is active */}
+      {/* View mode toggle: Logs (default) | Prompt | Metrics */}
       {runId && (
-        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
-          <button
-            onClick={() => setStageView(selectedStageIndex, 'log')}
-            aria-pressed={currentView === 'log'}
-            className={`text-xs px-2.5 py-1 rounded transition-colors duration-150 ${
-              currentView === 'log'
-                ? 'bg-primary text-white'
-                : 'text-text-secondary hover:text-primary hover:bg-surface-variant'
-            }`}
-          >
-            Log
-          </button>
-          <button
-            onClick={() => setStageView(selectedStageIndex, 'prompt')}
-            aria-pressed={currentView === 'prompt'}
-            className={`text-xs px-2.5 py-1 rounded transition-colors duration-150 ${
-              currentView === 'prompt'
-                ? 'bg-primary text-white'
-                : 'text-text-secondary hover:text-primary hover:bg-surface-variant'
-            }`}
-          >
-            Prompt
-          </button>
+        <div
+          className="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0"
+          aria-label="Log view mode"
+        >
+          {([
+            { id: 'structured', label: 'Logs' },
+            { id: 'prompt',     label: 'Prompt' },
+            { id: 'metrics',    label: 'Metrics' },
+          ] as const).map(({ id, label }) => (
+            <button
+              key={id}
+              aria-pressed={currentView === id}
+              onClick={() => setStageView(selectedStageIndex, id)}
+              className={`text-xs px-2.5 py-1 rounded capitalize transition-colors duration-150 ${
+                currentView === id
+                  ? 'bg-primary text-white'
+                  : 'text-text-secondary hover:text-primary hover:bg-surface-variant'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       )}
 
@@ -273,14 +253,47 @@ export function PipelineLogPanel() {
           role="tabpanel"
           className="flex flex-1 flex-col min-h-0"
         >
-          {currentView === 'log' ? (
-            <LogViewer
-              content={currentLog}
-              isPending={isPending}
-              isRunning={isRunning}
-              isLoading={currentLoading}
-              error={currentError}
-            />
+          {currentView === 'structured' ? (
+            /* Structured view — default (T-003) */
+            effectiveRunId ? (
+              <StructuredLogView
+                runId={effectiveRunId}
+                stageIndex={effectiveStageIndex}
+                storeKey={selectedStageIndex}
+                isRunning={isRunning}
+                isPending={isPending}
+              />
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+                <span
+                  className="material-symbols-outlined text-4xl text-text-disabled leading-none"
+                  aria-hidden="true"
+                >
+                  article
+                </span>
+                <p className="text-sm text-text-secondary">No run available.</p>
+              </div>
+            )
+          ) : currentView === 'metrics' ? (
+            /* Metrics view — T-007 */
+            effectiveRunId ? (
+              <StageMetricsPanel
+                runId={effectiveRunId}
+                stageIndex={effectiveStageIndex}
+                storeKey={selectedStageIndex}
+                isRunning={isRunning}
+              />
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+                <span
+                  className="material-symbols-outlined text-4xl text-text-disabled leading-none"
+                  aria-hidden="true"
+                >
+                  query_stats
+                </span>
+                <p className="text-sm text-text-secondary">No run available.</p>
+              </div>
+            )
           ) : (
             /* Prompt view */
             <div className="flex flex-1 flex-col min-h-0 overflow-y-auto p-3">

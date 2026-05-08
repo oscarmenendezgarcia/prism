@@ -382,7 +382,7 @@ function createStore(dataDir) {
   }
 
   function insertTask(task, spaceId, column) {
-    stmts.insertTask.run(
+    withFtsRecovery(() => stmts.insertTask.run(
       task.id,
       spaceId,
       column,
@@ -395,7 +395,7 @@ function createStore(dataDir) {
       task.comments    !== undefined ? JSON.stringify(task.comments)    : null,
       task.createdAt,
       task.updatedAt,
-    );
+    ));
   }
 
   /**
@@ -433,7 +433,7 @@ function createStore(dataDir) {
 
     const merged = { ...existing, ...patch };
 
-    stmts.updateTask.run(
+    withFtsRecovery(() => stmts.updateTask.run(
       merged.title,
       merged.type,
       merged.description !== undefined ? JSON.stringify(merged.description) : null,
@@ -444,7 +444,7 @@ function createStore(dataDir) {
       merged.updatedAt,
       spaceId,
       taskId,
-    );
+    ));
 
     return merged;
   }
@@ -465,8 +465,25 @@ function createStore(dataDir) {
     return move();
   }
 
+  function rebuildFts() {
+    db.exec("INSERT INTO tasks_fts(tasks_fts) VALUES('rebuild')");
+    console.warn('[store] FTS index rebuilt after SQLITE_CORRUPT_VTAB');
+  }
+
+  function withFtsRecovery(fn) {
+    try {
+      return fn();
+    } catch (err) {
+      if (err.code === 'SQLITE_CORRUPT_VTAB') {
+        rebuildFts();
+        return fn();
+      }
+      throw err;
+    }
+  }
+
   function deleteTask(spaceId, taskId) {
-    const info = stmts.deleteTask.run(spaceId, taskId);
+    const info = withFtsRecovery(() => stmts.deleteTask.run(spaceId, taskId));
     return info.changes > 0;
   }
 
@@ -474,7 +491,7 @@ function createStore(dataDir) {
    * Delete all tasks for a space. Returns the number of deleted rows.
    */
   function clearSpace(spaceId) {
-    const info = stmts.clearSpace.run(spaceId);
+    const info = withFtsRecovery(() => stmts.clearSpace.run(spaceId));
     return info.changes;
   }
 
@@ -499,7 +516,7 @@ function createStore(dataDir) {
     // The content-table join ensures we only touch tasks for the given space.
     // Uses the pre-compiled stmts.searchTasks statement (compiled once at startup).
     try {
-      const rows = stmts.searchTasks.all(trimmedQuery, spaceId, limit);
+      const rows = withFtsRecovery(() => stmts.searchTasks.all(trimmedQuery, spaceId, limit));
       return rows.map(rowToTask);
     } catch (err) {
       // FTS5 MATCH throws on malformed query strings (e.g. unmatched quotes).
@@ -526,7 +543,7 @@ function createStore(dataDir) {
     const trimmedQuery = query.trim();
 
     try {
-      const rows = stmts.searchAllTasks.all(trimmedQuery, limit);
+      const rows = withFtsRecovery(() => stmts.searchAllTasks.all(trimmedQuery, limit));
       return rows.map((row) => ({
         task:    rowToTask(row),
         spaceId: row._space_id,

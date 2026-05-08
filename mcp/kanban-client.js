@@ -171,20 +171,47 @@ export async function listTasks(filters = {}) {
 /**
  * Get a single task by ID, searching all columns.
  *
- * @param {string} id - Task UUID.
+ * When spaceId is provided the search is limited to that space.
+ * When omitted, all spaces are iterated in order and the first match is
+ * returned. The response always includes a `spaceId` field so callers know
+ * which space the task belongs to.
+ *
+ * @param {string} id      - Task UUID.
  * @param {string} [spaceId] - Optional space ID.
  * @returns {Promise<object>}
  */
 export async function getTask(id, spaceId) {
-  const result = await request('GET', tasksBasePath(spaceId));
-  if (result.error) return result;
-
   const COLUMNS = ['todo', 'in-progress', 'done'];
-  for (const column of COLUMNS) {
-    const task = (result[column] ?? []).find((t) => t.id === id);
-    if (task) {
-      return { ...task, column };
+
+  /** Search a single space's task-list response for `id`. */
+  function findInResult(result, sid) {
+    for (const column of COLUMNS) {
+      const task = (result[column] ?? []).find((t) => t.id === id);
+      if (task) return { ...task, column, spaceId: sid };
     }
+    return null;
+  }
+
+  if (spaceId) {
+    // Explicit space — search only there.
+    const result = await request('GET', tasksBasePath(spaceId));
+    if (result.error) return result;
+    return findInResult(result, spaceId) ?? {
+      error:   true,
+      code:    'TASK_NOT_FOUND',
+      message: `Task with id '${id}' not found`,
+    };
+  }
+
+  // No spaceId — iterate every space until the task is found.
+  const spaces = await listSpaces();
+  if (spaces.error) return spaces;
+
+  for (const space of spaces) {
+    const result = await request('GET', tasksBasePath(space.id));
+    if (result.error) continue; // Skip unreachable spaces.
+    const found = findInResult(result, space.id);
+    if (found) return found;
   }
 
   return {
