@@ -13,7 +13,7 @@
  *
  * Environment variables:
  *   PIPELINE_STAGE_TIMEOUT_MS    - Kill timeout per stage (default: 3600000 = 1h)
- *   PIPELINE_STALL_TIMEOUT_MS    - Kill if no output for this long (default: 300000 = 5min)
+ *   PIPELINE_STALL_TIMEOUT_MS    - Kill if no output for this long (default: 900000 = 15min)
  *   PIPELINE_MAX_CONCURRENT      - Max active runs (default: 5)
  *   PIPELINE_RUNS_DIR            - Override runs directory
  *   PIPELINE_AGENT_MODE          - 'subagent' (default) or 'headless'
@@ -101,7 +101,7 @@ const DEFAULT_MAX_CONCURRENT      = 5;
 // Stall watchdog: kill if no output for this long.  5 min is conservative —
 // tool calls (Bash builds, WebSearch) can be silent for a while, but AskUserQuestion
 // and permission prompts produce no output forever, so we still need a ceiling.
-const DEFAULT_STALL_TIMEOUT_MS    = 300_000;   // 5 min without any output → kill
+const DEFAULT_STALL_TIMEOUT_MS    = 900_000;   // 15 min without any output → kill
 // Resolver agent gets a shorter timeout: it only needs to answer one question.
 const DEFAULT_RESOLVER_TIMEOUT_MS = 300_000;   // 5 min
 
@@ -222,6 +222,11 @@ function resolverDonePath(dataDir, runId, commentId) {
  */
 function shellEscape(s) {
   return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+// Windows cmd.exe path quoting: wrap in double quotes, escape embedded double quotes.
+function cmdEscape(s) {
+  return '"' + String(s).replace(/"/g, '""') + '"';
 }
 
 // ---------------------------------------------------------------------------
@@ -561,6 +566,32 @@ function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, time
       activeProcesses.delete(runId);
       await killStage(dataDir, runId, stageIndex, 'timeout');
       return;
+    }
+
+    // --- Completed-but-hanging detection ---
+    // claude can finish writing its output (terminal_reason present in the log)
+    // but hang during MCP shutdown (e.g. a Playwright browser that never closes).
+    // Detect this within one poll tick so the pipeline advances immediately
+    // instead of waiting up to 15 minutes for the stall watchdog.
+    // The sentinel write is idempotent with the EXIT trap: whichever writes first wins.
+    if (!fs.existsSync(doneFile)) {
+      try {
+        const logStat = fs.statSync(logPath);
+        if (logStat.size > 0) {
+          const tailSize = Math.min(logStat.size, 2048);
+          const buf = Buffer.allocUnsafe(tailSize);
+          const fd  = fs.openSync(logPath, 'r');
+          try {
+            fs.readSync(fd, buf, 0, tailSize, logStat.size - tailSize);
+          } finally {
+            fs.closeSync(fd);
+          }
+          const match = buf.toString('utf8').match(/"terminal_reason":"([^"]+)"/);
+          if (match) {
+            fs.writeFileSync(doneFile, match[1] === 'completed' ? '0' : '1', 'utf8');
+          }
+        }
+      } catch { /* non-fatal — fall through to stall check */ }
     }
 
     // --- Stall check (no new log output) ---
@@ -1106,6 +1137,24 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   pipelineLog('stage.started', { runId: run.runId, stageIndex, agentId });
 
+  // Write stage-N.meta.json — declares the source tool for the log metrics parser.
+  // Non-fatal: if this write fails, the parser falls back to first-line sniffing.
+  {
+    const agentMode = process.env.PIPELINE_AGENT_MODE || 'subagent';
+    const source    = agentMode === 'subagent' ? 'claude-code' : 'plain';
+    const metaPath  = path.join(runDir(dataDir, run.runId), `stage-${stageIndex}.meta.json`);
+    try {
+      fs.writeFileSync(metaPath, JSON.stringify({
+        source,
+        schemaVersion: 1,
+        agentId,
+        startedAt: run.stageStatuses[stageIndex].startedAt,
+      }), 'utf8');
+    } catch (metaErr) {
+      console.warn(`[pipelineManager] WARN: could not write meta.json for stage ${stageIndex}:`, metaErr.message);
+    }
+  }
+
   // Build the task prompt to pass via stdin.
   // Use effectiveCwd so isolated runs see the worktree path, not the parent repo.
   const { promptText: taskPrompt } = buildStagePrompt(
@@ -1185,24 +1234,50 @@ async function spawnStage(dataDir, run, stageIndex) {
     ? agentSpec.spawnArgs
     : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
-  // Build shell command: shell wrapper reads prompt from file, appends to log,
-  // writes exit code to done-sentinel when finished.
-  // spawn() with detached=true gives sh its own process group (PGID = child.pid).
-  // Kill uses -pid (negative) to send SIGTERM to the entire group (sh + claude).
-  // NOTE: do NOT use `exec claude` here — exec replaces sh, so the trailing
-  //       `echo $? > doneFile` would never run and the sentinel would never be written.
-  const escapedArgs = finalArgs.map(shellEscape).join(' ');
-  // After claude exits, kill any Playwright/Chromium processes left behind by the
-  // persistent Playwright MCP server. Targets the playwright cache path to avoid
-  // killing the user's own Chrome browser.
-  const _playwrightCleanup = `pkill -f 'ms-playwright' 2>/dev/null; true`;
-  const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; _EXIT=$?; ${_playwrightCleanup}; echo $_EXIT > ${shellEscape(doneFile)}`;
-
-  const child = spawn('sh', ['-c', shellCmd], {
-    stdio:    'ignore',
-    detached: true,
-    env:      { ...process.env },
-  });
+  // Build the shell command that runs claude, captures its exit code, and
+  // writes the done-sentinel. Two platform variants:
+  //
+  // Unix (sh): an EXIT trap guarantees the sentinel is written even if the
+  //   wrapper receives SIGTERM while claude is shutting down (Bug 1).
+  //   The trap is idempotent — skips the write if the polling loop already
+  //   wrote it via the completed-but-hanging detection (Bug 2).
+  //   NOTE: do NOT use `exec claude` — exec replaces sh, so the trap would
+  //   never fire and the sentinel would never be written.
+  //
+  // Windows (cmd.exe): no trap is available; the sentinel is written before
+  //   exit so a forced termination is less likely to lose it.
+  //   The polling-loop detection (Bug 2) covers the hanging case.
+  let child;
+  if (process.platform === 'win32') {
+    const escapedArgs  = finalArgs.map(cmdEscape).join(' ');
+    // /V:ON enables delayed variable expansion so !ERRORLEVEL! is evaluated
+    // after claude exits, not at parse time (the %VAR% behaviour).
+    const windowsCmd = [
+      `${cmdEscape(CLAUDE_BIN)} ${escapedArgs} < ${cmdEscape(promptFilePath)} >> ${cmdEscape(logPath)} 2>&1`,
+      `set _EXIT=!ERRORLEVEL!`,
+      `if not exist ${cmdEscape(doneFile)} echo !_EXIT! > ${cmdEscape(doneFile)}`,
+      `exit /B 0`,
+    ].join(' & ');
+    child = spawn('cmd.exe', ['/V:ON', '/C', windowsCmd], {
+      stdio:    'ignore',
+      detached: true,
+      env:      { ...process.env },
+    });
+  } else {
+    const escapedArgs  = finalArgs.map(shellEscape).join(' ');
+    const unixCmd = [
+      `_DONE=${shellEscape(doneFile)}`,
+      '_EXIT=1',
+      "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
+      `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1`,
+      '_EXIT=$?',
+    ].join('; ');
+    child = spawn('sh', ['-c', unixCmd], {
+      stdio:    'ignore',
+      detached: true,
+      env:      { ...process.env },
+    });
+  }
 
   // Decouple from server.js — child keeps running even if server restarts.
   child.unref();
@@ -2164,6 +2239,10 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
     run.stageStatuses[i].finishedAt = null;
     const staleFile = stageDonePath(dataDir, run.runId, i);
     try { fs.unlinkSync(staleFile); } catch { /* not present — fine */ }
+
+    // Invalidate any cached metrics sidecar so the parser re-runs on the new log.
+    const metricsFile = path.join(runDir(dataDir, run.runId), `stage-${i}.metrics.json`);
+    try { fs.unlinkSync(metricsFile); } catch { /* not present — fine */ }
   }
 
   run.currentStage       = resumeIndex;
