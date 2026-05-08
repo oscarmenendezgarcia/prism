@@ -30,7 +30,9 @@ const ATTACHMENT_MAX_COUNT         = 20;
 const ATTACHMENT_NAME_MAX_LEN      = 100;
 const ATTACHMENT_TEXT_MAX_BYTES    = 100 * 1024;
 const ATTACHMENT_FILE_MAX_BYTES    = 5 * 1024 * 1024;
-const VALID_ATTACHMENT_TYPES       = ['text', 'file'];
+const VALID_ATTACHMENT_TYPES       = ['text', 'file', 'link'];
+const ATTACHMENT_LINK_MAX_LEN      = 2048;
+const LINK_SCHEME_ALLOWLIST        = ['http:', 'https:'];
 
 // ---------------------------------------------------------------------------
 // Route patterns
@@ -149,6 +151,20 @@ function createApp(spaceId, store) {
         errors.push(`${prefix}.content must be an absolute path (starting with /) for file attachments`);
       } else if (type === 'file' && path.normalize(content) !== content) {
         errors.push(`${prefix}.content must not contain path traversal segments`);
+      } else if (type === 'link') {
+        if (content.length > ATTACHMENT_LINK_MAX_LEN) {
+          errors.push(`${prefix}.content must not exceed ${ATTACHMENT_LINK_MAX_LEN} characters for link attachments`);
+        } else {
+          let parsed;
+          try {
+            parsed = new URL(content);
+          } catch {
+            errors.push(`${prefix}.content must be a valid http(s) URL`);
+          }
+          if (parsed && !LINK_SCHEME_ALLOWLIST.includes(parsed.protocol)) {
+            errors.push(`${prefix}.content must be a valid http(s) URL (scheme '${parsed.protocol}' is not allowed)`);
+          }
+        }
       }
 
       const itemErrors = errors.filter((e) => e.startsWith(prefix));
@@ -234,7 +250,14 @@ function createApp(spaceId, store) {
     }
     return {
       ...task,
-      attachments: task.attachments.map(({ name, type }) => ({ name, type })),
+      attachments: task.attachments.map((att) => {
+        // Link attachments: preserve content so the frontend can extract the hostname
+        // without a second API round-trip. URLs are not sensitive.
+        if (att.type === 'link') {
+          return { name: att.name, type: att.type, content: att.content };
+        }
+        return { name: att.name, type: att.type };
+      }),
     };
   }
 
