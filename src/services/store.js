@@ -516,7 +516,7 @@ function createStore(dataDir) {
     // The content-table join ensures we only touch tasks for the given space.
     // Uses the pre-compiled stmts.searchTasks statement (compiled once at startup).
     try {
-      const rows = stmts.searchTasks.all(trimmedQuery, spaceId, limit);
+      const rows = withFtsRecovery(() => stmts.searchTasks.all(trimmedQuery, spaceId, limit));
       return rows.map(rowToTask);
     } catch (err) {
       // FTS5 MATCH throws on malformed query strings (e.g. unmatched quotes).
@@ -543,7 +543,7 @@ function createStore(dataDir) {
     const trimmedQuery = query.trim();
 
     try {
-      const rows = stmts.searchAllTasks.all(trimmedQuery, limit);
+      const rows = withFtsRecovery(() => stmts.searchAllTasks.all(trimmedQuery, limit));
       return rows.map((row) => ({
         task:    rowToTask(row),
         spaceId: row._space_id,
