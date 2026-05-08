@@ -23,8 +23,24 @@
 | PATCH | `/spaces/:spaceId/tasks/:id` | Update task fields |
 | PUT | `/spaces/:spaceId/tasks/:id/move` | Move task `{ to: "todo|in-progress|done" }` |
 | DELETE | `/spaces/:spaceId/tasks/:id` | Delete task |
-| PUT | `/spaces/:spaceId/tasks/:id/attachments` | Replace attachments |
+| PUT | `/spaces/:spaceId/tasks/:id/attachments` | Update attachments (merge by default; see below) |
 | GET | `/spaces/:spaceId/tasks/:id/attachments/:index` | Get attachment content |
+
+### PUT /tasks/:id/attachments — merge semantics
+
+Request body:
+```json
+{ "attachments": [...], "mode": "merge" }
+```
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `attachments` | `Attachment[]` | yes | — | Same schema as task creation. |
+| `mode` | `"merge" \| "replace"` | no | `"merge"` | `merge` upserts by `name` and keeps unlisted items. `replace` overwrites the entire array. |
+
+Error responses:
+- `400 VALIDATION_ERROR` — `mode` is not one of the allowed values, or `attachments` is not an array.
+- `413 ATTACHMENT_LIMIT_EXCEEDED` — the merged array would exceed `ATTACHMENT_MAX_COUNT` (20). Body includes `{ existing, incoming, merged, max }`.
 
 ### GET /tasks response shape
 

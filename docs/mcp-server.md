@@ -24,7 +24,7 @@ All tool names are prefixed `kanban_` and available as `mcp__prism__kanban_*` in
 | `kanban_list_tasks` | — | `column`, `assigned`, `limit` (def 50, max 200), `cursor`, `spaceId` | List tasks with pagination. Returns `{ todo, in-progress, done, total, nextCursor }` |
 | `kanban_get_task` | `id` | `spaceId` | Get a single task by ID |
 | `kanban_create_task` | `title`, `type` | `description`, `assigned`, `spaceId` | Create task in `todo` |
-| `kanban_update_task` | `id` | `title`, `type`, `description`, `assigned`, `attachments`, `spaceId` | Update fields and/or attachments |
+| `kanban_update_task` | `id` | `title`, `type`, `description`, `assigned`, `attachments`, `mode`, `pipeline`, `spaceId` | Update fields and/or attachments. `mode` defaults to `merge`; pass `mode:'replace'` to overwrite the entire array |
 | `kanban_move_task` | `id`, `to` | `spaceId` | Move to `todo \| in-progress \| done` |
 | `kanban_delete_task` | `id` | `spaceId` | Delete a task |
 | `kanban_clear_board` | — | `spaceId` | Delete all tasks in a space |
@@ -65,6 +65,20 @@ Attachments can be `type: "text"` (inline content) or `type: "file"` (absolute p
 
 ```json
 { "name": "ADR-1.md", "type": "file", "content": "/absolute/path/to/ADR-1.md" }
+```
+
+### Merge semantics (default behaviour)
+
+`kanban_update_task` with `attachments` uses **merge-by-name** by default:
+- Incoming items whose `name` matches an existing attachment **upsert in place** (original position preserved).
+- New names are **appended**.
+- Existing attachments not mentioned in the payload are **kept untouched**.
+
+This means pipeline stages can each call `kanban_update_task({ attachments: [...] })` independently and the card accumulates all stages' artifacts.
+
+To **clear or overwrite** the whole array, pass `mode: "replace"` explicitly:
+```json
+{ "attachments": [], "mode": "replace" }
 ```
 
 When listing tasks, attachment content is stripped — only `name` and `type` are returned. Fetch content via `GET /spaces/:spaceId/tasks/:id/attachments/:index`.

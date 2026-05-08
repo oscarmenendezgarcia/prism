@@ -268,15 +268,19 @@ export async function deleteTask(id, spaceId) {
 }
 
 /**
- * Replace the attachments array for a task.
+ * Update the attachments array for a task.
  *
  * @param {string} id
  * @param {Array} attachments
  * @param {string} [spaceId]
+ * @param {'merge'|'replace'} [mode] - Merge mode. Defaults to 'merge' (upsert by name, keep existing).
+ *   Pass 'replace' to overwrite the entire array; an empty array under 'replace' clears all attachments.
  * @returns {Promise<object>}
  */
-export async function updateAttachments(id, attachments, spaceId) {
-  return request('PUT', `${tasksBasePath(spaceId)}/${id}/attachments`, { attachments });
+export async function updateAttachments(id, attachments, spaceId, mode) {
+  const body = { attachments };
+  if (mode !== undefined) body.mode = mode;
+  return request('PUT', `${tasksBasePath(spaceId)}/${id}/attachments`, body);
 }
 
 /**

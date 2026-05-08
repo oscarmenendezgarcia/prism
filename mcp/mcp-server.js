@@ -218,7 +218,9 @@ server.tool(
 
 server.tool(
   'kanban_update_task',
-  'Update fields of an existing task (title, description, assigned, type, pipeline) and/or replace its attachments. Only provided fields are changed.',
+  'Updates fields of an existing task (title, description, assigned, type, pipeline) and/or attachments. Only provided fields are changed. ' +
+  'For attachments, `mode` defaults to `merge` (upserts incoming items by `name` and keeps the rest). ' +
+  'Pass `mode:"replace"` to overwrite the entire array; an empty array under `replace` clears all attachments.',
   {
     id:    z.string().describe('The task ID to update.'),
     title: z.string().optional().describe('New title.'),
@@ -243,10 +245,19 @@ server.tool(
         })
       )
       .optional()
-      .describe('Replace the task attachments. An empty array clears all attachments.'),
+      .describe(
+        'Replace the task attachments. An empty array clears all attachments.',
+      ),
+    mode: z
+      .enum(['merge', 'replace'])
+      .optional()
+      .describe(
+        'Attachment update mode. `merge` (default) upserts incoming attachments by `name` and keeps the rest. ' +
+        'Use `replace` to overwrite the whole array (empty array clears all).',
+      ),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, pipeline, attachments, spaceId }) => {
+  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, pipeline, attachments, mode, spaceId }) => {
     const fields = {};
     if (title       !== undefined) fields.title       = title;
     if (type        !== undefined) fields.type        = type;
@@ -262,7 +273,7 @@ server.tool(
     }
 
     if (attachments !== undefined) {
-      result = await updateAttachments(id, attachments, spaceId);
+      result = await updateAttachments(id, attachments, spaceId, mode);
     }
 
     if (result === undefined) {

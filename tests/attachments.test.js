@@ -285,9 +285,10 @@ async function runTests() {
     });
     const updateTaskId = setupTask.body.id;
 
-    await test('PUT replaces attachments and returns updated task', async () => {
+    await test('PUT with mode:replace replaces attachments and returns updated task', async () => {
       const res = await request('PUT', `/api/v1/tasks/${updateTaskId}/attachments`, {
         attachments: [{ name: 'replaced.txt', type: 'text', content: 'new content' }],
+        mode: 'replace',
       });
       assert(res.status === 200, `Expected 200, got ${res.status}`);
       assert(res.body.attachments.length === 1, 'Should have exactly 1 attachment');
@@ -295,9 +296,10 @@ async function runTests() {
       assert(!('content' in res.body.attachments[0]), 'content should be stripped');
     });
 
-    await test('PUT with empty array clears attachments field', async () => {
+    await test('PUT with mode:replace and empty array clears attachments field', async () => {
       const res = await request('PUT', `/api/v1/tasks/${updateTaskId}/attachments`, {
         attachments: [],
+        mode: 'replace',
       });
       assert(res.status === 200, `Expected 200, got ${res.status}`);
       assert(!('attachments' in res.body), 'attachments field should be absent after clearing');
@@ -333,6 +335,247 @@ async function runTests() {
       assert(res.status === 200, `Expected 200, got ${res.status}`);
       const updatedAt = new Date(res.body.updatedAt);
       assert(updatedAt >= before, 'updatedAt should be updated to current time');
+    });
+
+    // -------------------------------------------------------------------------
+    // T-004-merge: merge semantics (new tests per ADR-1 / tasks.json T-004)
+    // -------------------------------------------------------------------------
+
+    suite('T-004-merge: merge-by-name semantics');
+
+    // AC1: merge default appends a new attachment to a task that already has two.
+    const mergeBase = await request('POST', '/api/v1/tasks', {
+      title: 'Merge base task',
+      type: 'chore',
+      attachments: [
+        { name: 'ADR-1.md',     type: 'text', content: 'adr content' },
+        { name: 'blueprint.md', type: 'text', content: 'blueprint content' },
+      ],
+    });
+    const mergeTaskId = mergeBase.body.id;
+
+    await test('AC1: default merge appends new attachment — result has 3 items', async () => {
+      const res = await request('PUT', `/api/v1/tasks/${mergeTaskId}/attachments`, {
+        attachments: [{ name: 'wireframes.md', type: 'text', content: 'wf content' }],
+      });
+      assert(res.status === 200, `Expected 200, got ${res.status}`);
+      assert(res.body.attachments.length === 3, `Expected 3, got ${res.body.attachments.length}`);
+      const names = res.body.attachments.map((a) => a.name);
+      assert(names.includes('ADR-1.md'),     'ADR-1.md should be preserved');
+      assert(names.includes('blueprint.md'), 'blueprint.md should be preserved');
+      assert(names.includes('wireframes.md'),'wireframes.md should be appended');
+      // Verify persisted state
+      const get = await request('GET', `/api/v1/tasks/${mergeTaskId}/attachments/0`);
+      assert(get.status === 200, `GET 0 expected 200, got ${get.status}`);
+      assert(get.body.name === 'ADR-1.md', `Expected ADR-1.md at index 0, got ${get.body.name}`);
+    });
+
+    // AC2: merge upserts by name, preserving order and not duplicating.
+    await test('AC2: merge upserts existing name in place — array length unchanged', async () => {
+      const before = await request('GET', `/api/v1/tasks/${mergeTaskId}/attachments/1`);
+      assert(before.body.content === 'blueprint content', 'Pre-condition check');
+
+      const res = await request('PUT', `/api/v1/tasks/${mergeTaskId}/attachments`, {
+        attachments: [{ name: 'blueprint.md', type: 'text', content: 'UPDATED blueprint' }],
+      });
+      assert(res.status === 200, `Expected 200, got ${res.status}`);
+      assert(res.body.attachments.length === 3, `Length should still be 3, got ${res.body.attachments.length}`);
+
+      // Verify upserted content via GET
+      const idx = res.body.attachments.findIndex((a) => a.name === 'blueprint.md');
+      assert(idx === 1, `blueprint.md should remain at index 1, found at ${idx}`);
+      const content = await request('GET', `/api/v1/tasks/${mergeTaskId}/attachments/${idx}`);
+      assert(content.body.content === 'UPDATED blueprint', `Expected updated content, got: ${content.body.content}`);
+    });
+
+    // AC3: merge with empty attachments array is a no-op (200, task unchanged).
+    await test('AC3: merge with attachments:[] is a no-op — task unchanged', async () => {
+      const before = await request('GET', `/api/v1/tasks/${mergeTaskId}/attachments/0`);
+      const beforeCount = 3; // from previous tests
+
+      const res = await request('PUT', `/api/v1/tasks/${mergeTaskId}/attachments`, {
+        attachments: [],
+        // mode defaults to 'merge'
+      });
+      assert(res.status === 200, `Expected 200, got ${res.status}`);
+      assert(res.body.attachments.length === beforeCount,
+        `Should have ${beforeCount} attachments after no-op, got ${res.body.attachments.length}`);
+      assert(res.body.attachments[0].name === before.body.name,
+        'First attachment name should be unchanged');
+    });
+
+    // AC4 (mode:replace + [] clears all) — already covered in T-004 replace tests.
+    // Additional check: mode:replace with non-empty array replaces entirely.
+    await test('AC4b: mode:replace overwrites all existing attachments', async () => {
+      const res = await request('PUT', `/api/v1/tasks/${mergeTaskId}/attachments`, {
+        attachments: [{ name: 'only.md', type: 'text', content: 'only content' }],
+        mode: 'replace',
+      });
+      assert(res.status === 200, `Expected 200, got ${res.status}`);
+      assert(res.body.attachments.length === 1, `Expected 1, got ${res.body.attachments.length}`);
+      assert(res.body.attachments[0].name === 'only.md', 'Should contain only.md');
+    });
+
+    // AC5: post-merge cap returns 413 ATTACHMENT_LIMIT_EXCEEDED.
+    await test('AC5: post-merge exceeding ATTACHMENT_MAX_COUNT returns 413', async () => {
+      // Create task with 19 attachments.
+      const capBase = await request('POST', '/api/v1/tasks', {
+        title: 'Cap test task',
+        type: 'chore',
+        attachments: Array.from({ length: 19 }, (_, i) => ({
+          name: `existing${i}.txt`, type: 'text', content: `c${i}`,
+        })),
+      });
+      assert(capBase.status === 201, `Expected 201, got ${capBase.status}`);
+      const capTaskId = capBase.body.id;
+
+      // Merge 3 more (2 new + 1 upsert of existing0) → merged = 21, exceeds 20.
+      const res = await request('PUT', `/api/v1/tasks/${capTaskId}/attachments`, {
+        attachments: [
+          { name: 'existing0.txt', type: 'text', content: 'updated existing0' },
+          { name: 'new1.txt',      type: 'text', content: 'new1' },
+          { name: 'new2.txt',      type: 'text', content: 'new2' },
+        ],
+        // no mode → defaults to merge, merged = 21 (19 existing, 2 new, 1 upsert)
+      });
+      assert(res.status === 413, `Expected 413, got ${res.status}`);
+      assert(
+        res.body.error.code === 'ATTACHMENT_LIMIT_EXCEEDED',
+        `Expected ATTACHMENT_LIMIT_EXCEEDED, got ${res.body.error.code}`
+      );
+      // Verify task was NOT modified (GET still returns 19 items).
+      const check = await request('GET', `/api/v1/tasks/${capTaskId}`);
+      // GET /tasks/:id returns all columns, check per the direct handler
+      const checkList = await request('GET', `/api/v1/tasks`);
+      const allTasks = [
+        ...checkList.body.todo,
+        ...checkList.body['in-progress'],
+        ...checkList.body.done,
+      ];
+      const unchanged = allTasks.find((t) => t.id === capTaskId);
+      assert(unchanged !== undefined, 'Cap test task should still exist');
+      assert(unchanged.attachments.length === 19, `Expected 19 items unchanged, got ${unchanged.attachments.length}`);
+    });
+
+    // AC6: duplicate names within a single incoming payload — last-write-wins.
+    await test('AC6: duplicate names in incoming payload follow last-write-wins', async () => {
+      const dupTask = await request('POST', '/api/v1/tasks', {
+        title: 'Dup names task',
+        type: 'chore',
+      });
+      const dupId = dupTask.body.id;
+
+      const res = await request('PUT', `/api/v1/tasks/${dupId}/attachments`, {
+        attachments: [
+          { name: 'dup.txt', type: 'text', content: 'first' },
+          { name: 'other.txt', type: 'text', content: 'other' },
+          { name: 'dup.txt', type: 'text', content: 'last' },
+        ],
+      });
+      assert(res.status === 200, `Expected 200, got ${res.status}`);
+      assert(res.body.attachments.length === 2, `Expected 2 (deduped), got ${res.body.attachments.length}`);
+      const dupIdx = res.body.attachments.findIndex((a) => a.name === 'dup.txt');
+      assert(dupIdx !== -1, 'dup.txt should be present');
+      const content = await request('GET', `/api/v1/tasks/${dupId}/attachments/${dupIdx}`);
+      assert(content.body.content === 'last', `Last-write-wins: expected 'last', got '${content.body.content}'`);
+    });
+
+    // AC7: invalid mode value returns 400 VALIDATION_ERROR.
+    await test('AC7: invalid mode value returns 400 VALIDATION_ERROR', async () => {
+      const task = await request('POST', '/api/v1/tasks', { title: 'Mode test', type: 'chore' });
+      const res = await request('PUT', `/api/v1/tasks/${task.body.id}/attachments`, {
+        attachments: [],
+        mode: 'upsert',
+      });
+      assert(res.status === 400, `Expected 400, got ${res.status}`);
+      assert(res.body.error.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${res.body.error.code}`);
+    });
+
+    // -------------------------------------------------------------------------
+    // T-005: End-to-end pipeline-handoff regression test
+    // -------------------------------------------------------------------------
+
+    suite('T-005: end-to-end pipeline handoff — all stages\' artifacts preserved');
+
+    await test('simulated 5-stage handoff: all artifacts survive on the card', async () => {
+      const pipelineTask = await request('POST', '/api/v1/tasks', {
+        title: 'Pipeline regression task',
+        type: 'feature',
+      });
+      assert(pipelineTask.status === 201, `Expected 201, got ${pipelineTask.status}`);
+      const pid = pipelineTask.body.id;
+
+      // Stage 1: senior-architect
+      const s1 = await request('PUT', `/api/v1/tasks/${pid}/attachments`, {
+        attachments: [
+          { name: 'ADR-1.md',     type: 'text', content: 'adr content' },
+          { name: 'blueprint.md', type: 'text', content: 'blueprint content' },
+          { name: 'tasks.json',   type: 'text', content: '{}' },
+        ],
+      });
+      assert(s1.status === 200, `Stage 1 expected 200, got ${s1.status}`);
+
+      // Stage 2: ux-api-designer
+      const s2 = await request('PUT', `/api/v1/tasks/${pid}/attachments`, {
+        attachments: [
+          { name: 'wireframes.md',   type: 'text', content: 'wireframes content' },
+          { name: 'api-spec.json',   type: 'text', content: '{}' },
+          { name: 'user-stories.md', type: 'text', content: 'user stories' },
+        ],
+      });
+      assert(s2.status === 200, `Stage 2 expected 200, got ${s2.status}`);
+
+      // Stage 3: developer-agent
+      const s3 = await request('PUT', `/api/v1/tasks/${pid}/attachments`, {
+        attachments: [
+          { name: 'changelog', type: 'text', content: 'changelog text' },
+        ],
+      });
+      assert(s3.status === 200, `Stage 3 expected 200, got ${s3.status}`);
+
+      // Stage 3.5: code-reviewer
+      const s4 = await request('PUT', `/api/v1/tasks/${pid}/attachments`, {
+        attachments: [
+          { name: 'review-report.md', type: 'text', content: 'review content' },
+        ],
+      });
+      assert(s4.status === 200, `Stage 4 expected 200, got ${s4.status}`);
+
+      // Stage 4: qa-engineer-e2e
+      const s5 = await request('PUT', `/api/v1/tasks/${pid}/attachments`, {
+        attachments: [
+          { name: 'test-plan.md',     type: 'text', content: 'test plan' },
+          { name: 'test-results.json',type: 'text', content: '{}' },
+          { name: 'bugs.md',          type: 'text', content: 'no bugs' },
+        ],
+      });
+      assert(s5.status === 200, `Stage 5 expected 200, got ${s5.status}`);
+
+      // GET task and verify all 10 artifacts are present.
+      const all = await request('GET', '/api/v1/tasks');
+      const allTasks = [
+        ...all.body.todo,
+        ...all.body['in-progress'],
+        ...all.body.done,
+      ];
+      const final = allTasks.find((t) => t.id === pid);
+      assert(final !== undefined, 'Pipeline task should exist in board');
+      assert(final.attachments !== undefined, 'Pipeline task should have attachments');
+
+      const expected = [
+        'ADR-1.md', 'blueprint.md', 'tasks.json',
+        'wireframes.md', 'api-spec.json', 'user-stories.md',
+        'changelog', 'review-report.md',
+        'test-plan.md', 'test-results.json', 'bugs.md',
+      ];
+      const actualNames = final.attachments.map((a) => a.name);
+      for (const name of expected) {
+        assert(actualNames.includes(name), `Missing artifact: ${name}. Found: ${actualNames.join(', ')}`);
+      }
+      assert(
+        final.attachments.length >= expected.length,
+        `Expected at least ${expected.length} attachments, got ${final.attachments.length}`
+      );
     });
 
     // -------------------------------------------------------------------------
