@@ -1,0 +1,2 @@
+# Allow test fixture files with .log extension to be committed.
+!*.log

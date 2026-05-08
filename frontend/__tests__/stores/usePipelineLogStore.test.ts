@@ -114,6 +114,49 @@ describe('usePipelineLogStore — setStageError', () => {
   });
 });
 
+describe('usePipelineLogStore — appendStageEvents', () => {
+  it('appends new events to an empty slot', () => {
+    const events = [
+      { idx: 0, kind: 'session_start' as const, t: 0 },
+      { idx: 1, kind: 'assistant_text' as const, t: 1, bytes: 10, preview: 'hi' },
+    ];
+    usePipelineLogStore.getState().appendStageEvents(0, events as any);
+    expect(usePipelineLogStore.getState().stageEvents[0]).toHaveLength(2);
+    expect(usePipelineLogStore.getState().stageEvents[0][0].idx).toBe(0);
+    expect(usePipelineLogStore.getState().stageEvents[0][1].idx).toBe(1);
+  });
+
+  it('appends incremental events to an existing slot', () => {
+    const first  = [{ idx: 0, kind: 'session_start' as const, t: 0 }];
+    const second = [{ idx: 1, kind: 'assistant_text' as const, t: 1, bytes: 5, preview: 'x' }];
+    usePipelineLogStore.getState().appendStageEvents(0, first as any);
+    usePipelineLogStore.getState().appendStageEvents(0, second as any);
+    expect(usePipelineLogStore.getState().stageEvents[0]).toHaveLength(2);
+  });
+
+  it('deduplicates events with the same idx (polling race safety net)', () => {
+    const batch = [
+      { idx: 0, kind: 'session_start' as const, t: 0 },
+      { idx: 1, kind: 'assistant_text' as const, t: 1, bytes: 5, preview: 'hi' },
+    ];
+    // Simulate two concurrent since=0 fetches both completing
+    usePipelineLogStore.getState().appendStageEvents(0, batch as any);
+    usePipelineLogStore.getState().appendStageEvents(0, batch as any);
+    // Must have exactly 2 events, not 4
+    expect(usePipelineLogStore.getState().stageEvents[0]).toHaveLength(2);
+    expect(usePipelineLogStore.getState().stageEvents[0].map((e: any) => e.idx)).toEqual([0, 1]);
+  });
+
+  it('does not mix events across store slots', () => {
+    const ev0 = [{ idx: 0, kind: 'session_start' as const, t: 0 }];
+    const ev1 = [{ idx: 0, kind: 'rate_limit' as const, t: 0, status: '429' }];
+    usePipelineLogStore.getState().appendStageEvents(0, ev0 as any);
+    usePipelineLogStore.getState().appendStageEvents(1, ev1 as any);
+    expect(usePipelineLogStore.getState().stageEvents[0][0].kind).toBe('session_start');
+    expect(usePipelineLogStore.getState().stageEvents[1][0].kind).toBe('rate_limit');
+  });
+});
+
 describe('usePipelineLogStore — clearStageLogs', () => {
   it('resets stageLogs to empty object', () => {
     usePipelineLogStore.getState().setStageLog(0, 'data');

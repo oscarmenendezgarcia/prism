@@ -27,6 +27,8 @@ import type {
   TaggerResult,
   Comment,
   SearchResponse,
+  StageMetrics,
+  EventsResponse,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -552,6 +554,118 @@ export const runTagger = (spaceId: string, opts: TaggerOptions = {}): Promise<Ta
 export function searchTasks(q: string, limit = 20, signal?: AbortSignal): Promise<SearchResponse> {
   const qs = new URLSearchParams({ q, limit: String(limit) });
   return apiFetch<SearchResponse>(`/tasks/search?${qs.toString()}`, { signal });
+}
+
+// ---------------------------------------------------------------------------
+// Stage Metrics API (ADR-1: log-metrics-parser §4.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sentinel error thrown when the backend returns 425 Too Early.
+ * This means the stage has not produced a .log file yet.
+ * Callers should display a "Stage not started yet." empty state.
+ */
+export class MetricsNotAvailableError extends Error {
+  constructor() {
+    super('METRICS_NOT_AVAILABLE');
+    this.name = 'MetricsNotAvailableError';
+  }
+}
+
+/**
+ * Fetch parsed stage metrics for a specific pipeline stage.
+ *
+ * GET /api/v1/runs/:runId/stages/:stageIndex/metrics
+ *
+ * @param runId       Pipeline run ID.
+ * @param stageIndex  Zero-based stage index.
+ * @returns Parsed StageMetrics object.
+ * @throws {MetricsNotAvailableError} When the stage has no .log yet (425 Too Early).
+ * @throws {Error} On any other HTTP error.
+ */
+export async function getStageMetrics(runId: string, stageIndex: number): Promise<StageMetrics> {
+  const url = `${API_BASE}/runs/${encodeURIComponent(runId)}/stages/${stageIndex}/metrics`;
+  const res = await fetch(url);
+
+  if (res.ok) {
+    return res.json() as Promise<StageMetrics>;
+  }
+
+  let code: string | undefined;
+  try {
+    const body = await res.json() as { error?: { code?: string } };
+    code = body?.error?.code;
+  } catch {
+    // Non-JSON body — fall through to generic error.
+  }
+
+  // 425 Too Early = no .log file yet for this stage.
+  if (res.status === 425) {
+    throw new MetricsNotAvailableError();
+  }
+
+  throw new Error(
+    code
+      ? `[StageMetrics] fetch error stage=${stageIndex} code=${code} status=${res.status}`
+      : `[StageMetrics] fetch error stage=${stageIndex} status=${res.status}`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Stage Events API (structured log view, blueprint §2.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sentinel error thrown when the backend returns 425 Too Early.
+ * This means the stage has not produced a .log file yet.
+ */
+export class EventsNotAvailableError extends Error {
+  constructor() {
+    super('EVENTS_NOT_AVAILABLE');
+    this.name = 'EventsNotAvailableError';
+  }
+}
+
+/**
+ * Fetch structured events for a specific pipeline stage.
+ *
+ * GET /api/v1/runs/:runId/stages/:stageIndex/events?since=<idx>
+ *
+ * @param runId       Pipeline run ID.
+ * @param stageIndex  Zero-based stage index.
+ * @param since       Return events with idx >= since (default 0).
+ * @throws {EventsNotAvailableError} When the stage has no .log yet (425 Too Early).
+ * @throws {Error} On any other HTTP error.
+ */
+export async function getStageEvents(
+  runId: string,
+  stageIndex: number,
+  since = 0,
+): Promise<EventsResponse> {
+  const url = `${API_BASE}/runs/${encodeURIComponent(runId)}/stages/${stageIndex}/events?since=${since}`;
+  const res = await fetch(url);
+
+  if (res.ok) {
+    return res.json() as Promise<EventsResponse>;
+  }
+
+  let code: string | undefined;
+  try {
+    const body = await res.json() as { error?: { code?: string } };
+    code = body?.error?.code;
+  } catch {
+    // Non-JSON body — fall through to generic error.
+  }
+
+  if (res.status === 425) {
+    throw new EventsNotAvailableError();
+  }
+
+  throw new Error(
+    code
+      ? `[StageEvents] fetch error stage=${stageIndex} code=${code} status=${res.status}`
+      : `[StageEvents] fetch error stage=${stageIndex} status=${res.status}`,
+  );
 }
 
 // ---------------------------------------------------------------------------
