@@ -379,10 +379,20 @@ async function runUnitTests() {
   // Isolate unit tests from stale PIPELINE_RUNS_DIR / PIPELINE_AGENTS_DIR that
   // may have been set by a prior startTestServer() call or inherited from the shell.
   // Unit tests provide an explicit dataDir (tmpPath) so the env override must be absent.
+  //
+  // PIPELINE_NO_SPAWN must also be set to '1' here.  unblockRunByComment() schedules
+  // setImmediate(() => executeNextStage(...)) which calls resolveAgent().  When
+  // PIPELINE_AGENTS_DIR is unset, resolveAgent falls back to ~/.claude/agents/ — and
+  // if developer-agent.md (or any other agent) exists there it will spawn a REAL claude
+  // process with the test-fixture IDs (e.g. sp-unblock / task-unblock-1), causing
+  // runaway agent invocations.  PIPELINE_NO_SPAWN=1 short-circuits spawnStage() before
+  // any process is launched while still letting the block/unblock state machine run.
   const _savedRunsDir   = process.env.PIPELINE_RUNS_DIR;
   const _savedAgentsDir = process.env.PIPELINE_AGENTS_DIR;
+  const _savedNoSpawn   = process.env.PIPELINE_NO_SPAWN;
   delete process.env.PIPELINE_RUNS_DIR;
   delete process.env.PIPELINE_AGENTS_DIR;
+  process.env.PIPELINE_NO_SPAWN = '1';
 
   suite('Unit: findActiveRunByTaskId');
 
@@ -543,9 +553,11 @@ async function runUnitTests() {
     pm.unblockRunByComment(tmpPath, taskId, 'q-resolved');
     // Read immediately — writeRun() inside unblockRunByComment is synchronous and
     // runs before the setImmediate(executeNextStage) fires.  Reading here captures
-    // the 'running' state before executeNextStage can change it (executeNextStage
-    // will fail in this unit-test context since there are no real agent files, but
-    // that is orthogonal to what unblockRunByComment is responsible for).
+    // the 'running' state before executeNextStage can change it.
+    // NOTE: PIPELINE_NO_SPAWN=1 is set for all unit tests so executeNextStage
+    // short-circuits in mock mode — no real claude process is spawned.  Without
+    // this guard, resolveAgent would fall back to ~/.claude/agents/ and could
+    // launch a real agent with the test-fixture IDs (e.g. sp-unblock, task-unblock-1).
     const persisted = JSON.parse(require('fs').readFileSync(runJsonPath, 'utf8'));
     assert(persisted.status === 'running', `Expected running, got ${persisted.status}`);
     assert(persisted.blockedReason == null, 'blockedReason should be cleared');
@@ -724,6 +736,8 @@ async function runUnitTests() {
   else process.env.PIPELINE_RUNS_DIR   = _savedRunsDir;
   if (_savedAgentsDir === undefined) delete process.env.PIPELINE_AGENTS_DIR;
   else process.env.PIPELINE_AGENTS_DIR = _savedAgentsDir;
+  if (_savedNoSpawn   === undefined) delete process.env.PIPELINE_NO_SPAWN;
+  else process.env.PIPELINE_NO_SPAWN   = _savedNoSpawn;
 }
 
 // ---------------------------------------------------------------------------
