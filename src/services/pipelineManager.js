@@ -579,10 +579,13 @@ function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, time
         const logStat = fs.statSync(logPath);
         if (logStat.size > 0) {
           const tailSize = Math.min(logStat.size, 2048);
-          const buf      = Buffer.allocUnsafe(tailSize);
-          const fd       = fs.openSync(logPath, 'r');
-          fs.readSync(fd, buf, 0, tailSize, logStat.size - tailSize);
-          fs.closeSync(fd);
+          const buf = Buffer.allocUnsafe(tailSize);
+          const fd  = fs.openSync(logPath, 'r');
+          try {
+            fs.readSync(fd, buf, 0, tailSize, logStat.size - tailSize);
+          } finally {
+            fs.closeSync(fd);
+          }
           const match = buf.toString('utf8').match(/"terminal_reason":"([^"]+)"/);
           if (match) {
             fs.writeFileSync(doneFile, match[1] === 'completed' ? '0' : '1', 'utf8');
@@ -1231,19 +1234,19 @@ async function spawnStage(dataDir, run, stageIndex) {
     ? agentSpec.spawnArgs
     : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
-  // Build the shell command that runs claude, captures its exit code, performs
-  // cleanup, and writes the done-sentinel. Two platform variants:
+  // Build the shell command that runs claude, captures its exit code, and
+  // writes the done-sentinel. Two platform variants:
   //
   // Unix (sh): an EXIT trap guarantees the sentinel is written even if the
-  //   wrapper receives SIGTERM during the playwright-cleanup phase (Bug 1).
+  //   wrapper receives SIGTERM while claude is shutting down (Bug 1).
   //   The trap is idempotent — skips the write if the polling loop already
   //   wrote it via the completed-but-hanging detection (Bug 2).
   //   NOTE: do NOT use `exec claude` — exec replaces sh, so the trap would
   //   never fire and the sentinel would never be written.
   //
   // Windows (cmd.exe): no trap is available; the sentinel is written before
-  //   playwright cleanup so a forced kill (taskkill /F) is less likely to
-  //   lose it. The polling-loop detection (Bug 2) covers the hanging case.
+  //   exit so a forced termination is less likely to lose it.
+  //   The polling-loop detection (Bug 2) covers the hanging case.
   let child;
   if (process.platform === 'win32') {
     const escapedArgs  = finalArgs.map(cmdEscape).join(' ');
@@ -1251,7 +1254,6 @@ async function spawnStage(dataDir, run, stageIndex) {
       `${cmdEscape(CLAUDE_BIN)} ${escapedArgs} < ${cmdEscape(promptFilePath)} >> ${cmdEscape(logPath)} 2>&1`,
       `set _EXIT=%ERRORLEVEL%`,
       `if not exist ${cmdEscape(doneFile)} echo %_EXIT% > ${cmdEscape(doneFile)}`,
-      `taskkill /F /FI "IMAGENAME eq ms-playwright*" 2>NUL`,
       `exit /B 0`,
     ].join(' & ');
     child = spawn('cmd.exe', ['/C', windowsCmd], {
@@ -1267,7 +1269,6 @@ async function spawnStage(dataDir, run, stageIndex) {
       "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
       `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1`,
       '_EXIT=$?',
-      `pkill -f 'ms-playwright' 2>/dev/null; true`,
     ].join('; ');
     child = spawn('sh', ['-c', unixCmd], {
       stdio:    'ignore',
