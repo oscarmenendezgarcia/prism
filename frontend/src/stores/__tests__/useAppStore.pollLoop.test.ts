@@ -16,7 +16,7 @@ vi.mock('@/api/client', () => ({
   getBackendRun: vi.fn(),
   resumeRun: vi.fn(),
   deleteRun: vi.fn().mockResolvedValue(undefined),
-  getTasks: vi.fn().mockResolvedValue([]),
+  getTasks: vi.fn().mockResolvedValue({ todo: [], 'in-progress': [], done: [] }),
   getSpaces: vi.fn().mockResolvedValue([]),
   getSystemInfo: vi.fn().mockResolvedValue({ platform: 'linux', version: '0.0.0' }),
   generatePrompt: vi.fn(),
@@ -92,7 +92,7 @@ beforeEach(() => {
   vi.mocked(api.resumeRun).mockResolvedValue(backendRun('running'));
   vi.mocked(api.getBackendRun).mockResolvedValue(backendRun('running', 0));
   vi.mocked(api.deleteRun).mockResolvedValue(undefined);
-  vi.mocked(api.getTasks).mockResolvedValue([]);
+  vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
 
   // Ensure doc is visible by default.
   setVisibilityState('visible');
