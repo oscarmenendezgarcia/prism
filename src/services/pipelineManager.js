@@ -1250,13 +1250,15 @@ async function spawnStage(dataDir, run, stageIndex) {
   let child;
   if (process.platform === 'win32') {
     const escapedArgs  = finalArgs.map(cmdEscape).join(' ');
+    // /V:ON enables delayed variable expansion so !ERRORLEVEL! is evaluated
+    // after claude exits, not at parse time (the %VAR% behaviour).
     const windowsCmd = [
       `${cmdEscape(CLAUDE_BIN)} ${escapedArgs} < ${cmdEscape(promptFilePath)} >> ${cmdEscape(logPath)} 2>&1`,
-      `set _EXIT=%ERRORLEVEL%`,
-      `if not exist ${cmdEscape(doneFile)} echo %_EXIT% > ${cmdEscape(doneFile)}`,
+      `set _EXIT=!ERRORLEVEL!`,
+      `if not exist ${cmdEscape(doneFile)} echo !_EXIT! > ${cmdEscape(doneFile)}`,
       `exit /B 0`,
     ].join(' & ');
-    child = spawn('cmd.exe', ['/C', windowsCmd], {
+    child = spawn('cmd.exe', ['/V:ON', '/C', windowsCmd], {
       stdio:    'ignore',
       detached: true,
       env:      { ...process.env },
