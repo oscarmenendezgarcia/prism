@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { PipelineStage } from '@/types';
 
 // ── API mock must be hoisted before the store import ─────────────────────────
 vi.mock('@/api/client', () => ({
@@ -26,7 +27,6 @@ vi.mock('@/api/client', () => ({
   moveTask: vi.fn().mockResolvedValue({}),
   createTask: vi.fn().mockResolvedValue({}),
   deleteTask: vi.fn().mockResolvedValue(undefined),
-  deleteRun: vi.fn().mockResolvedValue(undefined),
   getRunStagePrompt: vi.fn().mockResolvedValue({ prompt: '' }),
 }));
 
@@ -40,7 +40,7 @@ const interruptedState = () => ({
   runId: 'run-abc',
   spaceId: 'space-1',
   taskId:  'task-1',
-  stages:  ['developer-agent', 'qa-engineer-e2e'],
+  stages:  ['developer-agent', 'qa-engineer-e2e'] as PipelineStage[],
   currentStageIndex: 1,
   status:  'interrupted' as const,
   startedAt: new Date().toISOString(),
