@@ -595,12 +595,71 @@ function createApp(spaceId, store) {
       return sendError(res, 400, 'VALIDATION_ERROR', 'attachments field is required and must be an array');
     }
 
-    // Validate the optional `mode` field (default: 'merge').
-    const VALID_MODES = ['merge', 'replace'];
-    const mode = body.mode !== undefined ? body.mode : 'merge';
-    if (!VALID_MODES.includes(mode)) {
-      return sendError(res, 400, 'VALIDATION_ERROR',
-        `mode must be one of: ${VALID_MODES.join(', ')}`);
+    const attachmentResult = validateAttachments(body.attachments);
+    if (!attachmentResult.valid) {
+      return sendError(res, 400, 'VALIDATION_ERROR', attachmentResult.errors.join('; '));
+    }
+
+    const t0 = Date.now();
+
+    try {
+      const existingTask = store.getTask(spaceId, taskId);
+      if (!existingTask) {
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+      }
+
+      const incomingCount      = attachmentResult.data.length;
+      const existingAttachments = existingTask.attachments || [];
+      const existingCount      = existingAttachments.length;
+
+      // PUT always replaces: payload becomes the new array; empty array clears all.
+      const finalAttachments = attachmentResult.data;
+      const mergedCount      = finalAttachments.length;
+
+      // Cap validation.
+      if (mergedCount > ATTACHMENT_MAX_COUNT) {
+        return sendError(res, 413, 'ATTACHMENT_LIMIT_EXCEEDED',
+          `Attachment count (${mergedCount}) exceeds the limit of ${ATTACHMENT_MAX_COUNT}. ` +
+          JSON.stringify({ existing: existingCount, incoming: incomingCount, merged: mergedCount, max: ATTACHMENT_MAX_COUNT }));
+      }
+
+      const patch = {
+        attachments: finalAttachments.length > 0 ? finalAttachments : undefined,
+        updatedAt:   new Date().toISOString(),
+      };
+
+      const updatedTask = store.updateTask(spaceId, taskId, patch);
+
+      const durationMs = Date.now() - t0;
+      process.stderr.write(JSON.stringify({
+        event: 'attachments.replace', spaceId, taskId,
+        existing: existingCount, incoming: incomingCount, final: mergedCount, durationMs,
+      }) + '\n');
+
+      sendJSON(res, 200, stripAttachmentContent(updatedTask));
+    } catch (err) {
+      console.error(`PUT tasks/${taskId}/attachments error:`, err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to update attachments');
+    }
+  }
+
+  async function handlePatchAttachments(req, res, taskId) {
+    let body;
+    try {
+      body = await parseBody(req);
+    } catch (err) {
+      if (err.message === 'PAYLOAD_TOO_LARGE') {
+        return sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds 512 KB limit');
+      }
+      return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+    }
+
+    if (!body || typeof body !== 'object') {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
+    }
+
+    if (!Array.isArray(body.attachments)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'attachments field is required and must be an array');
     }
 
     const attachmentResult = validateAttachments(body.attachments);
@@ -616,58 +675,49 @@ function createApp(spaceId, store) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
 
-      const incomingCount  = attachmentResult.data.length;
+      const incomingCount      = attachmentResult.data.length;
       const existingAttachments = existingTask.attachments || [];
-      const existingCount  = existingAttachments.length;
+      const existingCount      = existingAttachments.length;
 
-      let finalAttachments;
-
-      if (mode === 'replace') {
-        // Legacy behaviour: payload becomes the new array; empty clears all.
-        finalAttachments = attachmentResult.data;
-      } else {
-        // mode === 'merge' (default)
-        // No-op: merge with empty incoming returns existing unchanged.
-        if (incomingCount === 0) {
-          const durationMs = Date.now() - t0;
-          process.stderr.write(JSON.stringify({
-            event: 'attachments.update', spaceId, taskId,
-            mode, existing: existingCount, incoming: 0, merged: existingCount, durationMs,
-          }) + '\n');
-          return sendJSON(res, 200, stripAttachmentContent(existingTask));
-        }
-
-        // Merge algorithm: upsert by name, preserve existing order, append new names.
-        // Last-write-wins for duplicate names within the incoming array.
-        const incomingByName = new Map();
-        for (const a of attachmentResult.data) {
-          incomingByName.set(a.name, a);
-        }
-
-        const merged = [];
-        const seen   = new Set();
-
-        for (const a of existingAttachments) {
-          if (incomingByName.has(a.name)) {
-            merged.push(incomingByName.get(a.name));
-          } else {
-            merged.push(a);
-          }
-          seen.add(a.name);
-        }
-
-        // Append new names using the deduplicated map (last-write-wins preserved).
-        for (const [name, a] of incomingByName) {
-          if (!seen.has(name)) {
-            merged.push(a);
-            seen.add(name);
-          }
-        }
-
-        finalAttachments = merged;
+      // PATCH always merges: no-op when incoming is empty.
+      if (incomingCount === 0) {
+        const durationMs = Date.now() - t0;
+        process.stderr.write(JSON.stringify({
+          event: 'attachments.merge', spaceId, taskId,
+          existing: existingCount, incoming: 0, merged: existingCount, durationMs,
+        }) + '\n');
+        return sendJSON(res, 200, stripAttachmentContent(existingTask));
       }
 
-      const mergedCount = finalAttachments.length;
+      // Merge algorithm: upsert by name, preserve existing order, append new names.
+      // Last-write-wins for duplicate names within the incoming array.
+      const incomingByName = new Map();
+      for (const a of attachmentResult.data) {
+        incomingByName.set(a.name, a);
+      }
+
+      const merged = [];
+      const seen   = new Set();
+
+      for (const a of existingAttachments) {
+        if (incomingByName.has(a.name)) {
+          merged.push(incomingByName.get(a.name));
+        } else {
+          merged.push(a);
+        }
+        seen.add(a.name);
+      }
+
+      // Append new names using the deduplicated map (last-write-wins preserved).
+      for (const [name, a] of incomingByName) {
+        if (!seen.has(name)) {
+          merged.push(a);
+          seen.add(name);
+        }
+      }
+
+      const finalAttachments = merged;
+      const mergedCount      = finalAttachments.length;
 
       // Post-merge cap: validate against ATTACHMENT_MAX_COUNT.
       if (mergedCount > ATTACHMENT_MAX_COUNT) {
@@ -685,14 +735,14 @@ function createApp(spaceId, store) {
 
       const durationMs = Date.now() - t0;
       process.stderr.write(JSON.stringify({
-        event: 'attachments.update', spaceId, taskId,
-        mode, existing: existingCount, incoming: incomingCount, merged: mergedCount, durationMs,
+        event: 'attachments.merge', spaceId, taskId,
+        existing: existingCount, incoming: incomingCount, merged: mergedCount, durationMs,
       }) + '\n');
 
       sendJSON(res, 200, stripAttachmentContent(updatedTask));
     } catch (err) {
-      console.error(`PUT tasks/${taskId}/attachments error:`, err);
-      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to update attachments');
+      console.error(`PATCH tasks/${taskId}/attachments error:`, err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to merge attachments');
     }
   }
 
@@ -843,6 +893,9 @@ function createApp(spaceId, store) {
     const attachmentsMatch = TASK_ATTACHMENTS_ROUTE.exec(taskPath);
     if (method === 'PUT' && attachmentsMatch) {
       return handleUpdateAttachments(req, res, attachmentsMatch[1]);
+    }
+    if (method === 'PATCH' && attachmentsMatch) {
+      return handlePatchAttachments(req, res, attachmentsMatch[1]);
     }
 
     const moveMatch = TASK_MOVE_ROUTE.exec(taskPath);
