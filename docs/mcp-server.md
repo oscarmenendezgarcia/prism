@@ -102,17 +102,21 @@ kanban_update_task({
 
 ### Merge semantics (default behaviour)
 
-`kanban_update_task` with `attachments` uses **merge-by-name** by default:
+`kanban_update_task` with `attachments` uses **merge-by-name** by default (HTTP `PATCH`):
 - Incoming items whose `name` matches an existing attachment **upsert in place** (original position preserved).
 - New names are **appended**.
 - Existing attachments not mentioned in the payload are **kept untouched**.
 
 This means pipeline stages can each call `kanban_update_task({ attachments: [...] })` independently and the card accumulates all stages' artifacts.
 
-To **clear or overwrite** the whole array, pass `mode: "replace"` explicitly:
-```json
-{ "attachments": [], "mode": "replace" }
+To **clear or overwrite** the whole array, pass `mode: "replace"` explicitly (uses HTTP `PUT`):
+```js
+kanban_update_task({ id, spaceId, attachments: [], mode: "replace" })
 ```
+
+This maps to distinct HTTP verbs at the REST layer:
+- `PATCH /tasks/:id/attachments` — merge (default)
+- `PUT /tasks/:id/attachments` — replace entirely
 
 When listing tasks, `text` and `file` attachment content is stripped — only `name` and `type` are returned. `link` content (URL) is preserved. Fetch full content for any type via `GET /spaces/:spaceId/tasks/:id/attachments/:index`.
 

@@ -23,24 +23,48 @@
 | PATCH | `/spaces/:spaceId/tasks/:id` | Update task fields |
 | PUT | `/spaces/:spaceId/tasks/:id/move` | Move task `{ to: "todo|in-progress|done" }` |
 | DELETE | `/spaces/:spaceId/tasks/:id` | Delete task |
-| PUT | `/spaces/:spaceId/tasks/:id/attachments` | Update attachments (merge by default; see below) |
+| PUT | `/spaces/:spaceId/tasks/:id/attachments` | Replace attachments array entirely (empty array clears all) |
+| PATCH | `/spaces/:spaceId/tasks/:id/attachments` | Merge attachments by name (upsert in place, keep unlisted) |
 | GET | `/spaces/:spaceId/tasks/:id/attachments/:index` | Get attachment content |
 
-### PUT /tasks/:id/attachments — merge semantics
+### PUT /tasks/:id/attachments — replace semantics
+
+Overwrites the entire attachments array. An empty array clears all attachments.
 
 Request body:
 ```json
-{ "attachments": [...], "mode": "merge" }
+{ "attachments": [...] }
 ```
 
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `attachments` | `Attachment[]` | yes | — | Same schema as task creation. |
-| `mode` | `"merge" \| "replace"` | no | `"merge"` | `merge` upserts by `name` and keeps unlisted items. `replace` overwrites the entire array. |
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `attachments` | `Attachment[]` | yes | Same schema as task creation. Replaces all existing attachments. |
 
 Error responses:
-- `400 VALIDATION_ERROR` — `mode` is not one of the allowed values, or `attachments` is not an array.
-- `413 ATTACHMENT_LIMIT_EXCEEDED` — the merged array would exceed `ATTACHMENT_MAX_COUNT` (20). Body includes `{ existing, incoming, merged, max }`.
+- `400 VALIDATION_ERROR` — `attachments` is missing or not a valid array.
+- `413 ATTACHMENT_LIMIT_EXCEEDED` — the incoming count exceeds `ATTACHMENT_MAX_COUNT` (20).
+
+### PATCH /tasks/:id/attachments — merge semantics
+
+Merges incoming attachments by name into the existing array. Keeps unlisted items unchanged.
+
+Request body:
+```json
+{ "attachments": [...] }
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `attachments` | `Attachment[]` | yes | Upserts by `name` (preserves order, appends new names). Empty array is a no-op. |
+
+Merge algorithm:
+- Existing items whose `name` matches an incoming item are updated in place (original position preserved).
+- New names are appended in the order they appear (last-write-wins for duplicates within the payload).
+- Items not mentioned in the payload are kept unchanged.
+
+Error responses:
+- `400 VALIDATION_ERROR` — `attachments` is missing or not a valid array.
+- `413 ATTACHMENT_LIMIT_EXCEEDED` — the merged count would exceed `ATTACHMENT_MAX_COUNT` (20). Body includes `{ existing, incoming, merged, max }`.
 
 ### GET /tasks response shape
 
