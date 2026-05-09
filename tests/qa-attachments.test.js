@@ -363,11 +363,11 @@ async function runTests() {
     // QA-TC-012 to QA-TC-013: PUT /attachments edge cases
     // -------------------------------------------------------------------------
 
-    suite('QA-TC-012: PUT /attachments — adding attachments to a task that had none');
+    suite('QA-TC-012: PATCH /attachments — adding attachments to a task that had none');
 
-    await test('task created without attachments can have attachments added via PUT', async () => {
+    await test('task created without attachments can have attachments added via PATCH', async () => {
       const createRes = await request('POST', '/api/v1/tasks', {
-        title: 'QA PUT add attachments',
+        title: 'QA PATCH add attachments',
         type: 'chore',
       });
       assert(createRes.status === 201, `Expected 201, got ${createRes.status}`);
@@ -375,17 +375,17 @@ async function runTests() {
 
       const taskId = createRes.body.id;
 
-      const putRes = await request('PUT', `/api/v1/tasks/${taskId}/attachments`, {
+      const putRes = await request('PATCH', `/api/v1/tasks/${taskId}/attachments`, {
         attachments: [{ name: 'added.txt', type: 'text', content: 'added later' }],
       });
       assert(putRes.status === 200, `Expected 200, got ${putRes.status}`);
-      assert(putRes.body.attachments.length === 1, 'Should have 1 attachment after PUT');
+      assert(putRes.body.attachments.length === 1, 'Should have 1 attachment after PATCH');
       assert(putRes.body.attachments[0].name === 'added.txt', 'Attachment name should match');
     });
 
     suite('QA-TC-013: PUT /attachments — replaces multiple with fewer');
 
-    await test('PUT with fewer attachments removes previous extras', async () => {
+    await test('PUT with fewer attachments replaces all previous', async () => {
       const createRes = await request('POST', '/api/v1/tasks', {
         title: 'QA PUT reduce',
         type: 'chore',
@@ -400,7 +400,6 @@ async function runTests() {
       const taskId = createRes.body.id;
 
       const putRes = await request('PUT', `/api/v1/tasks/${taskId}/attachments`, {
-        mode: 'replace',
         attachments: [{ name: 'only-one.txt', type: 'text', content: 'sole survivor' }],
       });
       assert(putRes.status === 200, `Expected 200, got ${putRes.status}`);
@@ -493,28 +492,28 @@ async function runTests() {
     // QA-TC-018: PUT /attachments on task in different columns
     // -------------------------------------------------------------------------
 
-    suite('QA-TC-018: PUT /attachments — works on tasks in any column');
+    suite('QA-TC-018: PATCH /attachments — works on tasks in any column');
 
-    await test('PUT attachments works on task in in-progress column', async () => {
+    await test('PATCH attachments works on task in in-progress column', async () => {
       const createRes = await request('POST', '/api/v1/tasks', { title: 'QA in-progress att', type: 'chore' });
       const taskId = createRes.body.id;
 
       await request('PUT', `/api/v1/tasks/${taskId}/move`, { to: 'in-progress' });
 
-      const putRes = await request('PUT', `/api/v1/tasks/${taskId}/attachments`, {
+      const putRes = await request('PATCH', `/api/v1/tasks/${taskId}/attachments`, {
         attachments: [{ name: 'in-progress.txt', type: 'text', content: 'ip content' }],
       });
       assert(putRes.status === 200, `Expected 200, got ${putRes.status}`);
       assert(putRes.body.attachments[0].name === 'in-progress.txt', 'Attachment set on in-progress task');
     });
 
-    await test('PUT attachments works on task in done column', async () => {
+    await test('PATCH attachments works on task in done column', async () => {
       const createRes = await request('POST', '/api/v1/tasks', { title: 'QA done att', type: 'chore' });
       const taskId = createRes.body.id;
 
       await request('PUT', `/api/v1/tasks/${taskId}/move`, { to: 'done' });
 
-      const putRes = await request('PUT', `/api/v1/tasks/${taskId}/attachments`, {
+      const putRes = await request('PATCH', `/api/v1/tasks/${taskId}/attachments`, {
         attachments: [{ name: 'done.txt', type: 'text', content: 'done content' }],
       });
       assert(putRes.status === 200, `Expected 200, got ${putRes.status}`);
