@@ -869,8 +869,8 @@ async function runTests() {
       assert(base.status === 201, `Expected 201, got ${base.status}`);
       const tid = base.body.id;
 
-      // Update: upsert same name with new URL
-      const updated = await request('PUT', `/api/v1/tasks/${tid}/attachments`, {
+      // PATCH: upsert same name with new URL
+      const updated = await request('PATCH', `/api/v1/tasks/${tid}/attachments`, {
         attachments: [{ name: 'PR #82', type: 'link', content: 'https://github.com/owner/repo/pull/99' }],
       });
       assert(updated.status === 200, `Expected 200, got ${updated.status}`);
@@ -889,7 +889,7 @@ async function runTests() {
       });
       const tid = base.body.id;
 
-      const updated = await request('PUT', `/api/v1/tasks/${tid}/attachments`, {
+      const updated = await request('PATCH', `/api/v1/tasks/${tid}/attachments`, {
         attachments: [{ name: 'CI Build', type: 'link', content: 'https://circleci.com/build/42' }],
       });
       assert(updated.status === 200, `Expected 200, got ${updated.status}`);
