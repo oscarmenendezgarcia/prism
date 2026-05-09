@@ -46,3 +46,10 @@ cd frontend && npm run dev   # → http://localhost:5173
 - **Build output:** `dist/` (served by backend in production)
 - **Frontend tests:** `cd frontend && npm test` (Vitest + React Testing Library)
 - **Backend tests:** `npm test` (Node.js `node:test` runner)
+
+## Agent Pipeline Rules
+
+> ⚠️ **CRITICAL — Never run test commands as background tasks (`run_in_background: true`).**
+> Session compaction kills background processes mid-run; the pipeline stage stalls with no output and no error.
+> Always run `npm test`, `npm run test:report`, and `node --test` **synchronously (foreground)**.
+> For long-running test suites, use `npm run test:report` which emits a compact summary instead of raw TAP output.
