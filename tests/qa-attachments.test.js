@@ -400,6 +400,7 @@ async function runTests() {
       const taskId = createRes.body.id;
 
       const putRes = await request('PUT', `/api/v1/tasks/${taskId}/attachments`, {
+        mode: 'replace',
         attachments: [{ name: 'only-one.txt', type: 'text', content: 'sole survivor' }],
       });
       assert(putRes.status === 200, `Expected 200, got ${putRes.status}`);
