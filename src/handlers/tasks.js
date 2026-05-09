@@ -724,6 +724,14 @@ function createApp(spaceId, store) {
         });
       }
 
+      if (attachment.type === 'link') {
+        return sendJSON(res, 200, {
+          name:    attachment.name,
+          type:    attachment.type,
+          content: attachment.content,
+        });
+      }
+
       if (attachment.content.includes('..')) {
         return sendError(res, 403, 'FORBIDDEN', 'Invalid file path');
       }
