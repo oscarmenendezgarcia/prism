@@ -184,7 +184,9 @@ function runUpdate(flags) {
   const { subcommand, flags } = parseArgv(process.argv);
 
   // Apply env var equivalent for --no-update-check
-  if (process.env.PRISM_NO_UPDATE_CHECK) {
+  // Treat "0" and "" as falsy (common CI conventions)
+  const _noCheckEnv = process.env.PRISM_NO_UPDATE_CHECK;
+  if (_noCheckEnv !== undefined && _noCheckEnv !== '' && _noCheckEnv !== '0') {
     flags.noUpdateCheck = true;
   }
 

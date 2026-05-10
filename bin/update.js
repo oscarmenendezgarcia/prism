@@ -15,7 +15,7 @@ const path      = require('path');
 const readline  = require('readline');
 const { spawnSync } = require('child_process');
 
-const { fetchLatestVersion } = require(path.join(__dirname, 'update-check.js'));
+const { fetchLatestVersion, isNewer } = require(path.join(__dirname, 'update-check.js'));
 const { version: installedVersion } = require(path.join(__dirname, '..', 'package.json'));
 
 // ---------------------------------------------------------------------------
@@ -75,8 +75,8 @@ async function run(flags = {}) {
     return exitFn(1);
   }
 
-  // 2. Already up to date?
-  if (latestVersion === installedVersion) {
+  // 2. Already up to date (or installed is ahead of npm — dev builds)
+  if (!isNewer(installedVersion, latestVersion)) {
     process.stdout.write(`prism is already on the latest version (v${installedVersion})\n`);
     return exitFn(0);
   }
