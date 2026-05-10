@@ -93,9 +93,10 @@ const NPM_REGISTRY_URL = 'https://registry.npmjs.org/prism-kanban/latest';
  * @returns {Promise<string>} resolved semver string
  */
 async function fetchLatestVersion(timeoutMs = 2500, fetchFn = globalThis.fetch) {
-  const timeoutPromise = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('timeout')), timeoutMs)
-  );
+  const timeoutPromise = new Promise((_, reject) => {
+    const t = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+    if (typeof t.unref === 'function') t.unref();
+  });
 
   const fetchPromise = fetchFn(NPM_REGISTRY_URL, {
     headers: { Accept: 'application/json' },
