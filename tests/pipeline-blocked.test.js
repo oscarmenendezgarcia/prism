@@ -1770,5 +1770,8 @@ run()
       for (const f of failures) console.error(`  - ${f.name}: ${f.error}`);
       process.exit(1);
     }
+    // Force exit: loadFreshPm() leaves unref'd intervals that keep the process
+    // alive in Node 20 worker threads under node:test.
+    process.exit(0);
   })
   .catch((err) => { console.error(err); process.exit(1); });
