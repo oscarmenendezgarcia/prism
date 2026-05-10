@@ -5,8 +5,9 @@
  * bin/cli.js — prism CLI entry point
  *
  * Subcommands:
- *   prism start  [--port <n>]      [--data-dir <path>] [--silent]
- *   prism init   [--data-dir <path>] [--force]
+ *   prism start   [--port <n>] [--data-dir <path>] [--silent]
+ *   prism init    [--data-dir <path>] [--force]
+ *   prism update  [--no-update-check]
  *   prism --version
  *   prism --help
  *
@@ -29,16 +30,22 @@ prism — local-first kanban + agent pipeline runner
 Usage:
   prism start   [--port <n>] [--data-dir <path>] [--silent]
   prism init    [--data-dir <path>] [--force]
+  prism update
   prism --version
   prism --help
 
 Options shared across subcommands:
-  --data-dir <path>   Override the data directory (env: DATA_DIR)
-  --silent            Suppress informational output
-  --force             (init only) Overwrite existing settings.json
+  --data-dir <path>     Override the data directory (env: DATA_DIR)
+  --silent              Suppress informational output
+  --force               (init only) Overwrite existing settings.json
+  --no-update-check     Skip the startup version check (env: PRISM_NO_UPDATE_CHECK)
 
 prism start options:
-  --port <n>          Port to listen on (default 3000, env: PORT)
+  --port <n>            Port to listen on (default 3000, env: PORT)
+
+prism update:
+  Fetches the latest version from npm and installs it globally.
+  Prompts for confirmation (auto-confirms in non-TTY/CI environments).
 `.trim();
 
 // ---------------------------------------------------------------------------
@@ -67,6 +74,8 @@ function parseArgv(argv) {
       flags.help = true;
     } else if (arg === '--silent') {
       flags.silent = true;
+    } else if (arg === '--no-update-check') {
+      flags.noUpdateCheck = true;
     } else if (arg === '--force') {
       flags.force = true;
     } else if (arg.startsWith('--port=')) {
@@ -163,12 +172,21 @@ function runInit(flags) {
   require(path.join(__dirname, 'init.js')).run(flags);
 }
 
+function runUpdate(flags) {
+  require(path.join(__dirname, 'update.js')).run(flags);
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
 (function main() {
   const { subcommand, flags } = parseArgv(process.argv);
+
+  // Apply env var equivalent for --no-update-check
+  if (process.env.PRISM_NO_UPDATE_CHECK) {
+    flags.noUpdateCheck = true;
+  }
 
   if (flags.version) {
     process.stdout.write(`${version}\n`);
@@ -180,6 +198,10 @@ function runInit(flags) {
     process.exit(0);
   }
 
+  // Fire-and-forget version check — must not block the main command
+  const { scheduleUpdateCheck } = require(path.join(__dirname, 'update-check.js'));
+  scheduleUpdateCheck(flags);
+
   switch (subcommand) {
     case 'start':
       runStart(flags);
@@ -187,6 +209,10 @@ function runInit(flags) {
 
     case 'init':
       runInit(flags);
+      break;
+
+    case 'update':
+      runUpdate(flags);
       break;
 
     case null:
