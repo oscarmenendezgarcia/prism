@@ -144,7 +144,7 @@ function isNewer(installed, latest) {
  */
 function printUpdateNotice(installed, latest) {
   process.stderr.write(
-    `\n✦ Nueva versión disponible: v${installed} → v${latest}. Ejecuta: prism update\n`
+    `\n✦ Update available: v${installed} → v${latest}. Run: prism update\n`
   );
 }
 

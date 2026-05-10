@@ -337,7 +337,7 @@ describe('scheduleUpdateCheck', () => {
       const stderr = await captureStderr(() =>
         runCheck({}, mockFetch('99.9.9'))
       );
-      assert.ok(stderr.includes('Nueva versión disponible'), `expected notice, got: ${stderr}`);
+      assert.ok(stderr.includes('Update available'), `expected notice, got: ${stderr}`);
       assert.ok(stderr.includes('99.9.9'), `expected version 99.9.9 in notice, got: ${stderr}`);
       assert.ok(stderr.includes('prism update'), `expected 'prism update' in notice, got: ${stderr}`);
     } finally {
@@ -408,7 +408,7 @@ describe('scheduleUpdateCheck', () => {
         runCheck({}, () => { fetchCalled = true; return mockFetch('99.9.9')(); })
       );
       assert.equal(fetchCalled, false, 'fetch should be skipped when cache is valid');
-      assert.ok(stderr.includes('Nueva versión disponible'));
+      assert.ok(stderr.includes('Update available'));
     } finally {
       delete process.env.PRISM_UPDATE_CACHE;
     }
@@ -466,7 +466,7 @@ describe('printUpdateNotice', () => {
     }
     const output = chunks.join('');
     assert.ok(
-      output.includes('✦ Nueva versión disponible: v0.6.0 → v0.7.0. Ejecuta: prism update'),
+      output.includes('✦ Update available: v0.6.0 → v0.7.0. Run: prism update'),
       `unexpected format: ${output}`
     );
   });

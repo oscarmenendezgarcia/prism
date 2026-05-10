@@ -94,7 +94,7 @@ describe('bin/update.js — run()', () => {
     );
     assert.equal(exitCode, 0, `expected exit 0, got ${exitCode}`);
     assert.ok(
-      stdout.includes('ya está en la última versión'),
+      stdout.includes('already on the latest version'),
       `expected up-to-date message, got: ${stdout}`
     );
     assert.ok(stdout.includes(installedVersion), `expected version in message, got: ${stdout}`);
@@ -164,7 +164,7 @@ describe('bin/update.js — run()', () => {
   // -------------------------------------------------------------------------
   // Update available — user declines (TTY)
   // -------------------------------------------------------------------------
-  it('prints "Cancelado." and exits 0 when user declines with "n"', async () => {
+  it('prints "Cancelled." and exits 0 when user declines with "n"', async () => {
     const spawnCalls = [];
     let exitCode;
 
@@ -179,11 +179,11 @@ describe('bin/update.js — run()', () => {
     );
 
     assert.equal(spawnCalls.length, 0, 'spawnSync should NOT be called when user declines');
-    assert.ok(stdout.includes('Cancelado.'), `expected "Cancelado.", got: ${stdout}`);
+    assert.ok(stdout.includes('Cancelled.'), `expected "Cancelled.", got: ${stdout}`);
     assert.equal(exitCode, 0);
   });
 
-  it('prints "Cancelado." and exits 0 when user just presses Enter (default N)', async () => {
+  it('prints "Cancelled." and exits 0 when user just presses Enter (default N)', async () => {
     const spawnCalls = [];
     let exitCode;
 
@@ -198,7 +198,7 @@ describe('bin/update.js — run()', () => {
     );
 
     assert.equal(spawnCalls.length, 0);
-    assert.ok(stdout.includes('Cancelado.'));
+    assert.ok(stdout.includes('Cancelled.'));
     assert.equal(exitCode, 0);
   });
 
@@ -225,7 +225,7 @@ describe('bin/update.js — run()', () => {
   // -------------------------------------------------------------------------
   // Success message
   // -------------------------------------------------------------------------
-  it('prints "✓ Actualizado a vX.Y.Z" on successful npm install', async () => {
+  it('prints "✓ Updated to vX.Y.Z" on successful npm install', async () => {
     let exitCode;
     const { stdout } = await captureOutput(() =>
       run({
@@ -236,7 +236,7 @@ describe('bin/update.js — run()', () => {
       })
     );
 
-    assert.ok(stdout.includes('✓ Actualizado a v99.9.9'), `expected success message, got: ${stdout}`);
+    assert.ok(stdout.includes('✓ Updated to v99.9.9'), `expected success message, got: ${stdout}`);
     assert.equal(exitCode, 0);
   });
 
@@ -255,7 +255,7 @@ describe('bin/update.js — run()', () => {
     );
 
     assert.equal(exitCode, 1, `expected exit 1, got ${exitCode}`);
-    assert.ok(stderr.includes('npm install falló'), `expected npm error message, got: ${stderr}`);
+    assert.ok(stderr.includes('npm install failed'), `expected npm error message, got: ${stderr}`);
     assert.ok(stderr.includes('1'), `expected exit code 1 in message, got: ${stderr}`);
   });
 
@@ -290,7 +290,7 @@ describe('bin/update.js — run()', () => {
 
     assert.equal(exitCode, 1, `expected exit 1, got ${exitCode}`);
     assert.ok(
-      stderr.includes('no se pudo obtener la versión'),
+      stderr.includes('could not fetch version from npm'),
       `expected network error message, got: ${stderr}`
     );
   });
@@ -318,5 +318,6 @@ describe('bin/update.js — run()', () => {
     );
     assert.ok(stdout.includes('v99.9.9'), `expected latest version in prompt, got: ${stdout}`);
     assert.ok(stdout.includes('[y/N]'), `expected [y/N] in prompt, got: ${stdout}`);
+    assert.ok(stdout.includes('Update prism-kanban'), `expected 'Update prism-kanban' in prompt, got: ${stdout}`);
   });
 });
