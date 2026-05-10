@@ -578,7 +578,7 @@ function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, time
       try {
         const logStat = fs.statSync(logPath);
         if (logStat.size > 0) {
-          const tailSize = Math.min(logStat.size, 2048);
+          const tailSize = Math.min(logStat.size, 16384);
           const buf = Buffer.allocUnsafe(tailSize);
           const fd  = fs.openSync(logPath, 'r');
           try {
