@@ -30,7 +30,9 @@ const ATTACHMENT_MAX_COUNT         = 20;
 const ATTACHMENT_NAME_MAX_LEN      = 100;
 const ATTACHMENT_TEXT_MAX_BYTES    = 100 * 1024;
 const ATTACHMENT_FILE_MAX_BYTES    = 5 * 1024 * 1024;
-const VALID_ATTACHMENT_TYPES       = ['text', 'file'];
+const VALID_ATTACHMENT_TYPES       = ['text', 'file', 'link'];
+const ATTACHMENT_LINK_MAX_LEN      = 2048;
+const LINK_SCHEME_ALLOWLIST        = ['http:', 'https:'];
 
 // ---------------------------------------------------------------------------
 // Route patterns
@@ -149,6 +151,20 @@ function createApp(spaceId, store) {
         errors.push(`${prefix}.content must be an absolute path (starting with /) for file attachments`);
       } else if (type === 'file' && path.normalize(content) !== content) {
         errors.push(`${prefix}.content must not contain path traversal segments`);
+      } else if (type === 'link') {
+        if (content.length > ATTACHMENT_LINK_MAX_LEN) {
+          errors.push(`${prefix}.content must not exceed ${ATTACHMENT_LINK_MAX_LEN} characters for link attachments`);
+        } else {
+          let parsed;
+          try {
+            parsed = new URL(content);
+          } catch {
+            errors.push(`${prefix}.content must be a valid http(s) URL`);
+          }
+          if (parsed && !LINK_SCHEME_ALLOWLIST.includes(parsed.protocol)) {
+            errors.push(`${prefix}.content must be a valid http(s) URL (scheme '${parsed.protocol}' is not allowed)`);
+          }
+        }
       }
 
       const itemErrors = errors.filter((e) => e.startsWith(prefix));
@@ -234,7 +250,14 @@ function createApp(spaceId, store) {
     }
     return {
       ...task,
-      attachments: task.attachments.map(({ name, type }) => ({ name, type })),
+      attachments: task.attachments.map((att) => {
+        // Link attachments: preserve content so the frontend can extract the hostname
+        // without a second API round-trip. URLs are not sensitive.
+        if (att.type === 'link') {
+          return { name: att.name, type: att.type, content: att.content };
+        }
+        return { name: att.name, type: att.type };
+      }),
     };
   }
 
@@ -553,48 +576,127 @@ function createApp(spaceId, store) {
     }
   }
 
-  async function handleUpdateAttachments(req, res, taskId) {
+  async function parseAttachmentsBody(req, res) {
     let body;
     try {
       body = await parseBody(req);
     } catch (err) {
       if (err.message === 'PAYLOAD_TOO_LARGE') {
-        return sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds 512 KB limit');
+        sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds 512 KB limit');
+      } else {
+        sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
       }
-      return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+      return null;
     }
-
     if (!body || typeof body !== 'object') {
-      return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
+      sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
+      return null;
     }
-
     if (!Array.isArray(body.attachments)) {
-      return sendError(res, 400, 'VALIDATION_ERROR', 'attachments field is required and must be an array');
+      sendError(res, 400, 'VALIDATION_ERROR', 'attachments field is required and must be an array');
+      return null;
     }
+    const result = validateAttachments(body.attachments);
+    if (!result.valid) {
+      sendError(res, 400, 'VALIDATION_ERROR', result.errors.join('; '));
+      return null;
+    }
+    return result.data;
+  }
 
-    const attachmentResult = validateAttachments(body.attachments);
-    if (!attachmentResult.valid) {
-      return sendError(res, 400, 'VALIDATION_ERROR', attachmentResult.errors.join('; '));
-    }
+  async function handleUpdateAttachments(req, res, taskId) {
+    const incoming = await parseAttachmentsBody(req, res);
+    if (incoming === null) return;
+
+    const t0 = Date.now();
 
     try {
-      const existing = store.getTask(spaceId, taskId);
-      if (!existing) {
+      const existingTask = store.getTask(spaceId, taskId);
+      if (!existingTask) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
 
-      const patch = {
-        attachments: attachmentResult.data.length > 0 ? attachmentResult.data : undefined,
+      if (incoming.length > ATTACHMENT_MAX_COUNT) {
+        const existingCount = (existingTask.attachments || []).length;
+        return sendError(res, 413, 'ATTACHMENT_LIMIT_EXCEEDED',
+          `Attachment count (${incoming.length}) exceeds the limit of ${ATTACHMENT_MAX_COUNT}. ` +
+          JSON.stringify({ existing: existingCount, incoming: incoming.length, merged: incoming.length, max: ATTACHMENT_MAX_COUNT }));
+      }
+
+      const updatedTask = store.updateTask(spaceId, taskId, {
+        attachments: incoming.length > 0 ? incoming : undefined,
         updatedAt:   new Date().toISOString(),
-      };
+      });
 
-      const updatedTask = store.updateTask(spaceId, taskId, patch);
+      process.stderr.write(JSON.stringify({
+        event: 'attachments.replace', spaceId, taskId,
+        existing: (existingTask.attachments || []).length, incoming: incoming.length, final: incoming.length, durationMs: Date.now() - t0,
+      }) + '\n');
 
-      console.log(`[attachment] Updated ${attachmentResult.data.length} attachments for task ${taskId}`);
       sendJSON(res, 200, stripAttachmentContent(updatedTask));
     } catch (err) {
       console.error(`PUT tasks/${taskId}/attachments error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to update attachments');
+    }
+  }
+
+  async function handlePatchAttachments(req, res, taskId) {
+    const incoming = await parseAttachmentsBody(req, res);
+    if (incoming === null) return;
+
+    const t0 = Date.now();
+
+    try {
+      const existingTask = store.getTask(spaceId, taskId);
+      if (!existingTask) {
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+      }
+
+      const existingAttachments = existingTask.attachments || [];
+      const existingCount       = existingAttachments.length;
+
+      if (incoming.length === 0) {
+        process.stderr.write(JSON.stringify({
+          event: 'attachments.merge', spaceId, taskId,
+          existing: existingCount, incoming: 0, merged: existingCount, durationMs: Date.now() - t0,
+        }) + '\n');
+        return sendJSON(res, 200, stripAttachmentContent(existingTask));
+      }
+
+      const incomingByName = new Map();
+      for (const a of incoming) incomingByName.set(a.name, a);
+
+      const merged = [];
+      const seen   = new Set();
+
+      for (const a of existingAttachments) {
+        merged.push(incomingByName.has(a.name) ? incomingByName.get(a.name) : a);
+        seen.add(a.name);
+      }
+      for (const [name, a] of incomingByName) {
+        if (!seen.has(name)) merged.push(a);
+      }
+
+      if (merged.length > ATTACHMENT_MAX_COUNT) {
+        return sendError(res, 413, 'ATTACHMENT_LIMIT_EXCEEDED',
+          `Merged attachment count (${merged.length}) exceeds the limit of ${ATTACHMENT_MAX_COUNT}. ` +
+          JSON.stringify({ existing: existingCount, incoming: incoming.length, merged: merged.length, max: ATTACHMENT_MAX_COUNT }));
+      }
+
+      const updatedTask = store.updateTask(spaceId, taskId, {
+        attachments: merged.length > 0 ? merged : undefined,
+        updatedAt:   new Date().toISOString(),
+      });
+
+      process.stderr.write(JSON.stringify({
+        event: 'attachments.merge', spaceId, taskId,
+        existing: existingCount, incoming: incoming.length, merged: merged.length, durationMs: Date.now() - t0,
+      }) + '\n');
+
+      sendJSON(res, 200, stripAttachmentContent(updatedTask));
+    } catch (err) {
+      console.error(`PATCH tasks/${taskId}/attachments error:`, err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to merge attachments');
     }
   }
 
@@ -619,6 +721,14 @@ function createApp(spaceId, store) {
       console.log(`[attachment] Serving content for task ${taskId} attachment ${idx}`);
 
       if (attachment.type === 'text') {
+        return sendJSON(res, 200, {
+          name:    attachment.name,
+          type:    attachment.type,
+          content: attachment.content,
+        });
+      }
+
+      if (attachment.type === 'link') {
         return sendJSON(res, 200, {
           name:    attachment.name,
           type:    attachment.type,
@@ -737,6 +847,9 @@ function createApp(spaceId, store) {
     const attachmentsMatch = TASK_ATTACHMENTS_ROUTE.exec(taskPath);
     if (method === 'PUT' && attachmentsMatch) {
       return handleUpdateAttachments(req, res, attachmentsMatch[1]);
+    }
+    if (method === 'PATCH' && attachmentsMatch) {
+      return handlePatchAttachments(req, res, attachmentsMatch[1]);
     }
 
     const moveMatch = TASK_MOVE_ROUTE.exec(taskPath);

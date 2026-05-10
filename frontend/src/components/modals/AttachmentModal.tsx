@@ -80,7 +80,8 @@ export function AttachmentModal() {
   if (!isOpen) return null;
 
   const isFileType = viewState.kind === 'content' && viewState.data.type === 'file';
-  const headerIcon = isFileType ? 'folder' : 'attach_file';
+  const isLinkType = viewState.kind === 'content' && viewState.data.type === 'link';
+  const headerIcon = isFileType ? 'folder' : isLinkType ? 'link' : 'attach_file';
 
   return (
     <Modal open={isOpen} onClose={closeModal} labelId={TITLE_ID} className="max-w-2xl">
@@ -116,7 +117,29 @@ export function AttachmentModal() {
         )}
 
         {/* ── Content state (Stitch S-03 text / S-04 file) ── */}
-        {viewState.kind === 'content' && (
+        {viewState.kind === 'content' && isLinkType && (
+          <div className="flex flex-col gap-4 py-4">
+            <p className="text-sm text-text-secondary break-all font-mono">{viewState.data.content}</p>
+            <div className="flex items-center justify-between gap-3 pt-2 border-t border-border">
+              <div />
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" onClick={closeModal}>Close</Button>
+                <a
+                  href={viewState.data.content}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary text-on-primary text-sm font-medium hover:bg-primary/90 transition-colors focus:outline-hidden focus:ring-2 focus:ring-primary"
+                >
+                  <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">open_in_new</span>
+                  Open in new tab
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Content state (Stitch S-03 text / S-04 file) ── */}
+        {viewState.kind === 'content' && !isLinkType && (
           <div className="flex flex-col gap-3">
             {/* Markdown files: render with MarkdownViewer; plain files: raw pre */}
             {isMarkdownFile(modal?.name ?? '') ? (

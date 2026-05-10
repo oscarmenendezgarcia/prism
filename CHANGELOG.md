@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased] — attachments-merge
+
+### Changed
+- `PUT /api/v1/spaces/:spaceId/tasks/:id/attachments` (and `kanban_update_task` MCP tool): default
+  attachment-update semantics changed from **replace** to **merge-by-name**. Incoming items are
+  upserted in place; unlisted existing attachments are retained. Pass `mode: "replace"` to restore
+  the previous replace behaviour (including empty array to clear all attachments).
+- `mcp/kanban-client.js` `updateAttachments`: accepts new optional `mode` parameter forwarded to the
+  REST endpoint.
+- `mcp/mcp-server.js` `kanban_update_task`: exposes optional `mode` parameter; description updated
+  to document the new default.
+- `docs/endpoints.md` and `docs/mcp-server.md`: document the new `mode` field, merge semantics,
+  and `ATTACHMENT_LIMIT_EXCEEDED` error response.
+
 ## [Unreleased] — sqlite-migration
 
 Replaces JSON file persistence with a single SQLite database (`data/prism.db`).

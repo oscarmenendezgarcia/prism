@@ -17,16 +17,18 @@ export interface Space {
   updatedAt: string;
 }
 
-/** Attachment metadata (content stripped in list responses). */
+/** Attachment metadata (content stripped in list responses, except for type='link'). */
 export interface Attachment {
   name: string;
-  type: 'text' | 'file';
+  type: 'text' | 'file' | 'link';
+  /** Only present when type === 'link' (URL preserved for hostname extraction). */
+  content?: string;
 }
 
 /** Full attachment content (only returned by the single-attachment endpoint). */
 export interface AttachmentContent {
   name: string;
-  type: 'text' | 'file';
+  type: 'text' | 'file' | 'link';
   content: string;
   /** Only present when type === 'file' */
   source?: string;

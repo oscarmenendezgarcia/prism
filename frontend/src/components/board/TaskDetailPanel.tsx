@@ -766,29 +766,61 @@ export function TaskDetailPanel(): React.ReactElement | null {
           <ul className="flex flex-col gap-1" aria-label="Task attachments">
             {detailTask.attachments.map((att, index) => (
               <li key={index}>
-                <button
-                  type="button"
-                  data-testid="attachment-row"
-                  onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
-                  aria-label={`Open attachment ${att.name}`}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
-                >
-                  <span
-                    className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0"
-                    aria-hidden="true"
+                {att.type === 'link' ? (
+                  <a
+                    href={att.content}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid="attachment-row"
+                    aria-label={`Open link ${att.name} in new tab`}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
                   >
-                    {att.type === 'file' ? 'folder' : 'attach_file'}
-                  </span>
-                  <span className="flex-1 truncate font-mono text-xs text-text-primary">
-                    {att.name}
-                  </span>
-                  <span
-                    className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0"
-                    aria-hidden="true"
+                    <span
+                      className="material-symbols-outlined text-[18px] leading-none text-primary flex-shrink-0"
+                      aria-hidden="true"
+                    >
+                      link
+                    </span>
+                    <span className="flex-1 truncate font-mono text-xs text-text-primary">
+                      {att.name}
+                    </span>
+                    <span className="truncate text-xs text-text-secondary flex-shrink-0 max-w-[120px]">
+                      {(() => {
+                        try { return new URL(att.content ?? '').hostname; } catch { return att.content; }
+                      })()}
+                    </span>
+                    <span
+                      className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0"
+                      aria-hidden="true"
+                    >
+                      open_in_new
+                    </span>
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="attachment-row"
+                    onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
+                    aria-label={`Open attachment ${att.name}`}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
                   >
-                    open_in_new
-                  </span>
-                </button>
+                    <span
+                      className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0"
+                      aria-hidden="true"
+                    >
+                      {att.type === 'file' ? 'folder' : 'attach_file'}
+                    </span>
+                    <span className="flex-1 truncate font-mono text-xs text-text-primary">
+                      {att.name}
+                    </span>
+                    <span
+                      className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0"
+                      aria-hidden="true"
+                    >
+                      open_in_new
+                    </span>
+                  </button>
+                )}
               </li>
             ))}
           </ul>
@@ -834,19 +866,41 @@ export function TaskDetailPanel(): React.ReactElement | null {
     <ul className="flex flex-col gap-2" aria-label="Task attachments">
       {detailTask.attachments.map((att, index) => (
         <li key={index}>
-          <button
-            type="button"
-            data-testid="attachment-row"
-            onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
-            aria-label={`Open attachment ${att.name}`}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
-          >
-            <span className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0" aria-hidden="true">
-              {att.type === 'file' ? 'folder' : 'attach_file'}
-            </span>
-            <span className="flex-1 truncate font-mono text-xs text-text-primary">{att.name}</span>
-            <span className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0" aria-hidden="true">open_in_new</span>
-          </button>
+          {att.type === 'link' ? (
+            <a
+              href={att.content}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="attachment-row"
+              aria-label={`Open link ${att.name} in new tab`}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+            >
+              <span className="material-symbols-outlined text-[18px] leading-none text-primary flex-shrink-0" aria-hidden="true">
+                link
+              </span>
+              <span className="flex-1 truncate font-mono text-xs text-text-primary">{att.name}</span>
+              <span className="truncate text-xs text-text-secondary flex-shrink-0 max-w-[120px]">
+                {(() => {
+                  try { return new URL(att.content ?? '').hostname; } catch { return att.content; }
+                })()}
+              </span>
+              <span className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0" aria-hidden="true">open_in_new</span>
+            </a>
+          ) : (
+            <button
+              type="button"
+              data-testid="attachment-row"
+              onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
+              aria-label={`Open attachment ${att.name}`}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+            >
+              <span className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0" aria-hidden="true">
+                {att.type === 'file' ? 'folder' : 'attach_file'}
+              </span>
+              <span className="flex-1 truncate font-mono text-xs text-text-primary">{att.name}</span>
+              <span className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0" aria-hidden="true">open_in_new</span>
+            </button>
+          )}
         </li>
       ))}
     </ul>
