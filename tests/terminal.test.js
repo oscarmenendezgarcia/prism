@@ -88,10 +88,24 @@ async function startTestServer() {
  * @param {http.Server} server
  * @returns {Promise<void>}
  */
-function stopServer(server) {
-  return new Promise((resolve, reject) => {
+function stopServer(server, wss) {
+  const closeHttp = (resolve, reject) => {
     if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
     server.close((err) => (err ? reject(err) : resolve()));
+  };
+  return new Promise((resolve, reject) => {
+    if (wss) {
+      // noServer-mode wss.close() does NOT forcefully terminate clients — it only sets
+      // _shouldEmitClose and waits for them to close naturally. If the server-side
+      // 'close' event races with the client-side close, the callback can hang forever.
+      // Terminate all clients explicitly first so the callback fires immediately.
+      for (const client of wss.clients) {
+        client.terminate();
+      }
+      wss.close(() => closeHttp(resolve, reject));
+    } else {
+      closeHttp(resolve, reject);
+    }
   });
 }
 
