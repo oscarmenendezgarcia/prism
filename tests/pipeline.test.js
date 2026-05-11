@@ -793,6 +793,7 @@ describe('REST integration — pipeline endpoints', () => {
       await pm.abortAll(dataDir);
     } catch { /* best-effort */ }
     if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+    try { if (server._store) server._store.close(); } catch { /* ignore */ }
     // Timeout fallback: if lingering connections prevent server.close() from resolving,
     // continue after 300 ms so subsequent test suites are not blocked.
     await new Promise((resolve) => {
@@ -1579,9 +1580,10 @@ describe('Loop injection — stage-N.inject signal', () => {
     const { spaceId, taskId } = createSpaceWithTask(dataDir, `space-loop-${crypto.randomUUID()}`);
 
     // Keep env vars set throughout the entire pipeline run (not just createRun).
-    process.env.PIPELINE_NO_SPAWN   = '1';
-    process.env.PIPELINE_AGENTS_DIR = agentsDir;
-    process.env.PIPELINE_RUNS_DIR   = path.join(dataDir, 'runs');
+    process.env.PIPELINE_NO_SPAWN        = '1';
+    process.env.PIPELINE_AGENTS_DIR      = agentsDir;
+    process.env.PIPELINE_RUNS_DIR        = path.join(dataDir, 'runs');
+    process.env.PIPELINE_POLL_INTERVAL_MS = '50';
     delete require.cache[require.resolve('../src/services/pipelineManager')];
     const pm = require('../src/services/pipelineManager');
 
@@ -1597,12 +1599,13 @@ describe('Loop injection — stage-N.inject signal', () => {
     const injectFile = pm.stageInjectPath(dataDir, run.runId, 1);
     fs.writeFileSync(injectFile, JSON.stringify(['agent-a', 'agent-b']), 'utf8');
 
-    // Wait long enough for: poll0 (2s) + spawnStage1 + poll1 (2s) + handleStageClose1.
-    await new Promise((r) => setTimeout(r, 5500));
+    // Wait long enough for: poll0 + spawnStage1 + poll1 + handleStageClose1 (50ms poll).
+    await new Promise((r) => setTimeout(r, 500));
 
     delete process.env.PIPELINE_NO_SPAWN;
     delete process.env.PIPELINE_AGENTS_DIR;
     delete process.env.PIPELINE_RUNS_DIR;
+    delete process.env.PIPELINE_POLL_INTERVAL_MS;
 
     const after = JSON.parse(fs.readFileSync(path.join(pm.runDir(dataDir, run.runId), 'run.json'), 'utf8'));
     assert.ok(after.stages.length >= 5, `Expected ≥5 stages after injection, got ${after.stages.length}`);
@@ -1658,6 +1661,7 @@ describe('REST integration — checkpoints', () => {
       await pm.abortAll(dataDir);
     } catch { /* best-effort */ }
     if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+    try { if (server._store) server._store.close(); } catch { /* ignore */ }
     await new Promise((resolve) => {
       const timer = setTimeout(resolve, 300);
       server.close(() => { clearTimeout(timer); resolve(); });

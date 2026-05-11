@@ -610,7 +610,7 @@ function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, time
       activeProcesses.delete(runId);
       await killStage(dataDir, runId, stageIndex, 'stall');
     }
-  }, 2000);
+  }, Number(process.env.PIPELINE_POLL_INTERVAL_MS) || 2000);
 
   // Unref so this interval does not prevent the Node event loop from exiting
   // cleanly during test teardown (server.close resolves even when a poll tick
@@ -1893,7 +1893,7 @@ function startResolverPolling(dataDir, runId, comment, doneFile, startedAt, time
 
       handleResolverClose(dataDir, runId, comment, 1, startedAt, 'timeout');
     }
-  }, 2000);
+  }, Number(process.env.PIPELINE_POLL_INTERVAL_MS) || 2000);
 
   interval.unref();
   return interval;
