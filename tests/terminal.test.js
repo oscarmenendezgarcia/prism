@@ -96,8 +96,13 @@ function stopServer(server, wss) {
   };
   return new Promise((resolve, reject) => {
     if (wss) {
-      // Wait for wss to fully close (fires WebSocket 'close' events → cleanupSession → pty.kill)
-      // before closing the HTTP server, so PTY processes receive SIGTERM while the promise waits.
+      // noServer-mode wss.close() does NOT forcefully terminate clients — it only sets
+      // _shouldEmitClose and waits for them to close naturally. If the server-side
+      // 'close' event races with the client-side close, the callback can hang forever.
+      // Terminate all clients explicitly first so the callback fires immediately.
+      for (const client of wss.clients) {
+        client.terminate();
+      }
       wss.close(() => closeHttp(resolve, reject));
     } else {
       closeHttp(resolve, reject);
