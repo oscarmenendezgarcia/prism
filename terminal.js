@@ -560,6 +560,9 @@ function cleanupSession(session) {
     } catch {
       // Already exited — no action needed.
     }
+    // Unref the PTY master socket so it doesn't prevent the Node.js event loop
+    // from exiting while waiting for the child process to finish reaping.
+    try { if (session.pty._socket) session.pty._socket.unref(); } catch { /* ignore */ }
     session.pty = null;
   }
 

@@ -90,10 +90,18 @@ async function startTestServer() {
  * @returns {Promise<void>}
  */
 function stopServer(server, wss) {
-  return new Promise((resolve, reject) => {
-    if (wss) wss.close(() => {});
+  const closeHttp = (resolve, reject) => {
     if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
     server.close((err) => (err ? reject(err) : resolve()));
+  };
+  return new Promise((resolve, reject) => {
+    if (wss) {
+      // Wait for wss to fully close (fires WebSocket 'close' events → cleanupSession → pty.kill)
+      // before closing the HTTP server, so PTY processes receive SIGTERM while the promise waits.
+      wss.close(() => closeHttp(resolve, reject));
+    } else {
+      closeHttp(resolve, reject);
+    }
   });
 }
 
