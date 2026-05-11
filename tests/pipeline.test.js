@@ -793,6 +793,7 @@ describe('REST integration — pipeline endpoints', () => {
       await pm.abortAll(dataDir);
     } catch { /* best-effort */ }
     if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+    try { if (server._store) server._store.close(); } catch { /* ignore */ }
     // Timeout fallback: if lingering connections prevent server.close() from resolving,
     // continue after 300 ms so subsequent test suites are not blocked.
     await new Promise((resolve) => {
@@ -1658,6 +1659,7 @@ describe('REST integration — checkpoints', () => {
       await pm.abortAll(dataDir);
     } catch { /* best-effort */ }
     if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+    try { if (server._store) server._store.close(); } catch { /* ignore */ }
     await new Promise((resolve) => {
       const timer = setTimeout(resolve, 300);
       server.close(() => { clearTimeout(timer); resolve(); });
