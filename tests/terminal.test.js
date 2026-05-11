@@ -681,47 +681,51 @@ describe('PTY exit and auto-respawn', async () => {
     const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
-    await waitFor(conn, (m) => m.type === 'ready');
-    // Wait for initial prompt output to settle before sending exit.
-    await sleep(300);
-    conn.buffered.splice(0);
+    try {
+      await waitFor(conn, (m) => m.type === 'ready');
+      // Wait for initial prompt output to settle before sending exit.
+      await sleep(300);
+      conn.buffered.splice(0);
 
-    // Send `exit` command — works reliably across bash, zsh, and sh.
-    conn.ws.send(JSON.stringify({ type: 'input', data: 'exit\r' }));
+      // Send `exit` command — works reliably across bash, zsh, and sh.
+      conn.ws.send(JSON.stringify({ type: 'input', data: 'exit\r' }));
 
-    // Wait for exit message.
-    const exitMsg = await waitFor(conn, (m) => m.type === 'exit', 10000);
-    assert.ok(exitMsg, 'Must receive exit message when shell exits');
+      // Wait for exit message.
+      const exitMsg = await waitFor(conn, (m) => m.type === 'exit', 10000);
+      assert.ok(exitMsg, 'Must receive exit message when shell exits');
 
-    // Then wait for auto-respawn ready message.
-    const newReady = await waitFor(conn, (m) => m.type === 'ready', 10000);
-    assert.ok(newReady, 'Must receive new ready message after auto-respawn');
-    assert.ok(typeof newReady.timestamp === 'string', 'ready timestamp must be string');
-
-    await closeWs(conn.ws);
-    await stopServer(server, wss);
+      // Then wait for auto-respawn ready message.
+      const newReady = await waitFor(conn, (m) => m.type === 'ready', 10000);
+      assert.ok(newReady, 'Must receive new ready message after auto-respawn');
+      assert.ok(typeof newReady.timestamp === 'string', 'ready timestamp must be string');
+    } finally {
+      await closeWs(conn.ws);
+      await stopServer(server, wss);
+    }
   });
 
   test('WebSocket remains open after shell exit and respawn', async () => {
     const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
-    await waitFor(conn, (m) => m.type === 'ready');
-    await sleep(300);
-    conn.buffered.splice(0);
+    try {
+      await waitFor(conn, (m) => m.type === 'ready');
+      await sleep(300);
+      conn.buffered.splice(0);
 
-    // Send `exit` command — works reliably across bash, zsh, and sh.
-    conn.ws.send(JSON.stringify({ type: 'input', data: 'exit\r' }));
+      // Send `exit` command — works reliably across bash, zsh, and sh.
+      conn.ws.send(JSON.stringify({ type: 'input', data: 'exit\r' }));
 
-    // Wait for respawn ready.
-    await waitFor(conn, (m) => m.type === 'exit',  10000);
-    await waitFor(conn, (m) => m.type === 'ready', 10000);
+      // Wait for respawn ready.
+      await waitFor(conn, (m) => m.type === 'exit',  10000);
+      await waitFor(conn, (m) => m.type === 'ready', 10000);
 
-    // Connection must still be open.
-    assert.equal(conn.ws.readyState, WebSocket.OPEN, 'WebSocket must remain open after auto-respawn');
-
-    await closeWs(conn.ws);
-    await stopServer(server, wss);
+      // Connection must still be open.
+      assert.equal(conn.ws.readyState, WebSocket.OPEN, 'WebSocket must remain open after auto-respawn');
+    } finally {
+      await closeWs(conn.ws);
+      await stopServer(server, wss);
+    }
   });
 });
 
