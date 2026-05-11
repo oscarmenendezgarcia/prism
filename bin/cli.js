@@ -190,6 +190,11 @@ function runUpdate(flags) {
     flags.noUpdateCheck = true;
   }
 
+  // Suppress update check in CI environments (GitHub Actions, etc.)
+  if (process.env.CI) {
+    flags.noUpdateCheck = true;
+  }
+
   if (flags.version) {
     process.stdout.write(`${version}\n`);
     process.exit(0);
