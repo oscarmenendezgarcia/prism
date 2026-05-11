@@ -93,13 +93,20 @@ const NPM_REGISTRY_URL = 'https://registry.npmjs.org/prism-kanban/latest';
  * @returns {Promise<string>} resolved semver string
  */
 async function fetchLatestVersion(timeoutMs = 2500, fetchFn = globalThis.fetch) {
+  const controller = new AbortController();
+  let timer;
+
   const timeoutPromise = new Promise((_, reject) => {
-    const t = setTimeout(() => reject(new Error('timeout')), timeoutMs);
-    if (typeof t.unref === 'function') t.unref();
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error('timeout'));
+    }, timeoutMs);
+    if (typeof timer.unref === 'function') timer.unref();
   });
 
   const fetchPromise = fetchFn(NPM_REGISTRY_URL, {
     headers: { Accept: 'application/json' },
+    signal: controller.signal,
   }).then(res => res.json()).then(json => {
     if (typeof json.version !== 'string') {
       throw new Error('unexpected registry response');
@@ -107,7 +114,11 @@ async function fetchLatestVersion(timeoutMs = 2500, fetchFn = globalThis.fetch) 
     return json.version;
   });
 
-  return Promise.race([fetchPromise, timeoutPromise]);
+  try {
+    return await Promise.race([fetchPromise, timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // ---------------------------------------------------------------------------
