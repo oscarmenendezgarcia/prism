@@ -725,6 +725,8 @@ function setupTerminalWebSocket(httpServer) {
       wss.emit('connection', ws, req);
     });
   });
+
+  return wss;
 }
 
 /**

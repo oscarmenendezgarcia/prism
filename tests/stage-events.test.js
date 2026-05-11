@@ -74,6 +74,7 @@ function startTestServer() {
         port,
         request,
         close: () => new Promise((r) => {
+          if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
           server.close(r);
           try { server._store && server._store.close(); } catch {}
         }),
