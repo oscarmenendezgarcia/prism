@@ -231,11 +231,19 @@ if (nodePty && process.platform !== 'win32') {
     const spawnHelper = path.join(ptyPrebuildDir, 'spawn-helper');
     const stat = fs.statSync(spawnHelper);
     if ((stat.mode & 0o111) === 0) {
-      fs.chmodSync(spawnHelper, stat.mode | 0o111);
-      console.log('[terminal] Fixed node-pty spawn-helper permissions (+x)');
+      try {
+        fs.chmodSync(spawnHelper, stat.mode | 0o111);
+        console.log('[terminal] Fixed node-pty spawn-helper permissions (+x)');
+      } catch {
+        console.warn(
+          `[terminal] spawn-helper is not executable and could not be fixed automatically.\n` +
+          `  Run: sudo chmod +x ${spawnHelper}\n` +
+          `  Then restart prism.`
+        );
+      }
     }
   } catch {
-    // Best-effort — if we can't fix it, the spawn error will surface naturally.
+    // spawn-helper not found (different node-pty layout) — nothing to fix.
   }
 }
 
