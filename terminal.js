@@ -711,7 +711,7 @@ function setupTerminalWebSocket(httpServer) {
       }
       // All other upgrade paths are not handled here — leave them for other handlers.
     });
-    return;
+    return null;
   }
 
   /**
@@ -757,6 +757,8 @@ function setupTerminalWebSocket(httpServer) {
       wss.emit('connection', ws, req);
     });
   });
+
+  return wss;
 }
 
 /**
