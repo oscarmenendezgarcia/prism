@@ -218,6 +218,27 @@ try {
   console.warn(`[terminal] node-pty not available: ${err.message}. Terminal feature disabled.`);
 }
 
+// npm global installs don't preserve the executable bit on prebuilt binaries.
+// Fix spawn-helper permissions at startup so PTY spawns don't fail with
+// "posix_spawnp failed" even when postinstall didn't run (e.g. older install).
+if (nodePty && process.platform !== 'win32') {
+  try {
+    const ptyPrebuildDir = path.join(
+      path.dirname(require.resolve('node-pty/package.json')),
+      'prebuilds',
+      `${process.platform}-${process.arch}`
+    );
+    const spawnHelper = path.join(ptyPrebuildDir, 'spawn-helper');
+    const stat = fs.statSync(spawnHelper);
+    if ((stat.mode & 0o111) === 0) {
+      fs.chmodSync(spawnHelper, stat.mode | 0o111);
+      console.log('[terminal] Fixed node-pty spawn-helper permissions (+x)');
+    }
+  } catch {
+    // Best-effort — if we can't fix it, the spawn error will surface naturally.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers — shell detection
 // ---------------------------------------------------------------------------
