@@ -223,7 +223,7 @@ describe('prism CLI — exit codes', () => {
   test('TC-014: prism --version exits 0 and prints semver', () => {
     const r = prism('--version');
     assert.equal(r.status, 0, `Expected exit 0, got ${r.status}`);
-    assert.match(r.stdout.trim(), /^\d+\.\d+\.\d+$/, 'Expected semver output');
+    assert.match(r.stdout.trim(), /^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$/, 'Expected semver output');
   });
 
   test('TC-015: prism --help exits 0', () => {
