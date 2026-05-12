@@ -806,7 +806,7 @@ describe('Graceful degradation — node-pty unavailable', async () => {
       }
     );
 
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('HTTP requests succeed when node-pty is unavailable (board unaffected)', async () => {
@@ -837,7 +837,7 @@ describe('Graceful degradation — node-pty unavailable', async () => {
 
     assert.equal(response.statusCode, 200, 'HTTP request must return 200 when PTY is disabled');
 
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 });
 
