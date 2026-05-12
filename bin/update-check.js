@@ -114,7 +114,9 @@ async function fetchLatestVersion(timeoutMs = 2500, fetchFn = globalThis.fetch) 
 // ---------------------------------------------------------------------------
 
 /**
- * Minimal semver comparator — compares MAJOR.MINOR.PATCH tuples numerically.
+ * Semver comparator — compares MAJOR.MINOR.PATCH tuples numerically.
+ * Pre-release suffixes (e.g. "-beta", "-rc.1") are stripped before comparison
+ * so `Number('1-beta')` → NaN is never reached.
  * Returns true when `latest` is strictly greater than `installed`.
  *
  * @param {string} installed
@@ -122,7 +124,7 @@ async function fetchLatestVersion(timeoutMs = 2500, fetchFn = globalThis.fetch) 
  * @returns {boolean}
  */
 function isNewer(installed, latest) {
-  const parse = v => String(v).split('.').map(Number);
+  const parse = v => String(v).replace(/-.*$/, '').split('.').map(Number);
   const [iMaj, iMin, iPat] = parse(installed);
   const [lMaj, lMin, lPat] = parse(latest);
 

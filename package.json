@@ -1,6 +1,6 @@
 {
   "name": "prism-kanban",
-  "version": "0.8.0",
+  "version": "0.8.1-beta",
   "description": "Local-first kanban + agent pipeline runner with terminal and MCP integration.",
   "bin": {
     "prism": "bin/cli.js"
@@ -36,6 +36,7 @@
     "test": "node --test --test-concurrency=2 tests/*.test.js",
     "test:report": "node --test --test-concurrency=2 --test-reporter=tap tests/*.test.js 2>&1 | node bin/test-report.js",
     "prepare": "node bin/prepare.js",
+    "postinstall": "node bin/postinstall.js",
     "start": "node server.js"
   },
   "dependencies": {

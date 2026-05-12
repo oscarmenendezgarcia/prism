@@ -1,7 +1,8 @@
 # Prism
 
 [![CI](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml/badge.svg)](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml)
-![version](https://img.shields.io/badge/version-0.8.0--beta-blue)
+[![npm](https://img.shields.io/npm/v/prism-kanban)](https://www.npmjs.com/package/prism-kanban)
+![version](https://img.shields.io/badge/version-0.8.1--beta-blue)
 
 ![Prism](docs/banner.png)
 
