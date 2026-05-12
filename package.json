@@ -1,6 +1,6 @@
 {
   "name": "prism-kanban",
-  "version": "0.8.0",
+  "version": "0.8.1-beta",
   "description": "Local-first kanban + agent pipeline runner with terminal and MCP integration.",
   "bin": {
     "prism": "bin/cli.js"
