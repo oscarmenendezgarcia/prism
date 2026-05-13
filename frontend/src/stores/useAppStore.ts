@@ -199,6 +199,16 @@ interface AppState {
   /** Silently dismiss the pipeline indicator without sending Ctrl+C or toasting. */
   clearPipeline: () => void;
   /**
+   * Abort a specific run by runId — for multi-run UI where each run has its
+   * own Abort button. Sends DELETE /api/v1/runs/:runId and removes the entry.
+   */
+  abortRun: (runId: string) => void;
+  /**
+   * Silently dismiss a specific run from the UI without aborting the backend.
+   * Used in multi-run indicator to dismiss individual completed or stale runs.
+   */
+  clearRun: (runId: string) => void;
+  /**
    * Attach to a backend run that is already executing (e.g. after a page
    * refresh or a backend resume). Sets pipelineState so the log panel opens.
    */
@@ -1083,6 +1093,28 @@ export const useAppStore = create<AppState>((set, get) => {
     set({ activeRun: null });
   },
 
+  abortRun: (runId: string) => {
+    const { pipelineStates, showToast } = get();
+    const ps = pipelineStates[runId];
+    if (!ps) return;
+    if (ps.runId) {
+      api.deleteRun(ps.runId).catch(() => {});
+    }
+    const stage = ps.currentStageIndex + 1;
+    setPipelineStateById(runId, null);
+    showToast(`Pipeline aborted at stage ${stage}.`);
+  },
+
+  clearRun: (runId: string) => {
+    const { pipelineStates } = get();
+    const ps = pipelineStates[runId];
+    if (!ps) return;
+    if (ps.runId && ps.status !== 'completed') {
+      api.deleteRun(ps.runId).catch(() => {});
+    }
+    setPipelineStateById(runId, null);
+  },
+
   attachRun: (state) => setPipelineStateById(state.runId ?? PENDING_RUN_KEY, state),
 
   setActivePipelineRunId: (runId: string | null) => {
@@ -1496,6 +1528,15 @@ export const useAvailableAgents = () => useAppStore((s) => s.availableAgents);
 export const usePipelineState = () => useAppStore((s) =>
   recomputeMirror(s.pipelineStates, s.activePipelineRunId)
 );
+/**
+ * Selector — returns the full pipelineStates dictionary for multi-run UI.
+ * Used by RunIndicator (and future components) to iterate all active runs.
+ * Note: returns a new object reference whenever any run mutates (poll ticks,
+ * stage advances). Consumers that only need the count should derive it locally
+ * rather than adding a separate selector.
+ */
+export const usePipelineStates = () => useAppStore((s) => s.pipelineStates);
+export const useActivePipelineRunId = () => useAppStore((s) => s.activePipelineRunId);
 export const usePreparedRun    = () => useAppStore((s) => s.preparedRun);
 export const usePromptPreviewOpen = () => useAppStore((s) => s.promptPreviewOpen);
 

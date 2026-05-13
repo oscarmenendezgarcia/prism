@@ -1,17 +1,24 @@
 /**
  * RunIndicator — unified run status indicator shown in the Header.
  * ADR-1 (run-indicator): replaces AgentRunIndicator + PipelineProgressBar with
- * a single component that reads exclusively from pipelineState.
+ * a single component that reads exclusively from pipelineState(s).
  *
- * Render bifurcation:
- *   pipelineState === null  → return null
- *   status === 'paused'     → PausedBanner (Continue + Abort + elapsed)
- *   stages.length === 1     → SingleAgentDot (dot + displayName + elapsed + Abort)
- *   stages.length > 1       → StepNodes (step nodes + elapsed + Abort + Dismiss)
+ * Render decision tree:
+ *   pipelineStates is empty            → return null
+ *   Object.keys(pipelineStates).length === 1
+ *     → single-run mode (existing sub-renders)
+ *       status === 'blocked'     → BlockedBanner
+ *       status === 'interrupted' → InterruptedBanner
+ *       status === 'paused'      → PausedBanner
+ *       stages.length === 1      → SingleAgentDot
+ *       stages.length > 1        → StepNodes
+ *   Object.keys(pipelineStates).length >= 2
+ *     → MultiRunIndicator (collapsed pill + expandable dropdown)
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { useAppStore, usePipelineState, useAvailableAgents } from '@/stores/useAppStore';
+import { useAppStore, usePipelineState, usePipelineStates, useActivePipelineRunId, useAvailableAgents } from '@/stores/useAppStore';
+import { MultiRunIndicator } from './MultiRunIndicator';
 import { resolveAgentName, resolveAgentShortLabel, STAGE_LABELS } from '@/utils/agentName';
 import type { BlockedReason } from '@/types';
 
@@ -414,8 +421,11 @@ function StepNodes({ stages, currentStageIndex, status, elapsed, onAbort, onDism
 // ---------------------------------------------------------------------------
 
 export function RunIndicator() {
-  const pipelineState  = usePipelineState();
-  const agents         = useAvailableAgents();
+  const pipelineStates        = usePipelineStates();
+  const activePipelineRunId   = useActivePipelineRunId();
+  // Backwards-compat: used by the single-run sub-renders (BlockedBanner, etc.)
+  const pipelineState         = usePipelineState();
+  const agents                = useAvailableAgents();
   const abortPipeline         = useAppStore((s) => s.abortPipeline);
   const clearPipeline         = useAppStore((s) => s.clearPipeline);
   const resumePipeline        = useAppStore((s) => s.resumePipeline);
@@ -423,6 +433,8 @@ export function RunIndicator() {
   const openDetailPanel       = useAppStore((s) => s.openDetailPanel);
   const tasks                 = useAppStore((s) => s.tasks);
   const activeSpace           = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
+
+  const runCount = Object.keys(pipelineStates).length;
 
   const [elapsedSecs, setElapsedSecs] = useState(0);
 
@@ -457,6 +469,19 @@ export function RunIndicator() {
     return () => clearTimeout(t);
   }, [pipelineState?.status, clearPipeline]);
 
+  // ── Multi-run mode (2+ active runs) ────────────────────────────────────────
+  if (runCount >= 2) {
+    return (
+      <MultiRunIndicator
+        pipelineStates={pipelineStates}
+        activePipelineRunId={activePipelineRunId}
+        activeSpace={activeSpace}
+        availableAgents={agents}
+      />
+    );
+  }
+
+  // ── No runs active ──────────────────────────────────────────────────────────
   if (!pipelineState) return null;
 
   const { stages, currentStageIndex, status, pausedBeforeStage, blockedReason } = pipelineState;
