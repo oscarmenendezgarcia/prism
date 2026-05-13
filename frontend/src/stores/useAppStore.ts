@@ -168,8 +168,23 @@ interface AppState {
   /** Whether the prompt preview modal is open. */
   promptPreviewOpen: boolean;
 
-  /** Active pipeline state — null when no pipeline is running. */
+  /** Diccionario indexado por runId (o '__pending__' para el slot stage-0). */
+  pipelineStates: Record<string, PipelineState>;
+
+  /** runId del run "primario" visible para consumidores mono-run. */
+  activePipelineRunId: string | null;
+
+  /**
+   * @deprecated Espejo de pipelineStates[activePipelineRunId] (o fallback "más reciente").
+   * Mantenido como campo del store para no romper consumidores que hacen
+   * `useAppStore((s) => s.pipelineState)` sin pasar por el helper.
+   * Futuros tasks del epic multi-run lo eliminarán.
+   */
   pipelineState: PipelineState | null;
+
+  /** Switch the primary run shown in the mono-run UI. Validates the invariant. */
+  setActivePipelineRunId: (runId: string | null) => void;
+
   startPipeline: (spaceId: string, taskId: string, stages?: PipelineStage[], checkpoints?: number[], dangerouslySkipPermissions?: boolean) => Promise<void>;
   advancePipeline: () => Promise<void>;
   /**
@@ -303,6 +318,36 @@ interface AppState {
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 // ---------------------------------------------------------------------------
+// Pipeline multi-run constants & pure helpers (not part of AppState interface)
+// ---------------------------------------------------------------------------
+
+/**
+ * Sentinel key used for a stage-0 pause entry (before the backend run is
+ * created). Replaced atomically with the real runId when resumePipeline()
+ * launches the backend run.
+ */
+export const PENDING_RUN_KEY = '__pending__';
+
+/**
+ * Pure function: given the plural pipelineStates dict and the activePipelineRunId,
+ * compute the value for the @deprecated pipelineState mirror field.
+ * Priority: activePipelineRunId entry → most recent entry by startedAt → null.
+ */
+function recomputeMirror(
+  pipelineStates: Record<string, PipelineState>,
+  activePipelineRunId: string | null,
+): PipelineState | null {
+  if (activePipelineRunId && pipelineStates[activePipelineRunId]) {
+    return pipelineStates[activePipelineRunId];
+  }
+  const all = Object.values(pipelineStates);
+  if (all.length === 0) return null;
+  return all.reduce((a, b) =>
+    new Date(b.startedAt).getTime() > new Date(a.startedAt).getTime() ? b : a
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Private pipeline helpers (not part of AppState interface)
 // ---------------------------------------------------------------------------
 
@@ -345,34 +390,31 @@ export const useAppStore = create<AppState>((set, get) => {
     const pollId = setInterval(async () => {
       try {
         const run = await api.getBackendRun(runIdToWatch);
-        // Keep pipelineState.currentStageIndex in sync with backend.
-        const ps = get().pipelineState;
-        if (ps && ps.runId === runIdToWatch && typeof run.currentStage === 'number') {
-          set({ pipelineState: { ...ps, currentStageIndex: run.currentStage } });
+        // Keep currentStageIndex in sync with backend.
+        const ps = get().pipelineStates[runIdToWatch];
+        if (ps && typeof run.currentStage === 'number') {
+          setPipelineStateById(runIdToWatch, { currentStageIndex: run.currentStage });
         }
         // Surface interrupted state so InterruptedBanner shows.
         if (run.status === 'interrupted') {
           clearInterval(pollId);
           set({ _agentRunPollId: null });
           get().clearActiveRun();
-          const ps2 = get().pipelineState;
-          if (ps2 && ps2.runId === runIdToWatch && ps2.status !== 'interrupted') {
-            set({ pipelineState: { ...ps2, status: 'interrupted' } });
+          const ps2 = get().pipelineStates[runIdToWatch];
+          if (ps2 && ps2.status !== 'interrupted') {
+            setPipelineStateById(runIdToWatch, { status: 'interrupted' });
           }
           return;
         }
         // Surface paused state so the UI can show "Continue".
         if (run.status === 'paused') {
-          const psPaused = get().pipelineState;
-          if (psPaused && psPaused.runId === runIdToWatch && psPaused.status !== 'paused') {
-            set({
-              pipelineState: {
-                ...psPaused,
-                status: 'paused',
-                ...(typeof run.pausedBeforeStage === 'number'
-                  ? { currentStageIndex: run.pausedBeforeStage, pausedBeforeStage: run.pausedBeforeStage }
-                  : {}),
-              },
+          const psPaused = get().pipelineStates[runIdToWatch];
+          if (psPaused && psPaused.status !== 'paused') {
+            setPipelineStateById(runIdToWatch, {
+              status: 'paused',
+              ...(typeof run.pausedBeforeStage === 'number'
+                ? { currentStageIndex: run.pausedBeforeStage, pausedBeforeStage: run.pausedBeforeStage }
+                : {}),
             });
           }
         }
@@ -382,11 +424,11 @@ export const useAppStore = create<AppState>((set, get) => {
           // NOTE (pipeline-run-history-bridge): recordRunFinished() removed here.
           // The backend writes per-stage history entries directly; no frontend-side
           // recordRunFinished call is needed for orchestrator/pipeline runs.
-          const finalPs = get().pipelineState;
-          if (finalPs && finalPs.runId === runIdToWatch) {
+          const finalPs = get().pipelineStates[runIdToWatch];
+          if (finalPs) {
             const terminalStatus = run.status === 'completed' ? 'completed' : 'aborted';
-            set({ pipelineState: { ...finalPs, status: terminalStatus } });
-            setTimeout(() => set({ pipelineState: null }), 3000);
+            setPipelineStateById(runIdToWatch, { status: terminalStatus });
+            setTimeout(() => setPipelineStateById(runIdToWatch, null), 3000);
           }
           get().clearActiveRun();
           get().loadBoard();
@@ -401,13 +443,84 @@ export const useAppStore = create<AppState>((set, get) => {
         clearInterval(pollId);
         set({ _agentRunPollId: null });
         get().clearActiveRun();
-        const ps = get().pipelineState;
-        if (ps && ps.runId === runIdToWatch) {
-          set({ pipelineState: null });
+        const ps = get().pipelineStates[runIdToWatch];
+        if (ps) {
+          setPipelineStateById(runIdToWatch, null);
         }
       }
     }, POLL_MS);
     set({ _agentRunPollId: pollId });
+  };
+
+  /**
+   * Upsert / delete a PipelineState entry in the plural dict, then sync the
+   * invariants: activePipelineRunId and the @deprecated pipelineState mirror.
+   *
+   * Rules:
+   *  - patch === null  → delete entry; if it was active, promote most recent.
+   *  - patch has `stages` (full PipelineState) → upsert; promote to active.
+   *  - patch without `stages` (partial) and entry exists → immutable merge;
+   *    active unchanged.
+   *  - patch without `stages` and entry absent → no-op (no phantom entries).
+   *
+   * Emits a single set() call per invocation.
+   */
+  const setPipelineStateById = (
+    runId: string,
+    patch: Partial<PipelineState> | PipelineState | null,
+  ): void => {
+    const current = get();
+    const existing = current.pipelineStates[runId];
+
+    if (patch === null) {
+      // Delete entry.
+      const { [runId]: _removed, ...rest } = current.pipelineStates;
+      let nextActive = current.activePipelineRunId;
+      if (nextActive === runId) {
+        // Promote the most recent remaining run, or null if none left.
+        const remaining = Object.values(rest);
+        if (remaining.length === 0) {
+          nextActive = null;
+        } else {
+          const mostRecent = remaining.reduce((a, b) =>
+            new Date(b.startedAt).getTime() > new Date(a.startedAt).getTime() ? b : a
+          );
+          // Prefer the runId stored in the entry; fall back to the dict key.
+          nextActive = mostRecent.runId ??
+            Object.keys(rest).find((k) => rest[k] === mostRecent) ??
+            null;
+        }
+      }
+      set({
+        pipelineStates:      rest,
+        activePipelineRunId: nextActive,
+        pipelineState:       recomputeMirror(rest, nextActive),
+      });
+      return;
+    }
+
+    const isFullState = 'stages' in patch && Array.isArray((patch as PipelineState).stages);
+
+    if (!existing && !isFullState) {
+      // Partial patch on a non-existent entry → no-op (no phantom entries).
+      return;
+    }
+
+    const nextEntry: PipelineState = existing
+      ? { ...existing, ...(patch as Partial<PipelineState>) }
+      : (patch as PipelineState);
+
+    const nextStates = { ...current.pipelineStates, [runId]: nextEntry };
+    // Full-state call always promotes (creation or re-attach); partial keeps active.
+    const nextActive = isFullState
+      ? runId
+      : (current.activePipelineRunId ?? runId);
+
+    set({
+      pipelineStates:      nextStates,
+      activePipelineRunId: nextActive,
+      pipelineState:       recomputeMirror(nextStates, nextActive),
+    });
   };
 
   // Bonus: when the tab becomes visible again after being in the background,
@@ -739,7 +852,7 @@ export const useAppStore = create<AppState>((set, get) => {
         const ps    = get().pipelineState;
         const runId = activeRun.backendRunId;
         if (ps && ps.stages.length === 1 && ps.runId === runId) {
-          set({ pipelineState: null });
+          setPipelineStateById(runId, null);
           usePipelineLogStore.getState().setLogPanelOpen(false);
         }
 
@@ -804,7 +917,9 @@ export const useAppStore = create<AppState>((set, get) => {
 
   // ── Pipeline ──────────────────────────────────────────────────────────────
 
-  pipelineState: null,
+  pipelineStates:      {},
+  activePipelineRunId: null,
+  pipelineState:       null,
   pipelineConfirmModal: null,
 
   openPipelineConfirm: (spaceId: string, taskId: string) => {
@@ -859,19 +974,17 @@ export const useAppStore = create<AppState>((set, get) => {
 
     // T-3: pause at stage 0 before creating any backend run.
     if (checkpoints.includes(0)) {
-      set({
-        pipelineState: {
-          spaceId,
-          stages: resolvedStages,
-          currentStageIndex: 0,
-          startedAt: new Date().toISOString(),
-          status: 'paused',
-          taskId,
-          subTaskIds: [],
-          checkpoints,
-          pausedBeforeStage: 0,
-          dangerouslySkipPermissions,
-        },
+      setPipelineStateById(PENDING_RUN_KEY, {
+        spaceId,
+        stages: resolvedStages,
+        currentStageIndex: 0,
+        startedAt: new Date().toISOString(),
+        status: 'paused',
+        taskId,
+        subTaskIds: [],
+        checkpoints,
+        pausedBeforeStage: 0,
+        dangerouslySkipPermissions,
       });
       showToast(`Pipeline paused before stage 1: ${resolvedStages[0]}. Click Continue to proceed.`);
       return;
@@ -890,20 +1003,20 @@ export const useAppStore = create<AppState>((set, get) => {
     const firstAgent       = availableAgents.find((a) => a.id === resolvedStages[0]);
     const firstDisplayName = firstAgent?.displayName ?? resolvedStages[0];
 
+    setPipelineStateById(run.runId, {
+      spaceId,
+      stages: resolvedStages,
+      currentStageIndex: 0,
+      startedAt,
+      status: 'running',
+      taskId,
+      subTaskIds: [],
+      checkpoints,
+      dangerouslySkipPermissions,
+      runId: run.runId,
+    });
+    // Keep activeRun set so task-card indicator and abort buttons work.
     set({
-      pipelineState: {
-        spaceId,
-        stages: resolvedStages,
-        currentStageIndex: 0,
-        startedAt,
-        status: 'running',
-        taskId,
-        subTaskIds: [],
-        checkpoints,
-        dangerouslySkipPermissions,
-        runId: run.runId,
-      },
-      // Keep activeRun set so task-card indicator and abort buttons work.
       activeRun: {
         taskId,
         agentId:      resolvedStages[0],
@@ -953,18 +1066,35 @@ export const useAppStore = create<AppState>((set, get) => {
     }
 
     const stage = pipelineState.currentStageIndex + 1;
-    set({ pipelineState: null, activeRun: null });
+    const { activePipelineRunId } = get();
+    if (activePipelineRunId) setPipelineStateById(activePipelineRunId, null);
+    set({ activeRun: null });
     showToast(`Pipeline aborted at stage ${stage}.`);
   },
   clearPipeline: () => {
-    const { pipelineState } = get();
+    const { pipelineState, activePipelineRunId } = get();
     if (pipelineState?.runId && pipelineState.status !== 'completed') {
       api.deleteRun(pipelineState.runId).catch(() => {});
     }
-    set({ pipelineState: null, activeRun: null });
+    if (activePipelineRunId) setPipelineStateById(activePipelineRunId, null);
+    set({ activeRun: null });
   },
 
-  attachRun: (state) => set({ pipelineState: state }),
+  attachRun: (state) => setPipelineStateById(state.runId ?? PENDING_RUN_KEY, state),
+
+  setActivePipelineRunId: (runId: string | null) => {
+    const { pipelineStates } = get();
+    if (runId !== null && !pipelineStates[runId]) {
+      // Invariant: cannot activate a non-existent run.
+      // Dev-only warning (stripped by minifier in production builds).
+      console.warn(`[useAppStore] setActivePipelineRunId: runId "${runId}" not in pipelineStates — no-op`);
+      return;
+    }
+    set({
+      activePipelineRunId: runId,
+      pipelineState:       recomputeMirror(pipelineStates, runId),
+    });
+  },
 
   /**
    * Resume a backend-interrupted run via POST /api/v1/runs/:runId/resume.
@@ -976,13 +1106,10 @@ export const useAppStore = create<AppState>((set, get) => {
     if (pipelineState.status !== 'interrupted' && pipelineState.status !== 'paused') return;
     try {
       await api.resumeRun(pipelineState.runId);
-      set({
-        pipelineState: {
-          ...pipelineState,
-          status: 'running',
-          pausedBeforeStage: undefined,
-          finishedAt: undefined,
-        },
+      setPipelineStateById(pipelineState.runId, {
+        status: 'running',
+        pausedBeforeStage: undefined,
+        finishedAt: undefined,
       });
       // Restart the poll loop — it was cancelled when the run was interrupted.
       startPollLoop(pipelineState.runId);
@@ -1004,7 +1131,7 @@ export const useAppStore = create<AppState>((set, get) => {
     if (pipelineState.runId) {
       try {
         await api.resumeRun(pipelineState.runId);
-        set({ pipelineState: { ...pipelineState, status: 'running', pausedBeforeStage: undefined } });
+        setPipelineStateById(pipelineState.runId, { status: 'running', pausedBeforeStage: undefined });
         // Restart the poll loop — it was paused waiting for checkpoint confirmation.
         startPollLoop(pipelineState.runId);
         showToast('Pipeline resumed.');
@@ -1015,17 +1142,20 @@ export const useAppStore = create<AppState>((set, get) => {
     }
 
     // Stage-0 pause (before any backend run was created) — now launch the backend run.
+    // The pipelineState mirror points to the PENDING_RUN_KEY entry.
     const remainingCheckpoints = (pipelineState.checkpoints ?? []).filter((c) => c !== 0);
     try {
       const run = await api.startRun(pipelineState.spaceId, pipelineState.taskId, pipelineState.stages, undefined, remainingCheckpoints);
+      // Atomically replace PENDING_RUN_KEY with the real runId (blueprint §3.2).
+      setPipelineStateById(PENDING_RUN_KEY, null);
+      setPipelineStateById(run.runId, {
+        ...pipelineState,
+        status: 'running',
+        pausedBeforeStage: undefined,
+        checkpoints: remainingCheckpoints,
+        runId: run.runId,
+      });
       set({
-        pipelineState: {
-          ...pipelineState,
-          status: 'running',
-          pausedBeforeStage: undefined,
-          checkpoints: remainingCheckpoints,
-          runId: run.runId,
-        },
         activeRun: {
           taskId:       pipelineState.taskId,
           agentId:      pipelineState.stages[0],
@@ -1112,18 +1242,16 @@ export const useAppStore = create<AppState>((set, get) => {
 
     // Set pipelineState so PipelineLogPanel becomes visible and can poll logs.
     if (backendRunId) {
-      set({
-        pipelineState: {
-          spaceId,
-          stages,
-          currentStageIndex: 0,
-          startedAt,
-          status:      'running',
-          taskId,
-          subTaskIds:  [],
-          checkpoints: [],
-          runId:       backendRunId,
-        },
+      setPipelineStateById(backendRunId, {
+        spaceId,
+        stages,
+        currentStageIndex: 0,
+        startedAt,
+        status:      'running',
+        taskId,
+        subTaskIds:  [],
+        checkpoints: [],
+        runId:       backendRunId,
       });
       usePipelineLogStore.getState().clearStageLogs();
       usePipelineLogStore.getState().setSelectedStageIndex(0);
@@ -1353,7 +1481,18 @@ export const useConfigSaving       = () => useAppStore((s) => s.configSaving);
 // Agent launcher selectors
 export const useActiveRun      = () => useAppStore((s) => s.activeRun);
 export const useAvailableAgents = () => useAppStore((s) => s.availableAgents);
-export const usePipelineState  = () => useAppStore((s) => s.pipelineState);
+/**
+ * Selector — returns the "primary" pipeline state for the current mono-run UI.
+ * Prefers activePipelineRunId; falls back to the most-recent run by startedAt.
+ * Returns null when no runs are active.
+ *
+ * Compatible signature with the old `() => PipelineState | null` so all
+ * existing consumers (App, Header, RunIndicator, PipelineLogPanel, hooks)
+ * continue to work without changes.
+ */
+export const usePipelineState = () => useAppStore((s) =>
+  recomputeMirror(s.pipelineStates, s.activePipelineRunId)
+);
 export const usePreparedRun    = () => useAppStore((s) => s.preparedRun);
 export const usePromptPreviewOpen = () => useAppStore((s) => s.promptPreviewOpen);
 

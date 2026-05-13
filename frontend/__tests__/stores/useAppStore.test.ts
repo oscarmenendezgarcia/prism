@@ -363,7 +363,9 @@ function resetLauncherStore() {
     _agentRunPollId:  null,
     preparedRun:      null,
     promptPreviewOpen: false,
-    pipelineState:    null,
+    pipelineStates:      {},
+    activePipelineRunId: null,
+    pipelineState:       null,
     agentSettings:    null,
     settingsLoading:  false,
     agentSettingsPanelOpen: false,
@@ -841,14 +843,17 @@ describe('abortPipeline', () => {
 
   it('clears pipelineState and activeRun', () => {
     mockActiveSendInput = vi.fn(() => null);
+    const ps = {
+      spaceId: 'space-1',
+      stages: ['senior-architect', 'developer-agent'] as any,
+      currentStageIndex: 0,
+      startedAt: new Date().toISOString(),
+      status: 'running',
+    };
     useAppStore.setState({
-      pipelineState: {
-        spaceId: 'space-1',
-        stages: ['senior-architect', 'developer-agent'] as any,
-        currentStageIndex: 0,
-        startedAt: new Date().toISOString(),
-        status: 'running',
-      },
+      pipelineStates:      { 'run-abort-test': ps as any },
+      activePipelineRunId: 'run-abort-test',
+      pipelineState:       ps as any,
       activeRun: {
         taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
         startedAt: new Date().toISOString(), cliCommand: 'claude run', promptPath: '/tmp/p.md',
@@ -1249,14 +1254,17 @@ describe('clearPipeline', () => {
   });
 
   it('sets pipelineState to null', () => {
+    const ps = {
+      spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+      stages: ['developer-agent'] as any,
+      currentStageIndex: 0, startedAt: new Date().toISOString(),
+      status: 'running', checkpoints: [],
+      runId: 'run-abc',
+    };
     useAppStore.setState({
-      pipelineState: {
-        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
-        stages: ['developer-agent'] as any,
-        currentStageIndex: 0, startedAt: new Date().toISOString(),
-        status: 'running', checkpoints: [],
-        runId: 'run-abc',
-      } as any,
+      pipelineStates:      { 'run-abc': ps as any },
+      activePipelineRunId: 'run-abc',
+      pipelineState:       ps as any,
     });
     useAppStore.getState().clearPipeline();
     expect(useAppStore.getState().pipelineState).toBeNull();
@@ -1384,14 +1392,17 @@ describe('resumeInterruptedRun', () => {
 
   it('sets pipelineState status to running and clears finishedAt on success', async () => {
     const startedAt = new Date().toISOString();
+    const interruptedPs = {
+      spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+      stages: ['developer-agent'] as any,
+      currentStageIndex: 0, startedAt,
+      status: 'interrupted', checkpoints: [], runId: 'run-xyz',
+      finishedAt: new Date().toISOString(),
+    };
     useAppStore.setState({
-      pipelineState: {
-        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
-        stages: ['developer-agent'] as any,
-        currentStageIndex: 0, startedAt,
-        status: 'interrupted', checkpoints: [], runId: 'run-xyz',
-        finishedAt: new Date().toISOString(),
-      } as any,
+      pipelineStates:      { 'run-xyz': interruptedPs as any },
+      activePipelineRunId: 'run-xyz',
+      pipelineState:       interruptedPs as any,
     });
     await useAppStore.getState().resumeInterruptedRun();
     const ps = useAppStore.getState().pipelineState;
