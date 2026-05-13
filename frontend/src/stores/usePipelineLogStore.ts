@@ -20,6 +20,14 @@ interface PipelineLogState {
   setLogPanelOpen: (open: boolean) => void;
 
   /**
+   * The runId whose logs are displayed in the panel.
+   * null → auto-select the most recent run in pipelineStates (fallback).
+   * Set explicitly by the RunSelector dropdown when user picks a run.
+   */
+  logPanelRunId: string | null;
+  setLogPanelRunId: (runId: string | null) => void;
+
+  /**
    * Count of log lines appended since the panel was last opened.
    * Drives the notification dot on the Logs toggle.
    * Resets to 0 when the panel is opened.
@@ -135,6 +143,7 @@ interface PipelineLogState {
 
 export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   logPanelOpen:            false,
+  logPanelRunId:           null,
   unseenCount:             0,
   selectedStageIndex:      0,
   stageLogs:               {},
@@ -153,6 +162,8 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   stageEventsNotAvailable: {},
 
   setLogPanelOpen: (open) => set({ logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) }),
+
+  setLogPanelRunId: (runId) => set({ logPanelRunId: runId }),
 
   incrementUnseenCount: () =>
     set((state) => ({ unseenCount: state.unseenCount + 1 })),

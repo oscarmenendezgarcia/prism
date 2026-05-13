@@ -9,6 +9,7 @@ import { usePipelineLogStore } from '../../src/stores/usePipelineLogStore';
 function resetStore() {
   usePipelineLogStore.setState({
     logPanelOpen:       false,
+    logPanelRunId:      null,
     selectedStageIndex: 0,
     stageLogs:          {},
     stageLoading:       {},
@@ -183,5 +184,41 @@ describe('usePipelineLogStore — clearStageLogs', () => {
     usePipelineLogStore.getState().clearStageLogs();
     expect(usePipelineLogStore.getState().logPanelOpen).toBe(true);
     expect(usePipelineLogStore.getState().selectedStageIndex).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// logPanelRunId
+// ---------------------------------------------------------------------------
+
+describe('usePipelineLogStore — logPanelRunId', () => {
+  it('initialises logPanelRunId to null', () => {
+    expect(usePipelineLogStore.getState().logPanelRunId).toBeNull();
+  });
+
+  it('setLogPanelRunId sets logPanelRunId to a runId string', () => {
+    usePipelineLogStore.getState().setLogPanelRunId('run-abc-123');
+    expect(usePipelineLogStore.getState().logPanelRunId).toBe('run-abc-123');
+  });
+
+  it('setLogPanelRunId can reset logPanelRunId back to null', () => {
+    usePipelineLogStore.getState().setLogPanelRunId('run-abc-123');
+    usePipelineLogStore.getState().setLogPanelRunId(null);
+    expect(usePipelineLogStore.getState().logPanelRunId).toBeNull();
+  });
+
+  it('setLogPanelRunId does not affect other store fields', () => {
+    usePipelineLogStore.getState().setLogPanelOpen(true);
+    usePipelineLogStore.getState().setSelectedStageIndex(2);
+    usePipelineLogStore.getState().setLogPanelRunId('run-xyz');
+    expect(usePipelineLogStore.getState().logPanelOpen).toBe(true);
+    expect(usePipelineLogStore.getState().selectedStageIndex).toBe(2);
+    expect(usePipelineLogStore.getState().stageLogs).toEqual({});
+  });
+
+  it('clearStageLogs does not reset logPanelRunId', () => {
+    usePipelineLogStore.getState().setLogPanelRunId('run-preserve');
+    usePipelineLogStore.getState().clearStageLogs();
+    expect(usePipelineLogStore.getState().logPanelRunId).toBe('run-preserve');
   });
 });
