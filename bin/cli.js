@@ -6,6 +6,7 @@
  *
  * Subcommands:
  *   prism start   [--port <n>] [--data-dir <path>] [--silent]
+ *   prism stop    [--data-dir <path>] [--force]
  *   prism init    [--data-dir <path>] [--force]
  *   prism update  [--no-update-check]
  *   prism --version
@@ -29,6 +30,7 @@ prism — local-first kanban + agent pipeline runner
 
 Usage:
   prism start   [--port <n>] [--data-dir <path>] [--silent]
+  prism stop    [--data-dir <path>] [--force]
   prism init    [--data-dir <path>] [--force]
   prism update
   prism --version
@@ -37,11 +39,16 @@ Usage:
 Options shared across subcommands:
   --data-dir <path>     Override the data directory (env: DATA_DIR)
   --silent              Suppress informational output
-  --force               (init only) Overwrite existing settings.json
+  --force               (stop) Send SIGKILL immediately; (init) overwrite existing settings.json
   --no-update-check     Skip the startup version check (env: PRISM_NO_UPDATE_CHECK)
 
 prism start options:
   --port <n>            Port to listen on (default 3000, env: PORT)
+
+prism stop:
+  Reads <dataDir>/prism.pid, sends SIGTERM, and waits up to 35s for the
+  process to exit. Use --force to send SIGKILL immediately (bypasses graceful
+  shutdown — use when the server is hung).
 
 prism update:
   Fetches the latest version from npm and installs it globally.
@@ -172,6 +179,13 @@ function runInit(flags) {
   require(path.join(__dirname, 'init.js')).run(flags);
 }
 
+function runStop(flags) {
+  require(path.join(__dirname, 'stop.js')).run(flags).catch(err => {
+    process.stderr.write(`Error: ${err.message}\n`);
+    process.exit(1);
+  });
+}
+
 function runUpdate(flags) {
   require(path.join(__dirname, 'update.js')).run(flags);
 }
@@ -205,6 +219,10 @@ function runUpdate(flags) {
   switch (subcommand) {
     case 'start':
       runStart(flags);
+      break;
+
+    case 'stop':
+      runStop(flags);
       break;
 
     case 'init':
