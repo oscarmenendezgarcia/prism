@@ -1271,28 +1271,34 @@ describe('clearPipeline', () => {
   });
 
   it('calls deleteRun when runId is present and status is running', () => {
+    const ps = {
+      spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+      stages: ['developer-agent'] as any,
+      currentStageIndex: 0, startedAt: new Date().toISOString(),
+      status: 'running', checkpoints: [],
+      runId: 'run-to-delete',
+    };
     useAppStore.setState({
-      pipelineState: {
-        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
-        stages: ['developer-agent'] as any,
-        currentStageIndex: 0, startedAt: new Date().toISOString(),
-        status: 'running', checkpoints: [],
-        runId: 'run-to-delete',
-      } as any,
+      pipelineStates:      { 'run-to-delete': ps as any },
+      activePipelineRunId: 'run-to-delete',
+      pipelineState:       ps as any,
     });
     useAppStore.getState().clearPipeline();
     expect(api.deleteRun).toHaveBeenCalledWith('run-to-delete');
   });
 
   it('calls deleteRun when status is interrupted', () => {
+    const ps = {
+      spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
+      stages: ['developer-agent'] as any,
+      currentStageIndex: 0, startedAt: new Date().toISOString(),
+      status: 'interrupted', checkpoints: [],
+      runId: 'run-interrupted',
+    };
     useAppStore.setState({
-      pipelineState: {
-        spaceId: 'space-1', taskId: 'task-1', subTaskIds: [],
-        stages: ['developer-agent'] as any,
-        currentStageIndex: 0, startedAt: new Date().toISOString(),
-        status: 'interrupted', checkpoints: [],
-        runId: 'run-interrupted',
-      } as any,
+      pipelineStates:      { 'run-interrupted': ps as any },
+      activePipelineRunId: 'run-interrupted',
+      pipelineState:       ps as any,
     });
     useAppStore.getState().clearPipeline();
     expect(api.deleteRun).toHaveBeenCalledWith('run-interrupted');
