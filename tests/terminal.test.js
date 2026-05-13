@@ -806,7 +806,7 @@ describe('Graceful degradation — node-pty unavailable', async () => {
       }
     );
 
-    await stopServer(server, wss);
+    await stopServer(server);
   });
 
   test('HTTP requests succeed when node-pty is unavailable (board unaffected)', async () => {
@@ -837,7 +837,7 @@ describe('Graceful degradation — node-pty unavailable', async () => {
 
     assert.equal(response.statusCode, 200, 'HTTP request must return 200 when PTY is disabled');
 
-    await stopServer(server, wss);
+    await stopServer(server);
   });
 });
 
@@ -877,9 +877,9 @@ async function startCustomServer(setup) {
       res.writeHead(200);
       res.end('ok');
     });
-    setup(server);
+    const wss = setup(server);
     server.listen(port, '127.0.0.1', () => {
-      resolve({ server, wsUrl: `ws://127.0.0.1:${port}/ws/terminal` });
+      resolve({ server, wss, wsUrl: `ws://127.0.0.1:${port}/ws/terminal` });
     });
     server.on('error', reject);
   });
@@ -888,7 +888,7 @@ async function startCustomServer(setup) {
 describe('ALLOWED_ORIGINS env var', async () => {
   test('custom origin in ALLOWED_ORIGINS is accepted', async () => {
     const { setupTerminalWebSocket: setup } = requireTerminalWithOrigins('http://myapp.example.com:8080');
-    const { server, wsUrl } = await startCustomServer(setup);
+    const { server, wss, wsUrl } = await startCustomServer(setup);
 
     const conn = await openWs(wsUrl, { origin: 'http://myapp.example.com:8080' });
     const ready = await waitFor(conn, (m) => m.type === 'ready');
@@ -900,7 +900,7 @@ describe('ALLOWED_ORIGINS env var', async () => {
 
   test('localhost rejected when not listed in ALLOWED_ORIGINS', async () => {
     const { setupTerminalWebSocket: setup } = requireTerminalWithOrigins('http://myapp.example.com:8080');
-    const { server, wsUrl } = await startCustomServer(setup);
+    const { server, wss, wsUrl } = await startCustomServer(setup);
 
     await assert.rejects(
       () => openRawWs(wsUrl, { origin: 'http://localhost:3000' }),
@@ -914,7 +914,7 @@ describe('ALLOWED_ORIGINS env var', async () => {
     const { setupTerminalWebSocket: setup } = requireTerminalWithOrigins(
       'http://app1.example.com, http://app2.example.com:9000'
     );
-    const { server, wsUrl } = await startCustomServer(setup);
+    const { server, wss, wsUrl } = await startCustomServer(setup);
 
     // First origin accepted.
     const conn1 = await openWs(wsUrl, { origin: 'http://app1.example.com' });
@@ -936,7 +936,7 @@ describe('ALLOWED_ORIGINS env var', async () => {
     const { setupTerminalWebSocket: setup } = requireTerminalWithOrigins(
       '  http://trimmed.example.com  '
     );
-    const { server, wsUrl } = await startCustomServer(setup);
+    const { server, wss, wsUrl } = await startCustomServer(setup);
 
     const conn = await openWs(wsUrl, { origin: 'http://trimmed.example.com' });
     const ready = await waitFor(conn, (m) => m.type === 'ready');
