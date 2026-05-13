@@ -10,7 +10,6 @@
 import React, { useEffect, useState } from 'react';
 import type { PipelineState } from '@/types';
 import { resolveAgentName } from '@/utils/agentName';
-import { useAppStore } from '@/stores/useAppStore';
 import type { Space, AgentInfo } from '@/types';
 
 // ---------------------------------------------------------------------------
