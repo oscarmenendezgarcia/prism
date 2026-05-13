@@ -806,7 +806,7 @@ describe('Graceful degradation — node-pty unavailable', async () => {
       }
     );
 
-    await stopServer(server, wss);
+    await stopServer(server, null);
   });
 
   test('HTTP requests succeed when node-pty is unavailable (board unaffected)', async () => {
@@ -837,7 +837,7 @@ describe('Graceful degradation — node-pty unavailable', async () => {
 
     assert.equal(response.statusCode, 200, 'HTTP request must return 200 when PTY is disabled');
 
-    await stopServer(server, wss);
+    await stopServer(server, null);
   });
 });
 
@@ -895,7 +895,7 @@ describe('ALLOWED_ORIGINS env var', async () => {
     assert.equal(ready.type, 'ready', 'custom origin should receive ready message');
 
     await closeWs(conn.ws);
-    await stopServer(server, wss);
+    await stopServer(server, null);
   });
 
   test('localhost rejected when not listed in ALLOWED_ORIGINS', async () => {
@@ -907,7 +907,7 @@ describe('ALLOWED_ORIGINS env var', async () => {
       (err) => { assert.match(err.message, /403|Unexpected server response/); return true; }
     );
 
-    await stopServer(server, wss);
+    await stopServer(server, null);
   });
 
   test('multiple comma-separated origins are all accepted', async () => {
@@ -929,7 +929,7 @@ describe('ALLOWED_ORIGINS env var', async () => {
     assert.equal(ready2.type, 'ready');
     await closeWs(conn2.ws);
 
-    await stopServer(server, wss);
+    await stopServer(server, null);
   });
 
   test('whitespace around origins in ALLOWED_ORIGINS is trimmed', async () => {
@@ -943,7 +943,7 @@ describe('ALLOWED_ORIGINS env var', async () => {
     assert.equal(ready.type, 'ready', 'trimmed origin should be accepted');
 
     await closeWs(conn.ws);
-    await stopServer(server, wss);
+    await stopServer(server, null);
   });
 
   test('fallback to localhost defaults when ALLOWED_ORIGINS is not set', async () => {
