@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — cli-doctor
+
+### Added
+- **`prism doctor` subcommand** — runs a checklist of offline environment/dependency assertions
+  and prints pass/fail per item. Exit 0 if all pass, 1 if any fail.
+  - `node-version`: Node.js major ≥ 20
+  - `spawn-helper`: `node-pty` spawn-helper has executable bit (reuses `bin/postinstall.js` logic)
+  - `better-sqlite3`: native module loads and can open an in-memory database
+  - `claude-cli`: `claude --version` exits 0 within 2 s (`spawnSync`, `shell: false`)
+  - `data-dir-writable`: data directory exists and is writable
+  - `server-status`: PID file absent ("stopped") or pointing to a live process (stale = fail)
+- **`--json` flag** for `prism doctor` — machine-readable `{ ok, checks: [...] }` output for CI
+  pipelines and automated installers (`prism doctor --json | jq`).
+- `src/utils/doctor/checks.js` — six pure check functions with `ctx.deps` injection for unit
+  testing; no network calls.
+- `bin/doctor.js` — runner and text/JSON formatters; ANSI colors disabled when `!isTTY` or
+  `NO_COLOR` is set.
+
 ## [Unreleased] — attachments-merge
 
 ### Changed
