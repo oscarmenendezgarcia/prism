@@ -82,17 +82,11 @@ export function PipelineLogPanel() {
   const effectivePanelKey = logPanelRunId ?? sortedRuns[0]?.key ?? null;
 
   // Fallback: when the selected run is removed, reset to the most recent remaining.
-  const prevPanelKeyRef = useRef<string | null>(null);
   useEffect(() => {
     if (!logPanelRunId) return;
-    if (pipelineStates[logPanelRunId] !== undefined) {
-      prevPanelKeyRef.current = logPanelRunId;
-      return;
-    }
+    if (pipelineStates[logPanelRunId] !== undefined) return;
     // The selected run was deleted — fall back to most recent.
-    const fallbackKey = sortedRuns[0]?.key ?? null;
-    setLogPanelRunId(fallbackKey);
-    prevPanelKeyRef.current = fallbackKey;
+    setLogPanelRunId(sortedRuns[0]?.key ?? null);
   }, [logPanelRunId, pipelineStates, sortedRuns, setLogPanelRunId]);
 
   // Reset selectedStageIndex to 0 when the user switches to a different run.
