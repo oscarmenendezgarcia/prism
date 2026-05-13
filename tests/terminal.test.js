@@ -34,6 +34,11 @@ const path   = require('node:path');
 const { WebSocket } = require('ws');
 const { setupTerminalWebSocket, MAX_CONNECTIONS } = require(path.join(__dirname, '..', 'terminal'));
 
+// If a test fails before stopServer() runs, PTY sockets and HTTP servers keep the event loop
+// alive indefinitely. Force-exit 30s after the runner would otherwise have drained cleanly.
+// The timer is unref'd so it doesn't prevent natural exit — it only fires if something is stuck.
+setTimeout(() => process.exit(process.exitCode ?? 0), 30_000).unref();
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -55,7 +60,7 @@ function getFreePort() {
 
 /**
  * Start an isolated HTTP + WebSocket test server on a random port.
- * @returns {Promise<{ server: http.Server, port: number, wsUrl: string }>}
+ * @returns {Promise<{ server: http.Server, wss: import('ws').WebSocketServer, port: number, wsUrl: string }>}
  */
 async function startTestServer() {
   const port = await getFreePort();
@@ -75,9 +80,9 @@ async function startTestServer() {
         socket.destroy();
       }
     });
-    setupTerminalWebSocket(server);
+    const wss = setupTerminalWebSocket(server);
     server.listen(port, '127.0.0.1', () => {
-      resolve({ server, port, wsUrl: `ws://127.0.0.1:${port}/ws/terminal` });
+      resolve({ server, wss, port, wsUrl: `ws://127.0.0.1:${port}/ws/terminal` });
     });
     server.on('error', reject);
   });
@@ -335,34 +340,34 @@ function sleep(ms) {
 
 describe('Connection management', async () => {
   test('connects successfully with localhost origin', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl, { origin: 'http://localhost:3000' });
     assert.equal(conn.ws.readyState, WebSocket.OPEN);
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('rejects connection with non-localhost origin (HTTP 403)', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     await assert.rejects(
       () => openRawWs(wsUrl, { origin: 'http://evil.example.com' }),
       (err) => { assert.match(err.message, /403|Unexpected server response/); return true; }
     );
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('rejects non-/ws/terminal upgrade path', async () => {
-    const { server, port } = await startTestServer();
+    const { server, wss, port } = await startTestServer();
     const badUrl = `ws://127.0.0.1:${port}/other/path`;
     await assert.rejects(
       () => openRawWs(badUrl),
       () => true
     );
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test(`rejects connection when ${MAX_CONNECTIONS}-connection limit is reached with HTTP 429`, async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conns = [];
     for (let i = 0; i < MAX_CONNECTIONS; i++) conns.push(await openWs(wsUrl));
     await assert.rejects(
@@ -370,11 +375,11 @@ describe('Connection management', async () => {
       (err) => { assert.match(err.message, /429|Unexpected server response/); return true; }
     );
     await Promise.all(conns.map((c) => closeWs(c.ws)));
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('accepts new connection after previous ones close', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conns = [];
     for (let i = 0; i < MAX_CONNECTIONS; i++) conns.push(await openWs(wsUrl));
     await Promise.all(conns.map((c) => closeWs(c.ws)));
@@ -382,7 +387,7 @@ describe('Connection management', async () => {
     const fresh = await openWs(wsUrl);
     assert.equal(fresh.ws.readyState, WebSocket.OPEN);
     await closeWs(fresh.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 });
 
@@ -392,7 +397,7 @@ describe('Connection management', async () => {
 
 describe('PTY session lifecycle', async () => {
   test('receives ready message on connect with required fields', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     const readyMsg = await waitFor(conn, (m) => m.type === 'ready');
@@ -405,22 +410,22 @@ describe('PTY session lifecycle', async () => {
     assert.doesNotThrow(() => new Date(readyMsg.timestamp), 'timestamp must be valid ISO 8601');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('shell path in ready message starts with / (absolute path)', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     const readyMsg = await waitFor(conn, (m) => m.type === 'ready');
     assert.match(readyMsg.shell, /^\//);
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('ready message cols and rows match defaults (80x24) before client resize', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     const readyMsg = await waitFor(conn, (m) => m.type === 'ready');
@@ -428,7 +433,7 @@ describe('PTY session lifecycle', async () => {
     assert.equal(readyMsg.rows, 24, 'Default rows should be 24');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 });
 
@@ -438,7 +443,7 @@ describe('PTY session lifecycle', async () => {
 
 describe('Input protocol', async () => {
   test('echo hello\\r produces output containing "hello"', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -453,11 +458,11 @@ describe('Input protocol', async () => {
     assert.match(combined, /hello_test_marker/);
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('input with empty data receives INVALID_INPUT error', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -468,11 +473,11 @@ describe('Input protocol', async () => {
     assert.equal(errMsg.code, 'INVALID_INPUT');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('input with data exceeding 4096 chars receives INPUT_TOO_LARGE error', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -483,11 +488,11 @@ describe('Input protocol', async () => {
     assert.equal(errMsg.code, 'INPUT_TOO_LARGE');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('Ctrl+C (\\x03) sends SIGINT via PTY — shell output received after interrupt', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -513,7 +518,7 @@ describe('Input protocol', async () => {
     assert.ok(combined.length > 0, 'Expected shell output after Ctrl+C');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 });
 
@@ -523,7 +528,7 @@ describe('Input protocol', async () => {
 
 describe('Resize protocol', async () => {
   test('valid resize message produces no error response (success is silent)', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -543,11 +548,11 @@ describe('Resize protocol', async () => {
     assert.ok(result.timeout === true, `Valid resize must not produce an error response; got: ${JSON.stringify(result.error)}`);
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('resize with non-integer cols receives INVALID_RESIZE error', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -558,11 +563,11 @@ describe('Resize protocol', async () => {
     assert.equal(errMsg.code, 'INVALID_RESIZE');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('resize with missing rows receives INVALID_RESIZE error', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -573,11 +578,11 @@ describe('Resize protocol', async () => {
     assert.equal(errMsg.code, 'INVALID_RESIZE');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('out-of-range cols are clamped (no error) — 9999 cols', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -597,7 +602,7 @@ describe('Resize protocol', async () => {
     assert.ok(result.timeout === true, `Out-of-range cols should be clamped not rejected; got: ${JSON.stringify(result.error)}`);
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 });
 
@@ -607,7 +612,7 @@ describe('Resize protocol', async () => {
 
 describe('Ping/pong keepalive', async () => {
   test('ping receives pong response', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -618,7 +623,7 @@ describe('Ping/pong keepalive', async () => {
     assert.equal(pongMsg.type, 'pong');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 });
 
@@ -628,7 +633,7 @@ describe('Ping/pong keepalive', async () => {
 
 describe('Message validation', async () => {
   test('unknown message type (exec — v1 type) receives UNKNOWN_MESSAGE_TYPE error', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -640,11 +645,11 @@ describe('Message validation', async () => {
     assert.match(errMsg.message, /exec/);
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('invalid JSON receives INVALID_JSON error', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -655,11 +660,11 @@ describe('Message validation', async () => {
     assert.equal(errMsg.code, 'INVALID_JSON');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('error messages include code, message, and timestamp fields', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -672,7 +677,7 @@ describe('Message validation', async () => {
     assert.ok(typeof errMsg.timestamp === 'string',                            'error must have timestamp');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 });
 
@@ -682,7 +687,7 @@ describe('Message validation', async () => {
 
 describe('PTY exit and auto-respawn', async () => {
   test('exit message is sent when shell exits, followed by new ready message', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -703,11 +708,11 @@ describe('PTY exit and auto-respawn', async () => {
     assert.ok(typeof newReady.timestamp === 'string', 'ready timestamp must be string');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('WebSocket remains open after shell exit and respawn', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -725,7 +730,7 @@ describe('PTY exit and auto-respawn', async () => {
     assert.equal(conn.ws.readyState, WebSocket.OPEN, 'WebSocket must remain open after auto-respawn');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 });
 
@@ -735,7 +740,7 @@ describe('PTY exit and auto-respawn', async () => {
 
 describe('Disconnect cleanup', async () => {
   test('closing connection while PTY is running frees the connection slot', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
     const conn = await openWs(wsUrl);
 
     await waitFor(conn, (m) => m.type === 'ready');
@@ -752,7 +757,7 @@ describe('Disconnect cleanup', async () => {
     const conn2 = await openWs(wsUrl);
     assert.equal(conn2.ws.readyState, WebSocket.OPEN);
     await closeWs(conn2.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 });
 
@@ -872,9 +877,9 @@ async function startCustomServer(setup) {
       res.writeHead(200);
       res.end('ok');
     });
-    setup(server);
+    const wss = setup(server);
     server.listen(port, '127.0.0.1', () => {
-      resolve({ server, wsUrl: `ws://127.0.0.1:${port}/ws/terminal` });
+      resolve({ server, wss, wsUrl: `ws://127.0.0.1:${port}/ws/terminal` });
     });
     server.on('error', reject);
   });
@@ -883,33 +888,33 @@ async function startCustomServer(setup) {
 describe('ALLOWED_ORIGINS env var', async () => {
   test('custom origin in ALLOWED_ORIGINS is accepted', async () => {
     const { setupTerminalWebSocket: setup } = requireTerminalWithOrigins('http://myapp.example.com:8080');
-    const { server, wsUrl } = await startCustomServer(setup);
+    const { server, wss, wsUrl } = await startCustomServer(setup);
 
     const conn = await openWs(wsUrl, { origin: 'http://myapp.example.com:8080' });
     const ready = await waitFor(conn, (m) => m.type === 'ready');
     assert.equal(ready.type, 'ready', 'custom origin should receive ready message');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('localhost rejected when not listed in ALLOWED_ORIGINS', async () => {
     const { setupTerminalWebSocket: setup } = requireTerminalWithOrigins('http://myapp.example.com:8080');
-    const { server, wsUrl } = await startCustomServer(setup);
+    const { server, wss, wsUrl } = await startCustomServer(setup);
 
     await assert.rejects(
       () => openRawWs(wsUrl, { origin: 'http://localhost:3000' }),
       (err) => { assert.match(err.message, /403|Unexpected server response/); return true; }
     );
 
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('multiple comma-separated origins are all accepted', async () => {
     const { setupTerminalWebSocket: setup } = requireTerminalWithOrigins(
       'http://app1.example.com, http://app2.example.com:9000'
     );
-    const { server, wsUrl } = await startCustomServer(setup);
+    const { server, wss, wsUrl } = await startCustomServer(setup);
 
     // First origin accepted.
     const conn1 = await openWs(wsUrl, { origin: 'http://app1.example.com' });
@@ -924,21 +929,21 @@ describe('ALLOWED_ORIGINS env var', async () => {
     assert.equal(ready2.type, 'ready');
     await closeWs(conn2.ws);
 
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('whitespace around origins in ALLOWED_ORIGINS is trimmed', async () => {
     const { setupTerminalWebSocket: setup } = requireTerminalWithOrigins(
       '  http://trimmed.example.com  '
     );
-    const { server, wsUrl } = await startCustomServer(setup);
+    const { server, wss, wsUrl } = await startCustomServer(setup);
 
     const conn = await openWs(wsUrl, { origin: 'http://trimmed.example.com' });
     const ready = await waitFor(conn, (m) => m.type === 'ready');
     assert.equal(ready.type, 'ready', 'trimmed origin should be accepted');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('fallback to localhost defaults when ALLOWED_ORIGINS is not set', async () => {
@@ -946,25 +951,25 @@ describe('ALLOWED_ORIGINS env var', async () => {
     assert.equal(process.env.ALLOWED_ORIGINS, undefined, 'ALLOWED_ORIGINS should be unset');
 
     // startTestServer uses the top-level import (default origins).
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
 
     const conn = await openWs(wsUrl, { origin: 'http://localhost:3000' });
     const ready = await waitFor(conn, (m) => m.type === 'ready');
     assert.equal(ready.type, 'ready', 'localhost:3000 should be accepted by default');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 
   test('127.0.0.1:3000 accepted by default fallback', async () => {
-    const { server, wsUrl } = await startTestServer();
+    const { server, wss, wsUrl } = await startTestServer();
 
     const conn = await openWs(wsUrl, { origin: 'http://127.0.0.1:3000' });
     const ready = await waitFor(conn, (m) => m.type === 'ready');
     assert.equal(ready.type, 'ready', '127.0.0.1:3000 should be accepted by default');
 
     await closeWs(conn.ws);
-    await stopServer(server);
+    await stopServer(server, wss);
   });
 });
 

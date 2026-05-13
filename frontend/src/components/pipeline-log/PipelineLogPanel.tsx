@@ -12,7 +12,7 @@
  *        MarkdownViewer. Prompts are cached per stageIndex in usePipelineLogStore.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
 import { usePanelResize } from '@/hooks/usePanelResize';
@@ -21,7 +21,9 @@ import { StageTabBar } from './StageTabBar';
 import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
 import { StageMetricsPanel } from './StageMetricsPanel';
 import { StructuredLogView } from './StructuredLogView';
+import { RunSelector } from './RunSelector';
 import type { BackendStageStatus } from '@/types';
+import type { RunSelectorEntry } from './RunSelector';
 
 /** How often (ms) to refresh the run status (for stageStatuses icons). */
 const RUN_STATUS_POLL_MS = 3000;
@@ -50,7 +52,8 @@ function deriveStageStatus(
  * Rendered conditionally from App.tsx when logPanelOpen is true and pipelineState is set.
  */
 export function PipelineLogPanel() {
-  const pipelineState         = useAppStore((s) => s.pipelineState);
+  // Multi-run: read the full pipelineStates dict and derive the selected run.
+  const pipelineStates        = useAppStore((s) => s.pipelineStates);
   const activeSpace           = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
   const selectedStageIndex    = usePipelineLogStore((s) => s.selectedStageIndex);
   const setSelectedStageIndex = usePipelineLogStore((s) => s.setSelectedStageIndex);
@@ -61,13 +64,53 @@ export function PipelineLogPanel() {
   const setStagePrompt        = usePipelineLogStore((s) => s.setStagePrompt);
   const stagePromptLoading    = usePipelineLogStore((s) => s.stagePromptLoading);
   const setStagePromptLoading = usePipelineLogStore((s) => s.setStagePromptLoading);
+  const logPanelRunId         = usePipelineLogStore((s) => s.logPanelRunId);
+  const setLogPanelRunId      = usePipelineLogStore((s) => s.setLogPanelRunId);
+  const clearStageLogs        = usePipelineLogStore((s) => s.clearStageLogs);
 
   const [backendStatuses, setBackendStatuses] = useState<BackendStageStatus[]>([]);
+
+  // Sort runs by startedAt descending (most recent first) for the selector.
+  const sortedRuns = useMemo<RunSelectorEntry[]>(() => {
+    return Object.entries(pipelineStates)
+      .sort(([, a], [, b]) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+      .map(([key, ps]) => ({ key, pipelineState: ps }));
+  }, [pipelineStates]);
+
+  // The run key whose logs are displayed. Explicit selection takes priority;
+  // falls back to the most recent run when unset.
+  const effectivePanelKey = logPanelRunId ?? sortedRuns[0]?.key ?? null;
+
+  // Fallback: when the selected run is removed, reset to the most recent remaining.
+  useEffect(() => {
+    if (!logPanelRunId) return;
+    if (pipelineStates[logPanelRunId] !== undefined) return;
+    // The selected run was deleted — fall back to most recent.
+    setLogPanelRunId(sortedRuns[0]?.key ?? null);
+  }, [logPanelRunId, pipelineStates, sortedRuns, setLogPanelRunId]);
+
+  // Reset selectedStageIndex to 0 when the user switches to a different run.
+  const prevEffectiveKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (effectivePanelKey === prevEffectiveKeyRef.current) return;
+    if (prevEffectiveKeyRef.current !== null) {
+      // User switched runs: clear cache and reset to stage 0.
+      clearStageLogs();
+      setSelectedStageIndex(0);
+    }
+    prevEffectiveKeyRef.current = effectivePanelKey;
+  }, [effectivePanelKey, clearStageLogs, setSelectedStageIndex]);
+
+  // Derive the displayed pipeline state from the effective key.
+  const pipelineState = effectivePanelKey ? (pipelineStates[effectivePanelKey] ?? null) : null;
 
   const runId      = pipelineState?.runId ?? null;
   const stageRunIds = pipelineState?.stageRunIds ?? {};
   const stages     = pipelineState?.stages ?? [];
   const isRunActive = pipelineState?.status === 'running';
+
+  // Show the selector only when 2+ runs are tracked.
+  const showRunSelector = sortedRuns.length >= 2;
 
   // Each stage in a frontend-driven pipeline runs as its own 1-stage backend run.
   // stageRunIds[i] holds the runId for pipeline stage i, and the log inside that
@@ -178,7 +221,7 @@ export function PipelineLogPanel() {
         className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
       />
 
-      {/* Panel header — wireframe S-07 */}
+      {/* Panel header — wireframe S-02 (run selector) / S-07 */}
       <div className="flex items-center gap-2 px-4 py-3 bg-surface-elevated border-b border-border shrink-0">
         <span
           className="material-symbols-outlined text-base text-primary leading-none"
@@ -187,6 +230,16 @@ export function PipelineLogPanel() {
           article
         </span>
         <span className="text-sm font-semibold text-text-primary flex-1">Pipeline Logs</span>
+
+        {/* Run selector: only visible when 2+ runs are tracked (S-01 vs S-02) */}
+        {showRunSelector && (
+          <RunSelector
+            runs={sortedRuns}
+            selectedRunId={logPanelRunId}
+            onSelect={(key) => setLogPanelRunId(key)}
+          />
+        )}
+
         {isRunActive && (
           <span
             className="relative flex h-2 w-2"

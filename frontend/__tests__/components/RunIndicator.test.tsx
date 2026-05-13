@@ -15,7 +15,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { RunIndicator } from '../../src/components/agent-launcher/RunIndicator';
-import { useAppStore } from '../../src/stores/useAppStore';
+import { useAppStore, PENDING_RUN_KEY } from '../../src/stores/useAppStore';
 import type { PipelineState, PipelineStage, AgentInfo, BlockedReason, Task } from '../../src/types';
 
 // ---------------------------------------------------------------------------
@@ -80,15 +80,20 @@ function makePipelineState(overrides: Partial<PipelineState> = {}): PipelineStat
 const EMPTY_TASKS = { todo: [] as Task[], 'in-progress': [] as Task[], done: [] as Task[] };
 
 function resetStore(overrides: Record<string, unknown> = {}) {
+  // Auto-derive the plural pipeline state from pipelineState override (T-005).
+  const ps = overrides.pipelineState as PipelineState | null | undefined;
+  const derivedKey = ps ? (ps.runId ?? PENDING_RUN_KEY) : null;
   useAppStore.setState({
-    pipelineState:          null,
-    availableAgents:        [],
-    tasks:                  EMPTY_TASKS,
-    abortPipeline:          vi.fn(),
-    clearPipeline:          vi.fn(),
-    resumePipeline:         vi.fn(),
-    resumeInterruptedRun:   vi.fn(),
-    openDetailPanel:        vi.fn(),
+    pipelineStates:      ps ? { [derivedKey!]: ps } : {},
+    activePipelineRunId: derivedKey,
+    pipelineState:       null,
+    availableAgents:     [],
+    tasks:               EMPTY_TASKS,
+    abortPipeline:       vi.fn(),
+    clearPipeline:       vi.fn(),
+    resumePipeline:      vi.fn(),
+    resumeInterruptedRun: vi.fn(),
+    openDetailPanel:     vi.fn(),
     ...overrides,
   } as any);
 }
@@ -491,7 +496,13 @@ describe('RunIndicator — elapsed timer', () => {
       stages: ['developer-agent'],
       startedAt: new Date().toISOString(),
     });
-    useAppStore.setState({ pipelineState: newState } as any);
+    // Must update pipelineStates too so usePipelineState() selector picks up the new state.
+    const newKey = newState.runId ?? PENDING_RUN_KEY;
+    useAppStore.setState({
+      pipelineStates:      { [newKey]: newState },
+      activePipelineRunId: newKey,
+      pipelineState:       newState,
+    } as any);
     rerender(<RunIndicator />);
     expect(screen.getByText('0:00')).toBeInTheDocument();
   });

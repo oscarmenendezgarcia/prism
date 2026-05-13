@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { PipelineStage } from '@/types';
+import type { PipelineStage, PipelineState } from '@/types';
 
 // ── API mock must be hoisted before the store import ─────────────────────────
 vi.mock('@/api/client', () => ({
@@ -31,7 +31,7 @@ vi.mock('@/api/client', () => ({
 }));
 
 import * as api from '@/api/client';
-import { useAppStore } from '@/stores/useAppStore';
+import { useAppStore, PENDING_RUN_KEY } from '@/stores/useAppStore';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -76,6 +76,21 @@ const setVisibilityState = (state: DocumentVisibilityState) => {
   });
 };
 
+// ── Plural-form helper ────────────────────────────────────────────────────────
+
+/**
+ * Build the plural setState payload required by T-005.
+ * Automatically uses PENDING_RUN_KEY when runId is absent (e.g. TC-019).
+ */
+const withPipelineState = (ps: PipelineState) => {
+  const key = ps.runId ?? PENDING_RUN_KEY;
+  return {
+    pipelineStates:      { [key]: ps } as Record<string, PipelineState>,
+    activePipelineRunId: key,
+    pipelineState:       ps,
+  };
+};
+
 // ── Setup / teardown ──────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -83,9 +98,11 @@ beforeEach(() => {
 
   // Reset store to clean slate between tests.
   useAppStore.setState({
-    pipelineState:   null,
-    _agentRunPollId: null,
-    activeRun:       null,
+    pipelineStates:      {},
+    activePipelineRunId: null,
+    pipelineState:       null,
+    _agentRunPollId:     null,
+    activeRun:           null,
   });
 
   // Default API mocks (happy path).
@@ -111,7 +128,7 @@ afterEach(() => {
 
 describe('TC-001: resumeInterruptedRun starts poll when status=interrupted', () => {
   it('sets _agentRunPollId to a non-null interval after successful resume', async () => {
-    useAppStore.setState({ pipelineState: interruptedState() });
+    useAppStore.setState(withPipelineState(interruptedState()));
 
     await useAppStore.getState().resumeInterruptedRun();
 
@@ -123,7 +140,7 @@ describe('TC-001: resumeInterruptedRun starts poll when status=interrupted', () 
 
 describe('TC-002: resumeInterruptedRun starts poll when status=paused', () => {
   it('sets _agentRunPollId when current status is paused', async () => {
-    useAppStore.setState({ pipelineState: pausedState() });
+    useAppStore.setState(withPipelineState(pausedState()));
 
     await useAppStore.getState().resumeInterruptedRun();
 
@@ -136,7 +153,7 @@ describe('TC-002: resumeInterruptedRun starts poll when status=paused', () => {
 describe('TC-003: resumeInterruptedRun does NOT start poll on API failure', () => {
   it('keeps _agentRunPollId null when api.resumeRun rejects', async () => {
     vi.mocked(api.resumeRun).mockRejectedValue(new Error('network error'));
-    useAppStore.setState({ pipelineState: interruptedState() });
+    useAppStore.setState(withPipelineState(interruptedState()));
 
     await useAppStore.getState().resumeInterruptedRun();
 
@@ -148,7 +165,7 @@ describe('TC-003: resumeInterruptedRun does NOT start poll on API failure', () =
 
 describe('TC-004: resumePipeline (mid-pipeline, runId present) starts poll', () => {
   it('sets _agentRunPollId after successful backend resume', async () => {
-    useAppStore.setState({ pipelineState: pausedState() });
+    useAppStore.setState(withPipelineState(pausedState()));
 
     await useAppStore.getState().resumePipeline();
 
@@ -163,7 +180,7 @@ describe('TC-005: startPollLoop clears existing interval before creating a new o
     const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
     const clearIntervalSpy = vi.spyOn(globalThis, 'clearInterval');
 
-    useAppStore.setState({ pipelineState: interruptedState() });
+    useAppStore.setState(withPipelineState(interruptedState()));
 
     // First resume — starts the poll.
     await useAppStore.getState().resumeInterruptedRun();
@@ -171,7 +188,7 @@ describe('TC-005: startPollLoop clears existing interval before creating a new o
     expect(firstPollId).not.toBeNull();
 
     // Reset status so guard passes for second call.
-    useAppStore.setState({ pipelineState: interruptedState() });
+    useAppStore.setState(withPipelineState(interruptedState()));
 
     // Second resume — should clear first interval, create a fresh one.
     await useAppStore.getState().resumeInterruptedRun();
@@ -191,7 +208,7 @@ describe('TC-005: startPollLoop clears existing interval before creating a new o
 describe('TC-006: poll tick updates currentStageIndex from backend', () => {
   it('sets pipelineState.currentStageIndex=2 when backend reports currentStage=2', async () => {
     vi.mocked(api.getBackendRun).mockResolvedValue(backendRun('running', 2));
-    useAppStore.setState({ pipelineState: interruptedState() });
+    useAppStore.setState(withPipelineState(interruptedState()));
 
     await useAppStore.getState().resumeInterruptedRun();
 
@@ -207,7 +224,7 @@ describe('TC-006: poll tick updates currentStageIndex from backend', () => {
 describe('TC-007: poll tick clears itself on completed status', () => {
   it('sets _agentRunPollId=null and pipelineState.status=completed', async () => {
     vi.mocked(api.getBackendRun).mockResolvedValue(backendRun('completed', 2));
-    useAppStore.setState({ pipelineState: interruptedState() });
+    useAppStore.setState(withPipelineState(interruptedState()));
 
     await useAppStore.getState().resumeInterruptedRun();
     await vi.advanceTimersByTimeAsync(5001);
@@ -221,7 +238,7 @@ describe('TC-007: poll tick clears itself on completed status', () => {
 
   it('calls api.getTasks (loadBoard) after completion', async () => {
     vi.mocked(api.getBackendRun).mockResolvedValue(backendRun('completed', 2));
-    useAppStore.setState({ pipelineState: interruptedState() });
+    useAppStore.setState(withPipelineState(interruptedState()));
 
     await useAppStore.getState().resumeInterruptedRun();
     await vi.advanceTimersByTimeAsync(5001);
@@ -235,7 +252,7 @@ describe('TC-007: poll tick clears itself on completed status', () => {
 describe('TC-008: poll tick clears itself on failed status', () => {
   it('sets _agentRunPollId=null when backend returns failed', async () => {
     vi.mocked(api.getBackendRun).mockResolvedValue(backendRun('failed', 1));
-    useAppStore.setState({ pipelineState: interruptedState() });
+    useAppStore.setState(withPipelineState(interruptedState()));
 
     await useAppStore.getState().resumeInterruptedRun();
     await vi.advanceTimersByTimeAsync(5001);
@@ -253,7 +270,7 @@ describe('TC-009: poll tick transitions to interrupted status and clears', () =>
       .mockResolvedValueOnce(backendRun('running', 0))
       .mockResolvedValueOnce(backendRun('interrupted', 1));
 
-    useAppStore.setState({ pipelineState: interruptedState() });
+    useAppStore.setState(withPipelineState(interruptedState()));
     await useAppStore.getState().resumeInterruptedRun();
 
     // Tick 1 (running — poll continues).
@@ -276,7 +293,7 @@ describe('TC-010: poll tick transitions to paused without clearing interval', ()
       pausedBeforeStage: 1,
     });
 
-    useAppStore.setState({ pipelineState: interruptedState() });
+    useAppStore.setState(withPipelineState(interruptedState()));
     await useAppStore.getState().resumeInterruptedRun();
     await vi.advanceTimersByTimeAsync(5001);
 
@@ -292,7 +309,7 @@ describe('TC-011: poll tick clears itself on API error', () => {
   it('sets _agentRunPollId=null and pipelineState=null after network failure', async () => {
     vi.mocked(api.getBackendRun).mockRejectedValue(new Error('ECONNRESET'));
 
-    useAppStore.setState({ pipelineState: interruptedState() });
+    useAppStore.setState(withPipelineState(interruptedState()));
     await useAppStore.getState().resumeInterruptedRun();
     await vi.advanceTimersByTimeAsync(5001);
 
@@ -307,10 +324,7 @@ describe('TC-012: visibilitychange restarts poll when conditions are met', () =>
   it('sets _agentRunPollId when tab becomes visible, status=running, poll was null', async () => {
     // Set up a running pipeline with no active poll (simulates background-tab gap).
     useAppStore.setState({
-      pipelineState: {
-        ...interruptedState(),
-        status: 'running',
-      },
+      ...withPipelineState({ ...interruptedState(), status: 'running' }),
       _agentRunPollId: null,
     });
 
@@ -333,7 +347,7 @@ describe('TC-013: visibilitychange does NOT create duplicate poll when pollId al
     // Simulate a poll already running.
     const fakeInterval = setInterval(() => {}, 99999);
     useAppStore.setState({
-      pipelineState: { ...interruptedState(), status: 'running' },
+      ...withPipelineState({ ...interruptedState(), status: 'running' }),
       _agentRunPollId: fakeInterval,
     });
 
@@ -354,7 +368,7 @@ describe('TC-013: visibilitychange does NOT create duplicate poll when pollId al
 
 describe('TC-014: visibilitychange does NOT restart when pipelineState=null', () => {
   it('keeps _agentRunPollId null when no active run exists', async () => {
-    useAppStore.setState({ pipelineState: null, _agentRunPollId: null });
+    useAppStore.setState({ pipelineStates: {}, activePipelineRunId: null, pipelineState: null, _agentRunPollId: null });
 
     setVisibilityState('visible');
     document.dispatchEvent(new Event('visibilitychange'));
@@ -369,7 +383,7 @@ describe('TC-014: visibilitychange does NOT restart when pipelineState=null', ()
 describe('TC-015: visibilitychange does NOT restart when status=interrupted', () => {
   it('keeps _agentRunPollId null when pipelineState.status is interrupted', async () => {
     useAppStore.setState({
-      pipelineState: interruptedState(), // status='interrupted'
+      ...withPipelineState(interruptedState()), // status='interrupted'
       _agentRunPollId: null,
     });
 
@@ -386,7 +400,7 @@ describe('TC-015: visibilitychange does NOT restart when status=interrupted', ()
 describe('TC-016: visibilitychange hidden event does NOT start poll', () => {
   it('does not set _agentRunPollId when visibilityState=hidden', async () => {
     useAppStore.setState({
-      pipelineState: { ...interruptedState(), status: 'running' },
+      ...withPipelineState({ ...interruptedState(), status: 'running' }),
       _agentRunPollId: null,
     });
 
@@ -402,9 +416,8 @@ describe('TC-016: visibilitychange hidden event does NOT start poll', () => {
 
 describe('TC-019: resumeInterruptedRun guard — no runId', () => {
   it('does not call api.resumeRun when pipelineState has no runId', async () => {
-    useAppStore.setState({
-      pipelineState: { ...interruptedState(), runId: undefined as any },
-    });
+    // T-005: entry without runId is stored under PENDING_RUN_KEY.
+    useAppStore.setState(withPipelineState({ ...interruptedState(), runId: undefined as any }));
 
     await useAppStore.getState().resumeInterruptedRun();
 
@@ -417,9 +430,7 @@ describe('TC-019: resumeInterruptedRun guard — no runId', () => {
 
 describe('TC-020: resumeInterruptedRun guard — wrong status', () => {
   it('does not start poll when status=running (only interrupted/paused allowed)', async () => {
-    useAppStore.setState({
-      pipelineState: { ...interruptedState(), status: 'running' },
-    });
+    useAppStore.setState(withPipelineState({ ...interruptedState(), status: 'running' }));
 
     await useAppStore.getState().resumeInterruptedRun();
 
@@ -432,7 +443,7 @@ describe('TC-020: resumeInterruptedRun guard — wrong status', () => {
 
 describe('TC-021: pipelineState.status transitions to running after resumeInterruptedRun', () => {
   it('sets status=running and clears pausedBeforeStage', async () => {
-    useAppStore.setState({ pipelineState: pausedState() });
+    useAppStore.setState(withPipelineState(pausedState()));
 
     await useAppStore.getState().resumeInterruptedRun();
 
