@@ -1528,7 +1528,9 @@ export const usePipelineState = () => useAppStore((s) =>
 /**
  * Selector — returns the full pipelineStates dictionary for multi-run UI.
  * Used by RunIndicator (and future components) to iterate all active runs.
- * Returns a stable reference to the dict; empty when no runs are active.
+ * Note: returns a new object reference whenever any run mutates (poll ticks,
+ * stage advances). Consumers that only need the count should derive it locally
+ * rather than adding a separate selector.
  */
 export const usePipelineStates = () => useAppStore((s) => s.pipelineStates);
 export const useActivePipelineRunId = () => useAppStore((s) => s.activePipelineRunId);

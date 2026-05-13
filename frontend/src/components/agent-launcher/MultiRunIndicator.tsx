@@ -69,6 +69,9 @@ export function MultiRunIndicator({
         autoCollapseTimerRef.current = null;
       }
     };
+    // Intentionally depends only on runCount — pipelineStates ref changes every poll
+    // tick, which would re-fire the timer on every backend update. We only want the
+    // auto-expand to trigger on the 1→2 transition, not on run mutations.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runCount]);
 
