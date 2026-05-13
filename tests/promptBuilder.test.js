@@ -238,7 +238,7 @@ async function runTests() {
     const block = buildGitInstructionsBlock();
     assert(typeof block === 'string' && block.length > 0, 'must return non-empty string');
     assert(block.includes('## GIT INSTRUCTIONS'), 'must have section header');
-    assert(block.includes('feature branch'),       'must mention feature branch');
+    assert(block.includes('feat/') || block.includes('branch'), 'must mention branch naming');
     assert(block.includes('[dev]'),                'must include commit format');
   });
 

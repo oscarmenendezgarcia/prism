@@ -110,7 +110,7 @@ function buildGitContextBlock(workingDirectory) {
 function buildGitInstructionsBlock() {
   return [
     '## GIT INSTRUCTIONS',
-    '- Work on the current feature branch (do not create new branches unless specified)',
+    '- Before any commit, ensure you are on a branch named `<prefix>/<kebab-task-title>` where prefix matches the task type: feature→feat, bug→fix, tech-debt→chore, research→research. If the current branch is `main` or unrelated to this task, create it: `git checkout -b <prefix>/<kebab-task-title>`',
     '- Commit format: [dev] T-XXX: <task title>',
     '- Stage only task-relevant files (never git add -A or git add .)',
     '- Never commit to main directly',
