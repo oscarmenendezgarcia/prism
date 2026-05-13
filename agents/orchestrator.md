@@ -25,6 +25,21 @@ All fields are mandatory except `WorkingDirectory`.
 
 ## Execution protocol
 
+**Before stage 1:** create and checkout the branch from `main`. Use the prefix that matches the task type:
+| Task type | Branch prefix |
+|-----------|--------------|
+| feature   | `feat/`      |
+| bug       | `fix/`       |
+| tech-debt | `chore/`     |
+| research  | `research/`  |
+
+```bash
+git checkout main && git pull origin main
+git checkout -b <prefix>/<kebab-task-title>
+# e.g. "Add dark mode toggle" (feature) → feat/add-dark-mode-toggle
+```
+If the branch already exists: `git checkout <prefix>/<kebab-task-title>`.
+
 For each stage in `Stages`, in order:
 
 1. **Build context**: collect the task details plus any attachments that previous stages added to the main Kanban task.
