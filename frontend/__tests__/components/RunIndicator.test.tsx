@@ -91,6 +91,8 @@ function resetStore(overrides: Record<string, unknown> = {}) {
     tasks:               EMPTY_TASKS,
     abortPipeline:       vi.fn(),
     clearPipeline:       vi.fn(),
+    abortRun:            vi.fn(),
+    clearRun:            vi.fn(),
     resumePipeline:      vi.fn(),
     resumeInterruptedRun: vi.fn(),
     openDetailPanel:     vi.fn(),
@@ -771,5 +773,93 @@ describe('RunIndicator — blocked mode', () => {
     resetStore({ pipelineState: makePipelineState({ status: 'blocked', blockedReason: undefined }) });
     render(<RunIndicator />);
     expect(screen.queryByTestId('run-indicator-blocked')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-run mode (2+ active pipelineStates)
+// ---------------------------------------------------------------------------
+
+describe('RunIndicator — multi-run mode (2+ active runs)', () => {
+  it('renders MultiRunIndicator pill when pipelineStates has 2 entries', () => {
+    useAppStore.setState({
+      pipelineStates: {
+        'run-a': makePipelineState({ runId: 'run-a', stages: ['developer-agent'] }),
+        'run-b': makePipelineState({ runId: 'run-b', stages: ['qa-engineer-e2e'] }),
+      },
+      activePipelineRunId: 'run-a',
+      pipelineState:       null,
+      availableAgents:     [],
+      tasks:               EMPTY_TASKS,
+      abortRun:            vi.fn(),
+      clearRun:            vi.fn(),
+      abortPipeline:       vi.fn(),
+      clearPipeline:       vi.fn(),
+      resumePipeline:      vi.fn(),
+      resumeInterruptedRun: vi.fn(),
+      openDetailPanel:     vi.fn(),
+    } as any);
+    render(<RunIndicator />);
+    expect(screen.getByTestId('multi-run-pill')).toBeInTheDocument();
+    expect(screen.getByText('2 runs')).toBeInTheDocument();
+  });
+
+  it('does NOT render single-agent dot in multi-run mode', () => {
+    useAppStore.setState({
+      pipelineStates: {
+        'run-a': makePipelineState({ runId: 'run-a', stages: ['developer-agent'] }),
+        'run-b': makePipelineState({ runId: 'run-b', stages: ['qa-engineer-e2e'] }),
+      },
+      activePipelineRunId: 'run-a',
+      pipelineState:       null,
+      availableAgents:     [],
+      tasks:               EMPTY_TASKS,
+      abortRun:            vi.fn(),
+      clearRun:            vi.fn(),
+      abortPipeline:       vi.fn(),
+      clearPipeline:       vi.fn(),
+      resumePipeline:      vi.fn(),
+      resumeInterruptedRun: vi.fn(),
+      openDetailPanel:     vi.fn(),
+    } as any);
+    render(<RunIndicator />);
+    expect(screen.queryByTestId('run-indicator-single')).toBeNull();
+    expect(screen.queryByTestId('run-indicator-steps')).toBeNull();
+  });
+
+  it('reverts to single-run mode when pipelineStates goes back to 1 entry', () => {
+    const twoRuns = {
+      'run-a': makePipelineState({ runId: 'run-a', stages: ['developer-agent'] }),
+      'run-b': makePipelineState({ runId: 'run-b', stages: ['qa-engineer-e2e'] }),
+    };
+    const baseState = {
+      activePipelineRunId: 'run-a',
+      pipelineState:       null,
+      availableAgents:     [],
+      tasks:               EMPTY_TASKS,
+      abortRun:            vi.fn(),
+      clearRun:            vi.fn(),
+      abortPipeline:       vi.fn(),
+      clearPipeline:       vi.fn(),
+      resumePipeline:      vi.fn(),
+      resumeInterruptedRun: vi.fn(),
+      openDetailPanel:     vi.fn(),
+    };
+    useAppStore.setState({ ...baseState, pipelineStates: twoRuns } as any);
+    const { rerender } = render(<RunIndicator />);
+    expect(screen.getByTestId('multi-run-pill')).toBeInTheDocument();
+
+    // Drop to 1 run
+    const singleRun = { 'run-a': makePipelineState({ runId: 'run-a', stages: ['developer-agent'] }) };
+    useAppStore.setState({ ...baseState, pipelineStates: singleRun } as any);
+    rerender(<RunIndicator />);
+    expect(screen.queryByTestId('multi-run-pill')).toBeNull();
+    expect(screen.getByTestId('run-indicator-single')).toBeInTheDocument();
+  });
+
+  it('renders nothing when pipelineStates is empty (no runs at all)', () => {
+    resetStore();
+    const { container } = render(<RunIndicator />);
+    expect(container.firstChild).toBeNull();
   });
 });

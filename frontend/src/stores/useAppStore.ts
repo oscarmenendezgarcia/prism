@@ -199,6 +199,16 @@ interface AppState {
   /** Silently dismiss the pipeline indicator without sending Ctrl+C or toasting. */
   clearPipeline: () => void;
   /**
+   * Abort a specific run by runId — for multi-run UI where each run has its
+   * own Abort button. Sends DELETE /api/v1/runs/:runId and removes the entry.
+   */
+  abortRun: (runId: string) => void;
+  /**
+   * Silently dismiss a specific run from the UI without aborting the backend.
+   * Used in multi-run indicator to dismiss individual completed or stale runs.
+   */
+  clearRun: (runId: string) => void;
+  /**
    * Attach to a backend run that is already executing (e.g. after a page
    * refresh or a backend resume). Sets pipelineState so the log panel opens.
    */
@@ -340,11 +350,13 @@ function recomputeMirror(
   if (activePipelineRunId && pipelineStates[activePipelineRunId]) {
     return pipelineStates[activePipelineRunId];
   }
-  const all = Object.values(pipelineStates);
-  if (all.length === 0) return null;
-  return all.reduce((a, b) =>
-    new Date(b.startedAt).getTime() > new Date(a.startedAt).getTime() ? b : a
-  );
+  const entries = Object.values(pipelineStates);
+  if (entries.length === 0) return null;
+  // Tiebreaker: insertion order (last entry wins) when startedAt values are equal.
+  return entries.reduce((a, b, i) => {
+    const diff = new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
+    return diff > 0 || (diff === 0 && i === entries.length - 1) ? b : a;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1072,12 +1084,35 @@ export const useAppStore = create<AppState>((set, get) => {
     showToast(`Pipeline aborted at stage ${stage}.`);
   },
   clearPipeline: () => {
-    const { pipelineState, activePipelineRunId } = get();
-    if (pipelineState?.runId && pipelineState.status !== 'completed') {
-      api.deleteRun(pipelineState.runId).catch(() => {});
+    const { pipelineStates, activePipelineRunId } = get();
+    const activePs = activePipelineRunId ? pipelineStates[activePipelineRunId] : null;
+    if (activePs?.runId && activePs.status !== 'completed') {
+      api.deleteRun(activePs.runId).catch(() => {});
     }
     if (activePipelineRunId) setPipelineStateById(activePipelineRunId, null);
     set({ activeRun: null });
+  },
+
+  abortRun: (runId: string) => {
+    const { pipelineStates, showToast } = get();
+    const ps = pipelineStates[runId];
+    if (!ps) return;
+    if (ps.runId) {
+      api.deleteRun(ps.runId).catch(() => {});
+    }
+    const stage = ps.currentStageIndex + 1;
+    setPipelineStateById(runId, null);
+    showToast(`Pipeline aborted at stage ${stage}.`);
+  },
+
+  clearRun: (runId: string) => {
+    const { pipelineStates } = get();
+    const ps = pipelineStates[runId];
+    if (!ps) return;
+    if (ps.runId && ps.status !== 'completed') {
+      api.deleteRun(ps.runId).catch(() => {});
+    }
+    setPipelineStateById(runId, null);
   },
 
   attachRun: (state) => setPipelineStateById(state.runId ?? PENDING_RUN_KEY, state),
@@ -1493,6 +1528,15 @@ export const useAvailableAgents = () => useAppStore((s) => s.availableAgents);
 export const usePipelineState = () => useAppStore((s) =>
   recomputeMirror(s.pipelineStates, s.activePipelineRunId)
 );
+/**
+ * Selector — returns the full pipelineStates dictionary for multi-run UI.
+ * Used by RunIndicator (and future components) to iterate all active runs.
+ * Note: returns a new object reference whenever any run mutates (poll ticks,
+ * stage advances). Consumers that only need the count should derive it locally
+ * rather than adding a separate selector.
+ */
+export const usePipelineStates = () => useAppStore((s) => s.pipelineStates);
+export const useActivePipelineRunId = () => useAppStore((s) => s.activePipelineRunId);
 export const usePreparedRun    = () => useAppStore((s) => s.preparedRun);
 export const usePromptPreviewOpen = () => useAppStore((s) => s.promptPreviewOpen);
 
