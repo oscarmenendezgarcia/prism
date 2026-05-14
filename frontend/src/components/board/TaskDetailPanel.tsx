@@ -667,7 +667,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-b-modal">
 
             {/* ── LEFT: title · description · comments ──────────────── */}
-            <div className="flex-1 min-w-0 overflow-y-auto px-8 py-8 flex flex-col gap-7">
+            <div className="flex-1 min-w-0 overflow-y-auto px-7 py-6 flex flex-col gap-6">
               {isActiveRun && (
                 <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30">
                   <span className="material-symbols-outlined text-warning text-[18px] leading-none flex-shrink-0" aria-hidden="true">warning</span>
@@ -675,26 +675,24 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 </div>
               )}
 
-              {/* Title — large, ghost input with bottom rule on focus */}
-              <div className="pb-6 border-b border-border/50">
-                <input
-                  id="detail-title"
-                  ref={titleInputRef}
-                  type="text"
-                  value={localTitle}
-                  onChange={(e) => setLocalTitle(e.target.value)}
-                  onBlur={handleTitleBlur}
-                  disabled={fieldDisabled}
-                  aria-disabled={fieldDisabled}
-                  aria-label="Task title"
-                  className="w-full bg-transparent border-none text-[20px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-0 leading-snug disabled:opacity-50 disabled:cursor-not-allowed"
-                  placeholder="Task title"
-                />
-              </div>
+              {/* Title */}
+              <input
+                id="detail-title"
+                ref={titleInputRef}
+                type="text"
+                value={localTitle}
+                onChange={(e) => setLocalTitle(e.target.value)}
+                onBlur={handleTitleBlur}
+                disabled={fieldDisabled}
+                aria-disabled={fieldDisabled}
+                aria-label="Task title"
+                className="w-full bg-transparent border-none text-[17px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-0 leading-snug disabled:opacity-50 disabled:cursor-not-allowed"
+                placeholder="Task title"
+              />
 
               {/* Description */}
-              <div className="flex flex-col gap-3">
-                <label htmlFor="detail-description" className="text-xs font-semibold text-text-secondary uppercase tracking-widest">
+              <div className="flex flex-col gap-2">
+                <label htmlFor="detail-description" className="text-[11px] font-semibold text-text-disabled uppercase tracking-widest">
                   Description
                 </label>
                 <textarea
@@ -704,7 +702,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
                   rows={10}
-                  className="w-full px-4 py-3 rounded-lg bg-surface-elevated border border-border font-sans text-sm text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-all duration-fast"
+                  className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border font-sans text-sm text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-all duration-fast"
                   placeholder="Add a description..."
                 />
                 <div className="flex justify-end">
@@ -727,7 +725,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </div>
 
               {/* Comments */}
-              <div className="border-t border-border pt-6" data-testid="comments-panel">
+              <div className="border-t border-border pt-5" data-testid="comments-panel">
                 <CommentsSection
                   spaceId={activeSpaceId}
                   taskId={detailTask.id}
@@ -817,7 +815,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               {detailTask.attachments && detailTask.attachments.length > 0 && (
                 <div className="flex flex-col gap-2" data-testid="attachments-section">
                   <span className="text-xs font-semibold text-text-secondary uppercase tracking-widest">Attachments</span>
-                  <div className="flex flex-col gap-1.5" aria-label="Task attachments">
+                  <div className="flex flex-wrap gap-1.5" aria-label="Task attachments">
                     {detailTask.attachments.map((att, index) => (
                       <React.Fragment key={index}>
                         {att.type === 'link' ? (
@@ -827,11 +825,11 @@ export function TaskDetailPanel(): React.ReactElement | null {
                             rel="noopener noreferrer"
                             data-testid="attachment-row"
                             aria-label={`Open link ${att.name} in new tab`}
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-fast"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-fast"
                           >
-                            <span className="material-symbols-outlined text-[14px] leading-none text-primary flex-shrink-0" aria-hidden="true">link</span>
-                            <span className="font-mono text-xs text-text-primary truncate flex-1">{att.name}</span>
-                            <span className="material-symbols-outlined text-[12px] leading-none text-text-disabled flex-shrink-0" aria-hidden="true">open_in_new</span>
+                            <span className="material-symbols-outlined text-[13px] leading-none text-primary flex-shrink-0" aria-hidden="true">link</span>
+                            <span className="font-mono text-[11px] text-text-primary max-w-[130px] truncate">{att.name}</span>
+                            <span className="material-symbols-outlined text-[11px] leading-none text-text-disabled flex-shrink-0" aria-hidden="true">open_in_new</span>
                           </a>
                         ) : (
                           <button
@@ -840,12 +838,12 @@ export function TaskDetailPanel(): React.ReactElement | null {
                             onClick={() => handleAttachmentClick(index, att.name)}
                             disabled={loadingAttachmentIndex === index}
                             aria-label={`Open attachment ${att.name}`}
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-surface border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-all duration-fast text-left"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-all duration-fast"
                           >
-                            <span className={`material-symbols-outlined text-[14px] leading-none flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin text-text-disabled' : att.name.toLowerCase().endsWith('.md') ? 'text-primary' : 'text-text-secondary'}`} aria-hidden="true">
+                            <span className={`material-symbols-outlined text-[13px] leading-none flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin text-text-disabled' : att.name.toLowerCase().endsWith('.md') ? 'text-primary' : 'text-text-secondary'}`} aria-hidden="true">
                               {loadingAttachmentIndex === index ? 'progress_activity' : att.name.toLowerCase().endsWith('.md') ? 'description' : att.type === 'file' ? 'folder' : 'attach_file'}
                             </span>
-                            <span className="font-mono text-xs text-text-primary truncate flex-1">{att.name}</span>
+                            <span className="font-mono text-[11px] text-text-primary max-w-[150px] truncate">{att.name}</span>
                           </button>
                         )}
                       </React.Fragment>
