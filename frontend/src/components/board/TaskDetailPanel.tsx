@@ -673,6 +673,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           aria-modal="true"
           aria-label="Task detail"
           tabIndex={-1}
+          style={{ outline: 'none' }}
           className="pointer-events-auto w-full max-w-[1200px] max-h-[90vh] flex flex-col bg-surface border border-border rounded-modal shadow-[0_32px_96px_rgba(0,0,0,0.28),0_0_0_1px_rgba(255,255,255,0.06)] animate-modal-dialog-in"
         >
           {/* ── Header ────────────────────────────────────────────────── */}
