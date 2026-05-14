@@ -173,24 +173,20 @@ interface AddCommentFormProps {
 }
 
 function AddCommentForm({ onSubmit, disabled }: AddCommentFormProps) {
-  const [type, setType]               = useState<Comment['type']>('note');
-  const [text, setText]               = useState('');
-  const [targetAgent, setTargetAgent] = useState('');
-  const [submitting, setSubmitting]   = useState(false);
+  const [text, setText]             = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = useCallback(async () => {
     const trimmed = text.trim();
     if (!trimmed || submitting || disabled) return;
     setSubmitting(true);
     try {
-      const agent = type === 'question' ? targetAgent.trim() || undefined : undefined;
-      await onSubmit(type, trimmed, agent);
+      await onSubmit('note', trimmed, undefined);
       setText('');
-      setTargetAgent('');
     } finally {
       setSubmitting(false);
     }
-  }, [type, text, targetAgent, onSubmit, submitting, disabled]);
+  }, [text, onSubmit, submitting, disabled]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -207,41 +203,6 @@ function AddCommentForm({ onSubmit, disabled }: AddCommentFormProps) {
       </div>
       {/* Form body */}
       <div className="flex-1 flex flex-col gap-2 min-w-0">
-        {/* Type selector */}
-        <div role="group" aria-label="Comment type" className="flex rounded-lg overflow-hidden border border-border">
-          {(['note', 'question', 'answer'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              role="radio"
-              aria-checked={type === t}
-              onClick={() => setType(t)}
-              disabled={disabled}
-              className={`flex-1 py-1 text-xs font-medium capitalize transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
-                type === t
-                  ? 'bg-primary text-on-primary'
-                  : 'bg-surface-elevated text-text-secondary hover:bg-surface-variant hover:text-text-primary'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-
-        {/* Route-to-agent input (questions only) */}
-        {type === 'question' && (
-          <input
-            type="text"
-            value={targetAgent}
-            onChange={(e) => setTargetAgent(e.target.value)}
-            disabled={disabled || submitting}
-            placeholder="Route to agent (optional)"
-            aria-label="Route to agent"
-            data-testid="target-agent-input"
-            className="w-full px-3 py-2 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
-          />
-        )}
-
         {/* Textarea */}
         <textarea
           value={text}
@@ -249,13 +210,7 @@ function AddCommentForm({ onSubmit, disabled }: AddCommentFormProps) {
           onKeyDown={handleKeyDown}
           disabled={disabled || submitting}
           rows={3}
-          placeholder={
-            type === 'question'
-              ? 'Ask a question... (blocks pipeline until answered)'
-              : type === 'answer'
-              ? 'Answer a question...'
-              : 'Add a note...'
-          }
+          placeholder="Add a note..."
           aria-label="Comment text"
           className="w-full bg-surface-elevated border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-disabled resize-none focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast min-h-[72px]"
         />

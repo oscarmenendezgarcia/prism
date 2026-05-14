@@ -67,12 +67,8 @@ export function MarkdownModal() {
         </div>
       </ModalHeader>
 
-      {/* max-h-[88vh] gives the reader enough vertical space while keeping
-          the header and footer chrome accessible without scrolling. The
-          inner max-w-prose block centers the text column for comfortable
-          reading (≈65 characters per line). */}
       <ModalBody maxHeight="max-h-[88vh]" className="overflow-y-auto">
-        <div className="max-w-prose mx-auto">
+        <div>
           <MarkdownViewer content={modal.content} variant="prose" />
 
           {/* Source file path banner — shown when attachment type is "file" */}
