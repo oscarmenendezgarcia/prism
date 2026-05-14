@@ -650,7 +650,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           role="dialog"
           aria-modal="true"
           aria-label="Task detail"
-          className="pointer-events-auto w-full max-w-[960px] max-h-[90vh] flex flex-col bg-surface border border-border rounded-modal shadow-[0_32px_96px_rgba(0,0,0,0.28),0_0_0_1px_rgba(255,255,255,0.06)] animate-modal-dialog-in"
+          className="pointer-events-auto w-full max-w-[1200px] max-h-[90vh] flex flex-col bg-surface border border-border rounded-modal shadow-[0_32px_96px_rgba(0,0,0,0.28),0_0_0_1px_rgba(255,255,255,0.06)] animate-modal-dialog-in"
         >
           {/* ── Header ────────────────────────────────────────────────── */}
           <div className="flex items-center gap-3 h-14 px-5 border-b border-border bg-surface-elevated/40 rounded-t-modal flex-shrink-0">
@@ -740,7 +740,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
             </div>
 
             {/* ── RIGHT: metadata sidebar ────────────────────────────── */}
-            <div className="w-[300px] flex-shrink-0 border-l border-border bg-surface-elevated/20 overflow-y-auto px-5 py-7 flex flex-col gap-6">
+            <div className="w-[340px] flex-shrink-0 border-l border-border bg-surface-elevated/20 overflow-y-auto px-6 py-7 flex flex-col gap-6">
 
               {/* ID */}
               <div className="flex flex-col gap-2">
