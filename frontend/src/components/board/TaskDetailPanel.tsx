@@ -786,15 +786,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
         activeSpace={activeSpace}
       />
 
-      {/* ── Attachments ──────────────────────────────────────────── */}
+      {/* ── Attachments (pills) ──────────────────────────────────── */}
       {detailTask.attachments && detailTask.attachments.length > 0 && (
         <div className="flex flex-col gap-1.5" data-testid="attachments-section">
           <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
             Attachments
           </span>
-          <ul className="flex flex-col gap-1" aria-label="Task attachments">
+          <div className="flex flex-wrap gap-2" aria-label="Task attachments">
             {detailTask.attachments.map((att, index) => (
-              <li key={index}>
+              <React.Fragment key={index}>
                 {att.type === 'link' ? (
                   <a
                     href={att.content}
@@ -802,26 +802,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
                     rel="noopener noreferrer"
                     data-testid="attachment-row"
                     aria-label={`Open link ${att.name} in new tab`}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-elevated border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-fast"
                   >
-                    <span
-                      className="material-symbols-outlined text-[18px] leading-none text-primary flex-shrink-0"
-                      aria-hidden="true"
-                    >
+                    <span className="material-symbols-outlined text-[15px] leading-none text-primary flex-shrink-0" aria-hidden="true">
                       link
                     </span>
-                    <span className="flex-1 truncate font-mono text-xs text-text-primary">
-                      {att.name}
-                    </span>
-                    <span className="truncate text-xs text-text-secondary flex-shrink-0 max-w-[120px]">
-                      {(() => {
-                        try { return new URL(att.content ?? '').hostname; } catch { return att.content; }
-                      })()}
-                    </span>
-                    <span
-                      className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0"
-                      aria-hidden="true"
-                    >
+                    <span className="font-mono text-xs text-text-primary max-w-[180px] truncate">{att.name}</span>
+                    <span className="material-symbols-outlined text-[12px] leading-none text-text-disabled flex-shrink-0" aria-hidden="true">
                       open_in_new
                     </span>
                   </a>
@@ -832,28 +819,23 @@ export function TaskDetailPanel(): React.ReactElement | null {
                     onClick={() => handleAttachmentClick(index, att.name)}
                     disabled={loadingAttachmentIndex === index}
                     aria-label={`Open attachment ${att.name}`}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-colors duration-fast"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-elevated border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-all duration-fast"
                   >
-                    <span
-                      className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0"
-                      aria-hidden="true"
-                    >
-                      {loadingAttachmentIndex === index ? 'progress_activity' : att.type === 'file' ? 'folder' : 'attach_file'}
+                    <span className={`material-symbols-outlined text-[15px] leading-none text-text-secondary flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin' : ''}`} aria-hidden="true">
+                      {loadingAttachmentIndex === index
+                        ? 'progress_activity'
+                        : att.name.toLowerCase().endsWith('.md')
+                          ? 'description'
+                          : att.type === 'file'
+                            ? 'folder'
+                            : 'attach_file'}
                     </span>
-                    <span className="flex-1 truncate font-mono text-xs text-text-primary">
-                      {att.name}
-                    </span>
-                    <span
-                      className={`material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin' : ''}`}
-                      aria-hidden="true"
-                    >
-                      {loadingAttachmentIndex === index ? 'progress_activity' : 'open_in_new'}
-                    </span>
+                    <span className="font-mono text-xs text-text-primary max-w-[200px] truncate">{att.name}</span>
                   </button>
                 )}
-              </li>
+              </React.Fragment>
             ))}
-          </ul>
+          </div>
         </div>
       )}
     </>
@@ -893,123 +875,139 @@ export function TaskDetailPanel(): React.ReactElement | null {
   ];
 
   const attachmentsTabContent = detailTask.attachments && detailTask.attachments.length > 0 ? (
-    <ul className="flex flex-col gap-2" aria-label="Task attachments">
-      {detailTask.attachments.map((att, index) => (
-        <li key={index}>
-          {att.type === 'link' ? (
-            <a
-              href={att.content}
-              target="_blank"
-              rel="noopener noreferrer"
-              data-testid="attachment-row"
-              aria-label={`Open link ${att.name} in new tab`}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
-            >
-              <span className="material-symbols-outlined text-[18px] leading-none text-primary flex-shrink-0" aria-hidden="true">
-                link
-              </span>
-              <span className="flex-1 truncate font-mono text-xs text-text-primary">{att.name}</span>
-              <span className="truncate text-xs text-text-secondary flex-shrink-0 max-w-[120px]">
-                {(() => {
-                  try { return new URL(att.content ?? '').hostname; } catch { return att.content; }
-                })()}
-              </span>
-              <span className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0" aria-hidden="true">open_in_new</span>
-            </a>
-          ) : (
-            <button
-              type="button"
-              data-testid="attachment-row"
-              onClick={() => handleAttachmentClick(index, att.name)}
-              disabled={loadingAttachmentIndex === index}
-              aria-label={`Open attachment ${att.name}`}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-colors duration-fast"
-            >
-              <span className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0" aria-hidden="true">
-                {loadingAttachmentIndex === index ? 'progress_activity' : att.type === 'file' ? 'folder' : 'attach_file'}
-              </span>
-              <span className="flex-1 truncate font-mono text-xs text-text-primary">{att.name}</span>
-              <span className={`material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin' : ''}`} aria-hidden="true">
-                {loadingAttachmentIndex === index ? 'progress_activity' : 'open_in_new'}
-              </span>
-            </button>
-          )}
-        </li>
-      ))}
-    </ul>
+    <div className="flex flex-col gap-3">
+      <p className="text-xs text-text-disabled">
+        {detailTask.attachments.length} attachment{detailTask.attachments.length !== 1 ? 's' : ''}
+      </p>
+      <div className="flex flex-wrap gap-2" aria-label="Task attachments">
+        {detailTask.attachments.map((att, index) => (
+          <React.Fragment key={index}>
+            {att.type === 'link' ? (
+              <a
+                href={att.content}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open link ${att.name} in new tab`}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-surface-elevated border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-fast group"
+              >
+                <span className="material-symbols-outlined text-[16px] leading-none text-primary flex-shrink-0" aria-hidden="true">
+                  link
+                </span>
+                <span className="font-mono text-xs text-text-primary max-w-[240px] truncate">{att.name}</span>
+                {att.content && (
+                  <span className="text-[10px] text-text-disabled truncate max-w-[120px] hidden sm:inline">
+                    {(() => { try { return new URL(att.content).hostname; } catch { return ''; } })()}
+                  </span>
+                )}
+                <span className="material-symbols-outlined text-[12px] leading-none text-text-disabled group-hover:text-primary flex-shrink-0 transition-colors duration-fast" aria-hidden="true">
+                  open_in_new
+                </span>
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleAttachmentClick(index, att.name)}
+                disabled={loadingAttachmentIndex === index}
+                aria-label={`Open attachment ${att.name}`}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-surface-elevated border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-all duration-fast group"
+              >
+                <span className={`material-symbols-outlined text-[16px] leading-none flex-shrink-0 transition-colors duration-fast ${loadingAttachmentIndex === index ? 'animate-spin text-text-disabled' : att.name.toLowerCase().endsWith('.md') ? 'text-primary' : 'text-text-secondary group-hover:text-primary'}`} aria-hidden="true">
+                  {loadingAttachmentIndex === index
+                    ? 'progress_activity'
+                    : att.name.toLowerCase().endsWith('.md')
+                      ? 'description'
+                      : att.type === 'file'
+                        ? 'folder'
+                        : 'attach_file'}
+                </span>
+                <span className="font-mono text-xs text-text-primary max-w-[240px] truncate">{att.name}</span>
+              </button>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
   ) : (
-    <div className="flex flex-col items-center justify-center py-12 text-center">
-      <span className="material-symbols-outlined text-4xl text-text-disabled mb-3 select-none">attach_file</span>
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <span className="material-symbols-outlined text-5xl text-text-disabled mb-4 select-none opacity-40">attach_file</span>
       <p className="text-sm text-text-disabled">No attachments</p>
     </div>
   );
 
-  // ── Unified: right slide-over for all viewports ──────────────────────────
-  // Mobile (<768px): w-full fullscreen.
-  // Desktop (≥768px): fixed right panel, md:420px, lg:520px.
+  // ── Centered modal for all viewports ─────────────────────────────────────
+  // max-w-[900px], max-h-[90vh], fade-in + scale(0.96→1) entrance.
+  // Tab content fades on switch via key-based remount + animate-tab-content-fade.
 
   return (
     <>
-      {/* Backdrop — semitransparent so the board remains visible behind. */}
-      <div className="fixed inset-0 z-[105] bg-black/50" aria-hidden="true" onClick={closeDetailPanel} />
+      {/* Backdrop — click-to-close, aria-hidden so AT focuses the dialog. */}
+      <div className="fixed inset-0 z-[105] bg-black/60 backdrop-blur-[2px]" aria-hidden="true" onClick={closeDetailPanel} />
 
-      {/* Slide-over panel */}
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Task detail"
-        className="fixed inset-y-0 right-0 z-[110] w-full md:w-[420px] lg:w-[520px] flex flex-col bg-surface border-l border-border shadow-2xl animate-slide-in-right"
-      >
-        {/* ── Header ──────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3 h-14 px-5 border-b border-border flex-shrink-0">
-          {closeButton}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span className="font-mono text-xs text-text-disabled bg-surface-variant px-1.5 py-0.5 rounded flex-shrink-0">
-              {shortId}
-            </span>
-            {columnBadge}
-          </div>
-        </div>
-
-        {/* ── Tabs ─────────────────────────────────────────────────────── */}
-        <div className="flex flex-shrink-0 border-b border-border px-5" role="tablist">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 py-3 px-1 mr-5 text-sm font-medium border-b-2 -mb-px transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary/50 ${
-                activeTab === tab.id
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              {tab.label}
-              {tab.count != null && tab.count > 0 && (
-                <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-mono ${
-                  activeTab === tab.id ? 'bg-primary/15 text-primary' : 'bg-surface-variant text-text-disabled'
-                }`}>
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* ── Tab content ──────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto px-5 py-5" role="tabpanel">
-          {activeTab === 'details' && (
-            <div className="flex flex-col gap-5">
-              {fieldsContent}
-              <div className="flex flex-col gap-0.5 pt-2">
-                {timestampsContent}
-              </div>
+      {/* Centering wrapper — pointer-events-none so backdrop clicks pass through. */}
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 pointer-events-none">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Task detail"
+          className="pointer-events-auto w-full max-w-[900px] max-h-[90vh] flex flex-col bg-surface border border-border rounded-modal shadow-[0_32px_96px_rgba(0,0,0,0.28),0_0_0_1px_rgba(255,255,255,0.06)] animate-modal-dialog-in"
+        >
+          {/* ── Header ────────────────────────────────────────────────── */}
+          <div className="flex items-center gap-3 h-16 px-5 border-b-[1.5px] border-border bg-surface-elevated/40 rounded-t-modal flex-shrink-0">
+            {closeButton}
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <span className="font-mono text-xs text-text-disabled bg-surface-variant px-2 py-1 rounded-md flex-shrink-0 tracking-wider">
+                {shortId}
+              </span>
+              {columnBadge}
             </div>
-          )}
-          {activeTab === 'comments' && commentsContent}
-          {activeTab === 'attachments' && attachmentsTabContent}
+          </div>
+
+          {/* ── Tabs ──────────────────────────────────────────────────── */}
+          <div className="flex flex-shrink-0 border-b border-border px-5 bg-surface-elevated/20" role="tablist">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-1.5 py-3.5 px-1 mr-6 text-sm font-semibold border-b-2 -mb-px transition-all duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary/50 ${
+                  activeTab === tab.id
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-text-secondary hover:text-text-primary hover:border-border'
+                }`}
+              >
+                {tab.label}
+                {tab.count != null && tab.count > 0 && (
+                  <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-mono font-medium leading-none ${
+                    activeTab === tab.id
+                      ? 'bg-primary/15 text-primary'
+                      : 'bg-surface-variant text-text-disabled'
+                  }`}>
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Tab content ───────────────────────────────────────────── */}
+          <div
+            key={activeTab}
+            className="flex-1 overflow-y-auto px-6 py-5 animate-tab-content-fade"
+            role="tabpanel"
+          >
+            {activeTab === 'details' && (
+              <div className="flex flex-col gap-5">
+                {fieldsContent}
+                <div className="flex flex-col gap-0.5 pt-2">
+                  {timestampsContent}
+                </div>
+              </div>
+            )}
+            {activeTab === 'comments' && commentsContent}
+            {activeTab === 'attachments' && attachmentsTabContent}
+          </div>
         </div>
       </div>
     </>

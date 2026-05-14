@@ -751,118 +751,56 @@ describe('TaskDetailPanel — attachments section', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Responsive layout: desktop modal vs mobile slider
+// Layout: centered modal (all viewports)
 // ---------------------------------------------------------------------------
 
-/** Helper — simulates a desktop viewport by making matchMedia return true for min-width queries. */
-function mockDesktopViewport() {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: (query: string) => ({
-      matches: query.includes('min-width'),
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
-
-/** Helper — restores the default mobile matchMedia stub from test-setup.ts. */
-function mockMobileViewport() {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: (query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addListener: () => {},
-      removeListener: () => {},
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      dispatchEvent: () => false,
-    }),
-  });
-}
-
-describe('TaskDetailPanel — responsive layout: mobile slider (default)', () => {
-  it('renders a fixed slide-in panel (not a centered modal) on mobile', () => {
-    mockMobileViewport();
+describe('TaskDetailPanel — centered modal layout', () => {
+  it('renders a centered modal with animate-modal-dialog-in entrance', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
 
     const dialog = screen.getByRole('dialog');
-    // Mobile panel uses slide-in-right animation class
-    expect(dialog.className).toMatch(/animate-slide-in-right/);
-    // Mobile panel does NOT have the desktop modal test id
-    expect(document.body.querySelector('[data-testid="task-detail-modal"]')).toBeNull();
+    // Centered modal uses the modal-dialog-in entrance animation
+    expect(dialog.className).toMatch(/animate-modal-dialog-in/);
+    // Slide-over animation is NOT used
+    expect(dialog.className).not.toMatch(/animate-slide-in-right/);
   });
 
-  it('renders a Comments tab in mobile layout (Trend A tabbed design)', () => {
-    mockMobileViewport();
+  it('renders a Comments tab in modal layout (tabbed design)', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
 
     expect(screen.getByRole('tab', { name: /comments/i })).toBeInTheDocument();
   });
-});
 
-describe('TaskDetailPanel — responsive layout: desktop slide-over (≥768px)', () => {
-  // matchMedia helpers kept for reference but no longer affect layout
-  // since both viewports use the same slide-over pattern.
-
-  it('renders as a slide-over (not a centered modal) — no data-testid="task-detail-modal"', () => {
-    mockDesktopViewport();
+  it('dialog has correct ARIA attributes', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
 
-    // Slide-over is always used — no centered modal
-    const modal = document.body.querySelector('[data-testid="task-detail-modal"]');
-    expect(modal).toBeNull();
-    // Dialog is still present with correct ARIA attributes
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toHaveAttribute('aria-label', 'Task detail');
-    mockMobileViewport();
   });
 
-  it('desktop panel uses slide-in-right animation (not scale-in)', () => {
-    mockDesktopViewport();
-    useAppStore.setState({ detailTask: TASK } as any);
-    render(<TaskDetailPanel />);
-
-    const dialog = screen.getByRole('dialog');
-    expect(dialog.className).toMatch(/animate-slide-in-right/);
-    expect(dialog.className).not.toMatch(/animate-scale-in/);
-    mockMobileViewport();
-  });
-
-  it('renders all editable fields inside the desktop slide-over', () => {
-    mockDesktopViewport();
+  it('renders all editable fields inside the modal', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
 
     expect(screen.getByLabelText(/title/i)).toHaveValue(TASK.title);
     expect(screen.getByLabelText(/assigned/i)).toHaveValue(TASK.assigned);
     expect(screen.getByLabelText(/description/i)).toHaveValue(TASK.description);
-    mockMobileViewport();
   });
 
-  it('renders a Comments tab (tabbed layout replaces 2-column grid) on desktop', () => {
-    mockDesktopViewport();
+  it('renders a Comments tab (tabbed layout)', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
 
     expect(screen.getByRole('tab', { name: /comments/i })).toBeInTheDocument();
     // 2-column specific aria-labels are not present
     expect(document.body.querySelector('[aria-label="Task fields"]')).toBeNull();
-    mockMobileViewport();
   });
 
-  it('close button calls closeDetailPanel on desktop', () => {
+  it('close button calls closeDetailPanel', () => {
     const closeDetailPanel = vi.fn();
     useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
     render(<TaskDetailPanel />);
@@ -871,7 +809,7 @@ describe('TaskDetailPanel — responsive layout: desktop slide-over (≥768px)',
     expect(closeDetailPanel).toHaveBeenCalled();
   });
 
-  it('backdrop click calls closeDetailPanel on desktop', () => {
+  it('backdrop click calls closeDetailPanel', () => {
     const closeDetailPanel = vi.fn();
     useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
     render(<TaskDetailPanel />);
@@ -882,7 +820,7 @@ describe('TaskDetailPanel — responsive layout: desktop slide-over (≥768px)',
     expect(closeDetailPanel).toHaveBeenCalled();
   });
 
-  it('Escape key closes the desktop slide-over', () => {
+  it('Escape key closes the modal', () => {
     const closeDetailPanel = vi.fn();
     useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
     render(<TaskDetailPanel />);
@@ -925,19 +863,19 @@ describe('TaskDetailPanel — responsive layout: desktop slide-over (≥768px)',
     document.body.removeChild(titleEl);
   });
 
-  it('renders null when detailTask is null (desktop mode)', () => {
+  it('renders null when detailTask is null', () => {
     useAppStore.setState({ detailTask: null } as any);
     const { container } = render(<TaskDetailPanel />);
     expect(container.firstChild).toBeNull();
   });
 
-  it('shows the task short ID in the desktop slide-over header', () => {
+  it('shows the task short ID in the modal header', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
     expect(screen.getByText(`#${TASK.id.slice(-7)}`)).toBeInTheDocument();
   });
 
-  it('disables all inputs on desktop when isMutating is true', () => {
+  it('disables all inputs when isMutating is true', () => {
     useAppStore.setState({ detailTask: TASK, isMutating: true } as any);
     render(<TaskDetailPanel />);
     expect(screen.getByLabelText(/title/i)).toBeDisabled();
