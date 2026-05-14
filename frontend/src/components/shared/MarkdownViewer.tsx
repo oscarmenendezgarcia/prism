@@ -20,6 +20,12 @@ interface MarkdownViewerProps {
   content: string;
   /** Extra classes applied to the wrapper div. */
   className?: string;
+  /**
+   * Rendering variant:
+   * - "default": compact styles (text-sm, leading-relaxed) — for previews/panels.
+   * - "prose": comfortable reading styles (text-base, leading-[1.7]) — for the document reader.
+   */
+  variant?: 'default' | 'prose';
 }
 
 /**
@@ -210,10 +216,41 @@ const components: Components = {
   },
 };
 
-export function MarkdownViewer({ content, className = '' }: MarkdownViewerProps) {
+/**
+ * Element-level renderers for prose variant — larger text and comfortable
+ * line-height for long-form document reading.
+ */
+const proseComponents: Components = {
+  ...components,
+
+  p: ({ children }) => (
+    <p className="text-base text-text-primary leading-[1.7] mb-4 last:mb-0">
+      {children}
+    </p>
+  ),
+
+  ul: ({ children }) => (
+    <ul className="list-disc list-outside pl-5 mb-4 space-y-1.5 text-base text-text-primary">
+      {children}
+    </ul>
+  ),
+
+  ol: ({ children }) => (
+    <ol className="list-decimal list-outside pl-5 mb-4 space-y-1.5 text-base text-text-primary">
+      {children}
+    </ol>
+  ),
+
+  li: ({ children }) => (
+    <li className="leading-[1.7] pl-1">{children}</li>
+  ),
+};
+
+export function MarkdownViewer({ content, className = '', variant = 'default' }: MarkdownViewerProps) {
+  const resolvedComponents = variant === 'prose' ? proseComponents : components;
   return (
     <div className={`markdown-viewer ${className}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={resolvedComponents}>
         {content}
       </ReactMarkdown>
     </div>
