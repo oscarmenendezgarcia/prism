@@ -718,7 +718,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 disabled={fieldDisabled}
                 aria-disabled={fieldDisabled}
                 aria-label="Task title"
-                className="w-full bg-transparent border-b border-transparent hover:border-border/50 focus:border-primary/60 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none leading-snug disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
+                className="w-full bg-transparent border-b border-transparent hover:border-border/50 focus:border-primary/60 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none leading-snug pb-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
                 placeholder="Task title"
               />
 
