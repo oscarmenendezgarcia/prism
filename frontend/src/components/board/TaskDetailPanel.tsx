@@ -408,7 +408,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [localDescription, setLocalDescription] = useState('');
   const [localType, setLocalType]               = useState<'feature' | 'bug' | 'tech-debt' | 'chore'>('chore');
   const [isCopied, setIsCopied]                 = useState(false);
-  const [activeTab, setActiveTab]               = useState<'details' | 'comments' | 'attachments'>('details');
   /** Index of attachment currently being fetched for direct .md → reader opening. */
   const [loadingAttachmentIndex, setLoadingAttachmentIndex] = useState<number | null>(null);
 
@@ -841,18 +840,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
     </>
   );
 
-  const commentsContent = (
-    <div className="flex flex-col gap-1.5" data-testid="comments-panel">
-      <CommentsSection
-        spaceId={activeSpaceId}
-        taskId={detailTask.id}
-        comments={detailTask.comments ?? []}
-        onCommentCreated={handleCommentCreated}
-        onCommentUpdated={handleCommentUpdated}
-        disabled={fieldDisabled}
-      />
-    </div>
-  );
 
   const timestampsContent = (
     <>
@@ -865,85 +852,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
     </>
   );
 
-  // ── Unified: slide-in panel from the right (Trend A — wireframe S-04) ──────
-  // Single layout for all viewports. Tabs replace the desktop 2-column grid.
-
-  const tabs = [
-    { id: 'details' as const, label: 'Details' },
-    { id: 'comments' as const, label: 'Comments', count: (detailTask.comments ?? []).length },
-    { id: 'attachments' as const, label: 'Attachments', count: detailTask.attachments?.length ?? 0 },
-  ];
-
-  const attachmentsTabContent = detailTask.attachments && detailTask.attachments.length > 0 ? (
-    <div className="flex flex-col gap-3">
-      <p className="text-xs text-text-disabled">
-        {detailTask.attachments.length} attachment{detailTask.attachments.length !== 1 ? 's' : ''}
-      </p>
-      <div className="flex flex-wrap gap-2" aria-label="Task attachments">
-        {detailTask.attachments.map((att, index) => (
-          <React.Fragment key={index}>
-            {att.type === 'link' ? (
-              <a
-                href={att.content}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={`Open link ${att.name} in new tab`}
-                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-surface-elevated border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-fast group"
-              >
-                <span className="material-symbols-outlined text-[16px] leading-none text-primary flex-shrink-0" aria-hidden="true">
-                  link
-                </span>
-                <span className="font-mono text-xs text-text-primary max-w-[240px] truncate">{att.name}</span>
-                {att.content && (
-                  <span className="text-[10px] text-text-disabled truncate max-w-[120px] hidden sm:inline">
-                    {(() => { try { return new URL(att.content).hostname; } catch { return ''; } })()}
-                  </span>
-                )}
-                <span className="material-symbols-outlined text-[12px] leading-none text-text-disabled group-hover:text-primary flex-shrink-0 transition-colors duration-fast" aria-hidden="true">
-                  open_in_new
-                </span>
-              </a>
-            ) : (
-              <button
-                type="button"
-                onClick={() => handleAttachmentClick(index, att.name)}
-                disabled={loadingAttachmentIndex === index}
-                aria-label={`Open attachment ${att.name}`}
-                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full bg-surface-elevated border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-all duration-fast group"
-              >
-                <span className={`material-symbols-outlined text-[16px] leading-none flex-shrink-0 transition-colors duration-fast ${loadingAttachmentIndex === index ? 'animate-spin text-text-disabled' : att.name.toLowerCase().endsWith('.md') ? 'text-primary' : 'text-text-secondary group-hover:text-primary'}`} aria-hidden="true">
-                  {loadingAttachmentIndex === index
-                    ? 'progress_activity'
-                    : att.name.toLowerCase().endsWith('.md')
-                      ? 'description'
-                      : att.type === 'file'
-                        ? 'folder'
-                        : 'attach_file'}
-                </span>
-                <span className="font-mono text-xs text-text-primary max-w-[240px] truncate">{att.name}</span>
-              </button>
-            )}
-          </React.Fragment>
-        ))}
-      </div>
-    </div>
-  ) : (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <span className="material-symbols-outlined text-5xl text-text-disabled mb-4 select-none opacity-40">attach_file</span>
-      <p className="text-sm text-text-disabled">No attachments</p>
-    </div>
-  );
-
-  // ── Centered modal for all viewports ─────────────────────────────────────
+  // ── Centered modal — single scrollable body ─────────────────────────────
   // max-w-[900px], max-h-[90vh], fade-in + scale(0.96→1) entrance.
-  // Tab content fades on switch via key-based remount + animate-tab-content-fade.
 
   return (
     <>
-      {/* Backdrop — click-to-close, aria-hidden so AT focuses the dialog. */}
+      {/* Backdrop */}
       <div className="fixed inset-0 z-[105] bg-black/60 backdrop-blur-[2px]" aria-hidden="true" onClick={closeDetailPanel} />
 
-      {/* Centering wrapper — pointer-events-none so backdrop clicks pass through. */}
+      {/* Centering wrapper */}
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 pointer-events-none">
         <div
           ref={panelRef}
@@ -953,7 +870,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           className="pointer-events-auto w-full max-w-[900px] max-h-[90vh] flex flex-col bg-surface border border-border rounded-modal shadow-[0_32px_96px_rgba(0,0,0,0.28),0_0_0_1px_rgba(255,255,255,0.06)] animate-modal-dialog-in"
         >
           {/* ── Header ────────────────────────────────────────────────── */}
-          <div className="flex items-center gap-3 h-16 px-5 border-b-[1.5px] border-border bg-surface-elevated/40 rounded-t-modal flex-shrink-0">
+          <div className="flex items-center gap-3 h-14 px-5 border-b border-border bg-surface-elevated/40 rounded-t-modal flex-shrink-0">
             {closeButton}
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
               <span className="font-mono text-xs text-text-disabled bg-surface-variant px-2 py-1 rounded-md flex-shrink-0 tracking-wider">
@@ -963,50 +880,26 @@ export function TaskDetailPanel(): React.ReactElement | null {
             </div>
           </div>
 
-          {/* ── Tabs ──────────────────────────────────────────────────── */}
-          <div className="flex flex-shrink-0 border-b border-border px-5 bg-surface-elevated/20" role="tablist">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={activeTab === tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-1.5 py-3.5 px-1 mr-6 text-sm font-semibold border-b-2 -mb-px transition-all duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary/50 ${
-                  activeTab === tab.id
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-text-secondary hover:text-text-primary hover:border-border'
-                }`}
-              >
-                {tab.label}
-                {tab.count != null && tab.count > 0 && (
-                  <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-mono font-medium leading-none ${
-                    activeTab === tab.id
-                      ? 'bg-primary/15 text-primary'
-                      : 'bg-surface-variant text-text-disabled'
-                  }`}>
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+          {/* ── Scrollable body ───────────────────────────────────────── */}
+          <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+            {fieldsContent}
 
-          {/* ── Tab content ───────────────────────────────────────────── */}
-          <div
-            key={activeTab}
-            className="flex-1 overflow-y-auto px-6 py-5 animate-tab-content-fade"
-            role="tabpanel"
-          >
-            {activeTab === 'details' && (
-              <div className="flex flex-col gap-5">
-                {fieldsContent}
-                <div className="flex flex-col gap-0.5 pt-2">
-                  {timestampsContent}
-                </div>
-              </div>
-            )}
-            {activeTab === 'comments' && commentsContent}
-            {activeTab === 'attachments' && attachmentsTabContent}
+            {/* ── Comments ──────────────────────────────────────────── */}
+            <div className="border-t border-border pt-5" data-testid="comments-panel">
+              <CommentsSection
+                spaceId={activeSpaceId}
+                taskId={detailTask.id}
+                comments={detailTask.comments ?? []}
+                onCommentCreated={handleCommentCreated}
+                onCommentUpdated={handleCommentUpdated}
+                disabled={fieldDisabled}
+              />
+            </div>
+
+            {/* ── Timestamps ────────────────────────────────────────── */}
+            <div className="flex flex-col gap-0.5 pt-1 pb-1">
+              {timestampsContent}
+            </div>
           </div>
         </div>
       </div>
