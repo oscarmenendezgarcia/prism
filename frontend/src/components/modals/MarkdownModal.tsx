@@ -51,6 +51,7 @@ export function MarkdownModal() {
       open={isOpen}
       onClose={handleClose}
       labelId={TITLE_ID}
+      maxWidth=""
       className="w-[85vw] max-w-[85vw] mx-auto"
     >
       <ModalHeader onClose={handleClose}>
@@ -69,7 +70,7 @@ export function MarkdownModal() {
           the header and footer chrome accessible without scrolling. The
           inner max-w-prose block centers the text column for comfortable
           reading (≈65 characters per line). */}
-      <ModalBody className="max-h-[88vh] overflow-y-auto">
+      <ModalBody maxHeight="max-h-[88vh]" className="overflow-y-auto">
         <div className="max-w-prose mx-auto">
           <MarkdownViewer content={modal.content} variant="prose" />
 

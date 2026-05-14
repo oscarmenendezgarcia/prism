@@ -14,6 +14,12 @@ interface ModalProps {
   /** Override enter/exit animation classes on the content box. */
   enterAnimation?: string;
   exitAnimation?: string;
+  /**
+   * Tailwind max-width class applied to the content box.
+   * Defaults to 'max-w-lg'. Pass '' (empty string) to remove the constraint
+   * and let className control the width entirely (e.g. for MarkdownModal 85vw).
+   */
+  maxWidth?: string;
 }
 
 export function Modal({
@@ -26,6 +32,7 @@ export function Modal({
   role = 'dialog',
   enterAnimation = 'animate-scale-in',
   exitAnimation = 'animate-modal-out',
+  maxWidth = 'max-w-lg',
 }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -119,7 +126,7 @@ export function Modal({
         onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
       >
         <div
-          className={`bg-surface glass-heavy border border-border rounded-modal shadow-modal w-full max-w-lg mx-4 flex flex-col ${isClosing ? exitAnimation : enterAnimation} ${className}`}
+          className={`bg-surface glass-heavy border border-border rounded-modal shadow-modal w-full ${maxWidth} mx-4 flex flex-col ${isClosing ? exitAnimation : enterAnimation} ${className}`}
           onClick={(e) => e.stopPropagation()}
         >
           {children}
@@ -157,8 +164,21 @@ export function ModalTitle({ id, children, className = '' }: { id?: string; chil
   );
 }
 
-export function ModalBody({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <div className={`px-6 py-4 overflow-y-auto max-h-[calc(90vh-9rem)] ${className}`}>{children}</div>;
+export function ModalBody({
+  children,
+  className = '',
+  maxHeight = 'max-h-[calc(90vh-9rem)]',
+}: {
+  children: React.ReactNode;
+  className?: string;
+  /**
+   * Tailwind max-height class for the scrollable body.
+   * Defaults to 'max-h-[calc(90vh-9rem)]'. Override to set a different
+   * height constraint (e.g. 'max-h-[88vh]' for the full-width reader).
+   */
+  maxHeight?: string;
+}) {
+  return <div className={`px-6 py-4 overflow-y-auto ${maxHeight} ${className}`}>{children}</div>;
 }
 
 export function ModalFooter({ children }: { children: React.ReactNode }) {
