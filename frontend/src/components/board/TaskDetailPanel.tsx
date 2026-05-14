@@ -634,226 +634,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
     </button>
   );
 
-  /** All editable fields (title, type, assigned, description, pipeline, attachments). */
-  const fieldsContent = (
-    <>
-      {/* Active run warning banner */}
-      {isActiveRun && (
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30">
-          <span className="material-symbols-outlined text-warning text-[18px] leading-none flex-shrink-0" aria-hidden="true">
-            warning
-          </span>
-          <p className="text-xs text-warning leading-snug">
-            Agent pipeline is running — editing disabled
-          </p>
-        </div>
-      )}
-
-      {/* ── ID ──────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          ID
-        </span>
-        <div className="flex items-center gap-2">
-          <span className="flex-1 font-mono text-xs text-text-secondary bg-surface-elevated border border-border rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap">
-            {detailTask.id}
-          </span>
-          <button
-            type="button"
-            onClick={handleCopyId}
-            aria-label="Copy task ID"
-            title="Copy task ID"
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
-          >
-            <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
-              {isCopied ? 'check' : 'content_copy'}
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/* ── Title ───────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="detail-title" className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          Title
-        </label>
-        <input
-          id="detail-title"
-          ref={titleInputRef}
-          type="text"
-          value={localTitle}
-          onChange={(e) => setLocalTitle(e.target.value)}
-          onBlur={handleTitleBlur}
-          disabled={fieldDisabled}
-          aria-disabled={fieldDisabled}
-          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
-          placeholder="Task title"
-        />
-      </div>
-
-      {/* ── Type ────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          Type
-        </span>
-        <div
-          role="group"
-          aria-label="Task type"
-          className="flex rounded-lg overflow-hidden border border-border"
-        >
-          {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              role="radio"
-              aria-checked={localType === t}
-              onClick={() => handleTypeChange(t)}
-              disabled={fieldDisabled}
-              aria-disabled={fieldDisabled}
-              className={`flex-1 py-1.5 text-xs font-medium capitalize transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
-                localType === t
-                  ? 'bg-primary text-on-primary'
-                  : 'bg-surface-elevated text-text-secondary hover:bg-surface-variant hover:text-text-primary'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Assigned ────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="detail-assigned" className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          Assigned
-        </label>
-        <input
-          id="detail-assigned"
-          type="text"
-          value={localAssigned}
-          onChange={(e) => setLocalAssigned(e.target.value)}
-          onBlur={handleAssignedBlur}
-          disabled={fieldDisabled}
-          aria-disabled={fieldDisabled}
-          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
-          placeholder="Assign to someone..."
-        />
-      </div>
-
-      {/* ── Description ─────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="detail-description" className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          Description
-        </label>
-        <textarea
-          id="detail-description"
-          value={localDescription}
-          onChange={(e) => setLocalDescription(e.target.value)}
-          disabled={fieldDisabled}
-          aria-disabled={fieldDisabled}
-          rows={6}
-          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border font-sans text-sm text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-all duration-fast"
-          placeholder="Add a description..."
-        />
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            onClick={handleSaveDescription}
-            disabled={fieldDisabled}
-            className="text-xs px-3 py-1.5"
-          >
-            {isMutating ? (
-              <>
-                <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">
-                  progress_activity
-                </span>
-                Saving...
-              </>
-            ) : (
-              'Save description'
-            )}
-          </Button>
-        </div>
-      </div>
-
-      {/* ── Pipeline (T-009) ────────────────────────────────────── */}
-      <PipelineFieldEditor
-        pipeline={detailTask.pipeline}
-        availableAgentIds={availableAgents.map((a) => a.id)}
-        onSave={handlePipelineSave}
-        disabled={fieldDisabled}
-        activeSpace={activeSpace}
-      />
-
-      {/* ── Attachments (pills) ──────────────────────────────────── */}
-      {detailTask.attachments && detailTask.attachments.length > 0 && (
-        <div className="flex flex-col gap-1.5" data-testid="attachments-section">
-          <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-            Attachments
-          </span>
-          <div className="flex flex-wrap gap-2" aria-label="Task attachments">
-            {detailTask.attachments.map((att, index) => (
-              <React.Fragment key={index}>
-                {att.type === 'link' ? (
-                  <a
-                    href={att.content}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-testid="attachment-row"
-                    aria-label={`Open link ${att.name} in new tab`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-elevated border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-fast"
-                  >
-                    <span className="material-symbols-outlined text-[15px] leading-none text-primary flex-shrink-0" aria-hidden="true">
-                      link
-                    </span>
-                    <span className="font-mono text-xs text-text-primary max-w-[180px] truncate">{att.name}</span>
-                    <span className="material-symbols-outlined text-[12px] leading-none text-text-disabled flex-shrink-0" aria-hidden="true">
-                      open_in_new
-                    </span>
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    data-testid="attachment-row"
-                    onClick={() => handleAttachmentClick(index, att.name)}
-                    disabled={loadingAttachmentIndex === index}
-                    aria-label={`Open attachment ${att.name}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-elevated border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-all duration-fast"
-                  >
-                    <span className={`material-symbols-outlined text-[15px] leading-none text-text-secondary flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin' : ''}`} aria-hidden="true">
-                      {loadingAttachmentIndex === index
-                        ? 'progress_activity'
-                        : att.name.toLowerCase().endsWith('.md')
-                          ? 'description'
-                          : att.type === 'file'
-                            ? 'folder'
-                            : 'attach_file'}
-                    </span>
-                    <span className="font-mono text-xs text-text-primary max-w-[200px] truncate">{att.name}</span>
-                  </button>
-                )}
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-      )}
-    </>
-  );
-
-
-  const timestampsContent = (
-    <>
-      <span className="text-[11px] text-text-disabled">
-        Created: {formatTimestamp(detailTask.createdAt)}
-      </span>
-      <span className="text-[11px] text-text-disabled">
-        Updated: {formatTimestamp(detailTask.updatedAt)}
-      </span>
-    </>
-  );
-
-  // ── Centered modal — single scrollable body ─────────────────────────────
-  // max-w-[900px], max-h-[90vh], fade-in + scale(0.96→1) entrance.
+  // ── Two-column centered modal ────────────────────────────────────────────
+  // Left (flex-1): title, description, comments.
+  // Right (w-[280px], elevated): ID, type, assigned, pipeline, attachments, timestamps.
 
   return (
     <>
@@ -867,7 +650,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           role="dialog"
           aria-modal="true"
           aria-label="Task detail"
-          className="pointer-events-auto w-full max-w-[900px] max-h-[90vh] flex flex-col bg-surface border border-border rounded-modal shadow-[0_32px_96px_rgba(0,0,0,0.28),0_0_0_1px_rgba(255,255,255,0.06)] animate-modal-dialog-in"
+          className="pointer-events-auto w-full max-w-[960px] max-h-[90vh] flex flex-col bg-surface border border-border rounded-modal shadow-[0_32px_96px_rgba(0,0,0,0.28),0_0_0_1px_rgba(255,255,255,0.06)] animate-modal-dialog-in"
         >
           {/* ── Header ────────────────────────────────────────────────── */}
           <div className="flex items-center gap-3 h-14 px-5 border-b border-border bg-surface-elevated/40 rounded-t-modal flex-shrink-0">
@@ -880,25 +663,200 @@ export function TaskDetailPanel(): React.ReactElement | null {
             </div>
           </div>
 
-          {/* ── Scrollable body ───────────────────────────────────────── */}
-          <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
-            {fieldsContent}
+          {/* ── Two-column body ───────────────────────────────────────── */}
+          <div className="flex min-h-0 flex-1 overflow-hidden rounded-b-modal">
 
-            {/* ── Comments ──────────────────────────────────────────── */}
-            <div className="border-t border-border pt-5" data-testid="comments-panel">
-              <CommentsSection
-                spaceId={activeSpaceId}
-                taskId={detailTask.id}
-                comments={detailTask.comments ?? []}
-                onCommentCreated={handleCommentCreated}
-                onCommentUpdated={handleCommentUpdated}
+            {/* ── LEFT: title · description · comments ──────────────── */}
+            <div className="flex-1 min-w-0 overflow-y-auto px-6 py-5 flex flex-col gap-5">
+              {isActiveRun && (
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30">
+                  <span className="material-symbols-outlined text-warning text-[18px] leading-none flex-shrink-0" aria-hidden="true">warning</span>
+                  <p className="text-xs text-warning leading-snug">Agent pipeline is running — editing disabled</p>
+                </div>
+              )}
+
+              {/* Title — large, borderless */}
+              <input
+                id="detail-title"
+                ref={titleInputRef}
+                type="text"
+                value={localTitle}
+                onChange={(e) => setLocalTitle(e.target.value)}
+                onBlur={handleTitleBlur}
                 disabled={fieldDisabled}
+                aria-disabled={fieldDisabled}
+                aria-label="Task title"
+                className="w-full bg-transparent border-none text-[18px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                placeholder="Task title"
               />
+
+              {/* Description */}
+              <div className="flex flex-col gap-2">
+                <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-disabled uppercase tracking-widest">
+                  Description
+                </label>
+                <textarea
+                  id="detail-description"
+                  value={localDescription}
+                  onChange={(e) => setLocalDescription(e.target.value)}
+                  disabled={fieldDisabled}
+                  aria-disabled={fieldDisabled}
+                  rows={10}
+                  className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border font-sans text-sm text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-all duration-fast"
+                  placeholder="Add a description..."
+                />
+                <div className="flex justify-end">
+                  <Button
+                    variant="primary"
+                    onClick={handleSaveDescription}
+                    disabled={fieldDisabled}
+                    className="text-xs px-3 py-1.5"
+                  >
+                    {isMutating ? (
+                      <>
+                        <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">progress_activity</span>
+                        Saving...
+                      </>
+                    ) : (
+                      'Save description'
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Comments */}
+              <div className="border-t border-border pt-5" data-testid="comments-panel">
+                <CommentsSection
+                  spaceId={activeSpaceId}
+                  taskId={detailTask.id}
+                  comments={detailTask.comments ?? []}
+                  onCommentCreated={handleCommentCreated}
+                  onCommentUpdated={handleCommentUpdated}
+                  disabled={fieldDisabled}
+                />
+              </div>
             </div>
 
-            {/* ── Timestamps ────────────────────────────────────────── */}
-            <div className="flex flex-col gap-0.5 pt-1 pb-1">
-              {timestampsContent}
+            {/* ── RIGHT: metadata sidebar ────────────────────────────── */}
+            <div className="w-[280px] flex-shrink-0 border-l border-border bg-surface-elevated/20 overflow-y-auto px-4 py-5 flex flex-col gap-5">
+
+              {/* ID */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-widest">ID</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="flex-1 font-mono text-[11px] text-text-secondary bg-surface border border-border rounded-md px-2 py-1.5 select-all overflow-x-auto whitespace-nowrap min-w-0">
+                    {detailTask.id}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyId}
+                    aria-label="Copy task ID"
+                    title="Copy task ID"
+                    className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+                  >
+                    <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
+                      {isCopied ? 'check' : 'content_copy'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Type */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-widest">Type</span>
+                <div role="group" aria-label="Task type" className="flex flex-wrap gap-1.5">
+                  {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      role="radio"
+                      aria-checked={localType === t}
+                      onClick={() => handleTypeChange(t)}
+                      disabled={fieldDisabled}
+                      aria-disabled={fieldDisabled}
+                      className={`px-2.5 py-1 text-[11px] font-medium capitalize rounded-full border transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
+                        localType === t
+                          ? 'bg-primary/15 border-primary/40 text-primary'
+                          : 'bg-surface border-border text-text-secondary hover:bg-surface-variant hover:text-text-primary'
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Assigned */}
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="detail-assigned" className="text-[10px] font-semibold text-text-disabled uppercase tracking-widest">Assigned</label>
+                <input
+                  id="detail-assigned"
+                  type="text"
+                  value={localAssigned}
+                  onChange={(e) => setLocalAssigned(e.target.value)}
+                  onBlur={handleAssignedBlur}
+                  disabled={fieldDisabled}
+                  aria-disabled={fieldDisabled}
+                  className="w-full px-2.5 py-2 rounded-md bg-surface border border-border text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
+                  placeholder="Assign to someone..."
+                />
+              </div>
+
+              {/* Pipeline */}
+              <PipelineFieldEditor
+                pipeline={detailTask.pipeline}
+                availableAgentIds={availableAgents.map((a) => a.id)}
+                onSave={handlePipelineSave}
+                disabled={fieldDisabled}
+                activeSpace={activeSpace}
+              />
+
+              {/* Attachments */}
+              {detailTask.attachments && detailTask.attachments.length > 0 && (
+                <div className="flex flex-col gap-1.5" data-testid="attachments-section">
+                  <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-widest">Attachments</span>
+                  <div className="flex flex-wrap gap-1.5" aria-label="Task attachments">
+                    {detailTask.attachments.map((att, index) => (
+                      <React.Fragment key={index}>
+                        {att.type === 'link' ? (
+                          <a
+                            href={att.content}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            data-testid="attachment-row"
+                            aria-label={`Open link ${att.name} in new tab`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-fast"
+                          >
+                            <span className="material-symbols-outlined text-[13px] leading-none text-primary flex-shrink-0" aria-hidden="true">link</span>
+                            <span className="font-mono text-[11px] text-text-primary max-w-[140px] truncate">{att.name}</span>
+                            <span className="material-symbols-outlined text-[11px] leading-none text-text-disabled flex-shrink-0" aria-hidden="true">open_in_new</span>
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            data-testid="attachment-row"
+                            onClick={() => handleAttachmentClick(index, att.name)}
+                            disabled={loadingAttachmentIndex === index}
+                            aria-label={`Open attachment ${att.name}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface border border-border hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-all duration-fast"
+                          >
+                            <span className={`material-symbols-outlined text-[13px] leading-none text-text-secondary flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin' : ''}`} aria-hidden="true">
+                              {loadingAttachmentIndex === index ? 'progress_activity' : att.name.toLowerCase().endsWith('.md') ? 'description' : att.type === 'file' ? 'folder' : 'attach_file'}
+                            </span>
+                            <span className="font-mono text-[11px] text-text-primary max-w-[160px] truncate">{att.name}</span>
+                          </button>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Timestamps — pushed to bottom */}
+              <div className="mt-auto pt-4 border-t border-border flex flex-col gap-0.5">
+                <span className="text-[10px] text-text-disabled">Created: {formatTimestamp(detailTask.createdAt)}</span>
+                <span className="text-[10px] text-text-disabled">Updated: {formatTimestamp(detailTask.updatedAt)}</span>
+              </div>
             </div>
           </div>
         </div>
