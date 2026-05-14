@@ -696,7 +696,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-b-modal">
 
             {/* ── LEFT: title · description · comments ──────────────── */}
-            <div className={`min-w-0 overflow-y-auto px-16 pt-7 pb-8 flex flex-col gap-6 md:flex-1 ${mobileTab === 'content' ? 'flex-1' : 'hidden md:flex'}`}>
+            <div className={`min-w-0 overflow-y-auto px-8 pt-7 pb-8 md:flex-1 ${mobileTab === 'content' ? 'flex-1' : 'hidden md:flex'}`}>
+              <div className="max-w-[600px] mx-auto w-full flex flex-col gap-6">
               {isActiveRun && (
                 <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30">
                   <span className="material-symbols-outlined text-warning text-[18px] leading-none flex-shrink-0" aria-hidden="true">warning</span>
@@ -749,6 +750,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   disabled={fieldDisabled}
                 />
               </div>
+              </div>{/* end max-w wrapper */}
             </div>
 
             {/* ── RIGHT: metadata sidebar ────────────────────────────── */}
