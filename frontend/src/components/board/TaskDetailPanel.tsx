@@ -442,9 +442,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
     // steals focus.
     triggerRef.current = document.activeElement;
 
-    // Defer focus so the panel has time to mount and become visible.
+    // Focus goes to the panel container (not the title input) so the modal
+    // is keyboard-accessible without immediately entering edit mode.
     requestAnimationFrame(() => {
-      titleInputRef.current?.focus();
+      panelRef.current?.focus();
     });
   }, [detailTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Only re-sync when a different task is opened, not on every field update.
@@ -662,6 +663,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           role="dialog"
           aria-modal="true"
           aria-label="Task detail"
+          tabIndex={-1}
           className="pointer-events-auto w-full max-w-[1200px] max-h-[90vh] flex flex-col bg-surface border border-border rounded-modal shadow-[0_32px_96px_rgba(0,0,0,0.28),0_0_0_1px_rgba(255,255,255,0.06)] animate-modal-dialog-in"
         >
           {/* ── Header ────────────────────────────────────────────────── */}
