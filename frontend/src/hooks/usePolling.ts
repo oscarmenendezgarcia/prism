@@ -8,8 +8,9 @@
  *   - 1000 ms when a run is active (activeRun !== null or pipelineState running)
  *   - 3000 ms when idle
  *
- * When idle (pipelineState === null), also probes for externally-launched
- * backend runs (e.g. via MCP or CLI) so the log panel opens without a reload.
+ * On every idle tick, probes for externally-launched backend runs (e.g. via
+ * MCP or CLI) so the log panel opens without a reload.  All runs with status
+ * running/interrupted/failed that are not yet in pipelineStates are attached.
  *
  * When pipelineState has a runId, syncs currentStageIndex and status from
  * the backend so the UI reflects stage transitions without a full page reload.
@@ -24,30 +25,47 @@ import type { PipelineStage } from '@/types';
 const POLL_INTERVAL_ACTIVE_MS = 1000;
 const POLL_INTERVAL_IDLE_MS   = 3000;
 
-async function attachExternalRunIfAny(): Promise<void> {
-  const { pipelineState, attachRun } = useAppStore.getState();
-  if (pipelineState !== null) return;
+/** @internal exported for unit testing only */
+export async function attachExternalRunIfAny(): Promise<void> {
+  const { attachRun } = useAppStore.getState();
   try {
     const runs = await listRuns();
-    const active = runs
-      .filter((r) => r.status === 'running')
-      .sort((a, b) => new Date(b.updatedAt ?? b.createdAt).getTime() - new Date(a.updatedAt ?? a.createdAt).getTime())[0];
-    if (!active) return;
-    // Re-check pipelineState — may have been set by the time the fetch resolved.
-    if (useAppStore.getState().pipelineState !== null) return;
-    const full = await getBackendRun(active.runId);
-    attachRun({
-      spaceId:           full.spaceId,
-      taskId:            full.taskId,
-      stages:            full.stages as PipelineStage[],
-      currentStageIndex: full.currentStage ?? 0,
-      startedAt:         full.createdAt,
-      finishedAt:        undefined,
-      status:            'running',
-      runId:             full.runId,
-      subTaskIds:        [],
-      checkpoints:       [],
-    });
+    // Collect all runs that are still active on the backend side.
+    const candidates = runs.filter(
+      (r) => r.status === 'running' || r.status === 'interrupted' || r.status === 'failed',
+    );
+    if (candidates.length === 0) return;
+
+    for (const candidate of candidates) {
+      // Skip runs that are already tracked in pipelineStates (re-read on every
+      // iteration — a previous loop iteration may have just attached one).
+      if (useAppStore.getState().pipelineStates[candidate.runId]) continue;
+
+      try {
+        const full = await getBackendRun(candidate.runId);
+        // Re-check after the async fetch to avoid a TOCTOU race.
+        if (useAppStore.getState().pipelineStates[full.runId]) continue;
+
+        // Map backend status to the frontend PipelineState status vocabulary.
+        const frontendStatus: 'running' | 'interrupted' =
+          full.status === 'running' ? 'running' : 'interrupted';
+
+        attachRun({
+          spaceId:           full.spaceId,
+          taskId:            full.taskId,
+          stages:            full.stages as PipelineStage[],
+          currentStageIndex: full.currentStage ?? 0,
+          startedAt:         full.createdAt,
+          finishedAt:        undefined,
+          status:            frontendStatus,
+          runId:             full.runId,
+          subTaskIds:        [],
+          checkpoints:       full.checkpoints ?? [],
+        });
+      } catch {
+        // Individual fetch failure — skip this run, try the next one.
+      }
+    }
   } catch {
     // Network error or server not ready — silently skip.
   }
@@ -170,10 +188,11 @@ export function usePolling(): void {
       if (pipelineState?.runId) {
         // Sync current stage and status from backend.
         syncPipelineState();
-      } else if (!pipelineState) {
-        // When idle, also check for externally-launched runs.
-        attachExternalRunIfAny();
       }
+      // Always probe for externally-launched runs (running, interrupted, failed)
+      // that are not yet in pipelineStates.  attachExternalRunIfAny is idempotent
+      // — it skips runIds already present in pipelineStates.
+      attachExternalRunIfAny();
     }, intervalMs);
 
     return () => clearInterval(id);
