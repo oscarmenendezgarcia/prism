@@ -420,7 +420,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   // ── Refs for focus management ────────────────────────────────────────────
 
   const panelRef         = useRef<HTMLDivElement | null>(null);
-  const titleInputRef    = useRef<HTMLInputElement | null>(null);
+  const titleInputRef    = useRef<HTMLTextAreaElement | null>(null);
   const descTextareaRef  = useRef<HTMLTextAreaElement | null>(null);
   /** Element that triggered the panel open — focus returns here on close. */
   const triggerRef       = useRef<Element | null>(null);
@@ -450,6 +450,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
   }, [detailTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Only re-sync when a different task is opened, not on every field update.
 
+  // Auto-grow title textarea. Setting height='0' first forces browsers to
+  // recalculate scrollHeight correctly even with overflow-y:hidden.
+  useEffect(() => {
+    const el = titleInputRef.current;
+    if (!el) return;
+    el.style.height = '0';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [localTitle]);
+
   // BUG-001: Ensure agents are loaded when the panel opens so the pipeline
   // editor's "Add stage" dropdown is populated. Guard prevents redundant
   // fetches if agents were already loaded by AgentLauncherMenu or the modal.
@@ -466,7 +475,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   useEffect(() => {
     const el = descTextareaRef.current;
     if (!el) return;
-    el.style.height = 'auto';
+    el.style.height = '0';
     el.style.height = `${el.scrollHeight}px`;
   }, [localDescription]);
 
@@ -707,18 +716,23 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 </div>
               )}
 
-              {/* Title */}
-              <input
+              {/* Title — textarea wraps long titles instead of truncating */}
+              <textarea
                 id="detail-title"
                 ref={titleInputRef}
-                type="text"
                 value={localTitle}
                 onChange={(e) => setLocalTitle(e.target.value)}
                 onBlur={handleTitleBlur}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    titleInputRef.current?.blur();
+                  }
+                }}
                 disabled={fieldDisabled}
                 aria-disabled={fieldDisabled}
                 aria-label="Task title"
-                className="w-full bg-transparent border-b border-transparent hover:border-border/50 focus:border-primary/60 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none leading-snug pb-1 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
+                className="w-full bg-transparent border-b border-transparent hover:border-border/50 focus:border-primary/60 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
                 placeholder="Task title"
               />
 
