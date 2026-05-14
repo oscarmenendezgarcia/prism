@@ -407,6 +407,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [localAssigned, setLocalAssigned]       = useState('');
   const [localDescription, setLocalDescription] = useState('');
   const [localType, setLocalType]               = useState<'feature' | 'bug' | 'tech-debt' | 'chore'>('chore');
+  /** Mobile tab — shown only when viewport is <768px (two-column doesn't fit). */
+  const [mobileTab, setMobileTab]               = useState<'content' | 'details'>('content');
   const [isCopied, setIsCopied]                 = useState(false);
   /** Index of attachment currently being fetched for direct .md → reader opening. */
   const [loadingAttachmentIndex, setLoadingAttachmentIndex] = useState<number | null>(null);
@@ -662,11 +664,29 @@ export function TaskDetailPanel(): React.ReactElement | null {
             {closeButton}
           </div>
 
-          {/* ── Two-column body ───────────────────────────────────────── */}
+          {/* ── Mobile tab bar — visible only below md breakpoint ────── */}
+          <div className="md:hidden flex border-b border-border/60 flex-shrink-0">
+            {(['content', 'details'] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setMobileTab(tab)}
+                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
+                  mobileTab === tab
+                    ? 'text-text-primary border-b-2 border-primary -mb-px'
+                    : 'text-text-secondary hover:text-text-primary'
+                }`}
+              >
+                {tab === 'content' ? 'Content' : 'Details'}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Two-column body (desktop) / single-panel (mobile) ────── */}
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-b-modal">
 
             {/* ── LEFT: title · description · comments ──────────────── */}
-            <div className="flex-1 min-w-0 overflow-y-auto px-8 pt-7 pb-8 flex flex-col gap-6">
+            <div className={`min-w-0 overflow-y-auto px-8 pt-7 pb-8 flex flex-col gap-6 md:flex-1 ${mobileTab === 'content' ? 'flex-1' : 'hidden md:flex'}`}>
               {isActiveRun && (
                 <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30">
                   <span className="material-symbols-outlined text-warning text-[18px] leading-none flex-shrink-0" aria-hidden="true">warning</span>
@@ -685,7 +705,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 disabled={fieldDisabled}
                 aria-disabled={fieldDisabled}
                 aria-label="Task title"
-                className="w-full bg-transparent border-none text-[26px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-0 leading-snug disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-transparent border-b border-transparent hover:border-border/50 focus:border-primary/60 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none leading-snug disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
                 placeholder="Task title"
               />
 
@@ -702,7 +722,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
                   rows={5}
-                  className="w-full px-0 py-0 bg-transparent border-none font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-0 disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-fast"
+                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/30 focus:border-primary/40 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-fast"
                   placeholder="Add a description..."
                 />
               </div>
@@ -721,7 +741,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
             </div>
 
             {/* ── RIGHT: metadata sidebar ────────────────────────────── */}
-            <div className="w-[340px] flex-shrink-0 border-l border-border/60 bg-surface-elevated/20 overflow-y-auto px-6 pt-7 pb-7 flex flex-col gap-5">
+            <div className={`flex-shrink-0 border-border/60 bg-surface-elevated/20 overflow-y-auto px-6 pt-7 pb-7 flex flex-col gap-5 md:w-[340px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
 
               {/* ID */}
               <div className="flex flex-col gap-2">
