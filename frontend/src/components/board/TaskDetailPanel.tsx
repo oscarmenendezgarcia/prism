@@ -418,7 +418,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   // ── Refs for focus management ────────────────────────────────────────────
 
   const panelRef         = useRef<HTMLDivElement | null>(null);
-  const titleInputRef    = useRef<HTMLTextAreaElement | null>(null);
+  const titleInputRef    = useRef<HTMLInputElement | null>(null);
   /** Element that triggered the panel open — focus returns here on close. */
   const triggerRef       = useRef<Element | null>(null);
 
@@ -445,14 +445,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
     });
   }, [detailTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Only re-sync when a different task is opened, not on every field update.
-
-  // Auto-grow title textarea to fit content without scrollbar.
-  useEffect(() => {
-    const el = titleInputRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [localTitle]);
 
   // BUG-001: Ensure agents are loaded when the panel opens so the pipeline
   // editor's "Add stage" dropdown is populated. Guard prevents redundant
@@ -682,40 +674,38 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 </div>
               )}
 
-              {/* Title — auto-growing textarea, wraps instead of truncating */}
-              <textarea
+              {/* Title */}
+              <input
                 id="detail-title"
                 ref={titleInputRef}
+                type="text"
                 value={localTitle}
                 onChange={(e) => setLocalTitle(e.target.value)}
                 onBlur={handleTitleBlur}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    titleInputRef.current?.blur();
-                  }
-                }}
                 disabled={fieldDisabled}
                 aria-disabled={fieldDisabled}
                 aria-label="Task title"
-                rows={1}
-                className="w-full bg-transparent border-none text-[26px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-0 leading-snug disabled:opacity-50 disabled:cursor-not-allowed resize-none overflow-hidden"
+                className="w-full bg-transparent border-none text-[26px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-0 leading-snug disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="Task title"
               />
 
-              {/* Description — no label, placeholder is self-explanatory */}
-              <textarea
-                id="detail-description"
-                value={localDescription}
-                onChange={(e) => setLocalDescription(e.target.value)}
-                onBlur={handleSaveDescription}
-                disabled={fieldDisabled}
-                aria-disabled={fieldDisabled}
-                aria-label="Task description"
-                rows={9}
-                className="w-full px-0 py-0 bg-transparent border-none font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-0 disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-fast"
-                placeholder="Add a description..."
-              />
+              {/* Description */}
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="detail-description" className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">
+                  Description
+                </label>
+                <textarea
+                  id="detail-description"
+                  value={localDescription}
+                  onChange={(e) => setLocalDescription(e.target.value)}
+                  onBlur={handleSaveDescription}
+                  disabled={fieldDisabled}
+                  aria-disabled={fieldDisabled}
+                  rows={5}
+                  className="w-full px-0 py-0 bg-transparent border-none font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-0 disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-fast"
+                  placeholder="Add a description..."
+                />
+              </div>
 
               {/* Comments */}
               <div className="border-t border-border/60 pt-6" data-testid="comments-panel">
