@@ -421,6 +421,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const panelRef         = useRef<HTMLDivElement | null>(null);
   const titleInputRef    = useRef<HTMLInputElement | null>(null);
+  const descTextareaRef  = useRef<HTMLTextAreaElement | null>(null);
   /** Element that triggered the panel open — focus returns here on close. */
   const triggerRef       = useRef<Element | null>(null);
 
@@ -458,6 +459,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
     }
   }, [detailTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Re-run only when a different task is opened, matching the sync effect above.
+
+  // Auto-grow description textarea — runs on every content change and on
+  // initial mount (when localDescription is set from detailTask).
+  useEffect(() => {
+    const el = descTextareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [localDescription]);
 
   // ── Return focus on close ────────────────────────────────────────────────
 
@@ -716,13 +726,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 </label>
                 <textarea
                   id="detail-description"
+                  ref={descTextareaRef}
                   value={localDescription}
                   onChange={(e) => setLocalDescription(e.target.value)}
                   onBlur={handleSaveDescription}
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
-                  rows={5}
-                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/30 focus:border-primary/40 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-fast"
+                  rows={1}
+                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/30 focus:border-primary/40 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-colors duration-fast"
                   placeholder="Add a description..."
                 />
               </div>
