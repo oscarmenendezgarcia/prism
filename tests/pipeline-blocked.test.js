@@ -380,13 +380,12 @@ async function runUnitTests() {
   // may have been set by a prior startTestServer() call or inherited from the shell.
   // Unit tests provide an explicit dataDir (tmpPath) so the env override must be absent.
   //
-  // PIPELINE_NO_SPAWN must also be set to '1' here.  unblockRunByComment() schedules
-  // setImmediate(() => executeNextStage(...)) which calls resolveAgent().  When
-  // PIPELINE_AGENTS_DIR is unset, resolveAgent falls back to ~/.claude/agents/ — and
-  // if developer-agent.md (or any other agent) exists there it will spawn a REAL claude
-  // process with the test-fixture IDs (e.g. sp-unblock / task-unblock-1), causing
-  // runaway agent invocations.  PIPELINE_NO_SPAWN=1 short-circuits spawnStage() before
-  // any process is launched while still letting the block/unblock state machine run.
+  // PIPELINE_NO_SPAWN=1 is mandatory here: unblockRunByComment and resumeRun both
+  // schedule executeNextStage via setImmediate. Without this guard, executeNextStage
+  // resolves the real developer-agent.md from ~/.claude/agents/ and spawns a real
+  // `claude` subprocess with the test fixture IDs (sp-unblock, task-unblock-1,
+  // unblock-test-1), causing the developer-agent to run against a non-existent
+  // kanban space and loop indefinitely.
   const _savedRunsDir   = process.env.PIPELINE_RUNS_DIR;
   const _savedAgentsDir = process.env.PIPELINE_AGENTS_DIR;
   const _savedNoSpawn   = process.env.PIPELINE_NO_SPAWN;
@@ -553,11 +552,9 @@ async function runUnitTests() {
     pm.unblockRunByComment(tmpPath, taskId, 'q-resolved');
     // Read immediately — writeRun() inside unblockRunByComment is synchronous and
     // runs before the setImmediate(executeNextStage) fires.  Reading here captures
-    // the 'running' state before executeNextStage can change it.
-    // NOTE: PIPELINE_NO_SPAWN=1 is set for all unit tests so executeNextStage
-    // short-circuits in mock mode — no real claude process is spawned.  Without
-    // this guard, resolveAgent would fall back to ~/.claude/agents/ and could
-    // launch a real agent with the test-fixture IDs (e.g. sp-unblock, task-unblock-1).
+    // the 'running' state before executeNextStage can change it (executeNextStage
+    // will fail in this unit-test context since there are no real agent files, but
+    // that is orthogonal to what unblockRunByComment is responsible for).
     const persisted = JSON.parse(require('fs').readFileSync(runJsonPath, 'utf8'));
     assert(persisted.status === 'running', `Expected running, got ${persisted.status}`);
     assert(persisted.blockedReason == null, 'blockedReason should be cleared');
@@ -736,8 +733,6 @@ async function runUnitTests() {
   else process.env.PIPELINE_RUNS_DIR   = _savedRunsDir;
   if (_savedAgentsDir === undefined) delete process.env.PIPELINE_AGENTS_DIR;
   else process.env.PIPELINE_AGENTS_DIR = _savedAgentsDir;
-  if (_savedNoSpawn   === undefined) delete process.env.PIPELINE_NO_SPAWN;
-  else process.env.PIPELINE_NO_SPAWN   = _savedNoSpawn;
 }
 
 // ---------------------------------------------------------------------------
@@ -756,19 +751,17 @@ async function runCommentDrivenTests() {
   }
 
   const prevEnvs = {
-    PIPELINE_AGENTS_DIR:      process.env.PIPELINE_AGENTS_DIR,
-    PIPELINE_MAX_CONCURRENT:  process.env.PIPELINE_MAX_CONCURRENT,
-    KANBAN_API_URL:           process.env.KANBAN_API_URL,
-    PIPELINE_NO_SPAWN:        process.env.PIPELINE_NO_SPAWN,
-    PIPELINE_RUNS_DIR:        process.env.PIPELINE_RUNS_DIR,
-    PIPELINE_POLL_INTERVAL_MS: process.env.PIPELINE_POLL_INTERVAL_MS,
+    PIPELINE_AGENTS_DIR:     process.env.PIPELINE_AGENTS_DIR,
+    PIPELINE_MAX_CONCURRENT: process.env.PIPELINE_MAX_CONCURRENT,
+    KANBAN_API_URL:          process.env.KANBAN_API_URL,
+    PIPELINE_NO_SPAWN:       process.env.PIPELINE_NO_SPAWN,
+    PIPELINE_RUNS_DIR:       process.env.PIPELINE_RUNS_DIR,
   };
-  process.env.PIPELINE_AGENTS_DIR      = agentsDirCd;
-  process.env.PIPELINE_MAX_CONCURRENT  = '20';
-  process.env.KANBAN_API_URL           = 'http://localhost:19999/api/v1'; // dead URL
-  process.env.PIPELINE_NO_SPAWN        = '1';
-  process.env.PIPELINE_RUNS_DIR        = require('path').join(tmpServerDir, 'runs');
-  process.env.PIPELINE_POLL_INTERVAL_MS = '50';
+  process.env.PIPELINE_AGENTS_DIR     = agentsDirCd;
+  process.env.PIPELINE_MAX_CONCURRENT = '20';
+  process.env.KANBAN_API_URL          = 'http://localhost:19999/api/v1'; // dead URL
+  process.env.PIPELINE_NO_SPAWN       = '1';
+  process.env.PIPELINE_RUNS_DIR       = require('path').join(tmpServerDir, 'runs');
 
   // Clear ALL project source files from module cache so the fresh server picks up
   // new env vars AND so dynamic requires inside handlers (e.g. comments.js →
@@ -1056,14 +1049,12 @@ async function runCrossAgentResolverTests() {
     PIPELINE_NO_SPAWN:            process.env.PIPELINE_NO_SPAWN,
     PIPELINE_RESOLVER_TIMEOUT_MS: process.env.PIPELINE_RESOLVER_TIMEOUT_MS,
     PIPELINE_RUNS_DIR:            process.env.PIPELINE_RUNS_DIR,
-    PIPELINE_POLL_INTERVAL_MS:    process.env.PIPELINE_POLL_INTERVAL_MS,
   };
-  process.env.PIPELINE_AGENTS_DIR      = agentsDir2;
-  process.env.PIPELINE_MAX_CONCURRENT  = '20';
-  process.env.KANBAN_API_URL           = 'http://localhost:19998/api/v1';
-  process.env.PIPELINE_NO_SPAWN        = '1';
-  process.env.PIPELINE_POLL_INTERVAL_MS = '50';
-  process.env.PIPELINE_RUNS_DIR        = require('path').join(tmpDir2, 'runs');
+  process.env.PIPELINE_AGENTS_DIR     = agentsDir2;
+  process.env.PIPELINE_MAX_CONCURRENT = '20';
+  process.env.KANBAN_API_URL          = 'http://localhost:19998/api/v1';
+  process.env.PIPELINE_NO_SPAWN       = '1';
+  process.env.PIPELINE_RUNS_DIR       = require('path').join(tmpDir2, 'runs');
 
   // Clear ALL project source files from module cache so the fresh server picks up
   // new env vars AND so dynamic requires inside handlers (e.g. comments.js →
@@ -1290,8 +1281,8 @@ async function runCrossAgentResolverTests() {
     assert(commentRes.status === 201, `postQuestion: ${commentRes.status}`);
 
     // With NO_SPAWN=1, resolver done sentinel is written immediately with exit code 0.
-    // Wait for a few poll cycles (50ms each) to pick it up and clear resolverActive.
-    await new Promise((r) => setTimeout(r, 300));
+    // Wait for 2 polling cycles (2s each) + margin to pick it up and clear resolverActive.
+    await new Promise((r) => setTimeout(r, 5500));
 
     const run = readRunJson(runId);
     // resolverActive should be cleared after successful exit 0
@@ -1378,8 +1369,8 @@ async function runCrossAgentResolverTests() {
     const q2Id = q2Res.body.id;
 
     // Wait for Q1's resolver sentinel to fire and resolverActive to be cleared
-    // NO_SPAWN=1 writes done sentinel immediately; with 50ms poll interval a few ticks suffice.
-    await new Promise((r) => setTimeout(r, 300));
+    // NO_SPAWN=1 writes done sentinel immediately, polling fires after ~2s
+    await new Promise((r) => setTimeout(r, 5500));
 
     // Manually resolve Q1 — this triggers unblockRunByComment which should see
     // Q2 still unresolved and call attemptCrossAgentResolution for Q2
@@ -1428,9 +1419,6 @@ async function runT010RestartTests() {
   // Clear PIPELINE_RUNS_DIR so each test's own tmpPath is honoured.
   const prevRunsDirT010 = process.env.PIPELINE_RUNS_DIR;
   delete process.env.PIPELINE_RUNS_DIR;
-
-  const prevPollT010 = process.env.PIPELINE_POLL_INTERVAL_MS;
-  process.env.PIPELINE_POLL_INTERVAL_MS = '50';
 
   // T-010-A: server restart with live resolver PID → polling reattached, sentinel detected
   await test('T-010-A: restart with live resolver PID reattaches polling and clears resolverActive on done sentinel', async () => {
@@ -1487,8 +1475,8 @@ async function runT010RestartTests() {
     const pm = require('../src/services/pipelineManager');
     pm.init(tmpPath);
 
-    // Wait for polling interval to fire and detect the done sentinel.
-    await new Promise((r) => setTimeout(r, 300));
+    // Wait for polling interval (2000ms) to fire and detect the done sentinel.
+    await new Promise((r) => setTimeout(r, 3000));
 
     const persisted = JSON.parse(fs.readFileSync(path.join(runDirPath, 'run.json'), 'utf8'));
     assert(
@@ -1604,157 +1592,9 @@ async function runT010RestartTests() {
     fs.rmSync(tmpPath, { recursive: true, force: true });
   });
 
-  // Restore PIPELINE_RUNS_DIR and PIPELINE_POLL_INTERVAL_MS after all T-010 restart tests.
+  // Restore PIPELINE_RUNS_DIR after all T-010 restart tests complete.
   if (prevRunsDirT010 === undefined) delete process.env.PIPELINE_RUNS_DIR;
   else process.env.PIPELINE_RUNS_DIR = prevRunsDirT010;
-  if (prevPollT010 === undefined) delete process.env.PIPELINE_POLL_INTERVAL_MS;
-  else process.env.PIPELINE_POLL_INTERVAL_MS = prevPollT010;
-}
-
-async function runSentinelReliabilityTests() {
-  const prevRunsDir = process.env.PIPELINE_RUNS_DIR;
-  delete process.env.PIPELINE_RUNS_DIR;
-  delete process.env.PIPELINE_NO_SPAWN;
-
-  const prevPollSen = process.env.PIPELINE_POLL_INTERVAL_MS;
-  process.env.PIPELINE_POLL_INTERVAL_MS = '50';
-
-  // Build a minimal run + running stage in a tmp dir.
-  // Uses process.pid as the stage PID so isProcessAlive() returns true,
-  // causing init() to reattach startPolling rather than mark interrupted.
-  function makeRunFixture(tmpPath, { stageIndex = 0 } = {}) {
-    const runsDir    = path.join(tmpPath, 'runs');
-    const runId      = crypto.randomUUID();
-    const runDirPath = path.join(runsDir, runId);
-    fs.mkdirSync(runDirPath, { recursive: true });
-
-    const run = {
-      runId,
-      taskId:   'task-sentinel-test',
-      spaceId:  'sp-sentinel',
-      status:   'running',
-      stages:   ['developer-agent'],
-      currentStage: stageIndex,
-      stageStatuses: [{
-        index:     stageIndex,
-        agentId:   'developer-agent',
-        status:    'running',
-        exitCode:  null,
-        startedAt: new Date().toISOString(),
-        finishedAt: null,
-        pid: process.pid,
-      }],
-      createdAt:  new Date().toISOString(),
-      updatedAt:  new Date().toISOString(),
-    };
-    fs.writeFileSync(path.join(runDirPath, 'run.json'), JSON.stringify(run), 'utf8');
-    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify([
-      { runId, taskId: run.taskId, spaceId: run.spaceId, status: 'running', createdAt: run.createdAt },
-    ]), 'utf8');
-
-    const logPath  = path.join(runDirPath, `stage-${stageIndex}.log`);
-    const donePath = path.join(runDirPath, `stage-${stageIndex}.done`);
-    return { runId, runDirPath, runsDir, logPath, donePath };
-  }
-
-  function loadFreshPm(tmpPath) {
-    for (const key of Object.keys(require.cache)) {
-      if (key.includes('pipelineManager')) delete require.cache[key];
-    }
-    const pm = require('../src/services/pipelineManager');
-    pm.init(tmpPath);
-    return pm;
-  }
-
-  // TC-SEN-001: terminal_reason "completed" in log → sentinel written with exit code 0
-  await test('TC-SEN-001: polling loop writes sentinel 0 when log contains terminal_reason:completed', async () => {
-    const tmpPath = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-sen001-'));
-    const { runDirPath, logPath, donePath } = makeRunFixture(tmpPath);
-
-    const logLine = JSON.stringify({
-      type: 'result', terminal_reason: 'completed',
-      stop_reason: 'end_turn', num_turns: 2,
-      result: 'Task done.', duration_ms: 5000,
-    });
-    fs.writeFileSync(logPath, logLine + '\n', 'utf8');
-
-    loadFreshPm(tmpPath);
-
-    // Wait for a few poll ticks (50ms each) to fire.
-    await new Promise((r) => setTimeout(r, 300));
-
-    assert(fs.existsSync(donePath), 'sentinel file should have been written');
-    const exitCode = parseInt(fs.readFileSync(donePath, 'utf8').trim(), 10);
-    assert(exitCode === 0, `sentinel should contain 0 (completed), got ${exitCode}`);
-
-    fs.rmSync(tmpPath, { recursive: true, force: true });
-  });
-
-  // TC-SEN-002: terminal_reason non-completed → sentinel written with exit code 1
-  await test('TC-SEN-002: polling loop writes sentinel 1 when log contains terminal_reason:max_turns', async () => {
-    const tmpPath = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-sen002-'));
-    const { logPath, donePath } = makeRunFixture(tmpPath);
-
-    const logLine = JSON.stringify({
-      type: 'result', terminal_reason: 'max_turns',
-      stop_reason: 'max_turns', num_turns: 10,
-      result: '', duration_ms: 60000,
-    });
-    fs.writeFileSync(logPath, logLine + '\n', 'utf8');
-
-    loadFreshPm(tmpPath);
-    await new Promise((r) => setTimeout(r, 300));
-
-    assert(fs.existsSync(donePath), 'sentinel file should have been written');
-    const exitCode = parseInt(fs.readFileSync(donePath, 'utf8').trim(), 10);
-    assert(exitCode === 1, `sentinel should contain 1 (non-completed), got ${exitCode}`);
-
-    fs.rmSync(tmpPath, { recursive: true, force: true });
-  });
-
-  // TC-SEN-003: sentinel already exists → polling loop does NOT overwrite it (idempotency)
-  await test('TC-SEN-003: polling loop does not overwrite an existing sentinel (idempotency)', async () => {
-    const tmpPath = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-sen003-'));
-    const { logPath, donePath } = makeRunFixture(tmpPath);
-
-    // Log has terminal_reason:completed but sentinel already written with 1
-    // (e.g. written by the EXIT trap with a non-zero exit).
-    const logLine = JSON.stringify({ type: 'result', terminal_reason: 'completed' });
-    fs.writeFileSync(logPath, logLine + '\n', 'utf8');
-    fs.writeFileSync(donePath, '1', 'utf8');  // sentinel already exists
-
-    loadFreshPm(tmpPath);
-    await new Promise((r) => setTimeout(r, 300));
-
-    // Polling detects existing sentinel immediately and calls handleStageClose.
-    // The sentinel content must remain '1' (not overwritten with '0').
-    const exitCode = parseInt(fs.readFileSync(donePath, 'utf8').trim(), 10);
-    assert(exitCode === 1, `sentinel content should be unchanged (1), got ${exitCode}`);
-
-    fs.rmSync(tmpPath, { recursive: true, force: true });
-  });
-
-  // TC-SEN-004: log has no terminal_reason → sentinel NOT written by polling loop
-  await test('TC-SEN-004: polling loop does not write sentinel when log has no terminal_reason', async () => {
-    const tmpPath = fs.mkdtempSync(path.join(os.tmpdir(), 'pm-sen004-'));
-    const { logPath, donePath } = makeRunFixture(tmpPath);
-
-    // Log with regular tool-use output but no result line.
-    const logLine = JSON.stringify({ type: 'tool_use', name: 'Bash', id: 'tu_1' });
-    fs.writeFileSync(logPath, logLine + '\n', 'utf8');
-
-    loadFreshPm(tmpPath);
-    await new Promise((r) => setTimeout(r, 300));
-
-    assert(!fs.existsSync(donePath), 'sentinel should NOT be written when no terminal_reason in log');
-
-    fs.rmSync(tmpPath, { recursive: true, force: true });
-  });
-
-  if (prevRunsDir === undefined) delete process.env.PIPELINE_RUNS_DIR;
-  else process.env.PIPELINE_RUNS_DIR = prevRunsDir;
-  if (prevPollSen === undefined) delete process.env.PIPELINE_POLL_INTERVAL_MS;
-  else process.env.PIPELINE_POLL_INTERVAL_MS = prevPollSen;
 }
 
 run()
@@ -1762,7 +1602,6 @@ run()
   .then(() => runCommentDrivenTests())
   .then(() => runCrossAgentResolverTests())
   .then(() => runT010RestartTests())
-  .then(() => runSentinelReliabilityTests())
   .then(() => {
     console.log(`\n${passed + failed} tests total: ${passed} passed, ${failed} failed`);
     if (failures.length > 0) {

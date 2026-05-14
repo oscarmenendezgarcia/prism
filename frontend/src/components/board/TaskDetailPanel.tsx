@@ -482,6 +482,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // If a foreground modal (MarkdownModal or AttachmentModal) is open,
+        // let its own Escape handler fire first. Standard UX: Escape dismisses
+        // the topmost layer, not the panel behind it.
+        const hasOpenModal = document.querySelector(
+          '[id="markdown-modal-title"], [id="attachment-modal-title"]'
+        );
+        if (hasOpenModal) return;
         e.stopPropagation();
         closeDetailPanel();
       }
