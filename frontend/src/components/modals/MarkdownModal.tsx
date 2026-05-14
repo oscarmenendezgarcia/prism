@@ -68,7 +68,7 @@ export function MarkdownModal() {
       </ModalHeader>
 
       <ModalBody maxHeight="max-h-[88vh]" className="overflow-y-auto">
-        <div>
+        <div className="max-w-4xl mx-auto">
           <MarkdownViewer content={modal.content} variant="prose" />
 
           {/* Source file path banner — shown when attachment type is "file" */}
