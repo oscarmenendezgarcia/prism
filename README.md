@@ -248,6 +248,65 @@ Both the worktree path and branch are in `.gitignore` and are never committed to
 
 ---
 
+## `prism doctor` — environment check
+
+Run `prism doctor` after installation to verify that all runtime dependencies are healthy:
+
+```bash
+prism doctor
+```
+
+```
+prism doctor — environment check
+
+  ✓ node-version             v23.9.0 (>= 20)
+  ✓ spawn-helper             executable (+x)
+  ✓ better-sqlite3           loads and opens :memory:
+  ✓ claude-cli               2.1.0 (Claude Code)
+  ✓ data-dir-writable        /Users/you/.local/share/prism
+  ✓ server-status            stopped
+
+6/6 checks passed.
+```
+
+What each check verifies:
+
+| Check | Pass condition |
+|-------|---------------|
+| `node-version` | Node.js major ≥ 20 |
+| `spawn-helper` | `node-pty` spawn-helper has executable bit (or absent / Windows N/A) |
+| `better-sqlite3` | Native module loads and can open an in-memory database |
+| `claude-cli` | `claude --version` exits 0 within 2 s |
+| `data-dir-writable` | Data directory exists and is writable |
+| `server-status` | PID file absent (stopped) or pointing to a live process |
+
+**Flags:**
+
+```bash
+prism doctor --json               # machine-readable JSON (CI-friendly, pipe to jq)
+prism doctor --data-dir <path>    # check a specific data directory
+```
+
+**JSON output example:**
+
+```json
+{
+  "ok": true,
+  "checks": [
+    { "name": "node-version",      "status": "pass", "message": "v23.9.0 (>= 20)" },
+    { "name": "spawn-helper",      "status": "pass", "message": "executable (+x)" },
+    { "name": "better-sqlite3",    "status": "pass", "message": "loads and opens :memory:" },
+    { "name": "claude-cli",        "status": "pass", "message": "2.1.0 (Claude Code)" },
+    { "name": "data-dir-writable", "status": "pass", "message": "/Users/you/.local/share/prism" },
+    { "name": "server-status",     "status": "pass", "message": "stopped" }
+  ]
+}
+```
+
+Exit codes: `0` = all checks passed, `1` = one or more failed.
+
+---
+
 ## Environment variables
 
 | Variable | Default | Description |

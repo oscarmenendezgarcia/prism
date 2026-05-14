@@ -9,6 +9,7 @@
  *   prism stop    [--data-dir <path>] [--force]
  *   prism init    [--data-dir <path>] [--force]
  *   prism update  [--no-update-check]
+ *   prism doctor  [--data-dir <path>] [--json]
  *   prism --version
  *   prism --help
  *
@@ -33,6 +34,7 @@ Usage:
   prism stop    [--data-dir <path>] [--force]
   prism init    [--data-dir <path>] [--force]
   prism update
+  prism doctor  [--data-dir <path>] [--json]
   prism --version
   prism --help
 
@@ -49,6 +51,11 @@ prism stop:
   Reads <dataDir>/prism.pid, sends SIGTERM, and waits up to 35s for the
   process to exit. Use --force to send SIGKILL immediately (bypasses graceful
   shutdown — use when the server is hung).
+
+prism doctor:
+  Checks Node.js version, node-pty spawn-helper, better-sqlite3, Claude CLI,
+  data-dir writability, and server status. Exit 0 if all pass, 1 if any fail.
+  --json                Print machine-readable JSON instead of text
 
 prism update:
   Fetches the latest version from npm and installs it globally.
@@ -93,6 +100,8 @@ function parseArgv(argv) {
       flags.dataDir = arg.slice('--data-dir='.length);
     } else if (arg === '--data-dir') {
       flags.dataDir = args[++i];
+    } else if (arg === '--json') {
+      flags.json = true;
     } else if (!arg.startsWith('-') && subcommand === null) {
       subcommand = arg;
     } else if (arg.startsWith('-')) {
@@ -190,6 +199,10 @@ function runUpdate(flags) {
   require(path.join(__dirname, 'update.js')).run(flags);
 }
 
+function runDoctor(flags) {
+  require(path.join(__dirname, 'doctor.js')).run(flags);
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -231,6 +244,10 @@ function runUpdate(flags) {
 
     case 'update':
       runUpdate(flags);
+      break;
+
+    case 'doctor':
+      runDoctor(flags);
       break;
 
     case null:
