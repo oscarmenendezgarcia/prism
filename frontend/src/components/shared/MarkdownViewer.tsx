@@ -240,6 +240,22 @@ const proseComponents: Components = {
     </p>
   ),
 
+  // Inline code in prose: text-sm so it doesn't feel tiny next to text-base body.
+  code: ({ children, className: langClassName }) => {
+    if (langClassName) {
+      return (
+        <code className={`${langClassName} text-xs font-mono text-text-primary`}>
+          {children}
+        </code>
+      );
+    }
+    return (
+      <code className="px-1.5 py-0.5 rounded-xs bg-surface-variant border border-border/60 text-sm font-mono text-primary">
+        {children}
+      </code>
+    );
+  },
+
   ul: ({ children }) => (
     <ul className="list-disc list-outside pl-5 mb-4 space-y-1.5 text-base text-text-primary">
       {children}
