@@ -3,13 +3,14 @@
  *
  * After the "auto-attach all active runs" change, the function:
  *  - No longer bails out when pipelineStates is non-empty.
- *  - Filters runs by status: running | interrupted | failed (was: running only).
+ *  - Filters runs by status: running only (interrupted/failed are NOT auto-attached
+ *    to avoid flooding the multi-run indicator with historical stale runs).
  *  - Iterates ALL candidates instead of taking only [0].
  *  - Skips runs already present in pipelineStates.
  *
  * Test IDs:
  *  AA-001  Multiple running runs → all attached
- *  AA-002  interrupted / failed runs also attached
+ *  AA-002  interrupted / failed runs are NOT auto-attached
  *  AA-003  Already-attached runs are skipped (idempotent)
  *  AA-004  Runs with terminal statuses (completed / cancelled) are ignored
  *  AA-005  Mix: some attached, some not → only new ones attached
@@ -133,51 +134,44 @@ describe('AA-001: multiple running runs — all get attached', () => {
 
 // ── AA-002 ────────────────────────────────────────────────────────────────────
 
-describe('AA-002: interrupted and failed runs are also attached', () => {
-  it('attaches a run with status=interrupted', async () => {
+describe('AA-002: interrupted and failed runs are NOT auto-attached', () => {
+  it('does not attach a run with status=interrupted', async () => {
     vi.mocked(api.listRuns).mockResolvedValue([
       listEntry('run-interrupted', 'interrupted'),
     ] as any);
-    vi.mocked(api.getBackendRun).mockResolvedValue(
-      fullRun('run-interrupted', 'interrupted') as any,
-    );
 
     await attachExternalRunIfAny();
 
-    const state = useAppStore.getState().pipelineStates['run-interrupted'];
-    expect(state).toBeDefined();
-    expect(state.status).toBe('interrupted');
+    expect(api.getBackendRun).not.toHaveBeenCalled();
+    expect(useAppStore.getState().pipelineStates['run-interrupted']).toBeUndefined();
   });
 
-  it('attaches a run with status=failed', async () => {
+  it('does not attach a run with status=failed', async () => {
     vi.mocked(api.listRuns).mockResolvedValue([
       listEntry('run-failed', 'failed'),
     ] as any);
-    vi.mocked(api.getBackendRun).mockResolvedValue(
-      fullRun('run-failed', 'failed') as any,
-    );
 
     await attachExternalRunIfAny();
 
-    const state = useAppStore.getState().pipelineStates['run-failed'];
-    expect(state).toBeDefined();
-    // failed → mapped to 'interrupted' in PipelineState vocabulary
-    expect(state.status).toBe('interrupted');
+    expect(api.getBackendRun).not.toHaveBeenCalled();
+    expect(useAppStore.getState().pipelineStates['run-failed']).toBeUndefined();
   });
 
-  it('maps running→running and non-running→interrupted in PipelineState', async () => {
+  it('attaches running runs but ignores interrupted ones in the same batch', async () => {
     vi.mocked(api.listRuns).mockResolvedValue([
       listEntry('run-x', 'running'),
       listEntry('run-y', 'interrupted'),
     ] as any);
-    vi.mocked(api.getBackendRun).mockImplementation(
-      async (id: string) => fullRun(id, id === 'run-x' ? 'running' : 'interrupted') as any,
+    vi.mocked(api.getBackendRun).mockResolvedValue(
+      fullRun('run-x', 'running') as any,
     );
 
     await attachExternalRunIfAny();
 
     expect(useAppStore.getState().pipelineStates['run-x'].status).toBe('running');
-    expect(useAppStore.getState().pipelineStates['run-y'].status).toBe('interrupted');
+    expect(useAppStore.getState().pipelineStates['run-y']).toBeUndefined();
+    expect(api.getBackendRun).toHaveBeenCalledTimes(1);
+    expect(api.getBackendRun).toHaveBeenCalledWith('run-x');
   });
 });
 
@@ -273,7 +267,7 @@ describe('AA-004: terminal-status runs are ignored', () => {
 // ── AA-005 ────────────────────────────────────────────────────────────────────
 
 describe('AA-005: mix of attached and unattached — only unattached ones are fetched', () => {
-  it('skips A (attached), attaches B and C (new)', async () => {
+  it('skips A (attached), attaches B (new running), ignores C (interrupted)', async () => {
     useAppStore.getState().attachRun(attachedState('run-A'));
 
     vi.mocked(api.listRuns).mockResolvedValue([
@@ -281,18 +275,16 @@ describe('AA-005: mix of attached and unattached — only unattached ones are fe
       listEntry('run-B', 'running'),
       listEntry('run-C', 'interrupted'),
     ] as any);
-    vi.mocked(api.getBackendRun).mockImplementation(
-      async (id: string) =>
-        fullRun(id, id === 'run-C' ? 'interrupted' : 'running') as any,
+    vi.mocked(api.getBackendRun).mockResolvedValue(
+      fullRun('run-B', 'running') as any,
     );
 
     await attachExternalRunIfAny();
 
-    expect(api.getBackendRun).toHaveBeenCalledTimes(2);
+    expect(api.getBackendRun).toHaveBeenCalledTimes(1);
     expect(api.getBackendRun).toHaveBeenCalledWith('run-B');
-    expect(api.getBackendRun).toHaveBeenCalledWith('run-C');
     expect(useAppStore.getState().pipelineStates['run-B']).toBeDefined();
-    expect(useAppStore.getState().pipelineStates['run-C']).toBeDefined();
+    expect(useAppStore.getState().pipelineStates['run-C']).toBeUndefined();
     // A unchanged.
     expect(useAppStore.getState().pipelineStates['run-A']).toBeDefined();
   });
