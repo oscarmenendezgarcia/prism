@@ -698,29 +698,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   id="detail-description"
                   value={localDescription}
                   onChange={(e) => setLocalDescription(e.target.value)}
+                  onBlur={handleSaveDescription}
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
                   rows={9}
                   className="w-full px-0 py-0 bg-transparent border-none font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-0 disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-fast"
                   placeholder="Add a description..."
                 />
-                <div className="flex justify-end">
-                  <Button
-                    variant="primary"
-                    onClick={handleSaveDescription}
-                    disabled={fieldDisabled}
-                    className="text-xs px-3 py-1.5"
-                  >
-                    {isMutating ? (
-                      <>
-                        <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">progress_activity</span>
-                        Saving...
-                      </>
-                    ) : (
-                      'Save description'
-                    )}
-                  </Button>
-                </div>
               </div>
 
               {/* Comments */}
