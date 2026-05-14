@@ -5,7 +5,7 @@
  * ADR-002 §3.2: usePolling hook.
  *
  * Adaptive interval:
- *   - 1000 ms when a run is active (activeRun !== null or pipelineState running)
+ *   - 1000 ms when a run is active (activeRun !== null or any pipelineState running)
  *   - 3000 ms when idle
  *
  * On every idle tick, probes for externally-launched backend runs (e.g. via
@@ -14,13 +14,17 @@
  *
  * When pipelineState has a runId, syncs currentStageIndex and status from
  * the backend so the UI reflects stage transitions without a full page reload.
+ *
+ * syncAllRunStatuses() additionally syncs every non-primary running entry in
+ * pipelineStates so auto-dismiss fires for all completed runs, not just the
+ * active one.
  */
 
 import { useEffect, useRef, useState } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { listRuns, getBackendRun } from '@/api/client';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
-import type { PipelineStage } from '@/types';
+import type { PipelineStage, PipelineState } from '@/types';
 
 const POLL_INTERVAL_ACTIVE_MS = 1000;
 const POLL_INTERVAL_IDLE_MS   = 3000;
@@ -154,17 +158,98 @@ async function syncPipelineState(): Promise<void> {
   }
 }
 
+/**
+ * Sync status for all non-primary running entries in pipelineStates.
+ *
+ * syncPipelineState() already handles the primary run (pipelineState mirror)
+ * with full detail (stage index, blocked/paused transitions).  This function
+ * covers the remaining runs so their status transitions to 'completed' or
+ * 'interrupted' as soon as the backend reports it — which triggers the
+ * auto-dismiss timer in RunItemCompact and eventually removes them from the
+ * MultiRunIndicator.
+ *
+ * Rules:
+ *  - Only examines entries with status 'running' and a non-null runId.
+ *  - Skips the primary run (already handled by syncPipelineState).
+ *  - On terminal backend status → updates pipelineStates[runId].status.
+ *  - On still-running backend status → no-op (keep waiting).
+ *  - Per-run fetch failure → skip that run silently; continue others.
+ *  - Re-reads state after each async fetch to avoid stale-closure races.
+ *
+ * @internal exported for unit testing only
+ */
+export async function syncAllRunStatuses(): Promise<void> {
+  const state     = useAppStore.getState();
+  const primaryId = state.pipelineState?.runId;
+
+  const candidates = Object.entries(state.pipelineStates).filter(
+    ([runId, ps]) =>
+      ps.status === 'running' &&
+      ps.runId != null &&
+      runId !== primaryId,
+  );
+
+  if (candidates.length === 0) return;
+
+  await Promise.allSettled(
+    candidates.map(async ([runId]) => {
+      try {
+        const run = await getBackendRun(runId);
+
+        // Only react to terminal statuses — skip if still running/paused/blocked.
+        if (
+          run.status !== 'completed' &&
+          run.status !== 'failed'    &&
+          run.status !== 'cancelled' &&
+          run.status !== 'interrupted'
+        ) {
+          return;
+        }
+
+        // Re-read state after the async fetch to avoid stale-closure races.
+        const fresh     = useAppStore.getState();
+        const currentPs = fresh.pipelineStates[runId];
+        // Guard: entry gone or already transitioned by another code path.
+        if (!currentPs || currentPs.status !== 'running') return;
+
+        const newStatus: PipelineState['status'] =
+          run.status === 'completed' ? 'completed' : 'interrupted';
+
+        const updatedEntry: PipelineState = {
+          ...currentPs,
+          status: newStatus,
+          ...(run.updatedAt ? { finishedAt: run.updatedAt } : {}),
+        };
+
+        const newPipelineStates = { ...fresh.pipelineStates, [runId]: updatedEntry };
+        // Sync the deprecated mirror only if this runId is currently active.
+        const newMirror =
+          fresh.activePipelineRunId === runId ? updatedEntry : fresh.pipelineState;
+
+        useAppStore.setState({
+          pipelineStates: newPipelineStates,
+          pipelineState:  newMirror,
+        });
+      } catch {
+        // Per-run fetch failure — skip silently.
+      }
+    }),
+  );
+}
+
 export function usePolling(): void {
   const [intervalMs, setIntervalMs] = useState<number>(() => {
     const s = useAppStore.getState();
-    return (s.activeRun !== null || s.pipelineState?.status === 'running')
+    const hasAnyRunning = Object.values(s.pipelineStates).some((ps) => ps.status === 'running');
+    return (s.activeRun !== null || hasAnyRunning)
       ? POLL_INTERVAL_ACTIVE_MS
       : POLL_INTERVAL_IDLE_MS;
   });
 
   useEffect(() => {
     return useAppStore.subscribe((state) => {
-      const next = (state.activeRun !== null || state.pipelineState?.status === 'running')
+      const hasAnyRunning = Object.values(state.pipelineStates).some((ps) => ps.status === 'running');
+      const next = (state.activeRun !== null || hasAnyRunning)
         ? POLL_INTERVAL_ACTIVE_MS
         : POLL_INTERVAL_IDLE_MS;
       setIntervalMs((prev) => (prev === next ? prev : next));
@@ -186,9 +271,12 @@ export function usePolling(): void {
         loadBoard();
       }
       if (pipelineState?.runId) {
-        // Sync current stage and status from backend.
+        // Sync current stage and status from backend for the primary run.
         syncPipelineState();
       }
+      // Sync status for all non-primary running entries so their auto-dismiss
+      // fires as soon as the backend reports completion.
+      syncAllRunStatuses();
       // Always probe for externally-launched runs (running, interrupted, failed)
       // that are not yet in pipelineStates.  attachExternalRunIfAny is idempotent
       // — it skips runIds already present in pipelineStates.
