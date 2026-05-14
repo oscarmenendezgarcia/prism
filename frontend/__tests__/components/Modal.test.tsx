@@ -127,3 +127,59 @@ describe('ModalBody and ModalFooter', () => {
     expect(screen.getByText('OK')).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// BUG-001 regression: maxWidth prop overrides the default max-w-lg
+// ---------------------------------------------------------------------------
+
+describe('Modal — maxWidth prop (BUG-001 regression)', () => {
+  it('applies max-w-lg by default', () => {
+    render(
+      <Modal open={true} onClose={vi.fn()}>
+        <div>content</div>
+      </Modal>
+    );
+    const card = document.body.querySelector('[role="dialog"] > div');
+    expect(card?.className).toContain('max-w-lg');
+  });
+
+  it('omits max-w-lg when maxWidth="" is passed', () => {
+    render(
+      <Modal open={true} onClose={vi.fn()} maxWidth="">
+        <div>content</div>
+      </Modal>
+    );
+    const card = document.body.querySelector('[role="dialog"] > div');
+    expect(card?.className).not.toContain('max-w-lg');
+  });
+
+  it('applies a custom maxWidth class when provided', () => {
+    render(
+      <Modal open={true} onClose={vi.fn()} maxWidth="max-w-3xl">
+        <div>content</div>
+      </Modal>
+    );
+    const card = document.body.querySelector('[role="dialog"] > div');
+    expect(card?.className).toContain('max-w-3xl');
+    expect(card?.className).not.toContain('max-w-lg');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG-002 regression: ModalBody maxHeight prop overrides default max-h
+// ---------------------------------------------------------------------------
+
+describe('ModalBody — maxHeight prop (BUG-002 regression)', () => {
+  it('applies default max-h-[calc(90vh-9rem)] when no prop given', () => {
+    render(<ModalBody><p>body</p></ModalBody>);
+    const el = screen.getByText('body').parentElement;
+    expect(el?.className).toContain('max-h-[calc(90vh-9rem)]');
+  });
+
+  it('applies custom maxHeight class and removes default', () => {
+    render(<ModalBody maxHeight="max-h-[88vh]"><p>body</p></ModalBody>);
+    const el = screen.getByText('body').parentElement;
+    expect(el?.className).toContain('max-h-[88vh]');
+    expect(el?.className).not.toContain('max-h-[calc(90vh-9rem)]');
+  });
+});

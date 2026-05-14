@@ -891,6 +891,40 @@ describe('TaskDetailPanel — responsive layout: desktop slide-over (≥768px)',
     expect(closeDetailPanel).toHaveBeenCalled();
   });
 
+  it('BUG-003: Escape key does NOT close panel when MarkdownModal is open', () => {
+    // Simulate an open MarkdownModal by injecting its title element into the DOM.
+    // TaskDetailPanel's Escape guard queries [id="markdown-modal-title"].
+    const titleEl = document.createElement('h2');
+    titleEl.id = 'markdown-modal-title';
+    document.body.appendChild(titleEl);
+
+    const closeDetailPanel = vi.fn();
+    useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    // Panel must NOT close — the modal's Escape handler should run instead.
+    expect(closeDetailPanel).not.toHaveBeenCalled();
+
+    // Cleanup injected element
+    document.body.removeChild(titleEl);
+  });
+
+  it('BUG-003: Escape key does NOT close panel when AttachmentModal is open', () => {
+    const titleEl = document.createElement('h2');
+    titleEl.id = 'attachment-modal-title';
+    document.body.appendChild(titleEl);
+
+    const closeDetailPanel = vi.fn();
+    useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(closeDetailPanel).not.toHaveBeenCalled();
+
+    document.body.removeChild(titleEl);
+  });
+
   it('renders null when detailTask is null (desktop mode)', () => {
     useAppStore.setState({ detailTask: null } as any);
     const { container } = render(<TaskDetailPanel />);
