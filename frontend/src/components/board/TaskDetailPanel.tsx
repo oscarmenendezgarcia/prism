@@ -418,7 +418,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   // ── Refs for focus management ────────────────────────────────────────────
 
   const panelRef         = useRef<HTMLDivElement | null>(null);
-  const titleInputRef    = useRef<HTMLInputElement | null>(null);
+  const titleInputRef    = useRef<HTMLTextAreaElement | null>(null);
   /** Element that triggered the panel open — focus returns here on close. */
   const triggerRef       = useRef<Element | null>(null);
 
@@ -445,6 +445,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
     });
   }, [detailTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Only re-sync when a different task is opened, not on every field update.
+
+  // Auto-grow title textarea to fit content without scrollbar.
+  useEffect(() => {
+    const el = titleInputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [localTitle]);
 
   // BUG-001: Ensure agents are loaded when the panel opens so the pipeline
   // editor's "Add stage" dropdown is populated. Guard prevents redundant
@@ -666,7 +674,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-b-modal">
 
             {/* ── LEFT: title · description · comments ──────────────── */}
-            <div className="flex-1 min-w-0 overflow-y-auto px-8 pt-8 pb-8 flex flex-col gap-7">
+            <div className="flex-1 min-w-0 overflow-y-auto px-8 pt-7 pb-8 flex flex-col gap-6">
               {isActiveRun && (
                 <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30">
                   <span className="material-symbols-outlined text-warning text-[18px] leading-none flex-shrink-0" aria-hidden="true">warning</span>
@@ -674,38 +682,40 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 </div>
               )}
 
-              {/* Title — large, ghost */}
-              <input
+              {/* Title — auto-growing textarea, wraps instead of truncating */}
+              <textarea
                 id="detail-title"
                 ref={titleInputRef}
-                type="text"
                 value={localTitle}
                 onChange={(e) => setLocalTitle(e.target.value)}
                 onBlur={handleTitleBlur}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    titleInputRef.current?.blur();
+                  }
+                }}
                 disabled={fieldDisabled}
                 aria-disabled={fieldDisabled}
                 aria-label="Task title"
-                className="w-full bg-transparent border-none text-[26px] font-bold text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-0 leading-tight disabled:opacity-50 disabled:cursor-not-allowed"
+                rows={1}
+                className="w-full bg-transparent border-none text-[26px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-0 leading-snug disabled:opacity-50 disabled:cursor-not-allowed resize-none overflow-hidden"
                 placeholder="Task title"
               />
 
-              {/* Description */}
-              <div className="flex flex-col gap-2">
-                <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.12em]">
-                  Description
-                </label>
-                <textarea
-                  id="detail-description"
-                  value={localDescription}
-                  onChange={(e) => setLocalDescription(e.target.value)}
-                  onBlur={handleSaveDescription}
-                  disabled={fieldDisabled}
-                  aria-disabled={fieldDisabled}
-                  rows={9}
-                  className="w-full px-0 py-0 bg-transparent border-none font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-0 disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-fast"
-                  placeholder="Add a description..."
-                />
-              </div>
+              {/* Description — no label, placeholder is self-explanatory */}
+              <textarea
+                id="detail-description"
+                value={localDescription}
+                onChange={(e) => setLocalDescription(e.target.value)}
+                onBlur={handleSaveDescription}
+                disabled={fieldDisabled}
+                aria-disabled={fieldDisabled}
+                aria-label="Task description"
+                rows={9}
+                className="w-full px-0 py-0 bg-transparent border-none font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-0 disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-colors duration-fast"
+                placeholder="Add a description..."
+              />
 
               {/* Comments */}
               <div className="border-t border-border/60 pt-6" data-testid="comments-panel">
@@ -721,11 +731,11 @@ export function TaskDetailPanel(): React.ReactElement | null {
             </div>
 
             {/* ── RIGHT: metadata sidebar ────────────────────────────── */}
-            <div className="w-[340px] flex-shrink-0 border-l border-border/60 bg-surface-elevated/20 overflow-y-auto px-7 pt-8 pb-8 flex flex-col gap-7">
+            <div className="w-[340px] flex-shrink-0 border-l border-border/60 bg-surface-elevated/20 overflow-y-auto px-6 pt-7 pb-7 flex flex-col gap-5">
 
               {/* ID */}
               <div className="flex flex-col gap-2">
-                <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.12em]">ID</span>
+                <span className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">ID</span>
                 <div className="flex items-center gap-2">
                   <span className="flex-1 font-mono text-xs text-text-secondary bg-surface border border-border/60 rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap min-w-0">
                     {detailTask.id}
@@ -745,8 +755,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </div>
 
               {/* Type */}
-              <div className="flex flex-col gap-3">
-                <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.12em]">Task Type</span>
+              <div className="flex flex-col gap-2">
+                <span className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">Task Type</span>
                 <div role="group" aria-label="Task type" className="flex flex-wrap gap-2">
                   {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
                     <button
@@ -770,8 +780,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </div>
 
               {/* Assigned */}
-              <div className="flex flex-col gap-3">
-                <label htmlFor="detail-assigned" className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.12em]">Assigned To</label>
+              <div className="flex flex-col gap-2">
+                <label htmlFor="detail-assigned" className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">Assigned To</label>
                 <input
                   id="detail-assigned"
                   type="text"
@@ -780,7 +790,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   onBlur={handleAssignedBlur}
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
-                  className="w-full px-3 py-2.5 rounded-lg bg-surface border border-border/60 text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
+                  className="w-full px-3 py-2 rounded-lg bg-surface border border-border/60 text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
                   placeholder="Assign to someone..."
                 />
               </div>
@@ -796,8 +806,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
               {/* Attachments */}
               {detailTask.attachments && detailTask.attachments.length > 0 && (
-                <div className="flex flex-col gap-3" data-testid="attachments-section">
-                  <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.12em]">Attachments</span>
+                <div className="flex flex-col gap-2" data-testid="attachments-section">
+                  <span className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">Attachments</span>
                   <div className="flex flex-col gap-1.5" aria-label="Task attachments">
                     {detailTask.attachments.map((att, index) => (
                       <React.Fragment key={index}>
