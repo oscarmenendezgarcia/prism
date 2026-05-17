@@ -294,6 +294,30 @@ async function runTests() {
     }
   });
 
+  await test('PUT does NOT delete existing tasks (regression: INSERT OR REPLACE cascade)', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      // Create a task in the default space.
+      const created = await post(port, '/api/v1/spaces/default/tasks', { title: 'Keep me', type: 'chore' });
+      assert(created.status === 201, 'task should be created');
+      const taskId = created.body.id;
+
+      // Rename the space + update workingDirectory (the operations that triggered the bug).
+      const renamed = await put(port, '/api/v1/spaces/default', {
+        name:             'Renamed Board',
+        workingDirectory: '/tmp/workdir',
+      });
+      assert(renamed.status === 200, 'PUT space should return 200');
+
+      // The task must still exist.
+      const taskRes = await get(port, `/api/v1/spaces/default/tasks/${taskId}`);
+      assert(taskRes.status === 200, 'task should still exist after PUT space');
+      assert(taskRes.body.title === 'Keep me', 'task title should be intact');
+    } finally {
+      await close();
+    }
+  });
+
   // =========================================================================
   // Space CRUD — DELETE /api/v1/spaces/:spaceId
   // =========================================================================
