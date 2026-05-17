@@ -8,6 +8,7 @@
 
 import { create } from 'zustand';
 import * as api from '@/api/client';
+import { ApiError } from '@/api/client';
 // Imported via getState() to avoid circular imports with useRunHistoryStore.
 // ADR-1 (Agent Run History) §5.1: all lifecycle calls use getState() boundary.
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
@@ -1007,6 +1008,13 @@ export const useAppStore = create<AppState>((set, get) => {
     try {
       run = await api.startRun(spaceId, taskId, resolvedStages, undefined, checkpoints);
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && err.code === 'MAX_CONCURRENT_REACHED') {
+        // Clean up any optimistic __pending__ slot left by a prior checkpoint-0 pause.
+        setPipelineStateById(PENDING_RUN_KEY, null);
+        console.error('[startPipeline] MAX_CONCURRENT_REACHED', { taskId, message: err.message });
+        showToast(err.message, 'error');
+        return;
+      }
       showToast(`Failed to start pipeline: ${(err as Error).message}`, 'error');
       return;
     }
@@ -1258,6 +1266,12 @@ export const useAppStore = create<AppState>((set, get) => {
         const run = await api.startRun(spaceId, taskId, ['orchestrator'], { stages, dangerouslySkipPermissions }, checkpoints);
         backendRunId = run.runId;
       } catch (err) {
+        if (err instanceof ApiError && err.status === 409 && err.code === 'MAX_CONCURRENT_REACHED') {
+          setPipelineStateById(PENDING_RUN_KEY, null);
+          console.error('[executeOrchestratorRun] MAX_CONCURRENT_REACHED', { taskId, message: (err as ApiError).message });
+          showToast((err as ApiError).message, 'error');
+          return;
+        }
         showToast(`Failed to start orchestrator run: ${(err as Error).message}`, 'error');
         return;
       }

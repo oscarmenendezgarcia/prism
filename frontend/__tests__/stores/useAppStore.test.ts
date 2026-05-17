@@ -39,6 +39,13 @@ vi.mock('../../src/stores/useTerminalSessionStore', () => {
 
 // ── Mock the API client before importing the store ───────────────────────────
 vi.mock('../../src/api/client', () => ({
+  // ApiError class must be exported so `instanceof` checks in the store work.
+  ApiError: class ApiError extends Error {
+    constructor(message: string, public status: number, public code?: string) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  },
   getSpaces:            vi.fn(),
   createSpace:          vi.fn(),
   renameSpace:          vi.fn(),

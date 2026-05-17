@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TaskDetailPanel } from '../../src/components/board/TaskDetailPanel';
 import { useAppStore } from '../../src/stores/useAppStore';
+import * as api from '../../src/api/client';
 import type { Task } from '../../src/types';
 
 // ---------------------------------------------------------------------------
@@ -675,11 +676,19 @@ describe('TaskDetailPanel — attachments section', () => {
     expect(screen.getByText('notes.txt')).toBeInTheDocument();
   });
 
-  it('clicking the first attachment row calls openAttachmentModal with index 0 and full list', () => {
+  it('clicking a .md attachment (ADR-1.md) opens MarkdownModal directly — skips AttachmentModal', async () => {
+    // .md attachments bypass AttachmentModal and open the reader directly.
+    const openMarkdownModal = vi.fn();
     const openAttachmentModal = vi.fn();
+    vi.mocked(api.getAttachmentContent).mockResolvedValue({
+      name: 'ADR-1.md',
+      type: 'text',
+      content: '# ADR-1\n\nContent here.',
+    });
     useAppStore.setState({
       detailTask: TASK_WITH_ATTACHMENTS,
       activeSpaceId: 'space-1',
+      openMarkdownModal,
       openAttachmentModal,
     } as any);
     const { container } = render(<TaskDetailPanel />);
@@ -687,9 +696,14 @@ describe('TaskDetailPanel — attachments section', () => {
     const rows = container.querySelectorAll('[data-testid="attachment-row"]');
     fireEvent.click(rows[0]);
 
-    expect(openAttachmentModal).toHaveBeenCalledWith(
-      'space-1', TASK_WITH_ATTACHMENTS.id, 0, 'ADR-1.md', TASK_WITH_ATTACHMENTS.attachments,
-    );
+    // openMarkdownModal is called after fetch resolves
+    await waitFor(() => {
+      expect(openMarkdownModal).toHaveBeenCalledWith(
+        'ADR-1.md', '# ADR-1\n\nContent here.', undefined,
+      );
+    });
+    // openAttachmentModal should NOT have been called for .md
+    expect(openAttachmentModal).not.toHaveBeenCalled();
   });
 
   it('clicking the second attachment row calls openAttachmentModal with index 1 and full list', () => {
@@ -796,70 +810,56 @@ describe('TaskDetailPanel — responsive layout: mobile slider (default)', () =>
   });
 });
 
-describe('TaskDetailPanel — responsive layout: desktop modal (≥768px)', () => {
-  beforeEach(() => mockDesktopViewport());
-  afterEach(() => mockMobileViewport());
+describe('TaskDetailPanel — responsive layout: desktop slide-over (≥768px)', () => {
+  // matchMedia helpers kept for reference but no longer affect layout
+  // since both viewports use the same slide-over pattern.
 
-  it('renders as a centered modal with data-testid="task-detail-modal" on desktop', () => {
+  it('renders as a slide-over (not a centered modal) — no data-testid="task-detail-modal"', () => {
+    mockDesktopViewport();
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
 
+    // Slide-over is always used — no centered modal
     const modal = document.body.querySelector('[data-testid="task-detail-modal"]');
-    expect(modal).not.toBeNull();
-  });
-
-  it('desktop modal has role="dialog" and aria-modal="true"', () => {
-    useAppStore.setState({ detailTask: TASK } as any);
-    render(<TaskDetailPanel />);
-
+    expect(modal).toBeNull();
+    // Dialog is still present with correct ARIA attributes
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toHaveAttribute('aria-label', 'Task detail');
+    mockMobileViewport();
   });
 
-  it('desktop modal uses scale-in animation (not slide-in-right)', () => {
+  it('desktop panel uses slide-in-right animation (not scale-in)', () => {
+    mockDesktopViewport();
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
 
     const dialog = screen.getByRole('dialog');
-    expect(dialog.className).toMatch(/animate-scale-in/);
-    expect(dialog.className).not.toMatch(/animate-slide-in-right/);
+    expect(dialog.className).toMatch(/animate-slide-in-right/);
+    expect(dialog.className).not.toMatch(/animate-scale-in/);
+    mockMobileViewport();
   });
 
-  it('renders all editable fields inside the desktop modal', () => {
+  it('renders all editable fields inside the desktop slide-over', () => {
+    mockDesktopViewport();
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
 
     expect(screen.getByLabelText(/title/i)).toHaveValue(TASK.title);
     expect(screen.getByLabelText(/assigned/i)).toHaveValue(TASK.assigned);
     expect(screen.getByLabelText(/description/i)).toHaveValue(TASK.description);
+    mockMobileViewport();
   });
 
-  it('renders a left-column fields section on desktop', () => {
+  it('renders a Comments tab (tabbed layout replaces 2-column grid) on desktop', () => {
+    mockDesktopViewport();
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
 
-    const fieldsCol = document.body.querySelector('[aria-label="Task fields"]');
-    expect(fieldsCol).not.toBeNull();
-  });
-
-  it('renders a right-column comments section on desktop', () => {
-    useAppStore.setState({ detailTask: TASK } as any);
-    render(<TaskDetailPanel />);
-
-    const commentsCol = document.body.querySelector('[aria-label="Comments"]');
-    expect(commentsCol).not.toBeNull();
-    // CommentsSection empty state is inside the right column
-    expect(commentsCol!.querySelector('[data-testid="comments-section"]')).not.toBeNull();
-  });
-
-  it('renders timestamps inside the left column (not a separate footer) on desktop', () => {
-    useAppStore.setState({ detailTask: TASK } as any);
-    render(<TaskDetailPanel />);
-
-    const fieldsCol = document.body.querySelector('[aria-label="Task fields"]');
-    expect(fieldsCol!.textContent).toMatch(/created/i);
-    expect(fieldsCol!.textContent).toMatch(/updated/i);
+    expect(screen.getByRole('tab', { name: /comments/i })).toBeInTheDocument();
+    // 2-column specific aria-labels are not present
+    expect(document.body.querySelector('[aria-label="Task fields"]')).toBeNull();
+    mockMobileViewport();
   });
 
   it('close button calls closeDetailPanel on desktop', () => {
@@ -882,7 +882,7 @@ describe('TaskDetailPanel — responsive layout: desktop modal (≥768px)', () =
     expect(closeDetailPanel).toHaveBeenCalled();
   });
 
-  it('Escape key closes the desktop modal', () => {
+  it('Escape key closes the desktop slide-over', () => {
     const closeDetailPanel = vi.fn();
     useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
     render(<TaskDetailPanel />);
@@ -897,7 +897,7 @@ describe('TaskDetailPanel — responsive layout: desktop modal (≥768px)', () =
     expect(container.firstChild).toBeNull();
   });
 
-  it('shows the task short ID in the desktop modal header', () => {
+  it('shows the task short ID in the desktop slide-over header', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
     expect(screen.getByText(`#${TASK.id.slice(-7)}`)).toBeInTheDocument();

@@ -34,8 +34,20 @@ import type {
 const API_BASE = '/api/v1';
 
 /**
+ * Typed HTTP error that preserves the HTTP status code and backend error code.
+ * Thrown by apiFetch on non-2xx responses so callers can discriminate by code
+ * (e.g. 409 MAX_CONCURRENT_REACHED) without string-matching the message.
+ */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/**
  * Generic fetch wrapper with typed response and error handling.
- * Throws an Error with the message from the response body on HTTP errors.
+ * Throws an ApiError with status + code from the response body on HTTP errors.
  * Returns null for 204 No Content responses.
  */
 export async function apiFetch<T>(
@@ -56,8 +68,10 @@ export async function apiFetch<T>(
   const data = await res.json();
 
   if (!res.ok) {
-    const message = (data as { error?: { message?: string } })?.error?.message || `HTTP ${res.status}`;
-    throw new Error(message);
+    const errorBody = data as { error?: { message?: string; code?: string } };
+    const message = errorBody?.error?.message || `HTTP ${res.status}`;
+    const code    = errorBody?.error?.code;
+    throw new ApiError(message, res.status, code);
   }
 
   return data as T;

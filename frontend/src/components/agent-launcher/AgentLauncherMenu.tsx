@@ -3,7 +3,11 @@
  * ADR-1 (Agent Launcher) §3.1: lists available agents + "Run Full Pipeline" option.
  *
  * Lazy-loads agents on first open if the list is empty.
- * Disabled when activeRun is non-null (another agent is already running).
+ *
+ * Multi-run (ADR-1 multi-run-launcher §3.2):
+ *   - Root ⚙️ button is ALWAYS enabled while the task is in `todo`.
+ *   - Individual agent items stay disabled when `activeRun` is non-null (PTY is exclusive).
+ *   - "Run Full Pipeline" is always clickable regardless of activeRun state.
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -36,14 +40,15 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
     ? pipelineStages.map((s) => s.replace(/-/g, ' ')).join(' → ')
     : 'Full Pipeline';
 
-  const isDisabled = activeRun !== null;
+  // Controls whether individual agent items (PTY one-shot) are interactive.
+  // "Run Full Pipeline" is exempt — it dispatches to the backend, not the PTY.
+  const agentItemDisabled = activeRun !== null;
 
   const MENU_WIDTH    = 200;
   const MENU_MAX_HEIGHT = 300;
 
   /** Open dropdown — lazy-load agents on first open, scoped to this space's workingDirectory. */
   const handleOpen = useCallback(() => {
-    if (isDisabled) return;
     if (buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
       // Always open downward; clamp so the menu never leaves the viewport.
@@ -55,7 +60,7 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
     if (availableAgents.length === 0) {
       loadAgents(spaceWorkingDir ?? undefined);
     }
-  }, [isDisabled, availableAgents.length, loadAgents, spaceWorkingDir]);
+  }, [availableAgents.length, loadAgents, spaceWorkingDir]);
 
   /** Select a specific agent. */
   const handleSelectAgent = useCallback(
@@ -104,12 +109,11 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
       <button
         ref={buttonRef}
         onClick={handleOpen}
-        disabled={isDisabled}
         aria-label="Run agent"
         aria-haspopup="true"
         aria-expanded={open}
-        title={isDisabled ? 'Agent already running' : 'Run agent'}
-        className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-primary/[0.10] hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+        title="Run agent"
+        className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-primary/[0.10] hover:text-primary transition-colors duration-150"
       >
         <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
           smart_toy
@@ -135,8 +139,11 @@ export function AgentLauncherMenu({ taskId, spaceId }: AgentLauncherMenuProps) {
                 <li key={agent.id}>
                   <button
                     role="menuitem"
-                    onClick={() => handleSelectAgent(agent)}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-surface-variant transition-colors duration-100 text-left"
+                    onClick={() => !agentItemDisabled && handleSelectAgent(agent)}
+                    disabled={agentItemDisabled}
+                    aria-disabled={agentItemDisabled}
+                    title={agentItemDisabled ? 'Agent already running in terminal' : undefined}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-text-primary hover:bg-surface-variant transition-colors duration-100 text-left disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <span
                       className="material-symbols-outlined text-base text-primary leading-none flex-shrink-0"

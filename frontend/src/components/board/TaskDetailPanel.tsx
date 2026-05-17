@@ -1,13 +1,12 @@
 /**
- * Task detail & edit panel — responsive.
+ * Task detail & edit panel — unified right slide-over.
  *
- * Desktop (≥768px): centered modal with a 2-column grid layout.
- *   Left column (55%): fields (title, type, assigned, description, pipeline,
- *   attachments) + timestamps. Right column (45%): threaded comment section
- *   with independent scroll.
+ * All viewports: fixed right-side panel (slide-over), tabbed layout.
+ *   - Mobile (<768px): w-full (fullscreen).
+ *   - Desktop (≥768px): md:w-[420px] lg:w-[520px].
  *
- * Mobile (<768px): slide-in panel from the right (original behavior).
- *   Single-column vertical scroll for all fields + comments.
+ * Clicking a .md attachment skips the AttachmentModal preview and opens the
+ * MarkdownModal reader directly (one click to read a document).
  *
  * ADR-1 (task-detail-edit):
  *  - App-level render prevents z-index stacking issues with column containers.
@@ -26,7 +25,7 @@ import { Button } from '@/components/shared/Button';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import { resolveAgentName } from '@/utils/agentName';
-import { useMediaQuery } from '@/hooks/useMediaQuery';
+import * as api from '@/api/client';
 import type { Column, Comment } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -396,13 +395,11 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const showToast            = useAppStore((s) => s.showToast);
   const loadAgents           = useAppStore((s) => s.loadAgents);
   const openAttachmentModal  = useAppStore((s) => s.openAttachmentModal);
+  const openMarkdownModal    = useAppStore((s) => s.openMarkdownModal);
   const activeSpaceId        = useAppStore((s) => s.activeSpaceId);
   const activeSpace          = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
   const activeRun            = useActiveRun();
   const availableAgents      = useAvailableAgents();
-
-  /** True when the viewport is ≥768px — switches from mobile-slider to desktop-modal. */
-  const isDesktop = useMediaQuery('(min-width: 768px)');
 
   // ── Local field state ────────────────────────────────────────────────────
 
@@ -412,6 +409,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [localType, setLocalType]               = useState<'feature' | 'bug' | 'tech-debt' | 'chore'>('chore');
   const [isCopied, setIsCopied]                 = useState(false);
   const [activeTab, setActiveTab]               = useState<'details' | 'comments' | 'attachments'>('details');
+  /** Index of attachment currently being fetched for direct .md → reader opening. */
+  const [loadingAttachmentIndex, setLoadingAttachmentIndex] = useState<number | null>(null);
 
   // Track initial values to detect actual changes on blur.
   const savedTitle       = useRef('');
@@ -564,6 +563,29 @@ export function TaskDetailPanel(): React.ReactElement | null {
       showToast('Failed to copy ID', 'error');
     }
   }, [detailTask, showToast]);
+
+  /**
+   * Attachment click handler.
+   * - .md files: fetch content then open MarkdownModal directly (one click).
+   * - Other types: open AttachmentModal as before.
+   */
+  const handleAttachmentClick = useCallback(async (index: number, name: string) => {
+    if (!detailTask) return;
+    if (name.toLowerCase().endsWith('.md')) {
+      setLoadingAttachmentIndex(index);
+      try {
+        const data = await api.getAttachmentContent(activeSpaceId, detailTask.id, index);
+        openMarkdownModal(name, data.content, data.source);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Failed to load document';
+        showToast(message, 'error');
+      } finally {
+        setLoadingAttachmentIndex(null);
+      }
+    } else {
+      openAttachmentModal(activeSpaceId, detailTask.id, index, name, detailTask.attachments ?? []);
+    }
+  }, [detailTask, activeSpaceId, openMarkdownModal, openAttachmentModal, showToast]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -800,24 +822,25 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   <button
                     type="button"
                     data-testid="attachment-row"
-                    onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
+                    onClick={() => handleAttachmentClick(index, att.name)}
+                    disabled={loadingAttachmentIndex === index}
                     aria-label={`Open attachment ${att.name}`}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-colors duration-fast"
                   >
                     <span
                       className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0"
                       aria-hidden="true"
                     >
-                      {att.type === 'file' ? 'folder' : 'attach_file'}
+                      {loadingAttachmentIndex === index ? 'progress_activity' : att.type === 'file' ? 'folder' : 'attach_file'}
                     </span>
                     <span className="flex-1 truncate font-mono text-xs text-text-primary">
                       {att.name}
                     </span>
                     <span
-                      className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0"
+                      className={`material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin' : ''}`}
                       aria-hidden="true"
                     >
-                      open_in_new
+                      {loadingAttachmentIndex === index ? 'progress_activity' : 'open_in_new'}
                     </span>
                   </button>
                 )}
@@ -890,15 +913,18 @@ export function TaskDetailPanel(): React.ReactElement | null {
             <button
               type="button"
               data-testid="attachment-row"
-              onClick={() => openAttachmentModal(activeSpaceId, detailTask.id, index, att.name, detailTask.attachments ?? [])}
+              onClick={() => handleAttachmentClick(index, att.name)}
+              disabled={loadingAttachmentIndex === index}
               aria-label={`Open attachment ${att.name}`}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-colors duration-fast"
             >
               <span className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0" aria-hidden="true">
-                {att.type === 'file' ? 'folder' : 'attach_file'}
+                {loadingAttachmentIndex === index ? 'progress_activity' : att.type === 'file' ? 'folder' : 'attach_file'}
               </span>
               <span className="flex-1 truncate font-mono text-xs text-text-primary">{att.name}</span>
-              <span className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0" aria-hidden="true">open_in_new</span>
+              <span className={`material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin' : ''}`} aria-hidden="true">
+                {loadingAttachmentIndex === index ? 'progress_activity' : 'open_in_new'}
+              </span>
             </button>
           )}
         </li>
@@ -911,87 +937,22 @@ export function TaskDetailPanel(): React.ReactElement | null {
     </div>
   );
 
-  if (isDesktop) {
-    const commentCount = (detailTask.comments ?? []).length;
-
-    return (
-      <>
-        {/* Backdrop */}
-        <div className="fixed inset-0 z-[105] bg-black/65 backdrop-blur-[2px]" aria-hidden="true" onClick={closeDetailPanel} />
-
-        {/* Centering wrapper */}
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 pointer-events-none">
-          <div
-            ref={panelRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Task detail"
-            data-testid="task-detail-modal"
-            className="pointer-events-auto bg-surface border border-border rounded-2xl shadow-[0_32px_96px_rgba(0,0,0,0.7),0_0_0_1px_rgba(255,255,255,0.04)] w-full max-w-[860px] max-h-[88vh] flex flex-col animate-scale-in overflow-hidden"
-          >
-            {/* ── Header ────────────────────────────────────────────── */}
-            <div className="flex items-center gap-3 px-5 py-3.5 border-b border-border flex-shrink-0">
-              {closeButton}
-              <div className="flex-1 min-w-0">
-                <h2 className="text-sm font-semibold text-text-primary truncate leading-snug">
-                  {detailTask.title}
-                </h2>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="font-mono text-[11px] text-text-disabled">{shortId}</span>
-                  {column && (
-                    <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${
-                      column === 'done' ? 'text-success' : column === 'in-progress' ? 'text-primary' : 'text-text-secondary'
-                    }`}>
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                        column === 'done' ? 'bg-success' : column === 'in-progress' ? 'bg-primary' : 'bg-text-disabled'
-                      }`} />
-                      {columnLabel}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* ── 2-column body ─────────────────────────────────────── */}
-            <div className="flex flex-1 overflow-hidden min-h-0">
-              {/* Left: fields */}
-              <div className="w-[56%] overflow-y-auto px-6 py-5 flex flex-col gap-5 border-r border-border min-w-0" aria-label="Task fields">
-                {fieldsContent}
-                <div className="flex flex-col gap-1 pt-3 mt-auto border-t border-border/60">
-                  {timestampsContent}
-                </div>
-              </div>
-
-              {/* Right: comments */}
-              <div className="w-[44%] flex flex-col min-w-0 bg-background/40">
-                <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
-                  <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">Comments</span>
-                  {commentCount > 0 && (
-                    <span className="text-[11px] font-mono text-text-disabled bg-surface-variant px-1.5 py-0.5 rounded-full">{commentCount}</span>
-                  )}
-                </div>
-                <div className="flex-1 overflow-y-auto px-5 py-4" aria-label="Comments">
-                  {commentsContent}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  // ── Mobile: same tabbed slide-in panel, narrower width ───────────────────
+  // ── Unified: right slide-over for all viewports ──────────────────────────
+  // Mobile (<768px): w-full fullscreen.
+  // Desktop (≥768px): fixed right panel, md:420px, lg:520px.
 
   return (
     <>
+      {/* Backdrop — semitransparent so the board remains visible behind. */}
       <div className="fixed inset-0 z-[105] bg-black/50" aria-hidden="true" onClick={closeDetailPanel} />
+
+      {/* Slide-over panel */}
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label="Task detail"
-        className="fixed inset-y-0 right-0 z-[110] w-full sm:w-[420px] flex flex-col bg-surface border-l border-border shadow-2xl animate-slide-in-right"
+        className="fixed inset-y-0 right-0 z-[110] w-full md:w-[420px] lg:w-[520px] flex flex-col bg-surface border-l border-border shadow-2xl animate-slide-in-right"
       >
         {/* ── Header ──────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3 h-14 px-5 border-b border-border flex-shrink-0">
