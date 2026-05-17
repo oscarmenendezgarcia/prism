@@ -116,7 +116,9 @@ describe('AgentLauncherMenu — trigger button', () => {
     expect(getTrigger()).not.toBeDisabled();
   });
 
-  it('trigger button is disabled when activeRun is non-null', () => {
+  // ADR-1 (multi-run-launcher): trigger is NEVER disabled regardless of activeRun.
+  // Individual agent items inside the menu are disabled; the root button is not.
+  it('trigger button is NOT disabled even when activeRun is non-null', () => {
     useAppStore.setState({
       activeRun: {
         taskId:     'task-1',
@@ -128,10 +130,10 @@ describe('AgentLauncherMenu — trigger button', () => {
       },
     } as any);
     renderMenu();
-    expect(getTrigger()).toBeDisabled();
+    expect(getTrigger()).not.toBeDisabled();
   });
 
-  it('disabled trigger shows "Agent already running" title', () => {
+  it('trigger always shows "Run agent" title regardless of activeRun', () => {
     useAppStore.setState({
       activeRun: {
         taskId:     'task-1',
@@ -143,7 +145,7 @@ describe('AgentLauncherMenu — trigger button', () => {
       },
     } as any);
     renderMenu();
-    expect(getTrigger()).toHaveAttribute('title', 'Agent already running');
+    expect(getTrigger()).toHaveAttribute('title', 'Run agent');
   });
 
   it('enabled trigger shows "Run agent" title', () => {
@@ -189,7 +191,9 @@ describe('AgentLauncherMenu — dropdown open/close', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
-  it('clicking disabled trigger does not open the dropdown', () => {
+  // ADR-1 (multi-run-launcher): trigger is always enabled — clicking it opens
+  // the dropdown even when activeRun is set (PTY guard moved to individual items).
+  it('clicking trigger opens the dropdown even when activeRun is set', () => {
     useAppStore.setState({
       activeRun: {
         taskId:    'task-1',
@@ -201,10 +205,8 @@ describe('AgentLauncherMenu — dropdown open/close', () => {
       },
     } as any);
     renderMenu();
-    // The button is disabled, so click should be ignored by the browser.
-    // We verify the menu never appears.
     fireEvent.click(getTrigger());
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.getByRole('menu')).toBeInTheDocument();
   });
 });
 
