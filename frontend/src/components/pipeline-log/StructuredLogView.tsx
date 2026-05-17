@@ -144,6 +144,16 @@ export function StructuredLogView({
   const nextSinceRef = useRef(nextSince);
   useEffect(() => { nextSinceRef.current = nextSince; }, [nextSince]);
 
+  // When runId changes (new run attached or run switched), reset nextSinceRef to 0
+  // so the first fetch always starts from the beginning. Without this, stale
+  // nextSince values left in the store from a previous run's stage cause the
+  // initial ?since= to skip all existing events (returning 0 events → "No events yet").
+  const prevRunIdRef = useRef<string | null>(null);
+  if (prevRunIdRef.current !== runId) {
+    nextSinceRef.current = 0;
+    prevRunIdRef.current = runId;
+  }
+
   // Bottom-sentinel ref for auto-scroll.
   const bottomRef = useRef<HTMLDivElement>(null);
 
