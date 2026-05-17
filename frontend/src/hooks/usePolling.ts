@@ -30,10 +30,10 @@ export async function attachExternalRunIfAny(): Promise<void> {
   const { attachRun } = useAppStore.getState();
   try {
     const runs = await listRuns();
-    // Collect all runs that are still active on the backend side.
-    const candidates = runs.filter(
-      (r) => r.status === 'running' || r.status === 'interrupted' || r.status === 'failed',
-    );
+    // Only auto-attach runs that are actively executing. Interrupted/failed runs
+    // are terminal-ish states from past sessions — surfacing them on every page
+    // load floods the multi-run indicator with historical noise.
+    const candidates = runs.filter((r) => r.status === 'running');
     if (candidates.length === 0) return;
 
     for (const candidate of candidates) {
