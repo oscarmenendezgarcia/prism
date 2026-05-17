@@ -53,7 +53,7 @@ export function MarkdownModal() {
       labelId={TITLE_ID}
       maxWidth=""
       enterAnimation="animate-modal-dialog-in"
-      className="w-[92vw] max-w-[860px] mx-auto"
+      className="w-[92vw] max-w-[860px] mx-auto max-h-[90vh]"
     >
       <ModalHeader onClose={handleClose}>
         <div className="flex items-center gap-2">
@@ -67,12 +67,11 @@ export function MarkdownModal() {
         </div>
       </ModalHeader>
 
-      {/* max-h-[88vh]: header + footer chrome stay accessible.
-          max-w-[70ch] centers the prose column at ~70 chars per line
+      {/* max-w-[70ch] centers the prose column at ~70 chars per line
           (skill: line-length-control 60-75ch) while overflow elements
           like tables and pre blocks scroll horizontally inside their
           own overflow-x-auto wrappers. */}
-      <ModalBody maxHeight="max-h-[88vh]" className="overflow-y-auto">
+      <ModalBody className="overflow-y-auto">
         <div className="max-w-[70ch] mx-auto">
           <MarkdownViewer content={modal.content} variant="prose" />
 

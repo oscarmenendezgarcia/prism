@@ -20,7 +20,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { useAppStore, useActiveRun, useAvailableAgents } from '@/stores/useAppStore';
+import { useAppStore, useActiveRun, useAvailableAgents, usePipelineStates } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
@@ -134,6 +134,8 @@ interface PipelineFieldEditorProps {
   disabled: boolean;
   /** Active space — used to resolve agent nicknames for display. */
   activeSpace: import('@/types').Space | null;
+  /** Zero-based index of the currently running stage, if a run is active. */
+  currentStageIndex?: number;
 }
 
 /**
@@ -149,6 +151,7 @@ function PipelineFieldEditor({
   onSave,
   disabled,
   activeSpace,
+  currentStageIndex,
 }: PipelineFieldEditorProps): React.ReactElement {
   const [isEditing, setIsEditing]     = useState(false);
   const [draftStages, setDraftStages] = useState<string[]>([]);
@@ -205,71 +208,104 @@ function PipelineFieldEditor({
 
   if (!isEditing) {
     return (
-      <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          Pipeline
-        </span>
-        {pipeline && pipeline.length > 0 ? (
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1" role="list" aria-label="Pipeline stages">
-              {pipeline.map((stage, i) => (
-                <React.Fragment key={stage}>
-                  <span
-                    role="listitem"
-                    className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium bg-surface-variant text-text-secondary border border-border"
-                    title={stage}
-                  >
-                    {resolveAgentName(stage, activeSpace)}
-                  </span>
-                  {i < pipeline.length - 1 && (
-                    <span className="text-text-disabled text-xs" aria-hidden="true">→</span>
-                  )}
-                </React.Fragment>
-              ))}
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex flex-col gap-2">
+        {/* Section label + action buttons */}
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">
+            Pipeline Stage
+          </span>
+          <div className="flex items-center gap-1">
+            {pipeline && pipeline.length > 0 ? (
+              <>
+                {/* touch-target-size: min 44×44px — use p-2.5 to expand hit area */}
+                <button
+                  type="button"
+                  onClick={openEditor}
+                  disabled={disabled}
+                  aria-label="Edit pipeline"
+                  title="Edit pipeline"
+                  className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-text-secondary hover:bg-surface-variant focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
+                >
+                  <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">edit</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  disabled={disabled}
+                  aria-label="Clear pipeline"
+                  title="Clear pipeline"
+                  className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-error hover:bg-error/10 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
+                >
+                  <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">close</span>
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
                 onClick={openEditor}
                 disabled={disabled}
-                aria-label="Edit pipeline"
-                title="Edit pipeline"
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
+                aria-label="Configure pipeline"
+                className="text-[11px] text-primary hover:text-primary/80 focus:outline-hidden focus:ring-2 focus:ring-primary rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast px-1 py-0.5"
               >
-                <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
-                  edit
-                </span>
+                Configure
               </button>
-              <button
-                type="button"
-                onClick={handleClear}
-                disabled={disabled}
-                aria-label="Clear pipeline"
-                title="Clear pipeline (revert to space default)"
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-error hover:bg-error/10 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
-              >
-                <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
-                  close
-                </span>
-              </button>
-            </div>
+            )}
+          </div>
+        </div>
+
+        {/* Vertical timeline */}
+        {pipeline && pipeline.length > 0 ? (
+          <div className="relative" role="list" aria-label="Pipeline stages">
+            {/* Connecting line */}
+            <div
+              className="absolute left-[9px] top-4 bottom-4 w-px bg-border/60"
+              aria-hidden="true"
+            />
+            {pipeline.map((stage, i) => {
+              const isActive = currentStageIndex === i;
+              const isDone   = currentStageIndex !== undefined && i < currentStageIndex;
+              return (
+                <div
+                  key={stage}
+                  role="listitem"
+                  aria-current={isActive ? 'step' : undefined}
+                  className="flex items-center gap-3 py-[7px] relative"
+                >
+                  {/* Dot / check icon — size difference is the non-color cue (color-not-only) */}
+                  {isActive ? (
+                    <div
+                      className="w-[18px] h-[18px] rounded-full bg-primary flex-shrink-0 shadow-[0_0_0_4px_rgba(124,109,250,0.15)]"
+                      aria-hidden="true"
+                    />
+                  ) : isDone ? (
+                    <span
+                      className="material-symbols-outlined text-[14px] leading-none text-primary/40 flex-shrink-0 ml-[2px]"
+                      aria-hidden="true"
+                    >
+                      check
+                    </span>
+                  ) : (
+                    <div className="w-2 h-2 rounded-full flex-shrink-0 ml-[5px] bg-border" aria-hidden="true" />
+                  )}
+                  {/* Label */}
+                  <span className={`text-[13px] leading-none transition-colors duration-150 ${
+                    isActive
+                      ? 'font-semibold text-primary'
+                      : isDone
+                      ? 'text-text-disabled'
+                      : 'text-text-secondary'
+                  }`}>
+                    {resolveAgentName(stage, activeSpace)}
+                    {/* visually hidden state label for screen readers */}
+                    {isActive && <span className="sr-only"> (current)</span>}
+                    {isDone   && <span className="sr-only"> (completed)</span>}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm text-text-disabled italic">
-              (space default)
-            </span>
-            <button
-              type="button"
-              onClick={openEditor}
-              disabled={disabled}
-              aria-label="Configure pipeline"
-              title="Configure pipeline"
-              className="text-xs text-primary hover:text-primary/80 focus:outline-hidden focus:ring-2 focus:ring-primary rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast px-1.5 py-0.5"
-            >
-              Configure
-            </button>
-          </div>
+          <span className="text-sm text-text-disabled italic pl-1">(space default)</span>
         )}
       </div>
     );
@@ -400,6 +436,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const activeSpace          = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
   const activeRun            = useActiveRun();
   const availableAgents      = useAvailableAgents();
+  const pipelineStates       = usePipelineStates();
 
   // ── Local field state ────────────────────────────────────────────────────
 
@@ -599,6 +636,12 @@ export function TaskDetailPanel(): React.ReactElement | null {
    */
   const handleAttachmentClick = useCallback(async (index: number, name: string) => {
     if (!detailTask) return;
+    const att = detailTask.attachments?.[index];
+    // Link type — open directly, skip modal
+    if (att?.type === 'link') {
+      window.open(att!.content, '_blank', 'noopener,noreferrer');
+      return;
+    }
     if (name.toLowerCase().endsWith('.md')) {
       setLoadingAttachmentIndex(index);
       try {
@@ -627,6 +670,11 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const isActiveRun = activeRun?.taskId === detailTask.id;
   const fieldDisabled = isReadOnly;
+
+  // Find pipeline state for this task (for currentStageIndex)
+  const taskPipelineState = Object.values(pipelineStates).find(
+    (ps) => ps.taskId === detailTask.id && (ps.status === 'running' || ps.status === 'paused' || ps.status === 'blocked')
+  );
 
   // ── Shared sub-elements ──────────────────────────────────────────────────
 
@@ -708,7 +756,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-b-modal">
 
             {/* ── LEFT: title · description · comments ──────────────── */}
-            <div className={`min-w-0 overflow-y-auto px-10 pt-7 pb-8 flex flex-col gap-6 md:flex-1 ${mobileTab === 'content' ? 'flex-1' : 'hidden md:flex'}`}>
+            <div className={`min-w-0 overflow-y-auto px-14 pt-7 pb-8 flex flex-col gap-6 md:flex-1 ${mobileTab === 'content' ? 'flex-1' : 'hidden md:flex'}`}>
               {isActiveRun && (
                 <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30">
                   <span className="material-symbols-outlined text-warning text-[18px] leading-none flex-shrink-0" aria-hidden="true">warning</span>
@@ -840,6 +888,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 onSave={handlePipelineSave}
                 disabled={fieldDisabled}
                 activeSpace={activeSpace}
+                currentStageIndex={taskPipelineState?.currentStageIndex}
               />
 
               {/* Attachments */}
