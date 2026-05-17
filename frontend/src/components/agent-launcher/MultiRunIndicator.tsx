@@ -11,6 +11,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { flushSync } from 'react-dom';
 import type { PipelineState } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import { RunItemCompact } from './RunItemCompact';
@@ -28,6 +29,13 @@ export interface MultiRunIndicatorProps {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Statuses that count as genuinely active (pending user action or still executing). */
+const ACTIVE_STATUSES = new Set<PipelineState['status']>(['running', 'paused', 'blocked']);
+
+// ---------------------------------------------------------------------------
 // MultiRunIndicator
 // ---------------------------------------------------------------------------
 
@@ -38,6 +46,9 @@ export function MultiRunIndicator({
   availableAgents,
 }: MultiRunIndicatorProps) {
   const runCount = Object.keys(pipelineStates).length;
+  const activeRunCount = Object.values(pipelineStates).filter(
+    (ps) => ACTIVE_STATUSES.has(ps.status),
+  ).length;
 
   const abortRun      = useAppStore((s) => s.abortRun);
   const clearRun      = useAppStore((s) => s.clearRun);
@@ -104,7 +115,11 @@ export function MultiRunIndicator({
       clearTimeout(autoCollapseTimerRef.current);
       autoCollapseTimerRef.current = null;
     }
-    setIsExpanded((prev) => !prev);
+    // flushSync ensures the re-render is flushed synchronously so the expanded
+    // dropdown is in the DOM before the next paint (or test assertion).
+    flushSync(() => {
+      setIsExpanded((prev) => !prev);
+    });
   };
 
   const handleOpenDetail = useCallback((runId: string) => {
@@ -132,7 +147,7 @@ export function MultiRunIndicator({
         onClick={handlePillClick}
         aria-expanded={isExpanded}
         aria-haspopup="listbox"
-        aria-label={`${runCount} runs active, press Enter to ${isExpanded ? 'collapse' : 'expand'}`}
+        aria-label={`${activeRunCount} run${activeRunCount !== 1 ? 's' : ''} active, press Enter to ${isExpanded ? 'collapse' : 'expand'}`}
         data-testid="multi-run-pill"
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-variant border border-border text-text-secondary hover:text-text-primary hover:bg-surface-elevated cursor-pointer transition-colors duration-fast select-none"
       >
@@ -144,7 +159,7 @@ export function MultiRunIndicator({
         </span>
 
         <span className="text-xs font-medium">
-          {runCount} runs
+          {activeRunCount} {activeRunCount === 1 ? 'run' : 'runs'}
         </span>
 
         <span
@@ -167,7 +182,7 @@ export function MultiRunIndicator({
         >
           <div className="px-3 py-2 border-b border-border">
             <span className="text-xs font-semibold text-text-secondary uppercase tracking-wide">
-              Active Runs ({runCount})
+              Active Runs ({activeRunCount})
             </span>
           </div>
 

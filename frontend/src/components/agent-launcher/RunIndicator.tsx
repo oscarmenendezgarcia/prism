@@ -20,10 +20,15 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAppStore, usePipelineState, usePipelineStates, useActivePipelineRunId, useAvailableAgents } from '@/stores/useAppStore';
 import { MultiRunIndicator } from './MultiRunIndicator';
 import { resolveAgentName, resolveAgentShortLabel, STAGE_LABELS } from '@/utils/agentName';
-import type { BlockedReason } from '@/types';
+import type { BlockedReason, PipelineState } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
+
+/** Statuses that count as genuinely active for the multi-run threshold.
+ *  Interrupted/aborted/completed runs are terminal — they auto-dismiss and
+ *  should not trigger multi-run mode on their own. */
+const ACTIVE_RUN_STATUSES = new Set<PipelineState['status']>(['running', 'paused', 'blocked']);
 // ---------------------------------------------------------------------------
 
 /** Format elapsed seconds as m:ss (e.g. "1:05"). Clamps to 0 to handle clock skew. */
@@ -435,6 +440,9 @@ export function RunIndicator() {
   const activeSpace           = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
 
   const runCount = Object.keys(pipelineStates).length;
+  const activeRunCount = Object.values(pipelineStates).filter(
+    (ps) => ACTIVE_RUN_STATUSES.has(ps.status),
+  ).length;
 
   const [elapsedSecs, setElapsedSecs] = useState(0);
 
@@ -469,8 +477,8 @@ export function RunIndicator() {
     return () => clearTimeout(t);
   }, [pipelineState?.status, clearPipeline]);
 
-  // ── Multi-run mode (2+ active runs) ────────────────────────────────────────
-  if (runCount >= 2) {
+  // ── Multi-run mode (2+ genuinely active runs) ──────────────────────────────
+  if (activeRunCount >= 2) {
     return (
       <MultiRunIndicator
         pipelineStates={pipelineStates}
