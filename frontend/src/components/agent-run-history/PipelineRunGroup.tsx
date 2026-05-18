@@ -7,12 +7,18 @@
  * Expanded state shows one RunHistoryEntry per stage, each prefixed with
  * a "Stage N:" label via the stageLabel prop.
  *
+ * ADR-1 (run-history-pipeline-logs) §7: the header is split into two areas:
+ *  - Main area (icon + content) → invokes onOpenLogs(stageIndex=0)
+ *  - Chevron button → toggles expand/collapse only (stopPropagation)
+ * Each expanded RunHistoryEntry also receives an onClick that opens logs
+ * with the corresponding stage pre-selected.
+ *
  * Default open state:
  *   - collapsed  → groups with no running stage (completed / failed / etc.)
  *   - expanded   → groups that contain at least one running stage
  */
 
-import React, { memo, useState } from 'react';
+import React, { memo, useCallback, useState } from 'react';
 import type { AgentRunRecord, RunStatus } from '@/types';
 import { RunHistoryEntry } from './RunHistoryEntry';
 
@@ -83,6 +89,12 @@ interface PipelineRunGroupProps {
   pipelineRunId: string;
   stages: AgentRunRecord[];
   aggregateStatus: RunStatus;
+  /**
+   * Called when the user clicks the main header area or an individual stage row.
+   * stageIndex is provided when clicking on an expanded stage row.
+   * ADR-1 (run-history-pipeline-logs) §7.
+   */
+  onOpenLogs?: (stageIndex?: number) => void;
 }
 
 /**
@@ -93,12 +105,13 @@ export const PipelineRunGroup = memo(function PipelineRunGroup({
   pipelineRunId: _pipelineRunId,
   stages,
   aggregateStatus,
+  onOpenLogs,
 }: PipelineRunGroupProps) {
   const hasRunning = stages.some((s) => s.status === 'running');
   const [open, setOpen] = useState(hasRunning);
 
-  const first       = stages[0];
-  const totalMs     = computeTotalDuration(stages);
+  const first          = stages[0];
+  const totalMs        = computeTotalDuration(stages);
   const completedCount = stages.filter((s) => s.status === 'completed').length;
 
   // Stage count badge: "3 stages" while running, "2/3 completed" when partially done.
@@ -106,70 +119,112 @@ export const PipelineRunGroup = memo(function PipelineRunGroup({
     ? `${completedCount}/${stages.length} stages`
     : `${stages.length} stages`;
 
+  const handleMainAreaClick = useCallback(() => {
+    onOpenLogs?.(0);
+  }, [onOpenLogs]);
+
+  const handleMainAreaKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onOpenLogs?.(0);
+    }
+  }, [onOpenLogs]);
+
+  const handleChevronClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen((prev) => !prev);
+  }, []);
+
+  const handleChevronKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.stopPropagation();
+      e.preventDefault();
+      setOpen((prev) => !prev);
+    }
+  }, []);
+
   return (
     <li className="border-b border-border">
-      {/* Group header row */}
-      <button
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-        aria-label={`Pipeline group: ${first.taskTitle} — ${stages.length} stages`}
-        className={`relative w-full flex items-start gap-3 px-4 py-3 hover:bg-surface-elevated transition-colors duration-150 border-l-[3px] text-left ${borderColorClass[aggregateStatus] ?? 'border-l-border'}`}
+      {/* Group header row — split into main area (logs) + chevron (toggle) */}
+      <div
+        className={`relative w-full flex items-start gap-3 px-4 py-3 hover:bg-surface-elevated transition-colors duration-150 border-l-[3px] ${borderColorClass[aggregateStatus] ?? 'border-l-border'}`}
       >
-        {/* Status icon */}
+        {/* Main clickable area: opens logs in stage 0 (interactive only when onOpenLogs provided) */}
         <div
-          className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${iconBgClass[aggregateStatus] ?? ''}`}
-          aria-hidden="true"
+          {...(onOpenLogs ? {
+            role:        'button' as const,
+            tabIndex:    0,
+            onClick:     handleMainAreaClick,
+            onKeyDown:   handleMainAreaKeyDown,
+            'aria-label': `Open logs for ${first.taskTitle}`,
+          } : {})}
+          className={`flex-1 flex items-start gap-3 min-w-0 text-left ${onOpenLogs ? 'cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded' : ''}`}
         >
-          <span className="material-symbols-outlined text-base leading-none">
-            {iconName[aggregateStatus] ?? 'help'}
-          </span>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          {/* Task title */}
-          <p className="text-sm font-medium text-text-primary leading-snug truncate">
-            {first.taskTitle}
-          </p>
-
-          {/* Space + relative time + optional total duration */}
-          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-            <span className="text-[11px] text-text-disabled truncate">{first.spaceName}</span>
-            <span className="text-[11px] text-text-disabled" aria-hidden="true">·</span>
-            <span className="text-[11px] text-text-disabled">{relativeTime(first.startedAt)}</span>
-
-            {totalMs !== null && (
-              <>
-                <span className="text-[11px] text-text-disabled" aria-hidden="true">·</span>
-                <span
-                  className="text-[11px] text-text-secondary font-mono"
-                  aria-label={`Total duration: ${formatDuration(totalMs)}`}
-                >
-                  {formatDuration(totalMs)}
-                </span>
-              </>
-            )}
-          </div>
-
-          {/* Stage count badge */}
-          <div className="mt-1">
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-variant text-text-secondary">
-              <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">
-                linear_scale
-              </span>
-              {stageCountLabel}
+          {/* Status icon */}
+          <div
+            className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${iconBgClass[aggregateStatus] ?? ''}`}
+            aria-hidden="true"
+          >
+            <span className="material-symbols-outlined text-base leading-none">
+              {iconName[aggregateStatus] ?? 'help'}
             </span>
           </div>
+
+          {/* Content */}
+          <div className="flex-1 min-w-0">
+            {/* Task title */}
+            <p className="text-sm font-medium text-text-primary leading-snug truncate">
+              {first.taskTitle}
+            </p>
+
+            {/* Space + relative time + optional total duration */}
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              <span className="text-[11px] text-text-disabled truncate">{first.spaceName}</span>
+              <span className="text-[11px] text-text-disabled" aria-hidden="true">·</span>
+              <span className="text-[11px] text-text-disabled">{relativeTime(first.startedAt)}</span>
+
+              {totalMs !== null && (
+                <>
+                  <span className="text-[11px] text-text-disabled" aria-hidden="true">·</span>
+                  <span
+                    className="text-[11px] text-text-secondary font-mono"
+                    aria-label={`Total duration: ${formatDuration(totalMs)}`}
+                  >
+                    {formatDuration(totalMs)}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Stage count badge */}
+            <div className="mt-1">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-variant text-text-secondary">
+                <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">
+                  linear_scale
+                </span>
+                {stageCountLabel}
+              </span>
+            </div>
+          </div>
         </div>
 
-        {/* Chevron toggle */}
-        <span
-          className={`material-symbols-outlined text-base text-text-disabled leading-none flex-shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
-          aria-hidden="true"
+        {/* Chevron — separate interactive control for expand/collapse only */}
+        <button
+          type="button"
+          onClick={handleChevronClick}
+          onKeyDown={handleChevronKeyDown}
+          aria-expanded={open}
+          aria-label={`${open ? 'Collapse' : 'Expand'} pipeline stages for ${first.taskTitle}`}
+          className="flex-shrink-0 w-7 h-7 flex items-center justify-center rounded text-text-disabled hover:bg-surface-variant hover:text-text-secondary transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          expand_more
-        </span>
-      </button>
+          <span
+            className={`material-symbols-outlined text-base leading-none transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+            aria-hidden="true"
+          >
+            expand_more
+          </span>
+        </button>
+      </div>
 
       {/* Expanded stage list */}
       {open && (
@@ -179,6 +234,7 @@ export const PipelineRunGroup = memo(function PipelineRunGroup({
               key={stage.id}
               run={stage}
               stageLabel={`Stage ${idx + 1}`}
+              onClick={onOpenLogs ? () => onOpenLogs(idx) : undefined}
             />
           ))}
         </ul>
