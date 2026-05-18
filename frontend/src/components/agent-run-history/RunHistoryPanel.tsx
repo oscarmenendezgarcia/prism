@@ -10,13 +10,14 @@
  * - Empty state when filter yields no results
  */
 
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useRunHistoryStore, useFilteredRuns } from '@/stores/useRunHistoryStore';
+import { useAppStore } from '@/stores/useAppStore';
 import { usePanelResize } from '@/hooks/usePanelResize';
 import { RunHistoryEntry } from './RunHistoryEntry';
 import { PipelineRunGroup } from './PipelineRunGroup';
 import { groupRuns } from './groupRuns';
-import type { RunStatus } from '@/types';
+import type { AgentRunRecord, RunStatus } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Filter pill bar configuration
@@ -41,14 +42,43 @@ const FILTER_OPTIONS: FilterOption[] = [
  * Rendered conditionally from App.tsx when historyPanelOpen is true.
  */
 export function RunHistoryPanel() {
-  const filter           = useRunHistoryStore((s) => s.filter);
-  const setFilter        = useRunHistoryStore((s) => s.setFilter);
-  const togglePanel      = useRunHistoryStore((s) => s.toggleHistoryPanel);
-  const loading          = useRunHistoryStore((s) => s.loading);
-  const runs             = useRunHistoryStore((s) => s.runs);
-  const taskIdFilter     = useRunHistoryStore((s) => s.taskIdFilter);
+  const filter            = useRunHistoryStore((s) => s.filter);
+  const setFilter         = useRunHistoryStore((s) => s.setFilter);
+  const togglePanel       = useRunHistoryStore((s) => s.toggleHistoryPanel);
+  const loading           = useRunHistoryStore((s) => s.loading);
+  const runs              = useRunHistoryStore((s) => s.runs);
+  const taskIdFilter      = useRunHistoryStore((s) => s.taskIdFilter);
   const clearTaskIdFilter = useRunHistoryStore((s) => s.clearTaskIdFilter);
-  const filteredRuns     = useFilteredRuns();
+  const filteredRuns      = useFilteredRuns();
+
+  // ADR-1 (run-history-pipeline-logs): open log panel for any run in the history.
+  const openLogPanelForRun = useAppStore((s) => s.openLogPanelForRun);
+
+  /**
+   * Stable callback for single-run entries.
+   * Creates a closure over the run and calls openLogPanelForRun.
+   * Note: inline lambdas in `.map()` are acceptable here — the list is typically
+   * small and the performance impact is negligible vs. the wiring complexity of
+   * per-item useCallback memoization.
+   */
+  const buildSingleClickHandler = useCallback(
+    (run: AgentRunRecord) => () => {
+      openLogPanelForRun({ kind: 'single', run });
+    },
+    [openLogPanelForRun],
+  );
+
+  /**
+   * Stable callback for pipeline group entries.
+   * Returns a handler that opens logs at the given stage index.
+   */
+  const buildGroupLogsHandler = useCallback(
+    (pipelineRunId: string, stages: AgentRunRecord[]) =>
+      (stageIndex?: number) => {
+        openLogPanelForRun({ kind: 'pipeline', pipelineRunId, stages, stageIndex });
+      },
+    [openLogPanelForRun],
+  );
 
   // Check if any run is currently active (for pulsing header dot).
   const hasActiveRun = runs.some((r) => r.status === 'running');
@@ -180,9 +210,14 @@ export function RunHistoryPanel() {
                   pipelineRunId={group.pipelineRunId}
                   stages={group.stages}
                   aggregateStatus={group.aggregateStatus}
+                  onOpenLogs={buildGroupLogsHandler(group.pipelineRunId, group.stages)}
                 />
               ) : (
-                <RunHistoryEntry key={group.run.id} run={group.run} />
+                <RunHistoryEntry
+                  key={group.run.id}
+                  run={group.run}
+                  onClick={buildSingleClickHandler(group.run)}
+                />
               )
             )}
           </ul>
