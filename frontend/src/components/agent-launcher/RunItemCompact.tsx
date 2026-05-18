@@ -151,9 +151,9 @@ export function RunItemCompact({
     return () => clearInterval(id);
   }, [startedAt, status, finishedAt]);
 
-  // Auto-dismiss completed runs after 2 s.
+  // Auto-dismiss terminal runs after 2 s (completed, interrupted, aborted).
   useEffect(() => {
-    if (status !== 'completed') return;
+    if (status !== 'completed' && status !== 'interrupted' && status !== 'aborted') return;
     const t = setTimeout(() => onDismiss(runId), 2000);
     return () => clearTimeout(t);
   }, [status, runId, onDismiss]);
@@ -250,7 +250,7 @@ export function RunItemCompact({
       <div className="flex items-center gap-2 text-[11px] text-text-secondary pl-6">
         <span className="truncate">
           {statusLabel(status)} · {stageLabel}
-          {status === 'completed' && ' · Dismissing…'}
+          {(status === 'completed' || status === 'interrupted' || status === 'aborted') && ' · Dismissing…'}
         </span>
       </div>
     </div>
