@@ -32,6 +32,7 @@ import type {
   ConfigFile,
   AgentInfo,
   AgentRun,
+  AgentRunRecord,
   BackendRun,
   PipelineState,
   PipelineStage,
@@ -41,6 +42,20 @@ import type {
   TaggerResult,
   Comment,
 } from '@/types';
+import { buildSingleState, buildPipelineGroupState } from '@/stores/pipelineStateFromRun';
+
+// ---------------------------------------------------------------------------
+// openLogPanelForRun input type
+// ---------------------------------------------------------------------------
+
+/**
+ * Input discriminant for openLogPanelForRun.
+ * - 'single'   → a standalone run (no pipelineRunId) or single-stage pipeline group
+ * - 'pipeline' → a multi-stage pipeline group (pipelineRunId + all stage records)
+ */
+export type OpenLogPanelInput =
+  | { kind: 'single';   run: AgentRunRecord }
+  | { kind: 'pipeline'; pipelineRunId: string; stages: AgentRunRecord[]; stageIndex?: number };
 
 /** Keys used to persist state across page reloads. */
 const ACTIVE_SPACE_KEY = 'prism-active-space';
@@ -221,6 +236,13 @@ interface AppState {
    * running" indicator via activeRun only.
    */
   executeOrchestratorRun: (spaceId: string, taskId: string, stages: PipelineStage[], dangerouslySkipPermissions?: boolean) => Promise<void>;
+
+  /**
+   * Open the Pipeline Log panel pointing at a historical (or live) run from Run History.
+   * Hydrates a synthetic PipelineState entry for completed runs and opens the panel.
+   * ADR-1 (run-history-pipeline-logs) §6.
+   */
+  openLogPanelForRun: (input: OpenLogPanelInput) => Promise<void>;
 
   /** Pipeline confirm modal — shown when user clicks "Run Pipeline" on a card. */
   pipelineConfirmModal: {
@@ -1126,6 +1148,81 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   attachRun: (state) => setPipelineStateById(state.runId ?? PENDING_RUN_KEY, state),
+
+  openLogPanelForRun: async (input: OpenLogPanelInput) => {
+    const { pipelineStates, showToast, activePipelineRunId } = get();
+
+    const key = input.kind === 'single' ? input.run.id : input.pipelineRunId;
+    const stageIndex = input.kind === 'pipeline' ? (input.stageIndex ?? 0) : 0;
+
+    const openPanel = (idx: number) => {
+      usePipelineLogStore.getState().clearStageLogs();
+      usePipelineLogStore.getState().setLogPanelRunId(key);
+      usePipelineLogStore.getState().setSelectedStageIndex(idx);
+      usePipelineLogStore.getState().setLogPanelOpen(true);
+    };
+
+    // Fast path: entry already in memory (live run or previously opened historical run).
+    if (pipelineStates[key]) {
+      console.log(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        component: 'app-store',
+        event: 'open_log_panel_for_run',
+        key,
+        kind: input.kind,
+        stageCount: input.kind === 'pipeline' ? input.stages.length : 1,
+        hydrated: false,
+      }));
+      openPanel(stageIndex);
+      return;
+    }
+
+    // Hydrate synthetic PipelineState from AgentRunRecord data (no network needed).
+    let synthetic: PipelineState;
+    try {
+      synthetic = input.kind === 'single'
+        ? buildSingleState(input.run)
+        : buildPipelineGroupState(input.pipelineRunId, input.stages);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      console.log(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'warn',
+        component: 'app-store',
+        event: 'hydrate_failed',
+        key,
+        kind: input.kind,
+        error: message,
+      }));
+      showToast('Run no longer available', 'error');
+      return;
+    }
+
+    // Add to pipelineStates WITHOUT displacing the current active live run.
+    // Historical runs share the dict but should not steal the activePipelineRunId
+    // slot so that live pipeline indicators continue to work normally.
+    const nextStates = { ...pipelineStates, [key]: synthetic };
+    const nextActive = activePipelineRunId ?? key;
+    set({
+      pipelineStates:      nextStates,
+      activePipelineRunId: nextActive,
+      pipelineState:       recomputeMirror(nextStates, nextActive),
+    });
+
+    console.log(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      component: 'app-store',
+      event: 'open_log_panel_for_run',
+      key,
+      kind: input.kind,
+      stageCount: input.kind === 'pipeline' ? input.stages.length : 1,
+      hydrated: true,
+    }));
+
+    openPanel(stageIndex);
+  },
 
   setActivePipelineRunId: (runId: string | null) => {
     const { pipelineStates } = get();
