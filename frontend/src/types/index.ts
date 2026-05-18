@@ -261,6 +261,12 @@ export interface PipelineState {
   /** Set when status === 'blocked'. Which comment is preventing the pipeline from advancing. */
   blockedReason?: BlockedReason;
   /**
+   * Human-readable title of the main task driving this pipeline run.
+   * Resolved at pipeline start from Zustand tasks store.
+   * Used by RunSelector to display a meaningful label instead of a UUID.
+   */
+  taskTitle?: string;
+  /**
    * Backend run ID returned by POST /api/v1/runs when the pipeline is launched
    * via backend spawn. Tracks the most-recent run (last stage started).
    * ADR-1 (log-viewer): optional — only set when startRun() is called.
