@@ -16,9 +16,17 @@ import type { PipelineState } from '@/types';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Returns the first 8 chars of a UUID as a short display label. */
+/** Returns the first 8 chars of a UUID as a short display label (fallback only). */
 function shortRunId(runId: string): string {
   return `run-${runId.slice(0, 8)}`;
+}
+
+/**
+ * Returns a display label for a run entry.
+ * Prefers taskTitle when available; falls back to shortRunId.
+ */
+function runDisplayLabel(entry: RunSelectorEntry): string {
+  return entry.pipelineState.taskTitle ?? shortRunId(entry.key);
 }
 
 /** Returns a display label for the run option button. */
@@ -179,7 +187,7 @@ export function RunSelector({ runs, selectedRunId, onSelect }: RunSelectorProps)
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-controls="run-selector-list"
-        aria-label={`Select pipeline run. Current: ${shortRunId(displayEntry.key)}`}
+        aria-label={`Select pipeline run. Current: ${runDisplayLabel(displayEntry)}`}
         onClick={() => (isOpen ? closeDropdown() : openDropdown())}
         onKeyDown={handleButtonKeyDown}
         className="
@@ -190,15 +198,16 @@ export function RunSelector({ runs, selectedRunId, onSelect }: RunSelectorProps)
           focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary
           transition-colors duration-150
         "
+        title={shortRunId(displayEntry.key)}
       >
         <span aria-label={buttonIconLabel} className={`text-[10px] leading-none ${statusIconClass(displayEntry.pipelineState.status)}`}>
           {buttonIcon}
         </span>
-        <span className="max-w-[80px] truncate hidden sm:inline">
-          {shortRunId(displayEntry.key)}
+        <span className="max-w-[120px] truncate hidden sm:inline">
+          {runDisplayLabel(displayEntry)}
         </span>
-        <span className="max-w-[60px] truncate sm:hidden">
-          {shortRunId(displayEntry.key).slice(0, 10)}
+        <span className="max-w-[80px] truncate sm:hidden">
+          {runDisplayLabel(displayEntry)}
         </span>
         <span
           className={`material-symbols-outlined text-[12px] leading-none transition-transform duration-150 ${isOpen ? 'rotate-180' : ''}`}
@@ -232,9 +241,11 @@ export function RunSelector({ runs, selectedRunId, onSelect }: RunSelectorProps)
             const timeLabel  = formatTime(ps.startedAt);
             const statusText = runStatusLabel(ps.status);
 
+            const displayLabel = runDisplayLabel(entry);
+
             // Accessible label for screen readers.
             const ariaLabel = [
-              shortRunId(entry.key),
+              displayLabel,
               stageLabel,
               agentId,
               statusText,
@@ -273,8 +284,8 @@ export function RunSelector({ runs, selectedRunId, onSelect }: RunSelectorProps)
                 <div className="flex flex-col gap-0.5 min-w-0">
                   {/* Run label + stage */}
                   <div className="flex items-baseline gap-1.5 flex-wrap">
-                    <span className="font-mono font-semibold text-[11px]">
-                      {shortRunId(entry.key)}
+                    <span className="font-semibold text-[11px] truncate max-w-[160px]" title={shortRunId(entry.key)}>
+                      {displayLabel}
                     </span>
                     <span className="text-text-disabled text-[10px] hidden sm:inline">
                       — {stageLabel}
