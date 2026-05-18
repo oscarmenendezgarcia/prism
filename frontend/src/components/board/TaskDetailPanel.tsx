@@ -715,14 +715,17 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
       {/* Centering wrapper */}
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 pointer-events-none">
-        <div
-          ref={panelRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Task detail"
-          tabIndex={-1}
-          className="pointer-events-auto outline-none w-full max-w-[1200px] max-h-[90vh] flex flex-col bg-surface border border-border/70 rounded-modal shadow-[0_48px_128px_rgba(0,0,0,0.50),0_0_0_1px_rgba(255,255,255,0.07),inset_0_1px_0_rgba(255,255,255,0.07)] animate-modal-dialog-in"
-        >
+        {/* ── Outer bezel shell — gradient ring creates the machined-hardware frame ── */}
+        <div className="pointer-events-auto w-full max-w-[1200px] max-h-[90vh] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-white/[0.10] to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-modal-dialog-in">
+          {/* ── Inner content card ─────────────────────────────────────────────────── */}
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Task detail"
+            tabIndex={-1}
+            className="outline-none flex-1 min-h-0 flex flex-col bg-surface rounded-modal overflow-hidden shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+          >
           {/* ── Header ────────────────────────────────────────────────── */}
           <div className="flex items-center gap-2.5 h-13 px-6 border-b border-border/40 flex-shrink-0 bg-surface-elevated/10">
             <span className="font-mono text-[11px] text-text-disabled bg-surface-variant/80 px-2 py-1 rounded-md flex-shrink-0 tracking-[0.1em] border border-border/40">
@@ -764,6 +767,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               )}
 
               {/* Title — textarea wraps long titles instead of truncating */}
+              <div className="animate-fade-in-up [animation-delay:50ms]">
               <textarea
                 id="detail-title"
                 ref={titleInputRef}
@@ -782,9 +786,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 className="w-full bg-transparent border-b border-transparent hover:border-border/40 focus:border-primary/50 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled/50 focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-40 disabled:cursor-not-allowed transition-[border-color] duration-[220ms] ease-spring"
                 placeholder="Task title"
               />
+              </div>
 
               {/* Description */}
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1.5 animate-fade-in-up [animation-delay:110ms]">
                 <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">
                   Description
                 </label>
@@ -803,7 +808,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </div>
 
               {/* Comments */}
-              <div className="border-t border-border/30 pt-6" data-testid="comments-panel">
+              <div className="border-t border-border/30 pt-6 animate-fade-in-up [animation-delay:170ms]" data-testid="comments-panel">
                 <CommentsSection
                   spaceId={activeSpaceId}
                   taskId={detailTask.id}
@@ -816,10 +821,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
             </div>
 
             {/* ── RIGHT: metadata sidebar ────────────────────────────── */}
-            <div className={`flex-shrink-0 border-border/40 bg-surface-elevated/25 overflow-y-auto px-6 pt-7 pb-7 flex flex-col gap-5 md:w-[340px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
+            <div className={`flex-shrink-0 border-border/40 bg-surface-elevated/25 overflow-y-auto px-6 pt-6 pb-6 flex flex-col divide-y divide-border/20 md:w-[340px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
 
               {/* ID */}
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 pb-5 animate-fade-in-up [animation-delay:80ms]">
                 <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">ID</span>
                 <div className="flex items-center gap-2">
                   <span className="flex-1 font-mono text-xs text-text-secondary bg-surface border border-border/40 rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap min-w-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
@@ -840,7 +845,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </div>
 
               {/* Type */}
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 py-5 animate-fade-in-up [animation-delay:130ms]">
                 <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Task Type</span>
                 <div role="group" aria-label="Task type" className="flex flex-wrap gap-2">
                   {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
@@ -865,7 +870,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </div>
 
               {/* Assigned */}
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 py-5 animate-fade-in-up [animation-delay:180ms]">
                 <label htmlFor="detail-assigned" className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Assigned To</label>
                 <input
                   id="detail-assigned"
@@ -881,18 +886,20 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </div>
 
               {/* Pipeline */}
-              <PipelineFieldEditor
-                pipeline={detailTask.pipeline}
-                availableAgentIds={availableAgents.map((a) => a.id)}
-                onSave={handlePipelineSave}
-                disabled={fieldDisabled}
-                activeSpace={activeSpace}
-                currentStageIndex={taskPipelineState?.currentStageIndex}
-              />
+              <div className="py-5 animate-fade-in-up [animation-delay:230ms]">
+                <PipelineFieldEditor
+                  pipeline={detailTask.pipeline}
+                  availableAgentIds={availableAgents.map((a) => a.id)}
+                  onSave={handlePipelineSave}
+                  disabled={fieldDisabled}
+                  activeSpace={activeSpace}
+                  currentStageIndex={taskPipelineState?.currentStageIndex}
+                />
+              </div>
 
               {/* Attachments */}
               {detailTask.attachments && detailTask.attachments.length > 0 && (
-                <div className="flex flex-col gap-2" data-testid="attachments-section">
+                <div className="flex flex-col gap-2 py-5" data-testid="attachments-section">
                   <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Attachments</span>
                   <div className="flex flex-col gap-1.5" aria-label="Task attachments">
                     {detailTask.attachments.map((att, index) => (
@@ -935,7 +942,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               )}
 
               {/* Timestamps — pushed to bottom */}
-              <div className="mt-auto pt-4 border-t border-border/25 flex flex-col gap-2">
+              <div className="mt-auto pt-5 flex flex-col gap-2">
                 <div className="flex justify-between items-baseline">
                   <span className="text-[9px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Created</span>
                   <span className="font-mono text-[10px] text-text-disabled">{formatTimestamp(detailTask.createdAt)}</span>
@@ -947,7 +954,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </div>
             </div>
           </div>
+          </div>
+          {/* /inner content card */}
         </div>
+        {/* /outer bezel */}
       </div>
     </>
   );

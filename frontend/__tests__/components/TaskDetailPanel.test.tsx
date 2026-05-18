@@ -350,7 +350,7 @@ describe('TaskDetailPanel — read-only state during activeRun', () => {
       },
     } as any);
     render(<TaskDetailPanel />);
-    expect(screen.getByText(/agent pipeline is running/i)).toBeInTheDocument();
+    expect(screen.getByText(/pipeline running/i)).toBeInTheDocument();
   });
 
   it('does NOT disable inputs when activeRun is for a different task', () => {
@@ -757,13 +757,13 @@ describe('TaskDetailPanel — attachments section', () => {
 describe('TaskDetailPanel — centered modal layout', () => {
   it('renders a centered modal with animate-modal-dialog-in entrance', () => {
     useAppStore.setState({ detailTask: TASK } as any);
-    render(<TaskDetailPanel />);
+    const { container } = render(<TaskDetailPanel />);
 
-    const dialog = screen.getByRole('dialog');
-    // Centered modal uses the modal-dialog-in entrance animation
-    expect(dialog.className).toMatch(/animate-modal-dialog-in/);
-    // Slide-over animation is NOT used
-    expect(dialog.className).not.toMatch(/animate-slide-in-right/);
+    // animate-modal-dialog-in is on the outer bezel wrapper (parent of the dialog)
+    const bezel = container.querySelector('.animate-modal-dialog-in');
+    expect(bezel).toBeInTheDocument();
+    // Slide-over animation is NOT used anywhere
+    expect(container.querySelector('.animate-slide-in-right')).toBeNull();
   });
 
   it('renders the comments panel in the modal layout', () => {
