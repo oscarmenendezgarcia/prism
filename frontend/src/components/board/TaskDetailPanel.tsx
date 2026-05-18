@@ -211,7 +211,7 @@ function PipelineFieldEditor({
       <div className="flex flex-col gap-2">
         {/* Section label + action buttons */}
         <div className="flex items-center justify-between">
-          <span className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">
+          <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">
             Pipeline Stage
           </span>
           <div className="flex items-center gap-1">
@@ -224,7 +224,7 @@ function PipelineFieldEditor({
                   disabled={disabled}
                   aria-label="Edit pipeline"
                   title="Edit pipeline"
-                  className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-text-secondary hover:bg-surface-variant focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
+                  className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-text-secondary hover:bg-surface-variant focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
                 >
                   <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">edit</span>
                 </button>
@@ -234,7 +234,7 @@ function PipelineFieldEditor({
                   disabled={disabled}
                   aria-label="Clear pipeline"
                   title="Clear pipeline"
-                  className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-error hover:bg-error/10 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
+                  className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-error hover:bg-error/10 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
                 >
                   <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">close</span>
                 </button>
@@ -343,7 +343,7 @@ function PipelineFieldEditor({
                   onClick={() => handleMoveUp(index)}
                   disabled={index === 0}
                   aria-label={`Move ${agentId} up`}
-                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-fast"
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     arrow_upward
@@ -354,7 +354,7 @@ function PipelineFieldEditor({
                   onClick={() => handleMoveDown(index)}
                   disabled={index === draftStages.length - 1}
                   aria-label={`Move ${agentId} down`}
-                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-fast"
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     arrow_downward
@@ -364,7 +364,7 @@ function PipelineFieldEditor({
                   type="button"
                   onClick={() => handleRemove(index)}
                   aria-label={`Remove ${agentId} from pipeline`}
-                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-error focus:outline-hidden focus:ring-1 focus:ring-primary transition-colors duration-fast"
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-error focus:outline-hidden focus:ring-1 focus:ring-primary transition-all duration-[180ms] ease-spring"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     close
@@ -696,7 +696,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
     <button
       onClick={closeDetailPanel}
       aria-label="Close task detail"
-      className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast flex-shrink-0"
+      className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.90] transition-all duration-[150ms] ease-spring flex-shrink-0"
     >
       <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
         close
@@ -711,7 +711,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-[105] bg-black/60 backdrop-blur-[2px]" aria-hidden="true" onClick={closeDetailPanel} />
+      <div className="fixed inset-0 z-[105] bg-black/72 backdrop-blur-[10px]" aria-hidden="true" onClick={closeDetailPanel} />
 
       {/* Centering wrapper */}
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 pointer-events-none">
@@ -721,11 +721,11 @@ export function TaskDetailPanel(): React.ReactElement | null {
           aria-modal="true"
           aria-label="Task detail"
           tabIndex={-1}
-          className="pointer-events-auto outline-none w-full max-w-[1200px] max-h-[90vh] flex flex-col bg-surface border border-border rounded-modal shadow-[0_32px_96px_rgba(0,0,0,0.28),0_0_0_1px_rgba(255,255,255,0.06)] animate-modal-dialog-in"
+          className="pointer-events-auto outline-none w-full max-w-[1200px] max-h-[90vh] flex flex-col bg-surface border border-border/70 rounded-modal shadow-[0_48px_128px_rgba(0,0,0,0.50),0_0_0_1px_rgba(255,255,255,0.07),inset_0_1px_0_rgba(255,255,255,0.07)] animate-modal-dialog-in"
         >
           {/* ── Header ────────────────────────────────────────────────── */}
-          <div className="flex items-center gap-2.5 h-12 px-6 border-b border-border/60 flex-shrink-0">
-            <span className="font-mono text-xs text-text-disabled bg-surface-variant px-2 py-1 rounded-md flex-shrink-0 tracking-wider">
+          <div className="flex items-center gap-2.5 h-13 px-6 border-b border-border/40 flex-shrink-0 bg-surface-elevated/10">
+            <span className="font-mono text-[11px] text-text-disabled bg-surface-variant/80 px-2 py-1 rounded-md flex-shrink-0 tracking-[0.1em] border border-border/40">
               {shortId}
             </span>
             {columnBadge}
@@ -734,16 +734,16 @@ export function TaskDetailPanel(): React.ReactElement | null {
           </div>
 
           {/* ── Mobile tab bar — visible only below md breakpoint ────── */}
-          <div className="md:hidden flex border-b border-border/60 flex-shrink-0">
+          <div className="md:hidden flex border-b border-border/40 flex-shrink-0">
             {(['content', 'details'] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
                 onClick={() => setMobileTab(tab)}
-                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
+                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-all duration-[200ms] ease-spring focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
                   mobileTab === tab
-                    ? 'text-text-primary border-b-2 border-primary -mb-px'
-                    : 'text-text-secondary hover:text-text-primary'
+                    ? 'text-text-primary border-b-2 border-primary -mb-px bg-primary/[0.04]'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-elevated/30'
                 }`}
               >
                 {tab === 'content' ? 'Content' : 'Details'}
@@ -757,9 +757,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
             {/* ── LEFT: title · description · comments ──────────────── */}
             <div className={`min-w-0 overflow-y-auto px-14 pt-7 pb-8 flex flex-col gap-6 md:flex-1 ${mobileTab === 'content' ? 'flex-1' : 'hidden md:flex'}`}>
               {isActiveRun && (
-                <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30">
-                  <span className="material-symbols-outlined text-warning text-[18px] leading-none flex-shrink-0" aria-hidden="true">warning</span>
-                  <p className="text-xs text-warning leading-snug">Agent pipeline is running — editing disabled</p>
+                <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-warning/[0.08] border border-warning/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                  <span className="material-symbols-outlined text-warning text-[16px] leading-none flex-shrink-0 animate-run-pulse" aria-hidden="true">motion_mode</span>
+                  <p className="text-[12px] font-medium text-warning/90 leading-snug tracking-wide">Pipeline running — editing paused</p>
                 </div>
               )}
 
@@ -779,13 +779,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 disabled={fieldDisabled}
                 aria-disabled={fieldDisabled}
                 aria-label="Task title"
-                className="w-full bg-transparent border-b border-transparent hover:border-border/50 focus:border-primary/60 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-fast"
+                className="w-full bg-transparent border-b border-transparent hover:border-border/40 focus:border-primary/50 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled/50 focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-40 disabled:cursor-not-allowed transition-[border-color] duration-[220ms] ease-spring"
                 placeholder="Task title"
               />
 
               {/* Description */}
               <div className="flex flex-col gap-1.5">
-                <label htmlFor="detail-description" className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">
+                <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">
                   Description
                 </label>
                 <textarea
@@ -797,13 +797,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
                   rows={1}
-                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/30 focus:border-primary/40 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-colors duration-fast"
+                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-[border-color] duration-[220ms] ease-spring"
                   placeholder="Add a description..."
                 />
               </div>
 
               {/* Comments */}
-              <div className="border-t border-border/60 pt-6" data-testid="comments-panel">
+              <div className="border-t border-border/30 pt-6" data-testid="comments-panel">
                 <CommentsSection
                   spaceId={activeSpaceId}
                   taskId={detailTask.id}
@@ -816,13 +816,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
             </div>
 
             {/* ── RIGHT: metadata sidebar ────────────────────────────── */}
-            <div className={`flex-shrink-0 border-border/60 bg-surface-elevated/20 overflow-y-auto px-6 pt-7 pb-7 flex flex-col gap-5 md:w-[340px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
+            <div className={`flex-shrink-0 border-border/40 bg-surface-elevated/25 overflow-y-auto px-6 pt-7 pb-7 flex flex-col gap-5 md:w-[340px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
 
               {/* ID */}
               <div className="flex flex-col gap-2">
-                <span className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">ID</span>
+                <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">ID</span>
                 <div className="flex items-center gap-2">
-                  <span className="flex-1 font-mono text-xs text-text-secondary bg-surface border border-border/60 rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap min-w-0">
+                  <span className="flex-1 font-mono text-xs text-text-secondary bg-surface border border-border/40 rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap min-w-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                     {detailTask.id}
                   </span>
                   <button
@@ -830,7 +830,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                     onClick={handleCopyId}
                     aria-label="Copy task ID"
                     title="Copy task ID"
-                    className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+                    className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.90] transition-all duration-[150ms] ease-spring"
                   >
                     <span className="material-symbols-outlined text-[17px] leading-none" aria-hidden="true">
                       {isCopied ? 'check' : 'content_copy'}
@@ -841,7 +841,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
               {/* Type */}
               <div className="flex flex-col gap-2">
-                <span className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">Task Type</span>
+                <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Task Type</span>
                 <div role="group" aria-label="Task type" className="flex flex-wrap gap-2">
                   {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
                     <button
@@ -852,10 +852,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
                       onClick={() => handleTypeChange(t)}
                       disabled={fieldDisabled}
                       aria-disabled={fieldDisabled}
-                      className={`px-3 py-1.5 text-xs font-medium capitalize rounded-full border transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
+                      className={`px-3 py-1.5 text-xs font-medium capitalize rounded-full border transition-all duration-[180ms] ease-spring focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed ${
                         localType === t
-                          ? 'bg-primary/15 border-primary/40 text-primary'
-                          : 'bg-surface border-border/60 text-text-secondary hover:bg-surface-variant hover:text-text-primary'
+                          ? 'bg-primary/15 border-primary/35 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+                          : 'bg-surface/50 border-border/40 text-text-secondary hover:bg-surface-variant hover:border-border/70 hover:text-text-primary'
                       }`}
                     >
                       {t}
@@ -866,7 +866,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
               {/* Assigned */}
               <div className="flex flex-col gap-2">
-                <label htmlFor="detail-assigned" className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">Assigned To</label>
+                <label htmlFor="detail-assigned" className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Assigned To</label>
                 <input
                   id="detail-assigned"
                   type="text"
@@ -875,7 +875,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   onBlur={handleAssignedBlur}
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
-                  className="w-full px-3 py-2 rounded-lg bg-surface border border-border/60 text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
+                  className="w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary placeholder:text-text-disabled/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[220ms] ease-spring shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
                   placeholder="Assign to someone..."
                 />
               </div>
@@ -893,7 +893,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               {/* Attachments */}
               {detailTask.attachments && detailTask.attachments.length > 0 && (
                 <div className="flex flex-col gap-2" data-testid="attachments-section">
-                  <span className="text-[11px] font-medium text-text-disabled uppercase tracking-[0.07em]">Attachments</span>
+                  <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Attachments</span>
                   <div className="flex flex-col gap-1.5" aria-label="Task attachments">
                     {detailTask.attachments.map((att, index) => (
                       <React.Fragment key={index}>
@@ -904,7 +904,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                             rel="noopener noreferrer"
                             data-testid="attachment-row"
                             aria-label={`Open link ${att.name} in new tab`}
-                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface border border-border/60 hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-fast group"
+                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-[200ms] ease-spring group"
                           >
                             <span className="material-symbols-outlined text-[15px] leading-none text-primary flex-shrink-0" aria-hidden="true">link</span>
                             <span className="font-mono text-xs text-text-primary truncate flex-1">{att.name}</span>
@@ -917,7 +917,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                             onClick={() => handleAttachmentClick(index, att.name)}
                             disabled={loadingAttachmentIndex === index}
                             aria-label={`Open attachment ${att.name}`}
-                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface border border-border/60 hover:bg-surface-variant hover:border-primary/40 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-all duration-fast text-left group"
+                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-wait transition-all duration-[200ms] ease-spring text-left group"
                           >
                             <span className={`material-symbols-outlined text-[15px] leading-none flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin text-text-disabled' : att.name.toLowerCase().endsWith('.md') ? 'text-primary' : 'text-text-secondary'}`} aria-hidden="true">
                               {loadingAttachmentIndex === index ? 'progress_activity' : att.name.toLowerCase().endsWith('.md') ? 'description' : att.type === 'file' ? 'folder' : 'attach_file'}
@@ -935,14 +935,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
               )}
 
               {/* Timestamps — pushed to bottom */}
-              <div className="mt-auto pt-5 border-t border-border/60 flex flex-col gap-1.5">
-                <div className="flex justify-between">
-                  <span className="text-[10px] text-text-disabled">Created:</span>
-                  <span className="text-[10px] text-text-secondary">{formatTimestamp(detailTask.createdAt)}</span>
+              <div className="mt-auto pt-4 border-t border-border/25 flex flex-col gap-2">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-[9px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Created</span>
+                  <span className="font-mono text-[10px] text-text-disabled">{formatTimestamp(detailTask.createdAt)}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-[10px] text-text-disabled">Updated:</span>
-                  <span className="text-[10px] text-text-secondary">{formatTimestamp(detailTask.updatedAt)}</span>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-[9px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Updated</span>
+                  <span className="font-mono text-[10px] text-text-disabled">{formatTimestamp(detailTask.updatedAt)}</span>
                 </div>
               </div>
             </div>

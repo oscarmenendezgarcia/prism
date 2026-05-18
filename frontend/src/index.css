@@ -166,7 +166,7 @@
   --animate-panel-in:         slide-in-right 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
   --animate-panel-out:        slide-out-right 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
   /* Modal dialog: subtle scale 0.96→1 + fade, no spring bounce */
-  --animate-modal-dialog-in:  modal-dialog-in 200ms cubic-bezier(0.0, 0, 0.2, 1) both;
+  --animate-modal-dialog-in:  modal-dialog-in 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
   /* Tab content: opacity-only fade for smooth tab switching */
   --animate-tab-content-fade: tab-content-fade 150ms cubic-bezier(0.0, 0, 0.2, 1) both;
 }
@@ -467,10 +467,10 @@ html.dark {
   to   { opacity: 0; transform: scale(0.97); }
 }
 
-/* Task detail / MarkdownModal: gentle 0.96→1 fade-scale entrance */
+/* Task detail / MarkdownModal: spring-physics scale+lift entrance */
 @keyframes modal-dialog-in {
-  from { opacity: 0; transform: scale(0.96); }
-  to   { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: scale(0.96) translateY(10px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 
 /* Tab content: opacity-only fade when switching tabs */
