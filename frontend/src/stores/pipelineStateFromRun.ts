@@ -95,10 +95,14 @@ export function buildSingleState(run: AgentRunRecord): PipelineState {
  * Used for:
  *  - Groups with 2+ entries sharing the same pipelineRunId
  *
- * Key = pipelineRunId (distinct from any individual stage's runId).
- * stageRunIds maps stageIndex → run.id so PipelineLogPanel.effectiveRunId
- * selects the correct backend run per tab (each stage = its own backend run
- * at stage 0, which is how frontend-driven pipeline runs work).
+ * Key = pipelineRunId (the real backend run directory in data/runs/).
+ *
+ * NOTE: stageRunIds is intentionally omitted. The backend stores all stages
+ * under a single directory data/runs/{pipelineRunId}/stage-N.log. The
+ * AgentRunRecord.id (format: "{pipelineRunId}-{stageIndex}") is a DB key,
+ * not a filesystem path. PipelineLogPanel's fallback already handles this:
+ *   effectiveRunId = stageRunIds[idx] ?? runId   →  runId = pipelineRunId ✓
+ *   effectiveStageIndex = selectedStageIndex      →  correct stage tab ✓
  */
 export function buildPipelineGroupState(
   pipelineRunId: string,
@@ -131,8 +135,7 @@ export function buildPipelineGroupState(
     startedAt:         new Date(startMs).toISOString(),
     finishedAt,
     status:            mapStatus(aggregateStatus),
-    runId:             sorted.at(-1)!.id,
-    stageRunIds:       Object.fromEntries(sorted.map((s, i) => [i, s.id])),
+    runId:             pipelineRunId,
     subTaskIds:        sorted.map((s) => s.taskId),
     checkpoints:       [],
   };

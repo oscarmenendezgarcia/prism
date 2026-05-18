@@ -170,7 +170,7 @@ describe('openLogPanelForRun — pipeline kind', () => {
     makeAgentRunRecord({ id: 'r2', agentId: 'developer-agent',   stageIndex: 2, pipelineRunId: PIPELINE_ID }),
   ];
 
-  it('hydrates multi-stage pipelineState with correct stageRunIds', async () => {
+  it('hydrates multi-stage pipelineState with pipelineRunId as runId and no stageRunIds', async () => {
     await useAppStore.getState().openLogPanelForRun({
       kind: 'pipeline',
       pipelineRunId: PIPELINE_ID,
@@ -180,8 +180,10 @@ describe('openLogPanelForRun — pipeline kind', () => {
     const state = useAppStore.getState().pipelineStates[PIPELINE_ID];
     expect(state).toBeDefined();
     expect(state.stages).toEqual(['senior-architect', 'ux-api-designer', 'developer-agent']);
-    expect(state.stageRunIds).toEqual({ 0: 'r0', 1: 'r1', 2: 'r2' });
-    expect(state.runId).toBe('r2');
+    // stageRunIds must be absent — backend stores all stages under data/runs/{pipelineRunId}/
+    // PipelineLogPanel uses the backend-native fallback (runId + selectedStageIndex)
+    expect(state.stageRunIds).toBeUndefined();
+    expect(state.runId).toBe(PIPELINE_ID);
   });
 
   it('preselects the requested stageIndex in the log panel', async () => {

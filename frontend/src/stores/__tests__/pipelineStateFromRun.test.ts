@@ -181,8 +181,8 @@ describe('buildPipelineGroupState', () => {
 
     expect(state.stages).toEqual(['senior-architect', 'ux-api-designer', 'developer-agent']);
     expect(state.status).toBe('completed');
-    expect(state.runId).toBe('r2'); // last stage
-    expect(state.stageRunIds).toEqual({ 0: 'r0', 1: 'r1', 2: 'r2' });
+    expect(state.runId).toBe(PIPELINE_RUN_ID); // backend dir, not stage run id
+    expect(state.stageRunIds).toBeUndefined(); // omitted — PipelineLogPanel uses backend-native fallback
     expect(state.subTaskIds).toEqual(['task-1', 'task-1', 'task-1']);
     expect(state.checkpoints).toEqual([]);
     expect(state.finishedAt).toBeDefined();
@@ -200,7 +200,7 @@ describe('buildPipelineGroupState', () => {
     const state = buildPipelineGroupState(PIPELINE_RUN_ID, stages);
 
     expect(state.stages).toEqual(['senior-architect', 'ux-api-designer', 'developer-agent']);
-    expect(state.stageRunIds).toEqual({ 0: 'r0', 1: 'r1', 2: 'r2' });
+    expect(state.stageRunIds).toBeUndefined();
   });
 
   it('handles mixed running + completed pipeline (currentStageIndex = running stage)', () => {
