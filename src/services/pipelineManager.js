@@ -1189,10 +1189,12 @@ async function spawnStage(dataDir, run, stageIndex) {
   // Runs after the prompt file is persisted so promptPath is ready.
   // Non-fatal — see bridgeWriteRunStarted.
   {
-    const spacesDir  = path.join(dataDir, 'spaces');
-    const task       = readTaskFromSpace(spacesDir, run.spaceId, run.taskId);
-    const taskTitle  = task?.title ?? `Task ${run.taskId}`;
-    const spaceName  = readSpaceName(dataDir, run.spaceId);
+    const task      = _store
+      ? _store.getTask(run.spaceId, run.taskId)
+      : readTaskFromSpace(path.join(dataDir, 'spaces'), run.spaceId, run.taskId);
+    const taskTitle = task?.title ?? `Task ${run.taskId}`;
+    const space     = _store ? _store.getSpace(run.spaceId) : null;
+    const spaceName = space?.name ?? readSpaceName(dataDir, run.spaceId);
     bridgeWriteRunStarted(dataDir, run, stageIndex, taskTitle, spaceName, '', promptFilePath);
   }
 
