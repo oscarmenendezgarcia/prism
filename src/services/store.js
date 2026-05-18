@@ -213,10 +213,17 @@ function createStore(dataDir) {
     listSpaces:    db.prepare('SELECT * FROM spaces ORDER BY created_at ASC'),
     getSpace:      db.prepare('SELECT * FROM spaces WHERE id = ?'),
     upsertSpace:   db.prepare(`
-      INSERT OR REPLACE INTO spaces
+      INSERT INTO spaces
         (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, created_at, updated_at)
       VALUES
         (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name              = excluded.name,
+        working_directory = excluded.working_directory,
+        pipeline          = excluded.pipeline,
+        project_claude_md = excluded.project_claude_md,
+        agent_nicknames   = excluded.agent_nicknames,
+        updated_at        = excluded.updated_at
     `),
     deleteSpace:   db.prepare('DELETE FROM spaces WHERE id = ?'),
 
