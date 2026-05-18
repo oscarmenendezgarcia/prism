@@ -274,7 +274,7 @@ describe('TaskDetailPanel — explicit save: description', () => {
     const textarea = screen.getByLabelText(/description/i);
     // Use fireEvent directly to avoid cross-test focus contamination with userEvent.
     fireEvent.change(textarea, { target: { value: 'Updated description text' } });
-    fireEvent.click(screen.getByRole('button', { name: /save description/i }));
+    fireEvent.blur(textarea);
 
     await waitFor(() => {
       expect(updateTask).toHaveBeenCalledWith(TASK.id, { description: 'Updated description text' });
@@ -655,10 +655,10 @@ describe('TaskDetailPanel — attachments section', () => {
     expect(container.querySelector('[data-testid="attachments-section"]')).not.toBeInTheDocument();
   });
 
-  it('renders the Attachments tab when task has attachments', () => {
+  it('renders the attachments section when task has attachments', () => {
     useAppStore.setState({ detailTask: TASK_WITH_ATTACHMENTS } as any);
-    render(<TaskDetailPanel />);
-    expect(screen.getByRole('tab', { name: /attachments/i })).toBeInTheDocument();
+    const { container } = render(<TaskDetailPanel />);
+    expect(container.querySelector('[data-testid="attachments-section"]')).toBeInTheDocument();
   });
 
   it('renders one row per attachment — all 3 attachments are visible', () => {
@@ -766,11 +766,11 @@ describe('TaskDetailPanel — centered modal layout', () => {
     expect(dialog.className).not.toMatch(/animate-slide-in-right/);
   });
 
-  it('renders a Comments tab in modal layout (tabbed design)', () => {
+  it('renders the comments panel in the modal layout', () => {
     useAppStore.setState({ detailTask: TASK } as any);
-    render(<TaskDetailPanel />);
+    const { container } = render(<TaskDetailPanel />);
 
-    expect(screen.getByRole('tab', { name: /comments/i })).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="comments-panel"]')).toBeInTheDocument();
   });
 
   it('dialog has correct ARIA attributes', () => {
@@ -791,12 +791,12 @@ describe('TaskDetailPanel — centered modal layout', () => {
     expect(screen.getByLabelText(/description/i)).toHaveValue(TASK.description);
   });
 
-  it('renders a Comments tab (tabbed layout)', () => {
+  it('renders the comments panel (two-column layout)', () => {
     useAppStore.setState({ detailTask: TASK } as any);
-    render(<TaskDetailPanel />);
+    const { container } = render(<TaskDetailPanel />);
 
-    expect(screen.getByRole('tab', { name: /comments/i })).toBeInTheDocument();
-    // 2-column specific aria-labels are not present
+    expect(container.querySelector('[data-testid="comments-panel"]')).toBeInTheDocument();
+    // Slide-over specific aria-labels are not present
     expect(document.body.querySelector('[aria-label="Task fields"]')).toBeNull();
   });
 

@@ -109,8 +109,8 @@ describe('CommentsSection — rendering comments', () => {
   it('renders a note bubble', () => {
     render(<CommentsSection {...makeProps([NOTE])} />);
     expect(screen.getByText('This is a note about the design.')).toBeInTheDocument();
-    // The type-badge pill (not the form type-selector button)
-    expect(screen.getByTestId('comment-type-badge')).toHaveTextContent('note');
+    // Notes don't show a type badge — only questions do
+    expect(screen.queryByTestId('comment-type-badge')).toBeNull();
   });
 
   it('renders an unresolved question with amber "question" badge', () => {
@@ -203,28 +203,19 @@ describe('CommentsSection — resolve toggle', () => {
 // ---------------------------------------------------------------------------
 
 describe('CommentsSection — add-comment form', () => {
-  it('defaults type to "note"', () => {
+  it('renders a textarea with "Write a comment" placeholder', () => {
     render(<CommentsSection {...makeProps()} />);
-    const noteBtn = screen.getByRole('radio', { name: /note/i });
-    expect(noteBtn).toHaveAttribute('aria-checked', 'true');
+    const textarea = screen.getByRole('textbox', { name: /write a comment/i });
+    expect(textarea).toBeInTheDocument();
   });
 
-  it('switches type when a type button is clicked', () => {
-    render(<CommentsSection {...makeProps()} />);
-    const questionBtn = screen.getByRole('radio', { name: /question/i });
-    fireEvent.click(questionBtn);
-    expect(questionBtn).toHaveAttribute('aria-checked', 'true');
-  });
-
-  it('submits comment via Post button click', async () => {
+  it('submits comment via Enter key', async () => {
     const onCommentCreated = vi.fn().mockResolvedValue(undefined);
     render(<CommentsSection {...makeProps([], { onCommentCreated })} />);
 
-    const textarea = screen.getByRole('textbox', { name: /comment text/i });
+    const textarea = screen.getByRole('textbox', { name: /write a comment/i });
     fireEvent.change(textarea, { target: { value: 'Hello world' } });
-
-    const submitBtn = screen.getByRole('button', { name: /post comment/i });
-    fireEvent.click(submitBtn);
+    fireEvent.keyDown(textarea, { key: 'Enter' });
 
     await waitFor(() => {
       expect(onCommentCreated).toHaveBeenCalledWith(
@@ -233,118 +224,32 @@ describe('CommentsSection — add-comment form', () => {
     });
   });
 
-  it('submits via ⌘↵ keyboard shortcut', async () => {
+  it('does not submit on Shift+Enter', async () => {
     const onCommentCreated = vi.fn().mockResolvedValue(undefined);
     render(<CommentsSection {...makeProps([], { onCommentCreated })} />);
 
-    const textarea = screen.getByRole('textbox', { name: /comment text/i });
-    fireEvent.change(textarea, { target: { value: 'Keyboard submit' } });
-    fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true });
+    const textarea = screen.getByRole('textbox', { name: /write a comment/i });
+    fireEvent.change(textarea, { target: { value: 'Multiline' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
 
-    await waitFor(() => {
-      expect(onCommentCreated).toHaveBeenCalledWith(
-        expect.objectContaining({ text: 'Keyboard submit' }),
-      );
-    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(onCommentCreated).not.toHaveBeenCalled();
   });
 
   it('clears the textarea after successful submit', async () => {
     const onCommentCreated = vi.fn().mockResolvedValue(undefined);
     render(<CommentsSection {...makeProps([], { onCommentCreated })} />);
 
-    const textarea = screen.getByRole('textbox', { name: /comment text/i });
+    const textarea = screen.getByRole('textbox', { name: /write a comment/i });
     fireEvent.change(textarea, { target: { value: 'Will be cleared' } });
-    fireEvent.click(screen.getByRole('button', { name: /post comment/i }));
+    fireEvent.keyDown(textarea, { key: 'Enter' });
 
     await waitFor(() => {
       expect((textarea as HTMLTextAreaElement).value).toBe('');
     });
   });
-
-  it('disables the submit button when text is empty', () => {
-    render(<CommentsSection {...makeProps()} />);
-    const submitBtn = screen.getByRole('button', { name: /post comment/i });
-    expect(submitBtn).toBeDisabled();
-  });
 });
 
-// ---------------------------------------------------------------------------
-// targetAgent in form (feature 1)
-// ---------------------------------------------------------------------------
-
-describe('CommentsSection — targetAgent input in form', () => {
-  it('does not show route-to-agent input when type is "note"', () => {
-    render(<CommentsSection {...makeProps()} />);
-    expect(screen.queryByTestId('target-agent-input')).toBeNull();
-  });
-
-  it('shows route-to-agent input when type is "question"', () => {
-    render(<CommentsSection {...makeProps()} />);
-    fireEvent.click(screen.getByRole('radio', { name: /question/i }));
-    expect(screen.getByTestId('target-agent-input')).toBeInTheDocument();
-  });
-
-  it('hides route-to-agent input again when switching back to "note"', () => {
-    render(<CommentsSection {...makeProps()} />);
-    fireEvent.click(screen.getByRole('radio', { name: /question/i }));
-    fireEvent.click(screen.getByRole('radio', { name: /note/i }));
-    expect(screen.queryByTestId('target-agent-input')).toBeNull();
-  });
-
-  it('passes targetAgent in the onCommentCreated payload when filled in', async () => {
-    const onCommentCreated = vi.fn().mockResolvedValue(undefined);
-    render(<CommentsSection {...makeProps([], { onCommentCreated })} />);
-
-    fireEvent.click(screen.getByRole('radio', { name: /question/i }));
-    fireEvent.change(screen.getByTestId('target-agent-input'), {
-      target: { value: 'senior-architect' },
-    });
-    fireEvent.change(screen.getByRole('textbox', { name: /comment text/i }), {
-      target: { value: 'Is the SLA defined?' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /post comment/i }));
-
-    await waitFor(() => {
-      expect(onCommentCreated).toHaveBeenCalledWith(
-        expect.objectContaining({ targetAgent: 'senior-architect', type: 'question' }),
-      );
-    });
-  });
-
-  it('omits targetAgent from payload when input is left blank', async () => {
-    const onCommentCreated = vi.fn().mockResolvedValue(undefined);
-    render(<CommentsSection {...makeProps([], { onCommentCreated })} />);
-
-    fireEvent.click(screen.getByRole('radio', { name: /question/i }));
-    fireEvent.change(screen.getByRole('textbox', { name: /comment text/i }), {
-      target: { value: 'What is the SLA?' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /post comment/i }));
-
-    await waitFor(() => {
-      expect(onCommentCreated).toHaveBeenCalledWith(
-        expect.not.objectContaining({ targetAgent: expect.anything() }),
-      );
-    });
-  });
-
-  it('clears the route-to-agent input after successful submit', async () => {
-    const onCommentCreated = vi.fn().mockResolvedValue(undefined);
-    render(<CommentsSection {...makeProps([], { onCommentCreated })} />);
-
-    fireEvent.click(screen.getByRole('radio', { name: /question/i }));
-    const agentInput = screen.getByTestId('target-agent-input');
-    fireEvent.change(agentInput, { target: { value: 'qa-engineer-e2e' } });
-    fireEvent.change(screen.getByRole('textbox', { name: /comment text/i }), {
-      target: { value: 'Is coverage >90%?' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /post comment/i }));
-
-    await waitFor(() => {
-      expect((agentInput as HTMLInputElement).value).toBe('');
-    });
-  });
-});
 
 // ---------------------------------------------------------------------------
 // NEEDS_HUMAN badge (feature 2)
@@ -399,15 +304,9 @@ describe('CommentsSection — targetAgent display in bubble', () => {
 // ---------------------------------------------------------------------------
 
 describe('CommentsSection — disabled state', () => {
-  it('disables the type selector buttons when disabled=true', () => {
-    render(<CommentsSection {...makeProps([], { disabled: true })} />);
-    const questionBtn = screen.getByRole('radio', { name: /question/i });
-    expect(questionBtn).toBeDisabled();
-  });
-
   it('disables the textarea when disabled=true', () => {
     render(<CommentsSection {...makeProps([], { disabled: true })} />);
-    const textarea = screen.getByRole('textbox', { name: /comment text/i });
+    const textarea = screen.getByRole('textbox', { name: /write a comment/i });
     expect(textarea).toBeDisabled();
   });
 
