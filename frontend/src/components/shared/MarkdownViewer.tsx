@@ -78,7 +78,7 @@ const components: Components = {
   ),
 
   blockquote: ({ children }) => (
-    <blockquote className="border-l-4 border-primary/50 pl-4 py-1 my-3 bg-primary-container/30 rounded-r-md text-text-secondary italic">
+    <blockquote className="border-l-4 border-primary/50 pl-4 py-1 my-3 bg-primary-container/30 rounded-r-md text-text-secondary italic [&>p]:mb-0">
       {children}
     </blockquote>
   ),
@@ -105,7 +105,7 @@ const components: Components = {
 
   /** Fenced code blocks — uses mono font + surface-variant bg */
   pre: ({ children }) => (
-    <pre className="bg-surface-variant border border-border rounded-md p-4 my-3 overflow-x-auto text-sm font-mono text-text-primary whitespace-pre leading-snug">
+    <pre className="bg-surface-variant border border-border rounded-md p-4 my-3 overflow-x-auto text-sm font-mono text-text-primary whitespace-pre leading-relaxed">
       {children}
     </pre>
   ),
@@ -137,7 +137,7 @@ const components: Components = {
 
   table: ({ children }) => (
     <div className="overflow-x-auto my-3 rounded-md border border-border overflow-hidden">
-      <table className="w-full text-xs border-collapse">
+      <table className="w-full text-sm border-collapse">
         {children}
       </table>
     </div>
@@ -194,6 +194,17 @@ const components: Components = {
     <del className="line-through text-text-disabled">{children}</del>
   ),
 
+  // ── Images ─────────────────────────────────────────────────────────────
+
+  img: ({ src, alt }) => (
+    <img
+      src={src}
+      alt={alt ?? ''}
+      className="max-w-full h-auto rounded-md my-3 border border-border/60"
+      loading="lazy"
+    />
+  ),
+
   // ── Horizontal rule ────────────────────────────────────────────────────
 
   hr: () => <hr className="border-t border-border my-4" />,
@@ -224,10 +235,26 @@ const proseComponents: Components = {
   ...components,
 
   p: ({ children }) => (
-    <p className="text-base text-text-primary leading-[1.7] mb-4 last:mb-0">
+    <p className="text-base text-text-secondary leading-[1.7] mb-4 last:mb-0">
       {children}
     </p>
   ),
+
+  // Inline code in prose: text-sm so it doesn't feel tiny next to text-base body.
+  code: ({ children, className: langClassName }) => {
+    if (langClassName) {
+      return (
+        <code className={`${langClassName} text-xs font-mono text-text-primary`}>
+          {children}
+        </code>
+      );
+    }
+    return (
+      <code className="px-1.5 py-0.5 rounded-xs bg-surface-variant border border-border/60 text-sm font-mono text-primary">
+        {children}
+      </code>
+    );
+  },
 
   ul: ({ children }) => (
     <ul className="list-disc list-outside pl-5 mb-4 space-y-1.5 text-base text-text-primary">

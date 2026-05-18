@@ -216,6 +216,29 @@ describe('MarkdownModal — GFM rendering', () => {
 });
 
 // ---------------------------------------------------------------------------
+// BUG-001 / BUG-002 regressions: modal dimensions
+// ---------------------------------------------------------------------------
+
+describe('MarkdownModal — dimensions (BUG-001 & BUG-002 regressions)', () => {
+  it('BUG-001: modal card does NOT have max-w-lg (92vw wide reader must not be overridden)', () => {
+    useAppStore.setState({ markdownModal: BASE_MODAL });
+    render(<MarkdownModal />);
+    // The card is the direct child of the [role="dialog"] backdrop
+    const card = document.body.querySelector('[role="dialog"] > div');
+    expect(card?.className).not.toContain('max-w-lg');
+    expect(card?.className).toContain('w-[92vw]');
+  });
+
+  it('BUG-002: modal body has scrollable overflow for long documents', () => {
+    useAppStore.setState({ markdownModal: BASE_MODAL });
+    render(<MarkdownModal />);
+    // ModalBody is inside the card — find it by its overflow-y-auto class
+    const body = document.body.querySelector('[role="dialog"] .overflow-y-auto');
+    expect(body).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Accessibility
 // ---------------------------------------------------------------------------
 

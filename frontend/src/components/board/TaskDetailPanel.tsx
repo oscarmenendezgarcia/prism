@@ -20,7 +20,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { useAppStore, useActiveRun, useAvailableAgents } from '@/stores/useAppStore';
+import { useAppStore, useActiveRun, useAvailableAgents, usePipelineStates } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
@@ -134,6 +134,8 @@ interface PipelineFieldEditorProps {
   disabled: boolean;
   /** Active space — used to resolve agent nicknames for display. */
   activeSpace: import('@/types').Space | null;
+  /** Zero-based index of the currently running stage, if a run is active. */
+  currentStageIndex?: number;
 }
 
 /**
@@ -149,6 +151,7 @@ function PipelineFieldEditor({
   onSave,
   disabled,
   activeSpace,
+  currentStageIndex,
 }: PipelineFieldEditorProps): React.ReactElement {
   const [isEditing, setIsEditing]     = useState(false);
   const [draftStages, setDraftStages] = useState<string[]>([]);
@@ -205,71 +208,104 @@ function PipelineFieldEditor({
 
   if (!isEditing) {
     return (
-      <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          Pipeline
-        </span>
-        {pipeline && pipeline.length > 0 ? (
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1" role="list" aria-label="Pipeline stages">
-              {pipeline.map((stage, i) => (
-                <React.Fragment key={stage}>
-                  <span
-                    role="listitem"
-                    className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-medium bg-surface-variant text-text-secondary border border-border"
-                    title={stage}
-                  >
-                    {resolveAgentName(stage, activeSpace)}
-                  </span>
-                  {i < pipeline.length - 1 && (
-                    <span className="text-text-disabled text-xs" aria-hidden="true">→</span>
-                  )}
-                </React.Fragment>
-              ))}
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
+      <div className="flex flex-col gap-2">
+        {/* Section label + action buttons */}
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">
+            Pipeline Stage
+          </span>
+          <div className="flex items-center gap-1">
+            {pipeline && pipeline.length > 0 ? (
+              <>
+                {/* touch-target-size: min 44×44px — use p-2.5 to expand hit area */}
+                <button
+                  type="button"
+                  onClick={openEditor}
+                  disabled={disabled}
+                  aria-label="Edit pipeline"
+                  title="Edit pipeline"
+                  className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-text-secondary hover:bg-surface-variant focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
+                >
+                  <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">edit</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  disabled={disabled}
+                  aria-label="Clear pipeline"
+                  title="Clear pipeline"
+                  className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-error hover:bg-error/10 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
+                >
+                  <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">close</span>
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
                 onClick={openEditor}
                 disabled={disabled}
-                aria-label="Edit pipeline"
-                title="Edit pipeline"
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
+                aria-label="Configure pipeline"
+                className="text-[11px] text-primary hover:text-primary/80 focus:outline-hidden focus:ring-2 focus:ring-primary rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast px-1 py-0.5"
               >
-                <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
-                  edit
-                </span>
+                Configure
               </button>
-              <button
-                type="button"
-                onClick={handleClear}
-                disabled={disabled}
-                aria-label="Clear pipeline"
-                title="Clear pipeline (revert to space default)"
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-error hover:bg-error/10 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
-              >
-                <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
-                  close
-                </span>
-              </button>
-            </div>
+            )}
+          </div>
+        </div>
+
+        {/* Vertical timeline */}
+        {pipeline && pipeline.length > 0 ? (
+          <div className="relative" role="list" aria-label="Pipeline stages">
+            {/* Connecting line */}
+            <div
+              className="absolute left-[9px] top-4 bottom-4 w-px bg-border/60"
+              aria-hidden="true"
+            />
+            {pipeline.map((stage, i) => {
+              const isActive = currentStageIndex === i;
+              const isDone   = currentStageIndex !== undefined && i < currentStageIndex;
+              return (
+                <div
+                  key={stage}
+                  role="listitem"
+                  aria-current={isActive ? 'step' : undefined}
+                  className="flex items-center gap-3 py-[7px] relative"
+                >
+                  {/* Dot / check icon — size difference is the non-color cue (color-not-only) */}
+                  {isActive ? (
+                    <div
+                      className="w-[18px] h-[18px] rounded-full bg-primary flex-shrink-0 shadow-[0_0_0_4px_rgba(124,109,250,0.15)]"
+                      aria-hidden="true"
+                    />
+                  ) : isDone ? (
+                    <span
+                      className="material-symbols-outlined text-[14px] leading-none text-primary/40 flex-shrink-0 ml-[2px]"
+                      aria-hidden="true"
+                    >
+                      check
+                    </span>
+                  ) : (
+                    <div className="w-2 h-2 rounded-full flex-shrink-0 ml-[5px] bg-border" aria-hidden="true" />
+                  )}
+                  {/* Label */}
+                  <span className={`text-[13px] leading-none transition-colors duration-150 ${
+                    isActive
+                      ? 'font-semibold text-primary'
+                      : isDone
+                      ? 'text-text-disabled'
+                      : 'text-text-secondary'
+                  }`}>
+                    {resolveAgentName(stage, activeSpace)}
+                    {/* visually hidden state label for screen readers */}
+                    {isActive && <span className="sr-only"> (current)</span>}
+                    {isDone   && <span className="sr-only"> (completed)</span>}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         ) : (
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm text-text-disabled italic">
-              (space default)
-            </span>
-            <button
-              type="button"
-              onClick={openEditor}
-              disabled={disabled}
-              aria-label="Configure pipeline"
-              title="Configure pipeline"
-              className="text-xs text-primary hover:text-primary/80 focus:outline-hidden focus:ring-2 focus:ring-primary rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast px-1.5 py-0.5"
-            >
-              Configure
-            </button>
-          </div>
+          <span className="text-sm text-text-disabled italic pl-1">(space default)</span>
         )}
       </div>
     );
@@ -307,7 +343,7 @@ function PipelineFieldEditor({
                   onClick={() => handleMoveUp(index)}
                   disabled={index === 0}
                   aria-label={`Move ${agentId} up`}
-                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-fast"
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     arrow_upward
@@ -318,7 +354,7 @@ function PipelineFieldEditor({
                   onClick={() => handleMoveDown(index)}
                   disabled={index === draftStages.length - 1}
                   aria-label={`Move ${agentId} down`}
-                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-fast"
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     arrow_downward
@@ -328,7 +364,7 @@ function PipelineFieldEditor({
                   type="button"
                   onClick={() => handleRemove(index)}
                   aria-label={`Remove ${agentId} from pipeline`}
-                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-error focus:outline-hidden focus:ring-1 focus:ring-primary transition-colors duration-fast"
+                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-error focus:outline-hidden focus:ring-1 focus:ring-primary transition-all duration-[180ms] ease-spring"
                 >
                   <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
                     close
@@ -400,6 +436,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const activeSpace          = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
   const activeRun            = useActiveRun();
   const availableAgents      = useAvailableAgents();
+  const pipelineStates       = usePipelineStates();
 
   // ── Local field state ────────────────────────────────────────────────────
 
@@ -407,8 +444,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [localAssigned, setLocalAssigned]       = useState('');
   const [localDescription, setLocalDescription] = useState('');
   const [localType, setLocalType]               = useState<'feature' | 'bug' | 'tech-debt' | 'chore'>('chore');
+  /** Mobile tab — shown only when viewport is <768px (two-column doesn't fit). */
+  const [mobileTab, setMobileTab]               = useState<'content' | 'details'>('content');
   const [isCopied, setIsCopied]                 = useState(false);
-  const [activeTab, setActiveTab]               = useState<'details' | 'comments' | 'attachments'>('details');
   /** Index of attachment currently being fetched for direct .md → reader opening. */
   const [loadingAttachmentIndex, setLoadingAttachmentIndex] = useState<number | null>(null);
 
@@ -419,7 +457,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
   // ── Refs for focus management ────────────────────────────────────────────
 
   const panelRef         = useRef<HTMLDivElement | null>(null);
-  const titleInputRef    = useRef<HTMLInputElement | null>(null);
+  const titleInputRef    = useRef<HTMLTextAreaElement | null>(null);
+  const descTextareaRef  = useRef<HTMLTextAreaElement | null>(null);
   /** Element that triggered the panel open — focus returns here on close. */
   const triggerRef       = useRef<Element | null>(null);
 
@@ -440,12 +479,22 @@ export function TaskDetailPanel(): React.ReactElement | null {
     // steals focus.
     triggerRef.current = document.activeElement;
 
-    // Defer focus so the panel has time to mount and become visible.
+    // Focus goes to the panel container (not the title input) so the modal
+    // is keyboard-accessible without immediately entering edit mode.
     requestAnimationFrame(() => {
-      titleInputRef.current?.focus();
+      panelRef.current?.focus();
     });
   }, [detailTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Only re-sync when a different task is opened, not on every field update.
+
+  // Auto-grow title textarea. Setting height='0' first forces browsers to
+  // recalculate scrollHeight correctly even with overflow-y:hidden.
+  useEffect(() => {
+    const el = titleInputRef.current;
+    if (!el) return;
+    el.style.height = '0';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [localTitle]);
 
   // BUG-001: Ensure agents are loaded when the panel opens so the pipeline
   // editor's "Add stage" dropdown is populated. Guard prevents redundant
@@ -457,6 +506,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
     }
   }, [detailTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // Re-run only when a different task is opened, matching the sync effect above.
+
+  // Auto-grow description textarea — runs on every content change and on
+  // initial mount (when localDescription is set from detailTask).
+  useEffect(() => {
+    const el = descTextareaRef.current;
+    if (!el) return;
+    el.style.height = '0';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [localDescription]);
 
   // ── Return focus on close ────────────────────────────────────────────────
 
@@ -482,6 +540,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // If a foreground modal (MarkdownModal or AttachmentModal) is open,
+        // let its own Escape handler fire first. Standard UX: Escape dismisses
+        // the topmost layer, not the panel behind it.
+        const hasOpenModal = document.querySelector(
+          '[id="markdown-modal-title"], [id="attachment-modal-title"]'
+        );
+        if (hasOpenModal) return;
         e.stopPropagation();
         closeDetailPanel();
       }
@@ -571,6 +636,12 @@ export function TaskDetailPanel(): React.ReactElement | null {
    */
   const handleAttachmentClick = useCallback(async (index: number, name: string) => {
     if (!detailTask) return;
+    const att = detailTask.attachments?.[index];
+    // Link type — open directly, skip modal
+    if (att?.type === 'link') {
+      window.open(att!.content, '_blank', 'noopener,noreferrer');
+      return;
+    }
     if (name.toLowerCase().endsWith('.md')) {
       setLoadingAttachmentIndex(index);
       try {
@@ -600,6 +671,11 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const isActiveRun = activeRun?.taskId === detailTask.id;
   const fieldDisabled = isReadOnly;
 
+  // Find pipeline state for this task (for currentStageIndex)
+  const taskPipelineState = Object.values(pipelineStates).find(
+    (ps) => ps.taskId === detailTask.id && (ps.status === 'running' || ps.status === 'paused' || ps.status === 'blocked')
+  );
+
   // ── Shared sub-elements ──────────────────────────────────────────────────
 
   const columnBadge = column && (
@@ -620,7 +696,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
     <button
       onClick={closeDetailPanel}
       aria-label="Close task detail"
-      className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast flex-shrink-0"
+      className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.90] transition-all duration-[150ms] ease-spring flex-shrink-0"
     >
       <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
         close
@@ -628,382 +704,260 @@ export function TaskDetailPanel(): React.ReactElement | null {
     </button>
   );
 
-  /** All editable fields (title, type, assigned, description, pipeline, attachments). */
-  const fieldsContent = (
-    <>
-      {/* Active run warning banner */}
-      {isActiveRun && (
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-warning/10 border border-warning/30">
-          <span className="material-symbols-outlined text-warning text-[18px] leading-none flex-shrink-0" aria-hidden="true">
-            warning
-          </span>
-          <p className="text-xs text-warning leading-snug">
-            Agent pipeline is running — editing disabled
-          </p>
-        </div>
-      )}
-
-      {/* ── ID ──────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          ID
-        </span>
-        <div className="flex items-center gap-2">
-          <span className="flex-1 font-mono text-xs text-text-secondary bg-surface-elevated border border-border rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap">
-            {detailTask.id}
-          </span>
-          <button
-            type="button"
-            onClick={handleCopyId}
-            aria-label="Copy task ID"
-            title="Copy task ID"
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
-          >
-            <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
-              {isCopied ? 'check' : 'content_copy'}
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/* ── Title ───────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="detail-title" className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          Title
-        </label>
-        <input
-          id="detail-title"
-          ref={titleInputRef}
-          type="text"
-          value={localTitle}
-          onChange={(e) => setLocalTitle(e.target.value)}
-          onBlur={handleTitleBlur}
-          disabled={fieldDisabled}
-          aria-disabled={fieldDisabled}
-          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
-          placeholder="Task title"
-        />
-      </div>
-
-      {/* ── Type ────────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          Type
-        </span>
-        <div
-          role="group"
-          aria-label="Task type"
-          className="flex rounded-lg overflow-hidden border border-border"
-        >
-          {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
-            <button
-              key={t}
-              type="button"
-              role="radio"
-              aria-checked={localType === t}
-              onClick={() => handleTypeChange(t)}
-              disabled={fieldDisabled}
-              aria-disabled={fieldDisabled}
-              className={`flex-1 py-1.5 text-xs font-medium capitalize transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed ${
-                localType === t
-                  ? 'bg-primary text-on-primary'
-                  : 'bg-surface-elevated text-text-secondary hover:bg-surface-variant hover:text-text-primary'
-              }`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Assigned ────────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="detail-assigned" className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          Assigned
-        </label>
-        <input
-          id="detail-assigned"
-          type="text"
-          value={localAssigned}
-          onChange={(e) => setLocalAssigned(e.target.value)}
-          onBlur={handleAssignedBlur}
-          disabled={fieldDisabled}
-          aria-disabled={fieldDisabled}
-          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
-          placeholder="Assign to someone..."
-        />
-      </div>
-
-      {/* ── Description ─────────────────────────────────────────── */}
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="detail-description" className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-          Description
-        </label>
-        <textarea
-          id="detail-description"
-          value={localDescription}
-          onChange={(e) => setLocalDescription(e.target.value)}
-          disabled={fieldDisabled}
-          aria-disabled={fieldDisabled}
-          rows={6}
-          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border font-sans text-sm text-text-secondary leading-relaxed placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed resize-none transition-all duration-fast"
-          placeholder="Add a description..."
-        />
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            onClick={handleSaveDescription}
-            disabled={fieldDisabled}
-            className="text-xs px-3 py-1.5"
-          >
-            {isMutating ? (
-              <>
-                <span className="material-symbols-outlined text-sm leading-none animate-spin" aria-hidden="true">
-                  progress_activity
-                </span>
-                Saving...
-              </>
-            ) : (
-              'Save description'
-            )}
-          </Button>
-        </div>
-      </div>
-
-      {/* ── Pipeline (T-009) ────────────────────────────────────── */}
-      <PipelineFieldEditor
-        pipeline={detailTask.pipeline}
-        availableAgentIds={availableAgents.map((a) => a.id)}
-        onSave={handlePipelineSave}
-        disabled={fieldDisabled}
-        activeSpace={activeSpace}
-      />
-
-      {/* ── Attachments ──────────────────────────────────────────── */}
-      {detailTask.attachments && detailTask.attachments.length > 0 && (
-        <div className="flex flex-col gap-1.5" data-testid="attachments-section">
-          <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
-            Attachments
-          </span>
-          <ul className="flex flex-col gap-1" aria-label="Task attachments">
-            {detailTask.attachments.map((att, index) => (
-              <li key={index}>
-                {att.type === 'link' ? (
-                  <a
-                    href={att.content}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    data-testid="attachment-row"
-                    aria-label={`Open link ${att.name} in new tab`}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
-                  >
-                    <span
-                      className="material-symbols-outlined text-[18px] leading-none text-primary flex-shrink-0"
-                      aria-hidden="true"
-                    >
-                      link
-                    </span>
-                    <span className="flex-1 truncate font-mono text-xs text-text-primary">
-                      {att.name}
-                    </span>
-                    <span className="truncate text-xs text-text-secondary flex-shrink-0 max-w-[120px]">
-                      {(() => {
-                        try { return new URL(att.content ?? '').hostname; } catch { return att.content; }
-                      })()}
-                    </span>
-                    <span
-                      className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0"
-                      aria-hidden="true"
-                    >
-                      open_in_new
-                    </span>
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    data-testid="attachment-row"
-                    onClick={() => handleAttachmentClick(index, att.name)}
-                    disabled={loadingAttachmentIndex === index}
-                    aria-label={`Open attachment ${att.name}`}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-colors duration-fast"
-                  >
-                    <span
-                      className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0"
-                      aria-hidden="true"
-                    >
-                      {loadingAttachmentIndex === index ? 'progress_activity' : att.type === 'file' ? 'folder' : 'attach_file'}
-                    </span>
-                    <span className="flex-1 truncate font-mono text-xs text-text-primary">
-                      {att.name}
-                    </span>
-                    <span
-                      className={`material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin' : ''}`}
-                      aria-hidden="true"
-                    >
-                      {loadingAttachmentIndex === index ? 'progress_activity' : 'open_in_new'}
-                    </span>
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </>
-  );
-
-  const commentsContent = (
-    <div className="flex flex-col gap-1.5" data-testid="comments-panel">
-      <CommentsSection
-        spaceId={activeSpaceId}
-        taskId={detailTask.id}
-        comments={detailTask.comments ?? []}
-        onCommentCreated={handleCommentCreated}
-        onCommentUpdated={handleCommentUpdated}
-        disabled={fieldDisabled}
-      />
-    </div>
-  );
-
-  const timestampsContent = (
-    <>
-      <span className="text-[11px] text-text-disabled">
-        Created: {formatTimestamp(detailTask.createdAt)}
-      </span>
-      <span className="text-[11px] text-text-disabled">
-        Updated: {formatTimestamp(detailTask.updatedAt)}
-      </span>
-    </>
-  );
-
-  // ── Unified: slide-in panel from the right (Trend A — wireframe S-04) ──────
-  // Single layout for all viewports. Tabs replace the desktop 2-column grid.
-
-  const tabs = [
-    { id: 'details' as const, label: 'Details' },
-    { id: 'comments' as const, label: 'Comments', count: (detailTask.comments ?? []).length },
-    { id: 'attachments' as const, label: 'Attachments', count: detailTask.attachments?.length ?? 0 },
-  ];
-
-  const attachmentsTabContent = detailTask.attachments && detailTask.attachments.length > 0 ? (
-    <ul className="flex flex-col gap-2" aria-label="Task attachments">
-      {detailTask.attachments.map((att, index) => (
-        <li key={index}>
-          {att.type === 'link' ? (
-            <a
-              href={att.content}
-              target="_blank"
-              rel="noopener noreferrer"
-              data-testid="attachment-row"
-              aria-label={`Open link ${att.name} in new tab`}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
-            >
-              <span className="material-symbols-outlined text-[18px] leading-none text-primary flex-shrink-0" aria-hidden="true">
-                link
-              </span>
-              <span className="flex-1 truncate font-mono text-xs text-text-primary">{att.name}</span>
-              <span className="truncate text-xs text-text-secondary flex-shrink-0 max-w-[120px]">
-                {(() => {
-                  try { return new URL(att.content ?? '').hostname; } catch { return att.content; }
-                })()}
-              </span>
-              <span className="material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0" aria-hidden="true">open_in_new</span>
-            </a>
-          ) : (
-            <button
-              type="button"
-              data-testid="attachment-row"
-              onClick={() => handleAttachmentClick(index, att.name)}
-              disabled={loadingAttachmentIndex === index}
-              aria-label={`Open attachment ${att.name}`}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-left hover:bg-surface-variant hover:border-primary/30 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-60 disabled:cursor-wait transition-colors duration-fast"
-            >
-              <span className="material-symbols-outlined text-[18px] leading-none text-text-secondary flex-shrink-0" aria-hidden="true">
-                {loadingAttachmentIndex === index ? 'progress_activity' : att.type === 'file' ? 'folder' : 'attach_file'}
-              </span>
-              <span className="flex-1 truncate font-mono text-xs text-text-primary">{att.name}</span>
-              <span className={`material-symbols-outlined text-sm leading-none text-text-disabled flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin' : ''}`} aria-hidden="true">
-                {loadingAttachmentIndex === index ? 'progress_activity' : 'open_in_new'}
-              </span>
-            </button>
-          )}
-        </li>
-      ))}
-    </ul>
-  ) : (
-    <div className="flex flex-col items-center justify-center py-12 text-center">
-      <span className="material-symbols-outlined text-4xl text-text-disabled mb-3 select-none">attach_file</span>
-      <p className="text-sm text-text-disabled">No attachments</p>
-    </div>
-  );
-
-  // ── Unified: right slide-over for all viewports ──────────────────────────
-  // Mobile (<768px): w-full fullscreen.
-  // Desktop (≥768px): fixed right panel, md:420px, lg:520px.
+  // ── Two-column centered modal ────────────────────────────────────────────
+  // Left (flex-1): title, description, comments.
+  // Right (w-[280px], elevated): ID, type, assigned, pipeline, attachments, timestamps.
 
   return (
     <>
-      {/* Backdrop — semitransparent so the board remains visible behind. */}
-      <div className="fixed inset-0 z-[105] bg-black/50" aria-hidden="true" onClick={closeDetailPanel} />
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-[105] bg-black/72 backdrop-blur-[10px]" aria-hidden="true" onClick={closeDetailPanel} />
 
-      {/* Slide-over panel */}
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Task detail"
-        className="fixed inset-y-0 right-0 z-[110] w-full md:w-[420px] lg:w-[520px] flex flex-col bg-surface border-l border-border shadow-2xl animate-slide-in-right"
-      >
-        {/* ── Header ──────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3 h-14 px-5 border-b border-border flex-shrink-0">
-          {closeButton}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <span className="font-mono text-xs text-text-disabled bg-surface-variant px-1.5 py-0.5 rounded flex-shrink-0">
+      {/* Centering wrapper */}
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 pointer-events-none">
+        {/* ── Outer bezel shell — gradient ring creates the machined-hardware frame ── */}
+        <div className="pointer-events-auto w-full max-w-[1200px] max-h-[90vh] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-white/[0.10] to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-modal-dialog-in">
+          {/* ── Inner content card ─────────────────────────────────────────────────── */}
+          <div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Task detail"
+            tabIndex={-1}
+            className="outline-none flex-1 min-h-0 flex flex-col bg-surface rounded-modal overflow-hidden shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
+          >
+          {/* ── Header ────────────────────────────────────────────────── */}
+          <div className="flex items-center gap-2.5 h-13 px-6 border-b border-border/40 flex-shrink-0 bg-surface-elevated/10">
+            <span className="font-mono text-[11px] text-text-disabled bg-surface-variant/80 px-2 py-1 rounded-md flex-shrink-0 tracking-[0.1em] border border-border/40">
               {shortId}
             </span>
             {columnBadge}
+            <div className="flex-1" />
+            {closeButton}
           </div>
-        </div>
 
-        {/* ── Tabs ─────────────────────────────────────────────────────── */}
-        <div className="flex flex-shrink-0 border-b border-border px-5" role="tablist">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 py-3 px-1 mr-5 text-sm font-medium border-b-2 -mb-px transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary/50 ${
-                activeTab === tab.id
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-text-secondary hover:text-text-primary'
-              }`}
-            >
-              {tab.label}
-              {tab.count != null && tab.count > 0 && (
-                <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-mono ${
-                  activeTab === tab.id ? 'bg-primary/15 text-primary' : 'bg-surface-variant text-text-disabled'
-                }`}>
-                  {tab.count}
-                </span>
+          {/* ── Mobile tab bar — visible only below md breakpoint ────── */}
+          <div className="md:hidden flex border-b border-border/40 flex-shrink-0">
+            {(['content', 'details'] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setMobileTab(tab)}
+                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-all duration-[200ms] ease-spring focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
+                  mobileTab === tab
+                    ? 'text-text-primary border-b-2 border-primary -mb-px bg-primary/[0.04]'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-surface-elevated/30'
+                }`}
+              >
+                {tab === 'content' ? 'Content' : 'Details'}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Two-column body (desktop) / single-panel (mobile) ────── */}
+          <div className="flex min-h-0 flex-1 overflow-hidden rounded-b-modal">
+
+            {/* ── LEFT: title · description · comments ──────────────── */}
+            <div className={`min-w-0 overflow-y-auto px-14 pt-7 pb-8 flex flex-col gap-6 md:flex-1 ${mobileTab === 'content' ? 'flex-1' : 'hidden md:flex'}`}>
+              {isActiveRun && (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-warning/[0.08] border border-warning/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                  <span className="material-symbols-outlined text-warning text-[16px] leading-none flex-shrink-0 animate-run-pulse" aria-hidden="true">motion_mode</span>
+                  <p className="text-[12px] font-medium text-warning/90 leading-snug tracking-wide">Pipeline running — editing paused</p>
+                </div>
               )}
-            </button>
-          ))}
-        </div>
 
-        {/* ── Tab content ──────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto px-5 py-5" role="tabpanel">
-          {activeTab === 'details' && (
-            <div className="flex flex-col gap-5">
-              {fieldsContent}
-              <div className="flex flex-col gap-0.5 pt-2">
-                {timestampsContent}
+              {/* Title — textarea wraps long titles instead of truncating */}
+              <div className="animate-fade-in-up [animation-delay:50ms]">
+              <textarea
+                id="detail-title"
+                ref={titleInputRef}
+                value={localTitle}
+                onChange={(e) => setLocalTitle(e.target.value)}
+                onBlur={handleTitleBlur}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    titleInputRef.current?.blur();
+                  }
+                }}
+                disabled={fieldDisabled}
+                aria-disabled={fieldDisabled}
+                aria-label="Task title"
+                className="w-full bg-transparent border-b border-transparent hover:border-border/40 focus:border-primary/50 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled/50 focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-40 disabled:cursor-not-allowed transition-[border-color] duration-[220ms] ease-spring"
+                placeholder="Task title"
+              />
+              </div>
+
+              {/* Description */}
+              <div className="flex flex-col gap-1.5 animate-fade-in-up [animation-delay:110ms]">
+                <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">
+                  Description
+                </label>
+                <textarea
+                  id="detail-description"
+                  ref={descTextareaRef}
+                  value={localDescription}
+                  onChange={(e) => setLocalDescription(e.target.value)}
+                  onBlur={handleSaveDescription}
+                  disabled={fieldDisabled}
+                  aria-disabled={fieldDisabled}
+                  rows={1}
+                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-[border-color] duration-[220ms] ease-spring"
+                  placeholder="Add a description..."
+                />
+              </div>
+
+              {/* Comments */}
+              <div className="border-t border-border/30 pt-6 animate-fade-in-up [animation-delay:170ms]" data-testid="comments-panel">
+                <CommentsSection
+                  spaceId={activeSpaceId}
+                  taskId={detailTask.id}
+                  comments={detailTask.comments ?? []}
+                  onCommentCreated={handleCommentCreated}
+                  onCommentUpdated={handleCommentUpdated}
+                  disabled={fieldDisabled}
+                />
               </div>
             </div>
-          )}
-          {activeTab === 'comments' && commentsContent}
-          {activeTab === 'attachments' && attachmentsTabContent}
+
+            {/* ── RIGHT: metadata sidebar ────────────────────────────── */}
+            <div className={`flex-shrink-0 border-border/40 bg-surface-elevated/25 overflow-y-auto px-6 pt-6 pb-6 flex flex-col divide-y divide-border/20 md:w-[340px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
+
+              {/* ID */}
+              <div className="flex flex-col gap-2 pb-5 animate-fade-in-up [animation-delay:80ms]">
+                <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">ID</span>
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 font-mono text-xs text-text-secondary bg-surface border border-border/40 rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap min-w-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                    {detailTask.id}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyId}
+                    aria-label="Copy task ID"
+                    title="Copy task ID"
+                    className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.90] transition-all duration-[150ms] ease-spring"
+                  >
+                    <span className="material-symbols-outlined text-[17px] leading-none" aria-hidden="true">
+                      {isCopied ? 'check' : 'content_copy'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Type */}
+              <div className="flex flex-col gap-2 py-5 animate-fade-in-up [animation-delay:130ms]">
+                <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Task Type</span>
+                <div role="group" aria-label="Task type" className="flex flex-wrap gap-2">
+                  {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      role="radio"
+                      aria-checked={localType === t}
+                      onClick={() => handleTypeChange(t)}
+                      disabled={fieldDisabled}
+                      aria-disabled={fieldDisabled}
+                      className={`px-3 py-1.5 text-xs font-medium capitalize rounded-full border transition-all duration-[180ms] ease-spring focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed ${
+                        localType === t
+                          ? 'bg-primary/15 border-primary/35 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+                          : 'bg-surface/50 border-border/40 text-text-secondary hover:bg-surface-variant hover:border-border/70 hover:text-text-primary'
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Assigned */}
+              <div className="flex flex-col gap-2 py-5 animate-fade-in-up [animation-delay:180ms]">
+                <label htmlFor="detail-assigned" className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Assigned To</label>
+                <input
+                  id="detail-assigned"
+                  type="text"
+                  value={localAssigned}
+                  onChange={(e) => setLocalAssigned(e.target.value)}
+                  onBlur={handleAssignedBlur}
+                  disabled={fieldDisabled}
+                  aria-disabled={fieldDisabled}
+                  className="w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary placeholder:text-text-disabled/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[220ms] ease-spring shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+                  placeholder="Assign to someone..."
+                />
+              </div>
+
+              {/* Pipeline */}
+              <div className="py-5 animate-fade-in-up [animation-delay:230ms]">
+                <PipelineFieldEditor
+                  pipeline={detailTask.pipeline}
+                  availableAgentIds={availableAgents.map((a) => a.id)}
+                  onSave={handlePipelineSave}
+                  disabled={fieldDisabled}
+                  activeSpace={activeSpace}
+                  currentStageIndex={taskPipelineState?.currentStageIndex}
+                />
+              </div>
+
+              {/* Attachments */}
+              {detailTask.attachments && detailTask.attachments.length > 0 && (
+                <div className="flex flex-col gap-2 py-5" data-testid="attachments-section">
+                  <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Attachments</span>
+                  <div className="flex flex-col gap-1.5" aria-label="Task attachments">
+                    {detailTask.attachments.map((att, index) => (
+                      <React.Fragment key={index}>
+                        {att.type === 'link' ? (
+                          <a
+                            href={att.content}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            data-testid="attachment-row"
+                            aria-label={`Open link ${att.name} in new tab`}
+                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-[200ms] ease-spring group"
+                          >
+                            <span className="material-symbols-outlined text-[15px] leading-none text-primary flex-shrink-0" aria-hidden="true">link</span>
+                            <span className="font-mono text-xs text-text-primary truncate flex-1">{att.name}</span>
+                            <span className="material-symbols-outlined text-[13px] leading-none text-text-disabled group-hover:text-text-secondary flex-shrink-0" aria-hidden="true">open_in_new</span>
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            data-testid="attachment-row"
+                            onClick={() => handleAttachmentClick(index, att.name)}
+                            disabled={loadingAttachmentIndex === index}
+                            aria-label={`Open attachment ${att.name}`}
+                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-wait transition-all duration-[200ms] ease-spring text-left group"
+                          >
+                            <span className={`material-symbols-outlined text-[15px] leading-none flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin text-text-disabled' : att.name.toLowerCase().endsWith('.md') ? 'text-primary' : 'text-text-secondary'}`} aria-hidden="true">
+                              {loadingAttachmentIndex === index ? 'progress_activity' : att.name.toLowerCase().endsWith('.md') ? 'description' : att.type === 'file' ? 'folder' : 'attach_file'}
+                            </span>
+                            <span className="font-mono text-xs text-text-primary truncate flex-1">{att.name}</span>
+                            <span className="material-symbols-outlined text-[13px] leading-none text-text-disabled group-hover:text-text-secondary flex-shrink-0" aria-hidden="true">
+                              {loadingAttachmentIndex === index ? '' : 'download'}
+                            </span>
+                          </button>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Timestamps — pushed to bottom */}
+              <div className="mt-auto pt-5 flex flex-col gap-2">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-[9px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Created</span>
+                  <span className="font-mono text-[10px] text-text-disabled">{formatTimestamp(detailTask.createdAt)}</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-[9px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Updated</span>
+                  <span className="font-mono text-[10px] text-text-disabled">{formatTimestamp(detailTask.updatedAt)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
+          {/* /inner content card */}
         </div>
+        {/* /outer bezel */}
       </div>
     </>
   );
