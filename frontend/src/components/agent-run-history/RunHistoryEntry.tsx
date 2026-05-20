@@ -76,13 +76,20 @@ interface RunHistoryEntryProps {
    * Used inside PipelineRunGroup: "Stage 1: Senior Architect".
    */
   stageLabel?: string;
+  /**
+   * When provided, the row becomes an interactive button.
+   * Adds role="button", tabIndex={0}, Enter/Space keyboard support,
+   * and an aria-label for accessibility.
+   * ADR-1 (run-history-pipeline-logs) §7: affordance for opening logs.
+   */
+  onClick?: () => void;
 }
 
 /**
  * Renders a single agent run record as a list row.
  * Memoized to prevent re-renders when unrelated runs update.
  */
-export const RunHistoryEntry = memo(function RunHistoryEntry({ run, stageLabel }: RunHistoryEntryProps) {
+export const RunHistoryEntry = memo(function RunHistoryEntry({ run, stageLabel, onClick }: RunHistoryEntryProps) {
   const status = run.status;
 
   // Status dot class — wireframe S-08
@@ -93,9 +100,27 @@ export const RunHistoryEntry = memo(function RunHistoryEntry({ run, stageLabel }
     status === 'cancelled' ? 'bg-warning' :
     'bg-border';
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLLIElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick?.();
+    }
+  };
+
+  const interactiveProps = onClick
+    ? {
+        role:         'button' as const,
+        tabIndex:     0,
+        onClick,
+        onKeyDown:    handleKeyDown,
+        'aria-label': `Open logs for ${run.agentDisplayName} — ${run.taskTitle}`,
+      }
+    : {};
+
   return (
     <li
-      className="flex items-center gap-3 px-4 py-3 hover:bg-surface-variant transition-colors duration-fast rounded-lg cursor-pointer mx-1 my-0.5"
+      className="flex items-center gap-3 px-4 py-3 hover:bg-surface-variant transition-colors duration-fast rounded-lg cursor-pointer mx-1 my-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      {...interactiveProps}
     >
       {/* Status dot */}
       <span

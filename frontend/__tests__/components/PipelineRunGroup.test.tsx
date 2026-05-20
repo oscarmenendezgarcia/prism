@@ -211,6 +211,8 @@ describe('PipelineRunGroup — expanded stage list', () => {
 });
 
 describe('PipelineRunGroup — aggregate status icon classes', () => {
+  // The border-l-* class is on the header wrapper div (not the chevron button),
+  // since the header was refactored to split main-area and chevron (T-005).
   it('applies border-l-success for completed aggregateStatus', () => {
     const stages = makeStages(2);
     const { container } = render(
@@ -220,8 +222,8 @@ describe('PipelineRunGroup — aggregate status icon classes', () => {
         aggregateStatus="completed"
       />
     );
-    const btn = container.querySelector('button');
-    expect(btn?.className).toContain('border-l-success');
+    const header = container.querySelector('li > div');
+    expect(header?.className).toContain('border-l-success');
   });
 
   it('applies border-l-primary for running aggregateStatus', () => {
@@ -237,8 +239,8 @@ describe('PipelineRunGroup — aggregate status icon classes', () => {
         aggregateStatus="running"
       />
     );
-    const btn = container.querySelector('button');
-    expect(btn?.className).toContain('border-l-primary');
+    const header = container.querySelector('li > div');
+    expect(header?.className).toContain('border-l-primary');
   });
 
   it('applies border-l-error for failed aggregateStatus', () => {
@@ -254,7 +256,7 @@ describe('PipelineRunGroup — aggregate status icon classes', () => {
         aggregateStatus="failed"
       />
     );
-    const btn = container.querySelector('button');
-    expect(btn?.className).toContain('border-l-error');
+    const header = container.querySelector('li > div');
+    expect(header?.className).toContain('border-l-error');
   });
 });

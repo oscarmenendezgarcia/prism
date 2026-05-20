@@ -257,7 +257,7 @@ export interface PipelineState {
   startedAt: string;  // ISO timestamp
   /** ISO timestamp when the run finished (completed, aborted, or interrupted). */
   finishedAt?: string;
-  status: 'running' | 'paused' | 'blocked' | 'completed' | 'aborted' | 'interrupted';
+  status: 'running' | 'paused' | 'blocked' | 'completed' | 'aborted' | 'interrupted' | 'failed';
   /** Set when status === 'blocked'. Which comment is preventing the pipeline from advancing. */
   blockedReason?: BlockedReason;
   /**
