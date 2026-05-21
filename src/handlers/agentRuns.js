@@ -27,6 +27,8 @@ const STALE_THRESHOLD_MS      = 4 * 60 * 60 * 1000; // 4 hours
 const VALID_TERMINAL_STATUSES = ['completed', 'cancelled', 'failed'];
 const VALID_RUN_STATUSES      = ['running', 'completed', 'cancelled', 'failed'];
 const UUID_TITLE_RE           = /^Task [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Matches a raw UUID — used to detect when spaceName was stored as the spaceId fallback. */
+const UUID_RE                 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Route patterns (compiled once at module load). */
 const AGENT_RUNS_LIST_ROUTE   = /^\/api\/v1\/agent-runs$/;
@@ -274,6 +276,17 @@ function handleListAgentRuns(req, res, dataDir, store) {
           if (task?.title) result = { ...result, taskTitle: task.title };
         } catch (err) {
           console.debug(`[agent-runs] Could not enrich title for run ${result.id}:`, err.message);
+        }
+      }
+      // Replace UUID-fallback spaceName with the actual space name from the store.
+      // This fixes records created before the SQLite migration when readSpaceName()
+      // fell back to spaceId because spaces.json was absent.
+      if (store && result.spaceId && result.spaceName && UUID_RE.test(result.spaceName)) {
+        try {
+          const space = store.getSpace(result.spaceId);
+          if (space?.name) result = { ...result, spaceName: space.name };
+        } catch (err) {
+          console.debug(`[agent-runs] Could not enrich spaceName for run ${result.id}:`, err.message);
         }
       }
       return result;
