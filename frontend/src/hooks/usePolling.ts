@@ -90,68 +90,70 @@ async function syncPipelineState(): Promise<void> {
     const currentPs = useAppStore.getState().pipelineState;
     if (!currentPs?.runId || currentPs.runId !== ps.runId) return;
 
+    const runId     = currentPs.runId;
     const newIdx    = run.currentStage ?? currentPs.currentStageIndex;
     const newStages = (run.stages ?? currentPs.stages) as PipelineStage[];
     const stageChanged  = newIdx !== currentPs.currentStageIndex;
     const stagesGrew    = newStages.length > currentPs.stages.length;
 
-    if (run.status === 'completed' && currentPs.status !== 'completed') {
+    // Updates both the deprecated pipelineState mirror AND pipelineStates[runId]
+    // so that usePipelineState (which reads from pipelineStates via recomputeMirror)
+    // sees the new status and RunIndicator's auto-dismiss fires correctly.
+    const applyPatch = (patch: Partial<PipelineState>, extra: Record<string, unknown> = {}) => {
+      const updated = { ...currentPs, ...patch };
+      const { pipelineStates } = useAppStore.getState();
       useAppStore.setState({
-        pipelineState: { ...currentPs, status: 'completed', currentStageIndex: newIdx, stages: newStages, finishedAt: run.updatedAt },
-        activeRun: null,
+        pipelineState:  updated,
+        pipelineStates: { ...pipelineStates, [runId]: updated },
+        ...extra,
       });
-      const histRun = useRunHistoryStore.getState().runs.find((r) => r.id === currentPs.runId);
+    };
+
+    if (run.status === 'completed' && currentPs.status !== 'completed') {
+      applyPatch(
+        { status: 'completed', currentStageIndex: newIdx, stages: newStages, finishedAt: run.updatedAt },
+        { activeRun: null },
+      );
+      const histRun = useRunHistoryStore.getState().runs.find((r) => r.id === runId);
       if (histRun?.status === 'running') {
-        useRunHistoryStore.getState().recordRunFinished(currentPs.runId!, 'completed', Date.now() - Date.parse(currentPs.startedAt));
+        useRunHistoryStore.getState().recordRunFinished(runId, 'completed', Date.now() - Date.parse(currentPs.startedAt));
       }
     } else if ((run.status === 'failed' || run.status === 'cancelled') && currentPs.status === 'running') {
-      useAppStore.setState({
-        pipelineState: { ...currentPs, status: 'interrupted', currentStageIndex: newIdx, stages: newStages },
-        activeRun: null,
-      });
-      const histRun = useRunHistoryStore.getState().runs.find((r) => r.id === currentPs.runId);
+      applyPatch(
+        { status: 'interrupted', currentStageIndex: newIdx, stages: newStages },
+        { activeRun: null },
+      );
+      const histRun = useRunHistoryStore.getState().runs.find((r) => r.id === runId);
       if (histRun?.status === 'running') {
-        useRunHistoryStore.getState().recordRunFinished(currentPs.runId!, 'failed', Date.now() - Date.parse(currentPs.startedAt));
+        useRunHistoryStore.getState().recordRunFinished(runId, 'failed', Date.now() - Date.parse(currentPs.startedAt));
       }
     } else if (run.status === 'interrupted' && currentPs.status !== 'interrupted') {
-      useAppStore.setState({ pipelineState: { ...currentPs, status: 'interrupted' }, activeRun: null });
+      applyPatch({ status: 'interrupted' }, { activeRun: null });
     } else if (run.status === 'paused' && currentPs.status !== 'paused') {
-      useAppStore.setState({
-        pipelineState: {
-          ...currentPs,
-          status: 'paused',
-          currentStageIndex: run.pausedBeforeStage ?? newIdx,
-          pausedBeforeStage: run.pausedBeforeStage,
-          stages: newStages,
-        },
+      applyPatch({
+        status: 'paused',
+        currentStageIndex: run.pausedBeforeStage ?? newIdx,
+        pausedBeforeStage: run.pausedBeforeStage,
+        stages: newStages,
       });
     } else if (run.status === 'blocked' && currentPs.status !== 'blocked') {
       // Pipeline is waiting for a question to be resolved before continuing.
-      useAppStore.setState({
-        pipelineState: {
-          ...currentPs,
-          status: 'blocked',
-          currentStageIndex: newIdx,
-          stages: newStages,
-          blockedReason: run.blockedReason,
-        },
+      applyPatch({
+        status: 'blocked',
+        currentStageIndex: newIdx,
+        stages: newStages,
+        blockedReason: run.blockedReason,
       });
     } else if (run.status === 'running' && currentPs.status === 'blocked') {
       // Question was resolved — pipeline is running again; clear blockedReason.
-      useAppStore.setState({
-        pipelineState: {
-          ...currentPs,
-          status: 'running',
-          blockedReason: undefined,
-        },
-      });
+      applyPatch({ status: 'running', blockedReason: undefined });
     } else if (stageChanged || stagesGrew) {
       // Stage advanced or loop injected — update index and stages.
       const { activeRun } = useAppStore.getState();
-      useAppStore.setState({
-        pipelineState: { ...currentPs, currentStageIndex: newIdx, stages: newStages },
-        ...(activeRun ? { activeRun: { ...activeRun, agentId: newStages[newIdx] ?? activeRun.agentId } } : {}),
-      });
+      applyPatch(
+        { currentStageIndex: newIdx, stages: newStages },
+        activeRun ? { activeRun: { ...activeRun, agentId: newStages[newIdx] ?? activeRun.agentId } } : {},
+      );
     }
   } catch {
     // ignore
