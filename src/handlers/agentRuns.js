@@ -278,6 +278,7 @@ function handleListAgentRuns(req, res, dataDir, store) {
           console.debug(`[agent-runs] Could not enrich title for run ${result.id}:`, err.message);
         }
       }
+<<<<<<< HEAD
       // Replace UUID-fallback spaceName with the actual space name from the store.
       // This fixes records created before the SQLite migration when readSpaceName()
       // fell back to spaceId because spaces.json was absent.
@@ -289,6 +290,8 @@ function handleListAgentRuns(req, res, dataDir, store) {
           console.debug(`[agent-runs] Could not enrich spaceName for run ${result.id}:`, err.message);
         }
       }
+=======
+>>>>>>> 50ff376 (fix(run-history): enrich UUID-fallback task titles at read time)
       return result;
     });
 
