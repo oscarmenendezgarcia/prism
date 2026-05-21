@@ -2,9 +2,9 @@
  * Auto-task FAB — fixed pill button at bottom-right of the board.
  *
  * Visual design:
- *   - Pill shape (border-radius 9999px), 48px tall, backdrop blur glass
- *   - Animated conic-gradient border via ::before pseudo-element (CSS class
- *     .autotask-fab in index.css — Tailwind cannot express @property + conic)
+ *   - Pill shape (border-radius 9999px), 48px tall
+ *   - Background: var(--color-primary), text: white — MD3 design system tokens
+ *   - Shadow: var(--shadow-md) default, var(--shadow-lg) on hover
  *   - Icon: Material Symbol "auto_awesome" (sparkle)
  *   - Label hidden on mobile (<600px) via .autotask-fab__label CSS class
  *
@@ -12,7 +12,6 @@
  *   - aria-label describes the full action
  *   - data-autotask-fab for programmatic focus restoration after modal closes
  *   - Keyboard: Enter/Space (native button), focus-visible ring
- *   - prefers-reduced-motion: animation paused via CSS media query
  */
 
 import React from 'react';

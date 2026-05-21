@@ -559,18 +559,8 @@ html.dark {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   AUTO-TASK FAB — conic-gradient border rotation animation
+   AUTO-TASK FAB — pill button aligned to MD3 design system tokens
 ───────────────────────────────────────────────────────────────────────────── */
-
-@property --autotask-angle {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
-
-@keyframes autotask-spin {
-  to { --autotask-angle: 360deg; }
-}
 
 .autotask-fab {
   position: absolute;
@@ -580,16 +570,12 @@ html.dark {
   height: 48px;
   padding: 0 20px;
   border-radius: 9999px;
-  /* glass background */
-  background: rgba(17, 17, 24, 0.88);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  /* violet glow */
-  box-shadow: 0 0 20px rgba(124, 109, 250, 0.25), 0 0 40px rgba(124, 109, 250, 0.08);
+  background: var(--color-primary);
+  box-shadow: var(--shadow-md);
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: rgba(245, 245, 250, 0.96);
+  color: #ffffff;
   font-size: 14px;
   font-weight: 500;
   font-family: 'Inter', sans-serif;
@@ -599,37 +585,12 @@ html.dark {
   transition: transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 200ms ease,
               background 150ms ease;
-  isolation: isolate;
-  animation: autotask-spin 4s linear infinite;
-}
-
-/* The conic-gradient violet/indigo border ring */
-.autotask-fab::before {
-  content: '';
-  position: absolute;
-  inset: -1.5px;
-  border-radius: 9999px;
-  background: conic-gradient(
-    from var(--autotask-angle),
-    #7C6DFA,
-    #A78BFA,
-    #60A5FA,
-    #A78BFA,
-    #7C6DFA
-  );
-  z-index: -1;
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-  padding: 1.5px;
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: destination-out;
 }
 
 .autotask-fab:hover {
   transform: scale(1.04);
-  background: rgba(26, 26, 36, 0.92);
-  box-shadow: 0 0 28px rgba(124, 109, 250, 0.40), 0 0 56px rgba(124, 109, 250, 0.15);
-  animation-duration: 2s;
+  background: var(--color-primary-hover);
+  box-shadow: var(--shadow-lg);
 }
 
 .autotask-fab:active {
@@ -637,20 +598,8 @@ html.dark {
 }
 
 .autotask-fab:focus-visible {
-  outline: 2px solid rgba(124, 109, 250, 0.70);
+  outline: 2px solid var(--color-primary);
   outline-offset: 3px;
-}
-
-/* Light mode overrides */
-html:not(.dark) .autotask-fab {
-  background: rgba(255, 255, 255, 0.90);
-  color: #1A1A2E;
-  box-shadow: 0 0 20px rgba(108, 96, 224, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-html:not(.dark) .autotask-fab:hover {
-  background: rgba(240, 240, 248, 0.96);
-  box-shadow: 0 0 28px rgba(108, 96, 224, 0.24), 0 4px 12px rgba(0, 0, 0, 0.10);
 }
 
 /* Mobile: icon-only circle */
@@ -686,9 +635,5 @@ html:not(.dark) .autotask-fab:hover {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
-  }
-
-  .autotask-fab {
-    animation-play-state: paused;
   }
 }
