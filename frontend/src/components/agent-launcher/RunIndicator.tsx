@@ -469,9 +469,16 @@ export function RunIndicator() {
     return () => clearInterval(id);
   }, [pipelineState?.startedAt, pipelineState?.status, pipelineState?.finishedAt]);
 
-  // Auto-dismiss on completion after a brief moment so the user sees the checkmarks.
+  // Track previous status to detect live transitions (running → completed).
+  // Historical runs opened from the history panel arrive already as 'completed'
+  // and must NOT trigger auto-dismiss — only genuine live completions should.
+  const prevStatusRef = useRef<string | null>(null);
   useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = pipelineState?.status ?? null;
     if (pipelineState?.status !== 'completed') return;
+    const wasActive = prev === 'running' || prev === 'paused' || prev === 'blocked';
+    if (!wasActive) return;
     const t = setTimeout(() => clearPipeline(), 2000);
     return () => clearTimeout(t);
   }, [pipelineState?.status, clearPipeline]);
