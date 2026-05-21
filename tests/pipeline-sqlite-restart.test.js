@@ -5,8 +5,6 @@
  *
  * Covers:
  *   - A run persisted with store.upsertRun() survives a store close+reopen.
- *   - Phase 3 migration: run.json files are imported on first boot and renamed
- *     to .migrated; a second boot is a no-op.
  *   - init() marks a 'running' run with a dead PID as 'interrupted' (SQLite path).
  *   - init() re-attaches to a run whose done-sentinel was written while the
  *     server was down (exitCode 0 → completed).
@@ -24,7 +22,6 @@ const path    = require('path');
 const crypto  = require('crypto');
 
 const { createStore } = require('../src/services/store');
-const { migrate }     = require('../src/services/migrator');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -107,115 +104,7 @@ describe('SQLite persistence — store reopen', () => {
 });
 
 // ---------------------------------------------------------------------------
-// T-006 §2: Phase 3 migration — run.json → SQLite
-// ---------------------------------------------------------------------------
-
-describe('Phase 3 migration — run.json import', () => {
-  test('run.json files are imported into SQLite on first migrate()', () => {
-    const dataDir = tmpDir();
-    try {
-      // Simulate pre-migration state: write run.json files directly.
-      const run1 = makeRun({ runId: 'mig-001', status: 'completed' });
-      const run2 = makeRun({ runId: 'mig-002', status: 'failed' });
-
-      for (const run of [run1, run2]) {
-        const runDirPath = path.join(dataDir, 'runs', run.runId);
-        fs.mkdirSync(runDirPath, { recursive: true });
-        fs.writeFileSync(path.join(runDirPath, 'run.json'), JSON.stringify(run), 'utf8');
-      }
-
-      // Write a legacy runs.json registry.
-      fs.writeFileSync(
-        path.join(dataDir, 'runs', 'runs.json'),
-        JSON.stringify([run1, run2].map((r) => ({ runId: r.runId, status: r.status }))),
-        'utf8'
-      );
-
-      const store = migrate(dataDir);
-
-      // Both runs should now be in SQLite.
-      const r1 = store.getRun('mig-001');
-      const r2 = store.getRun('mig-002');
-      assert.ok(r1 !== null, 'mig-001 should be in SQLite after Phase 3');
-      assert.ok(r2 !== null, 'mig-002 should be in SQLite after Phase 3');
-      assert.equal(r1.status, 'completed');
-      assert.equal(r2.status, 'failed');
-
-      // run.json files should be renamed to .migrated.
-      assert.ok(
-        !fs.existsSync(path.join(dataDir, 'runs', 'mig-001', 'run.json')),
-        'run.json should be renamed after migration'
-      );
-      assert.ok(
-        fs.existsSync(path.join(dataDir, 'runs', 'mig-001', 'run.json.migrated')),
-        'run.json.migrated should exist'
-      );
-
-      // runs.json should be renamed.
-      assert.ok(
-        !fs.existsSync(path.join(dataDir, 'runs', 'runs.json')),
-        'runs.json should be renamed after migration'
-      );
-      assert.ok(
-        fs.existsSync(path.join(dataDir, 'runs', 'runs.json.migrated')),
-        'runs.json.migrated should exist'
-      );
-
-      store.close();
-    } finally {
-      fs.rmSync(dataDir, { recursive: true, force: true });
-    }
-  });
-
-  test('Phase 3 is idempotent — second migrate() does not duplicate rows', () => {
-    const dataDir = tmpDir();
-    try {
-      const run = makeRun({ runId: 'mig-idem', status: 'completed' });
-      const runDirPath = path.join(dataDir, 'runs', run.runId);
-      fs.mkdirSync(runDirPath, { recursive: true });
-      fs.writeFileSync(path.join(runDirPath, 'run.json'), JSON.stringify(run), 'utf8');
-
-      // First migrate — imports run.json, renames it.
-      const store1 = migrate(dataDir);
-      store1.close();
-
-      // Second migrate — run.json.migrated exists, no new run.json → nothing to import.
-      const store2 = migrate(dataDir);
-      const list   = store2.listRuns();
-      assert.equal(list.length, 1, 'should have exactly 1 run after two migrates');
-      store2.close();
-    } finally {
-      fs.rmSync(dataDir, { recursive: true, force: true });
-    }
-  });
-
-  test('corrupt run.json is skipped and renamed, others continue', () => {
-    const dataDir = tmpDir();
-    try {
-      // Good run.
-      const good = makeRun({ runId: 'mig-good', status: 'completed' });
-      const goodDirPath = path.join(dataDir, 'runs', good.runId);
-      fs.mkdirSync(goodDirPath, { recursive: true });
-      fs.writeFileSync(path.join(goodDirPath, 'run.json'), JSON.stringify(good), 'utf8');
-
-      // Corrupt run.
-      const corruptDir = path.join(dataDir, 'runs', 'bad-entry');
-      fs.mkdirSync(corruptDir, { recursive: true });
-      fs.writeFileSync(path.join(corruptDir, 'run.json'), '{ invalid json !!!', 'utf8');
-
-      const store = migrate(dataDir);
-      const goodRow = store.getRun('mig-good');
-      assert.ok(goodRow !== null, 'good run should be imported');
-      assert.equal(store.listRuns().length, 1, 'corrupt run should not appear in SQLite');
-      store.close();
-    } finally {
-      fs.rmSync(dataDir, { recursive: true, force: true });
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
-// T-006 §3: init() marks dead-PID 'running' runs as 'interrupted' (store path)
+// T-006 §2: init() marks dead-PID 'running' runs as 'interrupted' (store path)
 // ---------------------------------------------------------------------------
 
 describe('init() — interrupted detection with store', () => {

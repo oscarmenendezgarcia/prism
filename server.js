@@ -11,7 +11,6 @@
  *
  * Module layout:
  *   src/services/store.js          — SQLite Store (better-sqlite3), all CRUD ops (ADR-1 sqlite-migration)
- *   src/services/migrator.js       — startup migration: JSON → SQLite (idempotent)
  *   src/services/spaceManager.js   — space CRUD backed by Store
  *   src/services/pipelineManager.js — pipeline run lifecycle
  *   src/services/agentResolver.js  — agent file resolution for pipeline
@@ -36,7 +35,7 @@ const path = require('path');
 const fs   = require('fs');
 const os   = require('os');
 
-const { migrate }            = require('./src/services/migrator');
+const { createStore }        = require('./src/services/store');
 const { createSpaceManager } = require('./src/services/spaceManager');
 const pipelineManager        = require('./src/services/pipelineManager');
 const { readSettings }       = require('./src/handlers/settings');
@@ -91,19 +90,19 @@ function startServer(options = {}) {
 
   const port = options.port !== undefined ? options.port : DEFAULT_PORT;
 
-  // Ensure the data directory exists before the migrator attempts to open it.
+  // Ensure the data directory exists before opening the SQLite store.
   fs.mkdirSync(dataDir, { recursive: true });
 
   if (!options.silent) {
     console.log(`[startup] data dir: ${dataDir} (mode=${dataDirMode})`);
   }
 
-  // Step 1: Run migrator + open SQLite store before anything else.
+  // Step 1: Open SQLite store (creates schema on first run).
   let store;
   try {
-    store = migrate(dataDir);
+    store = createStore(dataDir);
   } catch (err) {
-    console.error('[startup] Migration failed — server cannot start:', err);
+    console.error('[startup] Failed to open SQLite store — server cannot start:', err);
     process.exit(1);
   }
 

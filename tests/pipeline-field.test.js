@@ -115,14 +115,14 @@ async function startServer(extraEnv = {}) {
 
   const { createApp }          = require('../src/handlers/tasks');
   const { createSpaceManager } = require('../src/services/spaceManager');
-  const { migrate }            = require('../src/services/migrator');
+  const { createStore }        = require('../src/services/store');
   const pipelineHandlers       = require('../src/handlers/pipeline');
   const pipelineManager        = require('../src/services/pipelineManager');
 
   const spaceId    = crypto.randomUUID();
 
   // Open the SQLite store and create the space with a known ID.
-  const store        = migrate(dataDir);
+  const store        = createStore(dataDir);
   const spaceManager = createSpaceManager(store);
   spaceManager.createSpace('Test Space', undefined, undefined, undefined, spaceId);
 
@@ -483,12 +483,12 @@ describe('handleCreateRun — pipeline resolution (T-004)', () => {
     const spaceId = crypto.randomUUID();
     const taskId  = crypto.randomUUID();
 
-    const { migrate }          = require('../src/services/migrator');
+    const { createStore }        = require('../src/services/store');
     const { createSpaceManager } = require('../src/services/spaceManager');
     const pipelineHandlers       = require('../src/handlers/pipeline');
     const pipelineManager        = require('../src/services/pipelineManager');
 
-    const pipelineStore = migrate(dataDir);
+    const pipelineStore = createStore(dataDir);
     const spaceManager  = createSpaceManager(pipelineStore);
 
     // Initialize pipelineManager with this store so createRun can find SQLite tasks.

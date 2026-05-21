@@ -17,6 +17,7 @@ const fs   = require('fs');
 const os   = require('os');
 const path = require('path');
 const { createSpaceManager } = require('../src/services/spaceManager');
+const { createStore }        = require('../src/services/store');
 
 // ---------------------------------------------------------------------------
 // Minimal test runner
@@ -68,24 +69,11 @@ function readJSON(filePath) {
  * from a clean known state.
  */
 function makeManager(dir) {
-  // Seed the default space manually (mimics post-migration state).
-  const spacesDir    = path.join(dir, 'spaces', 'default');
-  const manifestPath = path.join(dir, 'spaces.json');
-
-  fs.mkdirSync(spacesDir, { recursive: true });
-  const cols = ['todo', 'in-progress', 'done'];
-  for (const col of cols) {
-    fs.writeFileSync(path.join(spacesDir, `${col}.json`), '[]', 'utf8');
-  }
-
-  const now = new Date().toISOString();
-  fs.writeFileSync(
-    manifestPath,
-    JSON.stringify([{ id: 'default', name: 'General', createdAt: now, updatedAt: now }], null, 2),
-    'utf8'
-  );
-
-  return createSpaceManager(dir);
+  // Seed the default space directly into SQLite.
+  const now   = new Date().toISOString();
+  const store = createStore(dir);
+  store.upsertSpace({ id: 'default', name: 'General', createdAt: now, updatedAt: now });
+  return createSpaceManager(store);
 }
 
 // ---------------------------------------------------------------------------
