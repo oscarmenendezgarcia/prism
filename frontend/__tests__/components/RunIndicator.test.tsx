@@ -287,10 +287,10 @@ describe('RunIndicator — multi-stage mode (stages.length > 1)', () => {
     expect(abortFn).toHaveBeenCalledOnce();
   });
 
-  it('always shows Dismiss button', () => {
+  it('renders nothing when status is completed (panel stays open independently)', () => {
     resetStore({ pipelineState: makePipelineState({ status: 'completed' }) });
-    render(<RunIndicator />);
-    expect(screen.getByRole('button', { name: /dismiss pipeline indicator/i })).toBeInTheDocument();
+    const { container } = render(<RunIndicator />);
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('clicking Dismiss calls clearPipeline', () => {

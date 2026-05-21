@@ -54,6 +54,7 @@ function deriveStageStatus(
 export function PipelineLogPanel() {
   // Multi-run: read the full pipelineStates dict and derive the selected run.
   const pipelineStates        = useAppStore((s) => s.pipelineStates);
+  const clearRun              = useAppStore((s) => s.clearRun);
   const activeSpace           = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
   const selectedStageIndex    = usePipelineLogStore((s) => s.selectedStageIndex);
   const setSelectedStageIndex = usePipelineLogStore((s) => s.setSelectedStageIndex);
@@ -251,7 +252,16 @@ export function PipelineLogPanel() {
           </span>
         )}
         <button
-          onClick={() => setLogPanelOpen(false)}
+          onClick={() => {
+            setLogPanelOpen(false);
+            // Clean up terminal runs from pipelineStates on close so memory
+            // doesn't accumulate. Live (running/paused/blocked) runs are left
+            // intact — their indicator remains active in the header.
+            const TERMINAL = new Set(['completed', 'aborted', 'failed']);
+            if (effectivePanelKey && pipelineState && TERMINAL.has(pipelineState.status)) {
+              clearRun(effectivePanelKey);
+            }
+          }}
           aria-label="Close pipeline log panel"
           className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary transition-all duration-fast"
         >
