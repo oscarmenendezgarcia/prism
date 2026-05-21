@@ -402,7 +402,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     // List route MUST be tested before single-run route to avoid regex match.
     // -------------------------------------------------------------------------
     if (AGENT_RUNS_LIST_ROUTE.test(urlPath)) {
-      if (method === 'GET')  return handleListAgentRuns(req, res, dataDir);
+      if (method === 'GET')  return handleListAgentRuns(req, res, dataDir, store);
       if (method === 'POST') return handleCreateAgentRun(req, res, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
