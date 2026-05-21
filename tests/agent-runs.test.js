@@ -8,7 +8,8 @@
 
 'use strict';
 
-const http = require('http');
+const http   = require('http');
+const crypto = require('crypto');
 const { startTestServer } = require('./helpers/server');
 
 // ---------------------------------------------------------------------------
@@ -391,6 +392,103 @@ async function runPruneSuite() {
 }
 
 // ---------------------------------------------------------------------------
+// Suite: Read-time spaceName enrichment
+// ---------------------------------------------------------------------------
+
+async function runSpaceNameEnrichmentSuite() {
+  suite('GET /api/v1/agent-runs — spaceName UUID enrichment');
+
+  const { port, store, close } = await startTestServer();
+
+  await test('spaceName UUID is replaced with actual space name at read time', async () => {
+    const spaceId   = crypto.randomUUID();
+    const spaceName = 'My Readable Space';
+
+    // Insert the space into the store so the enrichment can look it up.
+    store.upsertSpace({
+      id:        spaceId,
+      name:      spaceName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // POST a run whose spaceName was stored as the raw UUID (legacy records).
+    const run = makeRunPayload({
+      id:       `run_${Date.now()}_spenrich`,
+      spaceId,
+      spaceName: spaceId,  // UUID stored as spaceName — the historical bug
+    });
+    await request(port, 'POST', '/api/v1/agent-runs', run);
+
+    const res   = await request(port, 'GET', '/api/v1/agent-runs');
+    const found = res.body.runs.find((r) => r.id === run.id);
+
+    assert(found !== undefined, 'run not found in list');
+    assert(
+      found.spaceName === spaceName,
+      `expected spaceName="${spaceName}", got "${found.spaceName}"`,
+    );
+    assert(
+      found.spaceName !== spaceId,
+      `spaceName must not be the UUID "${spaceId}"`,
+    );
+  });
+
+  await test('spaceName is NOT changed when it is already a human-readable name', async () => {
+    const spaceId   = crypto.randomUUID();
+    const spaceName = 'Already Named';
+
+    store.upsertSpace({
+      id:        spaceId,
+      name:      spaceName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // POST a run whose spaceName is already human-readable.
+    const run = makeRunPayload({
+      id:       `run_${Date.now()}_spnochange`,
+      spaceId,
+      spaceName,  // already correct
+    });
+    await request(port, 'POST', '/api/v1/agent-runs', run);
+
+    const res   = await request(port, 'GET', '/api/v1/agent-runs');
+    const found = res.body.runs.find((r) => r.id === run.id);
+
+    assert(found !== undefined, 'run not found in list');
+    assert(
+      found.spaceName === spaceName,
+      `expected spaceName="${spaceName}", got "${found.spaceName}"`,
+    );
+  });
+
+  await test('spaceName UUID is left unchanged when the space does not exist in the store', async () => {
+    const ghostSpaceId = crypto.randomUUID();
+
+    // POST a run for a space that does NOT exist in the store.
+    const run = makeRunPayload({
+      id:       `run_${Date.now()}_spghost`,
+      spaceId:   ghostSpaceId,
+      spaceName: ghostSpaceId,  // UUID — space was deleted or never created
+    });
+    await request(port, 'POST', '/api/v1/agent-runs', run);
+
+    const res   = await request(port, 'GET', '/api/v1/agent-runs');
+    const found = res.body.runs.find((r) => r.id === run.id);
+
+    assert(found !== undefined, 'run not found in list');
+    // Cannot enrich — keep the UUID as-is rather than crashing.
+    assert(
+      found.spaceName === ghostSpaceId,
+      `expected spaceName to remain "${ghostSpaceId}", got "${found.spaceName}"`,
+    );
+  });
+
+  await close();
+}
+
+// ---------------------------------------------------------------------------
 // Run all suites
 // ---------------------------------------------------------------------------
 
@@ -402,6 +500,7 @@ async function runTests() {
   await runGetSuite();
   await runStaleSuite();
   await runPruneSuite();
+  await runSpaceNameEnrichmentSuite();
 
   console.log(`\n${'─'.repeat(50)}`);
   console.log(`Results: ${passed} passed, ${failed} failed`);
