@@ -7,6 +7,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/shared/Button';
+import { Tooltip } from '@/components/shared/Tooltip';
 import { TerminalToggle } from '@/components/terminal/TerminalToggle';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { ConfigToggle } from '@/components/config/ConfigToggle';
@@ -57,10 +58,18 @@ export function Header() {
       <div className="flex items-center">
         {/* Panel Toggles — hidden on mobile */}
         <div className="hidden sm:flex items-center gap-2">
-          <TerminalToggle />
-          <AgentSettingsToggle />
-          <RunsToggle />
-          <ConfigToggle />
+          <Tooltip label="Terminal" description="Run shell commands on the server">
+            <TerminalToggle />
+          </Tooltip>
+          <Tooltip label="Agent Settings" description="Configure agents and pipeline stages">
+            <AgentSettingsToggle />
+          </Tooltip>
+          <Tooltip label="Runs" description="Browse run history and pipeline logs">
+            <RunsToggle />
+          </Tooltip>
+          <Tooltip label="Config" description="Edit configuration files">
+            <ConfigToggle />
+          </Tooltip>
         </div>
 
         <div className="hidden sm:block w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
