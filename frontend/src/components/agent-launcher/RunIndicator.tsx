@@ -469,12 +469,6 @@ export function RunIndicator() {
     return () => clearInterval(id);
   }, [pipelineState?.startedAt, pipelineState?.status, pipelineState?.finishedAt]);
 
-  // Auto-dismiss on completion after a brief moment so the user sees the checkmarks.
-  useEffect(() => {
-    if (pipelineState?.status !== 'completed') return;
-    const t = setTimeout(() => clearPipeline(), 2000);
-    return () => clearTimeout(t);
-  }, [pipelineState?.status, clearPipeline]);
 
   // ── Multi-run mode (2+ genuinely active runs) ──────────────────────────────
   if (activeRunCount >= 2) {
@@ -492,6 +486,11 @@ export function RunIndicator() {
   if (!pipelineState) return null;
 
   const { stages, currentStageIndex, status, pausedBeforeStage, blockedReason } = pipelineState;
+
+  // Completed/aborted runs don't need an indicator — the log panel stays open
+  // independently and the user closes it manually. Returning null here instead of
+  // auto-dismissing keeps historical and live runs behaving the same way.
+  if (status === 'completed' || status === 'aborted') return null;
 
   /** Find the task in the board so we can open the detail panel. */
   const findTaskById = (id: string) =>
