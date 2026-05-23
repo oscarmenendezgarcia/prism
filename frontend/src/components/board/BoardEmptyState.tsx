@@ -69,13 +69,13 @@ export function BoardEmptyState({ onCreateTask }: BoardEmptyStateProps) {
   return (
     <section
       aria-labelledby="onboarding-title"
-      className="flex flex-col items-center justify-center flex-1 px-6 py-12 max-w-2xl mx-auto text-center"
+      className="flex flex-col items-center justify-center flex-1 px-4 py-8 sm:px-6 sm:py-12 max-w-2xl mx-auto text-center"
     >
       <span className="material-symbols-outlined text-6xl text-primary mb-4" aria-hidden="true">
         rocket_launch
       </span>
 
-      <h2 id="onboarding-title" className="text-2xl font-semibold text-text-primary mb-2">
+      <h2 id="onboarding-title" className="text-xl sm:text-2xl font-semibold text-text-primary mb-2">
         Welcome to Prism
       </h2>
 
@@ -93,6 +93,7 @@ export function BoardEmptyState({ onCreateTask }: BoardEmptyStateProps) {
         variant="primary"
         onClick={onCreateTask}
         aria-label="Add your first task to start using Prism"
+        className="min-h-[44px]"
       >
         <span className="material-symbols-outlined text-lg" aria-hidden="true">add</span>
         Add your first task
