@@ -10,6 +10,7 @@ import { useTasks, useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { Column } from './Column';
 import { ColumnTabBar } from './ColumnTabBar';
+import { BoardEmptyState } from './BoardEmptyState';
 
 const COLUMNS: ColumnType[] = ['todo', 'in-progress', 'done'];
 
@@ -80,6 +81,21 @@ export function Board() {
     'in-progress': (tasks['in-progress'] || []).length,
     done: (tasks.done || []).length,
   };
+
+  // F1/ADR-1: show the onboarding guide when the active space has zero tasks.
+  // No persistence — visibility is derived purely from store state.
+  const isBoardEmpty =
+    (tasks.todo?.length ?? 0) === 0 &&
+    (tasks['in-progress']?.length ?? 0) === 0 &&
+    (tasks.done?.length ?? 0) === 0;
+
+  if (isBoardEmpty) {
+    return (
+      <main role="main" className="flex h-full overflow-hidden">
+        <BoardEmptyState onCreateTask={openCreateModal} />
+      </main>
+    );
+  }
 
   return (
     <>
