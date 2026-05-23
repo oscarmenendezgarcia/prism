@@ -187,6 +187,14 @@ interface AppState {
   /** Diccionario indexado por runId (o '__pending__' para el slot stage-0). */
   pipelineStates: Record<string, PipelineState>;
 
+  /**
+   * Synthetic PipelineState entries hydrated from AgentRunRecord data when the
+   * user opens a historical run from Run History. Stored separately so the
+   * RunIndicator (which reads only pipelineStates + activePipelineRunId) never
+   * picks them up and renders a completed indicator unexpectedly.
+   */
+  historicalPipelineStates: Record<string, PipelineState>;
+
   /** runId del run "primario" visible para consumidores mono-run. */
   activePipelineRunId: string | null;
 
@@ -952,9 +960,10 @@ export const useAppStore = create<AppState>((set, get) => {
 
   // ── Pipeline ──────────────────────────────────────────────────────────────
 
-  pipelineStates:      {},
-  activePipelineRunId: null,
-  pipelineState:       null,
+  pipelineStates:          {},
+  historicalPipelineStates: {},
+  activePipelineRunId:     null,
+  pipelineState:           null,
   pipelineConfirmModal: null,
 
   openPipelineConfirm: (spaceId: string, taskId: string) => {
@@ -1150,9 +1159,11 @@ export const useAppStore = create<AppState>((set, get) => {
   attachRun: (state) => setPipelineStateById(state.runId ?? PENDING_RUN_KEY, state),
 
   openLogPanelForRun: async (input: OpenLogPanelInput) => {
-    const { pipelineStates, showToast, activePipelineRunId } = get();
+    const { pipelineStates, historicalPipelineStates, showToast } = get();
 
-    const key = input.kind === 'single' ? input.run.id : input.pipelineRunId;
+    const key = input.kind === 'single'
+      ? (input.run.pipelineRunId ?? input.run.id)
+      : input.pipelineRunId;
     const stageIndex = input.kind === 'pipeline' ? (input.stageIndex ?? 0) : 0;
 
     const openPanel = (idx: number) => {
@@ -1162,8 +1173,8 @@ export const useAppStore = create<AppState>((set, get) => {
       usePipelineLogStore.getState().setLogPanelOpen(true);
     };
 
-    // Fast path: entry already in memory (live run or previously opened historical run).
-    if (pipelineStates[key]) {
+    // Fast path: entry already in memory as a live run or previously hydrated historical run.
+    if (pipelineStates[key] || historicalPipelineStates[key]) {
       console.log(JSON.stringify({
         timestamp: new Date().toISOString(),
         level: 'info',
@@ -1199,16 +1210,9 @@ export const useAppStore = create<AppState>((set, get) => {
       return;
     }
 
-    // Add to pipelineStates WITHOUT displacing the current active live run.
-    // Historical runs share the dict but should not steal the activePipelineRunId
-    // slot so that live pipeline indicators continue to work normally.
-    const nextStates = { ...pipelineStates, [key]: synthetic };
-    const nextActive = activePipelineRunId ?? key;
-    set({
-      pipelineStates:      nextStates,
-      activePipelineRunId: nextActive,
-      pipelineState:       recomputeMirror(nextStates, nextActive),
-    });
+    // Store in historicalPipelineStates — NOT in pipelineStates — so the
+    // RunIndicator never picks this up and renders a stale completed indicator.
+    set({ historicalPipelineStates: { ...historicalPipelineStates, [key]: synthetic } });
 
     console.log(JSON.stringify({
       timestamp: new Date().toISOString(),

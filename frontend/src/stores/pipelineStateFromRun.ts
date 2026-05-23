@@ -71,7 +71,10 @@ export function lastNonPendingIndex(stages: AgentRunRecord[]): number {
  *  - Entries without pipelineRunId (standalone agent runs)
  *  - Groups with only 1 stage (groupRuns collapses them to 'single')
  *
- * Key = run.id (the backend runId for this agent run).
+ * Key = pipelineRunId ?? run.id.
+ * Single-stage pipeline runs store logs under data/runs/<pipelineRunId>/stage-0.log,
+ * not data/runs/<run.id>/. run.id has the format "<pipelineRunId>-<stageIndex>"
+ * which is a DB key, not a filesystem path.
  */
 export function buildSingleState(run: AgentRunRecord): PipelineState {
   return {
@@ -83,7 +86,7 @@ export function buildSingleState(run: AgentRunRecord): PipelineState {
     startedAt:         run.startedAt,
     finishedAt:        run.completedAt ?? undefined,
     status:            mapStatus(run.status),
-    runId:             run.id,
+    runId:             run.pipelineRunId ?? run.id,
     subTaskIds:        [run.taskId],
     checkpoints:       [],
   };

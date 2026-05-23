@@ -133,6 +133,7 @@ export function StructuredLogView({
   const isLoading      = usePipelineLogStore((s) => s.stageEventsLoading[storeKey] ?? false);
   const error          = usePipelineLogStore((s) => s.stageEventsError[storeKey] ?? null);
   const notAvailable   = usePipelineLogStore((s) => s.stageEventsNotAvailable[storeKey] ?? false);
+  const fetchEpoch     = usePipelineLogStore((s) => s.fetchEpoch);
 
   const appendEvents       = usePipelineLogStore((s) => s.appendStageEvents);
   const setNextSince       = usePipelineLogStore((s) => s.setStageEventsNextSince);
@@ -183,7 +184,7 @@ export function StructuredLogView({
     } finally {
       setLoading(storeKey, false);
     }
-  }, [runId, stageIndex, storeKey, appendEvents, setNextSince, setLoading, setError, setNotAvailable]);
+  }, [runId, stageIndex, storeKey, fetchEpoch, appendEvents, setNextSince, setLoading, setError, setNotAvailable]);
 
   // Fetch on mount / when runId or stageIndex changes.
   useEffect(() => {
