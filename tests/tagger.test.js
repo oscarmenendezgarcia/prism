@@ -78,16 +78,9 @@ function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'prism-tagger-'));
 }
 
-function initDataDir(dir) {
-  // Seed a spaces.json so the migrator imports 'default' space into SQLite
-  // before the server starts. The server's ensureAllSpaces() also creates it,
-  // but seeding here guarantees the name matches what tests expect.
-  fs.mkdirSync(path.join(dir, 'spaces'), { recursive: true });
-  const spaces = [
-    { id: 'default', name: 'General', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-  ];
-  fs.writeFileSync(path.join(dir, 'spaces.json'), JSON.stringify(spaces), 'utf8');
-  // No JSON column files — SQLite is the source of truth after migration.
+function initDataDir(_dir) {
+  // No-op: ensureAllSpaces() in server.js creates the default 'General' space
+  // (id: 'default') on first boot when the DB is empty.
 }
 
 function req(port, method, urlPath, body) {

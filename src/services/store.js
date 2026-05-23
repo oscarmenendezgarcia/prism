@@ -329,7 +329,7 @@ function createStore(dataDir) {
 
   /**
    * Insert or replace a space row.
-   * Used by migrator and SpaceManager.
+   * Used by SpaceManager and tests.
    */
   function upsertSpace(space) {
     stmts.upsertSpace.run(

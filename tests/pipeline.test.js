@@ -840,14 +840,14 @@ describe('REST integration — pipeline endpoints', () => {
 
   test('POST /api/v1/runs returns 422 TASK_NOT_IN_TODO for task already in-progress', async () => {
     const { createSpaceManager } = require('../src/services/spaceManager');
-    const { migrate } = require('../src/services/migrator');
+    const { createStore } = require('../src/services/store');
     const sm       = createSpaceManager(dataDir);
     const result   = sm.createSpace(`space-inprog-${crypto.randomUUID().slice(0, 6)}`);
     const spaceId  = result.space.id;
     const taskId   = crypto.randomUUID();
 
     // Put task in in-progress column directly via SQLite store.
-    const store2 = migrate(dataDir);
+    const store2 = createStore(dataDir);
     const now = new Date().toISOString();
     store2.insertTask({ id: taskId, title: 'Running task', type: 'chore', createdAt: now, updatedAt: now }, spaceId, 'in-progress');
     store2.close();

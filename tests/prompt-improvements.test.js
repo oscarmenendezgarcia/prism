@@ -84,10 +84,10 @@ function createSpaceWithTask(dataDir, taskOverrides = {}) {
  */
 function setupSpaceViaManager(dataDir) {
   const { createSpaceManager } = require('../src/services/spaceManager');
-  const { migrate }            = require('../src/services/migrator');
+  const { createStore }        = require('../src/services/store');
 
   // Open the same SQLite DB the server is using.
-  const store  = migrate(dataDir);
+  const store  = createStore(dataDir);
   const sm     = createSpaceManager(store);
   const result = sm.createSpace(`prompt-test-${crypto.randomUUID().slice(0, 8)}`);
   const spaceId = result.space.id;
