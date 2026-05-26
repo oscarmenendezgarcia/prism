@@ -126,7 +126,7 @@ export function Modal({
         onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
       >
         <div
-          className={`bg-surface dark:glass-heavy border border-border dark:border-transparent rounded-modal shadow-modal w-full ${maxWidth} mx-4 flex flex-col ${isClosing ? exitAnimation : enterAnimation} ${className}`}
+          className={`bg-surface dark:bg-[rgba(26,26,36,0.90)] dark:backdrop-blur-[40px] dark:backdrop-saturate-[200%] border border-border dark:border-transparent rounded-modal shadow-modal w-full ${maxWidth} mx-4 flex flex-col ${isClosing ? exitAnimation : enterAnimation} ${className}`}
           onClick={(e) => e.stopPropagation()}
         >
           {children}
