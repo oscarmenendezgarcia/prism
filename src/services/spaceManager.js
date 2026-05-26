@@ -17,7 +17,6 @@
 
 const crypto = require('crypto');
 const { createStore } = require('./store');
-const { migrate }     = require('./migrator');
 
 const SPACE_NAME_MAX      = 100;
 const NICKNAME_VALUE_MAX  = 50;
@@ -34,10 +33,9 @@ const NICKNAME_VALUE_MAX  = 50;
  */
 function createSpaceManager(storeOrDataDir) {
   // Accept a dataDir string for backward compatibility with existing tests.
-  // When a string is passed, run the full migrate pipeline (which also handles
-  // importing any JSON files that may have been pre-seeded by the test).
+  // When a string is passed, open (or create) a SQLite store for that directory.
   const store = typeof storeOrDataDir === 'string'
-    ? migrate(storeOrDataDir)
+    ? createStore(storeOrDataDir)
     : storeOrDataDir;
   // -------------------------------------------------------------------------
   // Name validation helpers
