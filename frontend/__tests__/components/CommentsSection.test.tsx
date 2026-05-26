@@ -84,10 +84,12 @@ describe('CommentsSection — empty state', () => {
     expect(screen.getByText('Comments')).toBeInTheDocument();
   });
 
-  it('shows "No comments yet" when comments array is empty', () => {
+  it('shows the add-comment form when comments array is empty (no empty-state text)', () => {
     render(<CommentsSection {...makeProps()} />);
-    expect(screen.getByTestId('comments-empty')).toBeInTheDocument();
-    expect(screen.getByText('No comments yet')).toBeInTheDocument();
+    expect(screen.queryByTestId('comments-empty')).toBeNull();
+    expect(screen.queryByText('No comments yet')).toBeNull();
+    // Input is still present
+    expect(screen.getByPlaceholderText(/write a comment/i)).toBeInTheDocument();
   });
 
   it('does not render unresolved badge when no questions exist', () => {

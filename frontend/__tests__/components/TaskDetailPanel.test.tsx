@@ -133,12 +133,14 @@ describe('TaskDetailPanel — render state', () => {
     expect(screen.getByText(`#${TASK.id.slice(-7)}`)).toBeInTheDocument();
   });
 
-  it('shows read-only createdAt and updatedAt in the footer', () => {
+  it('shows a relative timestamp in the header with created/updated in the tooltip', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
-    // Both timestamps appear somewhere in the footer area.
-    expect(screen.getByText(/created/i)).toBeInTheDocument();
-    expect(screen.getByText(/updated/i)).toBeInTheDocument();
+    // Timestamp is rendered as a <time> element in the header.
+    const timeEl = document.querySelector('time');
+    expect(timeEl).not.toBeNull();
+    // Tooltip contains the absolute created date.
+    expect(timeEl!.getAttribute('title')).toMatch(/created/i);
   });
 });
 
