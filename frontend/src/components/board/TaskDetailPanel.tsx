@@ -734,6 +734,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
             </span>
             {columnBadge}
             <div className="flex-1" />
+            {detailTask.createdAt && (
+              <time
+                dateTime={detailTask.createdAt}
+                title={`Created: ${formatTimestamp(detailTask.createdAt)}${detailTask.updatedAt && detailTask.updatedAt !== detailTask.createdAt ? `\nUpdated: ${formatTimestamp(detailTask.updatedAt)}` : ''}`}
+                className="text-[11px] text-text-tertiary cursor-default hidden sm:block"
+              >
+                {formatRelativeTime(detailTask.createdAt)}
+              </time>
+            )}
             {closeButton}
           </div>
 
@@ -942,16 +951,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 </div>
               )}
 
-              {/* Timestamps — pushed to bottom */}
-              <div className="mt-auto pt-5">
-                <time
-                  dateTime={detailTask.createdAt ?? ''}
-                  title={`Created: ${formatTimestamp(detailTask.createdAt)}${detailTask.updatedAt && detailTask.updatedAt !== detailTask.createdAt ? `\nUpdated: ${formatTimestamp(detailTask.updatedAt)}` : ''}`}
-                  className="text-[11px] text-text-tertiary cursor-default"
-                >
-                  {formatRelativeTime(detailTask.createdAt)}
-                </time>
-              </div>
             </div>
           </div>
           </div>
