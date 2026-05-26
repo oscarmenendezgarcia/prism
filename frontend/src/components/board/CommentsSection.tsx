@@ -227,11 +227,11 @@ export function CommentsSection({
     <div className="flex flex-col gap-4" data-testid="comments-section">
       {/* Section header */}
       <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
+        <span className="text-xs font-semibold text-text-tertiary uppercase tracking-widest">
           Comments
         </span>
         {comments.length > 0 && (
-          <span className="text-[10px] text-text-disabled">
+          <span className="text-[10px] text-text-tertiary">
             ({comments.length})
           </span>
         )}
@@ -269,13 +269,6 @@ export function CommentsSection({
             </React.Fragment>
           ))}
         </div>
-      )}
-
-      {/* Empty state */}
-      {comments.length === 0 && (
-        <p className="text-xs text-text-disabled italic" data-testid="comments-empty">
-          No comments yet
-        </p>
       )}
 
       {/* Add-comment form */}

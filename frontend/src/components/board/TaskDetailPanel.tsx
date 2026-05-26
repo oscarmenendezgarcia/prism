@@ -24,6 +24,7 @@ import { useAppStore, useActiveRun, useAvailableAgents, usePipelineStates } from
 import { Button } from '@/components/shared/Button';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
+import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import { resolveAgentName } from '@/utils/agentName';
 import * as api from '@/api/client';
 import type { Column, Comment } from '@/types';
@@ -211,7 +212,7 @@ function PipelineFieldEditor({
       <div className="flex flex-col gap-2">
         {/* Section label + action buttons */}
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">
+          <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
             Pipeline Stage
           </span>
           <div className="flex items-center gap-1">
@@ -315,7 +316,7 @@ function PipelineFieldEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-semibold text-text-disabled uppercase tracking-widest">
+      <span className="text-xs font-semibold text-text-tertiary uppercase tracking-widest">
         Pipeline
       </span>
 
@@ -716,7 +717,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
       {/* Centering wrapper */}
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 pointer-events-none">
         {/* ── Outer bezel shell — gradient ring creates the machined-hardware frame ── */}
-        <div className="pointer-events-auto w-full max-w-[1200px] max-h-[90vh] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-white/[0.10] to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-modal-dialog-in">
+        <div className="pointer-events-auto w-full max-w-[1200px] h-[min(90vh,840px)] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-white/[0.10] to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-modal-dialog-in">
           {/* ── Inner content card ─────────────────────────────────────────────────── */}
           <div
             ref={panelRef}
@@ -728,11 +729,20 @@ export function TaskDetailPanel(): React.ReactElement | null {
           >
           {/* ── Header ────────────────────────────────────────────────── */}
           <div className="flex items-center gap-2.5 h-13 px-6 border-b border-border/40 flex-shrink-0 bg-surface-elevated/10">
-            <span className="font-mono text-[11px] text-text-disabled bg-surface-variant/80 px-2 py-1 rounded-md flex-shrink-0 tracking-[0.1em] border border-border/40">
+            <span className="font-mono text-[11px] text-text-secondary bg-surface-variant/80 px-2 py-1 rounded-md flex-shrink-0 tracking-[0.1em] border border-border/40">
               {shortId}
             </span>
             {columnBadge}
             <div className="flex-1" />
+            {detailTask.createdAt && (
+              <time
+                dateTime={detailTask.createdAt}
+                title={`Created: ${formatTimestamp(detailTask.createdAt)}${detailTask.updatedAt && detailTask.updatedAt !== detailTask.createdAt ? `\nUpdated: ${formatTimestamp(detailTask.updatedAt)}` : ''}`}
+                className="text-[11px] text-text-tertiary cursor-default hidden sm:block"
+              >
+                {formatRelativeTime(detailTask.createdAt)}
+              </time>
+            )}
             {closeButton}
           </div>
 
@@ -790,7 +800,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
               {/* Description */}
               <div className="flex flex-col gap-1.5 animate-fade-in-up [animation-delay:110ms]">
-                <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">
+                <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
                   Description
                 </label>
                 <textarea
@@ -825,7 +835,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
               {/* ID */}
               <div className="flex flex-col gap-2 pb-5 animate-fade-in-up [animation-delay:80ms]">
-                <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">ID</span>
+                <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">ID</span>
                 <div className="flex items-center gap-2">
                   <span className="flex-1 font-mono text-xs text-text-secondary bg-surface border border-border/40 rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap min-w-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                     {detailTask.id}
@@ -846,7 +856,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
               {/* Type */}
               <div className="flex flex-col gap-2 py-5 animate-fade-in-up [animation-delay:130ms]">
-                <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Task Type</span>
+                <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">Task Type</span>
                 <div role="group" aria-label="Task type" className="flex flex-wrap gap-2">
                   {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
                     <button
@@ -871,7 +881,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
               {/* Assigned */}
               <div className="flex flex-col gap-2 py-5 animate-fade-in-up [animation-delay:180ms]">
-                <label htmlFor="detail-assigned" className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Assigned To</label>
+                <label htmlFor="detail-assigned" className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">Assigned To</label>
                 <input
                   id="detail-assigned"
                   type="text"
@@ -900,7 +910,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               {/* Attachments */}
               {detailTask.attachments && detailTask.attachments.length > 0 && (
                 <div className="flex flex-col gap-2 py-5" data-testid="attachments-section">
-                  <span className="text-[10px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Attachments</span>
+                  <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">Attachments</span>
                   <div className="flex flex-col gap-1.5" aria-label="Task attachments">
                     {detailTask.attachments.map((att, index) => (
                       <React.Fragment key={index}>
@@ -941,17 +951,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 </div>
               )}
 
-              {/* Timestamps — pushed to bottom */}
-              <div className="mt-auto pt-5 flex flex-col gap-2">
-                <div className="flex justify-between items-baseline">
-                  <span className="text-[9px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Created</span>
-                  <span className="font-mono text-[10px] text-text-disabled">{formatTimestamp(detailTask.createdAt)}</span>
-                </div>
-                <div className="flex justify-between items-baseline">
-                  <span className="text-[9px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Updated</span>
-                  <span className="font-mono text-[10px] text-text-disabled">{formatTimestamp(detailTask.updatedAt)}</span>
-                </div>
-              </div>
             </div>
           </div>
           </div>

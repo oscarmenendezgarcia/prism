@@ -118,7 +118,7 @@ export function Modal({
     <ModalCloseContext.Provider value={handleClose}>
       <div
         ref={overlayRef}
-        className={`fixed inset-0 z-[150] flex items-center justify-center bg-black/40 backdrop-blur-[40px] backdrop-saturate-[200%] ${isClosing ? 'animate-backdrop-out' : 'animate-backdrop-in'}`}
+        className={`fixed inset-0 z-[150] flex items-center justify-center bg-black/20 dark:bg-black/40 backdrop-blur-[40px] backdrop-saturate-[150%] dark:backdrop-saturate-[200%] ${isClosing ? 'animate-backdrop-out' : 'animate-backdrop-in'}`}
         role={role}
         aria-modal="true"
         aria-labelledby={labelId}
@@ -126,7 +126,7 @@ export function Modal({
         onClick={(e) => { if (e.target === e.currentTarget) handleClose(); }}
       >
         <div
-          className={`bg-surface glass-heavy border border-border rounded-modal shadow-modal w-full ${maxWidth} mx-4 flex flex-col ${isClosing ? exitAnimation : enterAnimation} ${className}`}
+          className={`bg-surface dark:bg-[rgba(26,26,36,0.90)] dark:backdrop-blur-[40px] dark:backdrop-saturate-[200%] border border-border dark:border-transparent rounded-modal shadow-modal w-full ${maxWidth} mx-4 flex flex-col ${isClosing ? exitAnimation : enterAnimation} ${className}`}
           onClick={(e) => e.stopPropagation()}
         >
           {children}
@@ -147,9 +147,9 @@ export function ModalHeader({ children, onClose }: { children: React.ReactNode; 
         <button
           onClick={handleClose}
           aria-label="Close modal"
-          className="ml-3 w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-text-primary transition-all duration-150 ease-apple text-xl leading-none"
+          className="ml-3 w-8 h-8 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-text-primary transition-all duration-150 ease-apple"
         >
-          &times;
+          <span className="material-symbols-outlined text-[18px] leading-none select-none">close</span>
         </button>
       )}
     </div>
