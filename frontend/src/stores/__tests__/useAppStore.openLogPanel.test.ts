@@ -101,8 +101,8 @@ describe('openLogPanelForRun — single kind', () => {
 
     await useAppStore.getState().openLogPanelForRun({ kind: 'single', run });
 
-    // pipelineStates should contain the new synthetic entry
-    const states = useAppStore.getState().pipelineStates;
+    // historicalPipelineStates should contain the new synthetic entry (not pipelineStates)
+    const states = useAppStore.getState().historicalPipelineStates;
     expect(states['run-abc']).toBeDefined();
     expect(states['run-abc'].status).toBe('completed');
     expect(states['run-abc'].stages).toEqual(['developer-agent']);
@@ -144,8 +144,9 @@ describe('openLogPanelForRun — single kind', () => {
 
     // activePipelineRunId must still be the live run
     expect(useAppStore.getState().activePipelineRunId).toBe('live-run');
-    // Historical run is added to pipelineStates
-    expect(useAppStore.getState().pipelineStates['hist-run']).toBeDefined();
+    // Historical run goes to historicalPipelineStates, NOT pipelineStates
+    expect(useAppStore.getState().historicalPipelineStates['hist-run']).toBeDefined();
+    expect(useAppStore.getState().pipelineStates['hist-run']).toBeUndefined();
     // Log panel shows the historical run
     expect(usePipelineLogStore.getState().logPanelRunId).toBe('hist-run');
   });
@@ -177,7 +178,7 @@ describe('openLogPanelForRun — pipeline kind', () => {
       stages,
     });
 
-    const state = useAppStore.getState().pipelineStates[PIPELINE_ID];
+    const state = useAppStore.getState().historicalPipelineStates[PIPELINE_ID];
     expect(state).toBeDefined();
     expect(state.stages).toEqual(['senior-architect', 'ux-api-designer', 'developer-agent']);
     // stageRunIds must be absent — backend stores all stages under data/runs/{pipelineRunId}/

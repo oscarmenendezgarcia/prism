@@ -65,6 +65,14 @@ interface PipelineLogState {
    */
   clearStageLogs: () => void;
 
+  /**
+   * Monotonically increasing counter incremented by clearStageLogs().
+   * StructuredLogView uses this as a dep in fetchEvents so that clearing logs
+   * always triggers a fresh fetch — even when runId/stageIndex don't change
+   * (e.g. reopening the same historical run from Run History).
+   */
+  fetchEpoch: number;
+
   // ── T-008: Prompt/Log toggle ───────────────────────────────────────────────
 
   /** Which view is active in the log panel per stage: 'structured' (default), 'prompt', or 'metrics'. */
@@ -160,6 +168,7 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   stageEventsLoading:      {},
   stageEventsError:        {},
   stageEventsNotAvailable: {},
+  fetchEpoch:              0,
 
   setLogPanelOpen: (open) => set({ logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) }),
 
@@ -186,7 +195,7 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
     })),
 
   clearStageLogs: () =>
-    set({
+    set((state) => ({
       stageLogs:               {},
       stageLoading:            {},
       stageErrors:             {},
@@ -201,7 +210,8 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
       stageEventsLoading:      {},
       stageEventsError:        {},
       stageEventsNotAvailable: {},
-    }),
+      fetchEpoch:              state.fetchEpoch + 1,
+    })),
 
   setStageView: (stageIndex, view) =>
     set((state) => ({
