@@ -717,7 +717,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
       {/* Centering wrapper */}
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 pointer-events-none">
         {/* ── Outer bezel shell — gradient ring creates the machined-hardware frame ── */}
-        <div className="pointer-events-auto w-full max-w-[1200px] max-h-[90vh] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-white/[0.10] to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-modal-dialog-in">
+        <div className="pointer-events-auto w-full max-w-[1200px] h-[min(90vh,840px)] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-white/[0.10] to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-modal-dialog-in">
           {/* ── Inner content card ─────────────────────────────────────────────────── */}
           <div
             ref={panelRef}
@@ -799,7 +799,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </div>
 
               {/* Description */}
-              <div className="flex flex-col gap-1.5 animate-fade-in-up [animation-delay:110ms]">
+              <div className="flex flex-col gap-1.5 flex-1 min-h-0 animate-fade-in-up [animation-delay:110ms]">
                 <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
                   Description
                 </label>
@@ -812,7 +812,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
                   rows={1}
-                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-[border-color] duration-[220ms] ease-spring"
+                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] flex-1 transition-[border-color] duration-[220ms] ease-spring"
                   placeholder="Add a description..."
                 />
               </div>
