@@ -1,13 +1,3 @@
-/**
- * BoardEmptyState — three-step onboarding guide shown when the active space
- * has zero tasks across all columns.
- *
- * Visibility is purely data-derived: no localStorage, no first-run flag.
- * Re-appears whenever the board is emptied again.
- *
- * ADR-1: replaces the three per-column EmptyState placeholders when isBoardEmpty.
- */
-
 import React from 'react';
 import { Button } from '@/components/shared/Button';
 
@@ -20,23 +10,24 @@ interface StepProps {
   icon: string;
   title: string;
   body: string;
+  className?: string;
 }
 
-function Step({ n, icon, title, body }: StepProps) {
+function Step({ n, icon, title, body, className = '' }: StepProps) {
   return (
-    <li className="flex gap-4 items-start p-4 rounded-lg bg-surface-elevated border border-border">
+    <li className={`flex gap-3 animate-fade-in-up ${className}`}>
       <div
-        className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary font-semibold flex items-center justify-center"
+        className="flex-shrink-0 mt-0.5 w-5 h-5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold flex items-center justify-center"
         aria-hidden="true"
       >
         {n}
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="material-symbols-outlined text-base text-text-secondary" aria-hidden="true">
+      <div className="flex-1 min-w-0 pb-4 border-b border-border last:border-0">
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <span className="material-symbols-outlined text-[15px] text-text-tertiary" aria-hidden="true">
             {icon}
           </span>
-          <h3 className="text-sm font-medium text-text-primary">{title}</h3>
+          <span className="text-sm font-medium text-text-primary">{title}</span>
         </div>
         <p className="text-xs text-text-secondary leading-relaxed">{body}</p>
       </div>
@@ -61,7 +52,7 @@ const STEPS: StepProps[] = [
     n: 3,
     icon: 'play_arrow',
     title: 'Run the pipeline',
-    body: 'Open the task and hit Run Pipeline to let the architect → UX → developer → reviewer → QA agents work.',
+    body: 'Open the task and hit Run Pipeline — architect → UX → developer → reviewer → QA.',
   },
 ];
 
@@ -69,35 +60,49 @@ export function BoardEmptyState({ onCreateTask }: BoardEmptyStateProps) {
   return (
     <section
       aria-labelledby="onboarding-title"
-      className="flex flex-col items-center justify-center flex-1 px-4 py-8 sm:px-6 sm:py-12 max-w-2xl mx-auto text-center"
+      className="flex flex-1 items-center justify-center px-8 py-12"
     >
-      <span className="material-symbols-outlined text-6xl text-primary mb-4" aria-hidden="true">
-        rocket_launch
-      </span>
+      {/* Split layout: left 40% / right 60% on md+, stacked on mobile */}
+      <div className="w-full max-w-3xl grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-10 md:gap-16 items-start">
 
-      <h2 id="onboarding-title" className="text-xl sm:text-2xl font-semibold text-text-primary mb-2">
-        Welcome to Prism
-      </h2>
+        {/* Left — headline + CTA */}
+        <div className="flex flex-col gap-6 md:pt-1">
+          <div className="animate-fade-in-up [animation-delay:0ms]">
+            <p className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest mb-3">
+              Getting started
+            </p>
+            <h2
+              id="onboarding-title"
+              className="text-2xl sm:text-3xl font-semibold text-text-primary tracking-tight leading-tight"
+            >
+              Your board is empty
+            </h2>
+            <p className="mt-2 text-sm text-text-secondary leading-relaxed">
+              Three steps to launch your first agent pipeline.
+            </p>
+          </div>
 
-      <p className="text-sm text-text-secondary mb-8 max-w-md">
-        Get started in three steps. Each step is a building block of the agent pipeline.
-      </p>
+          <div className="animate-fade-in-up [animation-delay:60ms]">
+            <Button
+              variant="primary"
+              onClick={onCreateTask}
+              aria-label="Add your first task to start using Prism"
+              className="min-h-[44px] active:scale-[0.97] transition-transform duration-100"
+            >
+              <span className="material-symbols-outlined text-lg" aria-hidden="true">add</span>
+              Add first task
+            </Button>
+          </div>
+        </div>
 
-      <ol className="w-full space-y-4 mb-8 text-left">
-        {STEPS.map((step) => (
-          <Step key={step.n} {...step} />
-        ))}
-      </ol>
+        {/* Right — steps */}
+        <ol className="flex flex-col gap-0">
+          <Step {...STEPS[0]} className="[animation-delay:120ms]" />
+          <Step {...STEPS[1]} className="[animation-delay:190ms]" />
+          <Step {...STEPS[2]} className="[animation-delay:260ms]" />
+        </ol>
 
-      <Button
-        variant="primary"
-        onClick={onCreateTask}
-        aria-label="Add your first task to start using Prism"
-        className="min-h-[44px]"
-      >
-        <span className="material-symbols-outlined text-lg" aria-hidden="true">add</span>
-        Add your first task
-      </Button>
+      </div>
     </section>
   );
 }

@@ -12,28 +12,18 @@ import { BoardEmptyState } from '../../src/components/board/BoardEmptyState';
 describe('BoardEmptyState — rendering', () => {
   it('renders the section with aria-labelledby pointing to the title id', () => {
     render(<BoardEmptyState onCreateTask={vi.fn()} />);
-    const section = screen.getByRole('region', { name: 'Welcome to Prism' });
+    const section = screen.getByRole('region', { name: 'Your board is empty' });
     expect(section).toBeInTheDocument();
   });
 
-  it('renders the hero rocket_launch icon text', () => {
-    const { container } = render(<BoardEmptyState onCreateTask={vi.fn()} />);
-    // Material Symbols render as text nodes inside <span>
-    const spans = container.querySelectorAll('.material-symbols-outlined');
-    const iconNames = Array.from(spans).map((s) => s.textContent?.trim());
-    expect(iconNames).toContain('rocket_launch');
-  });
-
-  it('renders title "Welcome to Prism"', () => {
+  it('renders title "Your board is empty"', () => {
     render(<BoardEmptyState onCreateTask={vi.fn()} />);
-    expect(screen.getByRole('heading', { name: 'Welcome to Prism' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Your board is empty' })).toBeInTheDocument();
   });
 
   it('renders the subtitle paragraph', () => {
     render(<BoardEmptyState onCreateTask={vi.fn()} />);
-    expect(
-      screen.getByText(/Get started in three steps/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Three steps to launch/i)).toBeInTheDocument();
   });
 
   it('renders an ordered list with exactly 3 step items', () => {
@@ -65,10 +55,10 @@ describe('BoardEmptyState — CTA button', () => {
     ).toBeInTheDocument();
   });
 
-  it('CTA button label contains "Add your first task"', () => {
+  it('CTA button label contains "Add first task"', () => {
     render(<BoardEmptyState onCreateTask={vi.fn()} />);
     const btn = screen.getByRole('button');
-    expect(btn).toHaveTextContent(/Add your first task/i);
+    expect(btn).toHaveTextContent(/Add first task/i);
   });
 
   it('calls onCreateTask once when CTA is clicked', async () => {
@@ -102,7 +92,7 @@ describe('BoardEmptyState — accessibility', () => {
     const { container } = render(<BoardEmptyState onCreateTask={vi.fn()} />);
     const h2 = container.querySelector('#onboarding-title');
     expect(h2).not.toBeNull();
-    expect(h2?.textContent).toBe('Welcome to Prism');
+    expect(h2?.textContent).toBe('Your board is empty');
   });
 
   it('step body text is present for each step', () => {

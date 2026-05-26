@@ -43,8 +43,8 @@ beforeEach(() => {
 describe('Board — empty-state (BoardEmptyState)', () => {
   it('shows onboarding guide when all columns are empty', () => {
     render(<Board />);
-    expect(screen.getByRole('region', { name: 'Welcome to Prism' })).toBeInTheDocument();
-    expect(screen.getByText('Welcome to Prism')).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Your board is empty' })).toBeInTheDocument();
+    expect(screen.getByText('Your board is empty')).toBeInTheDocument();
   });
 
   it('does not render column grid when board is empty', () => {
@@ -70,13 +70,13 @@ describe('Board — empty-state (BoardEmptyState)', () => {
   it('shows onboarding guide when only todo is empty but all empty', () => {
     useAppStore.setState({ tasks: EMPTY_TASKS });
     render(<Board />);
-    expect(screen.getByText('Welcome to Prism')).toBeInTheDocument();
+    expect(screen.getByText('Your board is empty')).toBeInTheDocument();
   });
 
   it('hides onboarding guide and renders columns once tasks exist', () => {
     useAppStore.setState({ tasks: TASKS_FIXTURE });
     render(<Board />);
-    expect(screen.queryByText('Welcome to Prism')).not.toBeInTheDocument();
+    expect(screen.queryByText('Your board is empty')).not.toBeInTheDocument();
     expect(screen.getAllByText('Todo').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('In Progress').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Done').length).toBeGreaterThanOrEqual(1);
@@ -101,7 +101,7 @@ describe('Board — empty-state (BoardEmptyState)', () => {
       },
     });
     render(<Board />);
-    expect(screen.queryByText('Welcome to Prism')).not.toBeInTheDocument();
+    expect(screen.queryByText('Your board is empty')).not.toBeInTheDocument();
     expect(screen.getByText('Task One')).toBeInTheDocument();
   });
 });
