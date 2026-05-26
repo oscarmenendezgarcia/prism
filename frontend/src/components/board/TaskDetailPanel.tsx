@@ -946,7 +946,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               <div className="mt-auto pt-5">
                 <time
                   dateTime={detailTask.createdAt ?? ''}
-                  title={formatTimestamp(detailTask.createdAt)}
+                  title={`Created: ${formatTimestamp(detailTask.createdAt)}${detailTask.updatedAt && detailTask.updatedAt !== detailTask.createdAt ? `\nUpdated: ${formatTimestamp(detailTask.updatedAt)}` : ''}`}
                   className="text-[11px] text-text-tertiary cursor-default"
                 >
                   {formatRelativeTime(detailTask.createdAt)}
