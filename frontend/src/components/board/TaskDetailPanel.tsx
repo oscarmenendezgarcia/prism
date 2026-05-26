@@ -24,6 +24,7 @@ import { useAppStore, useActiveRun, useAvailableAgents, usePipelineStates } from
 import { Button } from '@/components/shared/Button';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
+import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import { resolveAgentName } from '@/utils/agentName';
 import * as api from '@/api/client';
 import type { Column, Comment } from '@/types';
@@ -943,13 +944,25 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
               {/* Timestamps — pushed to bottom */}
               <div className="mt-auto pt-5 flex flex-col gap-2">
-                <div className="flex justify-between items-baseline">
-                  <span className="text-[9px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Created</span>
-                  <span className="font-mono text-[10px] text-text-disabled">{formatTimestamp(detailTask.createdAt)}</span>
+                <div className="flex justify-between items-baseline gap-4">
+                  <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em] flex-shrink-0">Created</span>
+                  <time
+                    dateTime={detailTask.createdAt ?? ''}
+                    title={formatTimestamp(detailTask.createdAt)}
+                    className="text-[11px] text-text-secondary truncate"
+                  >
+                    {formatRelativeTime(detailTask.createdAt)}
+                  </time>
                 </div>
-                <div className="flex justify-between items-baseline">
-                  <span className="text-[9px] font-semibold text-text-disabled uppercase tracking-[0.10em]">Updated</span>
-                  <span className="font-mono text-[10px] text-text-disabled">{formatTimestamp(detailTask.updatedAt)}</span>
+                <div className="flex justify-between items-baseline gap-4">
+                  <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em] flex-shrink-0">Updated</span>
+                  <time
+                    dateTime={detailTask.updatedAt ?? ''}
+                    title={formatTimestamp(detailTask.updatedAt)}
+                    className="text-[11px] text-text-secondary truncate"
+                  >
+                    {formatRelativeTime(detailTask.updatedAt)}
+                  </time>
                 </div>
               </div>
             </div>
