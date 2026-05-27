@@ -12,52 +12,8 @@ import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { ConfigToggle } from '@/components/config/ConfigToggle';
 import { RunIndicator } from '@/components/agent-launcher/RunIndicator';
 import { AgentSettingsToggle } from '@/components/agent-launcher/AgentSettingsToggle';
-import { RunHistoryToggle } from '@/components/agent-run-history/RunHistoryToggle';
+import { RunsToggle } from '@/components/runs-panel/RunsToggle';
 import { useAppStore } from '@/stores/useAppStore';
-import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
-
-/**
- * Toggle button for the Pipeline Log panel.
- * ADR-1 (log-viewer) §3.4: visible only when pipelineState !== null.
- * Follows the same structure as RunHistoryToggle and TerminalToggle.
- */
-function PipelineLogToggle() {
-  const pipelineState   = useAppStore((s) => s.pipelineState);
-  const logPanelOpen    = usePipelineLogStore((s) => s.logPanelOpen);
-  const setLogPanelOpen = usePipelineLogStore((s) => s.setLogPanelOpen);
-  const unseenCount     = usePipelineLogStore((s) => s.unseenCount);
-
-  const inactive = !pipelineState;
-  const showDot  = unseenCount > 0 && !logPanelOpen && !inactive;
-
-  return (
-    <button
-      onClick={() => !inactive && setLogPanelOpen(!logPanelOpen)}
-      aria-label="Toggle pipeline log panel"
-      aria-pressed={logPanelOpen}
-      aria-disabled={inactive}
-      tabIndex={inactive ? -1 : 0}
-      className={`relative w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-fast ease-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${
-        inactive
-          ? 'opacity-40 pointer-events-none text-text-secondary'
-          : logPanelOpen
-            ? 'bg-primary/15 text-primary'
-            : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant'
-      }`}
-    >
-      {showDot && (
-        <span
-          className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-error"
-          aria-hidden="true"
-          data-testid="logs-unseen-dot"
-        />
-      )}
-      <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
-        article
-      </span>
-    </button>
-  );
-}
 
 export function Header() {
   const openCreateModal = useAppStore((s) => s.openCreateModal);
@@ -103,8 +59,7 @@ export function Header() {
         <div className="hidden sm:flex items-center gap-2">
           <TerminalToggle />
           <AgentSettingsToggle />
-          <RunHistoryToggle />
-          <PipelineLogToggle />
+          <RunsToggle />
           <ConfigToggle />
         </div>
 
@@ -167,8 +122,7 @@ export function Header() {
               <div className="flex flex-col">
                 <MobileMenuRow label="Terminal" icon="terminal" toggle={<TerminalToggle />} />
                 <MobileMenuRow label="Agent Settings" icon="tune" toggle={<AgentSettingsToggle />} />
-                <MobileMenuRow label="Run History" icon="history" toggle={<RunHistoryToggle />} />
-                <MobileMenuRow label="Pipeline Log" icon="article" toggle={<PipelineLogToggle />} />
+                <MobileMenuRow label="Runs" icon="account_tree" toggle={<RunsToggle />} />
                 <MobileMenuRow label="Config" icon="settings" toggle={<ConfigToggle />} />
                 <MobileMenuRow label="Theme" icon="dark_mode" toggle={<ThemeToggle />} />
               </div>
