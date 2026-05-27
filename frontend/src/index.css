@@ -165,6 +165,8 @@
   --animate-tab-slide:        tab-slide 150ms cubic-bezier(0.4, 0, 0.2, 1) both;
   --animate-panel-in:         slide-in-right 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
   --animate-panel-out:        slide-out-right 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  --animate-panel-back:       slide-in-left 180ms cubic-bezier(0.0, 0, 0.2, 1) both;
+  --animate-detail-in:        slide-in-right 320ms cubic-bezier(0.0, 0, 0.2, 1) both;
   /* Modal dialog: subtle scale 0.96→1 + fade, no spring bounce */
   --animate-modal-dialog-in:  modal-dialog-in 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
   /* Tab content: opacity-only fade for smooth tab switching */
@@ -459,6 +461,12 @@ html.dark {
 @keyframes slide-out-right {
   from { transform: translateX(0); }
   to   { transform: translateX(100%); }
+}
+
+/* Back navigation: subtle slide from left + fade */
+@keyframes slide-in-left {
+  from { transform: translateX(-20%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
 }
 
 /* Modal spring close exit */

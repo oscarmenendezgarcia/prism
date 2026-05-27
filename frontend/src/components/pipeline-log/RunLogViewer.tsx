@@ -68,13 +68,20 @@ export interface RunLogViewerProps {
    * When false: single fetch at mount (historical run).
    */
   isRunActive: boolean;
+
+  /**
+   * When true: the viewer fills its parent's remaining height (flex-1) and
+   * the content area scrolls internally. Use this in the detail/navigation view.
+   * When false (default): content is capped at max-h-[360px].
+   */
+  fullHeight?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function RunLogViewer({ runId, pipelineState, isRunActive }: RunLogViewerProps) {
+export function RunLogViewer({ runId, pipelineState, isRunActive, fullHeight = false }: RunLogViewerProps) {
   const activeSpace           = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
   const selectedStageIndex    = usePipelineLogStore((s) => s.selectedStageIndex);
   const setSelectedStageIndex = usePipelineLogStore((s) => s.setSelectedStageIndex);
@@ -186,7 +193,7 @@ export function RunLogViewer({ runId, pipelineState, isRunActive }: RunLogViewer
   // ── Main viewer ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col min-h-0">
+    <div className={fullHeight ? 'flex flex-col flex-1 min-h-0' : 'flex flex-col min-h-0'}>
       {/* Stage tab bar */}
       {stages.length > 0 && (
         <StageTabBar
@@ -223,9 +230,9 @@ export function RunLogViewer({ runId, pipelineState, isRunActive }: RunLogViewer
         ))}
       </div>
 
-      {/* Content: max-height log viewer with internal scroll */}
+      {/* Content: scrollable log area — fills height in fullHeight mode, capped at 360px otherwise */}
       <div
-        className="max-h-[360px] overflow-y-auto flex flex-col"
+        className={fullHeight ? 'flex-1 min-h-0 overflow-y-auto flex flex-col' : 'max-h-[360px] overflow-y-auto flex flex-col'}
         id={`run-log-viewer-stage-${selectedStageIndex}`}
         role="tabpanel"
       >
