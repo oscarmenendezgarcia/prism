@@ -5,17 +5,36 @@
  *
  * Manages: panel open/close, selected stage, per-stage log cache,
  * per-stage loading flags, and per-stage error strings.
+ *
+ * T-003 (runs-panel-unification): runsPanelOpen is the unified source of truth.
+ * logPanelOpen is kept as a deprecated alias that mirrors runsPanelOpen so
+ * existing callers in useAppStore (setLogPanelOpen(true/false)) keep working.
  */
 
 import { create } from 'zustand';
 import type { StageMetrics, PublicEvent } from '@/types';
+
+/** localStorage key for unified Runs panel open state. */
+const RUNS_PANEL_OPEN_KEY = 'prism:runs-panel:open';
 
 // ---------------------------------------------------------------------------
 // Store shape
 // ---------------------------------------------------------------------------
 
 interface PipelineLogState {
-  /** Whether the Pipeline Log panel is open. */
+  /**
+   * Whether the unified Runs panel is open.
+   * T-003 (runs-panel-unification): single source of truth for panel visibility.
+   * Persisted to localStorage under 'prism:runs-panel:open'.
+   */
+  runsPanelOpen: boolean;
+  setRunsPanelOpen: (open: boolean) => void;
+
+  /**
+   * @deprecated Alias for runsPanelOpen — kept so existing callers in
+   * useAppStore (startPipeline, resumeInterruptedRun, openLogPanelForRun, etc.)
+   * continue to work without modification.
+   */
   logPanelOpen: boolean;
   setLogPanelOpen: (open: boolean) => void;
 
@@ -150,7 +169,9 @@ interface PipelineLogState {
 // ---------------------------------------------------------------------------
 
 export const usePipelineLogStore = create<PipelineLogState>((set) => ({
-  logPanelOpen:            false,
+  runsPanelOpen:           localStorage.getItem(RUNS_PANEL_OPEN_KEY) === '1',
+  // logPanelOpen mirrors runsPanelOpen (deprecated alias).
+  logPanelOpen:            localStorage.getItem(RUNS_PANEL_OPEN_KEY) === '1',
   logPanelRunId:           null,
   unseenCount:             0,
   selectedStageIndex:      0,
@@ -170,7 +191,24 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   stageEventsNotAvailable: {},
   fetchEpoch:              0,
 
-  setLogPanelOpen: (open) => set({ logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) }),
+  setRunsPanelOpen: (open) => {
+    if (open) {
+      localStorage.setItem(RUNS_PANEL_OPEN_KEY, '1');
+    } else {
+      localStorage.removeItem(RUNS_PANEL_OPEN_KEY);
+    }
+    set({ runsPanelOpen: open, logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) });
+  },
+
+  /** @deprecated Alias for setRunsPanelOpen — kept for backward compatibility. */
+  setLogPanelOpen: (open) => {
+    if (open) {
+      localStorage.setItem(RUNS_PANEL_OPEN_KEY, '1');
+    } else {
+      localStorage.removeItem(RUNS_PANEL_OPEN_KEY);
+    }
+    set({ runsPanelOpen: open, logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) });
+  },
 
   setLogPanelRunId: (runId) => set({ logPanelRunId: runId }),
 
