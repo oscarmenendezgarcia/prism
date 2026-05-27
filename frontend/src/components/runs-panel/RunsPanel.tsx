@@ -318,7 +318,7 @@ export function RunsPanel() {
         role="region"
         aria-label={`Run detail: ${taskTitle}`}
         className="relative flex flex-col bg-surface border-l border-border h-full shrink-0 overflow-hidden w-[var(--panel-w)]"
-        style={{ '--panel-w': `${width}px` } as React.CSSProperties}
+        style={{ '--panel-w': `${width}px` } as React.CSSProperties} // lint-ok: CSS custom-property injection for dynamic panel resize
       >
         {resizeHandle}
 
@@ -398,7 +398,7 @@ export function RunsPanel() {
       role="region"
       aria-label="Runs panel with active and historical pipeline runs"
       className="relative flex flex-col bg-surface border-l border-border h-full shrink-0 overflow-hidden w-[var(--panel-w)] [animation:var(--animate-panel-in)]"
-      style={{ '--panel-w': `${width}px` } as React.CSSProperties}
+      style={{ '--panel-w': `${width}px` } as React.CSSProperties} // lint-ok: CSS custom-property injection for dynamic panel resize
     >
       {resizeHandle}
 
