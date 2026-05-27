@@ -26,6 +26,9 @@ const AGENT_RUNS_MAX_ENTRIES  = 500;
 const STALE_THRESHOLD_MS      = 4 * 60 * 60 * 1000; // 4 hours
 const VALID_TERMINAL_STATUSES = ['completed', 'cancelled', 'failed'];
 const VALID_RUN_STATUSES      = ['running', 'completed', 'cancelled', 'failed'];
+const UUID_TITLE_RE           = /^Task [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Matches a raw UUID — used to detect when spaceName was stored as the spaceId fallback. */
+const UUID_RE                 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Route patterns (compiled once at module load). */
 const AGENT_RUNS_LIST_ROUTE   = /^\/api\/v1\/agent-runs$/;
@@ -236,7 +239,7 @@ async function handleUpdateAgentRun(req, res, dataDir, runId) {
  * Return run history newest-first with optional status filter and limit.
  * Applies stale-run healing at read time (running > 4h → failed, not persisted).
  */
-function handleListAgentRuns(req, res, dataDir) {
+function handleListAgentRuns(req, res, dataDir, store) {
   const urlObj       = new URL(req.url, 'http://localhost');
   const statusFilter = urlObj.searchParams.get('status') || null;
   const limitParam   = urlObj.searchParams.get('limit');
@@ -261,12 +264,32 @@ function handleListAgentRuns(req, res, dataDir) {
     const records = readAgentRuns(dataDir);
     const now     = Date.now();
 
-    // Apply stale healing (read-time only — does NOT mutate the file)
+    // Apply stale healing + title enrichment (read-time only — does NOT mutate the file)
     const healed = records.map((r) => {
+      let result = r;
       if (r.status === 'running' && (now - Date.parse(r.startedAt)) > STALE_THRESHOLD_MS) {
-        return { ...r, status: 'failed', reason: 'stale' };
+        result = { ...result, status: 'failed', reason: 'stale' };
       }
-      return r;
+      if (store && result.spaceId && result.taskId && result.taskTitle && UUID_TITLE_RE.test(result.taskTitle)) {
+        try {
+          const task = store.getTask(result.spaceId, result.taskId);
+          if (task?.title) result = { ...result, taskTitle: task.title };
+        } catch (err) {
+          console.debug(`[agent-runs] Could not enrich title for run ${result.id}:`, err.message);
+        }
+      }
+      // Replace UUID-fallback spaceName with the actual space name from the store.
+      // This fixes records created before the SQLite migration when readSpaceName()
+      // fell back to spaceId because spaces.json was absent.
+      if (store && result.spaceId && result.spaceName && UUID_RE.test(result.spaceName)) {
+        try {
+          const space = store.getSpace(result.spaceId);
+          if (space?.name) result = { ...result, spaceName: space.name };
+        } catch (err) {
+          console.debug(`[agent-runs] Could not enrich spaceName for run ${result.id}:`, err.message);
+        }
+      }
+      return result;
     });
 
     const newestFirst = [...healed].reverse();
