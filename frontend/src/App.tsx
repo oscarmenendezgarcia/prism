@@ -15,8 +15,7 @@ import { Board } from '@/components/board/Board';
 import { TerminalPanel } from '@/components/terminal/TerminalPanel';
 import { ConfigPanel } from '@/components/config/ConfigPanel';
 import { AgentSettingsPanel } from '@/components/agent-launcher/AgentSettingsPanel';
-import { RunHistoryPanel } from '@/components/agent-run-history/RunHistoryPanel';
-import { PipelineLogPanel } from '@/components/pipeline-log/PipelineLogPanel';
+import { RunsPanel } from '@/components/runs-panel/RunsPanel';
 import { AgentPromptPreview } from '@/components/agent-launcher/AgentPromptPreview';
 import { TaskDetailPanel } from '@/components/board/TaskDetailPanel';
 import { CreateTaskModal } from '@/components/modals/CreateTaskModal';
@@ -34,7 +33,6 @@ import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
 import { useAgentCompletion } from '@/hooks/useAgentCompletion';
 import { useRunHistoryPolling } from '@/hooks/useRunHistoryPolling';
-import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
 
 /** React Error Boundary to prevent white-screen crashes. */
@@ -85,9 +83,7 @@ function AppContent() {
   const loadSystemInfo       = useAppStore((s) => s.loadSystemInfo);
   const configPanelOpen        = useAppStore((s) => s.configPanelOpen);
   const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
-  const pipelineState          = useAppStore((s) => s.pipelineState);
-  const historyPanelOpen       = useRunHistoryStore((s) => s.historyPanelOpen);
-  const logPanelOpen           = usePipelineLogStore((s) => s.logPanelOpen);
+  const runsPanelOpen          = usePipelineLogStore((s) => s.runsPanelOpen);
   const isGlobalSearchOpen     = useAppStore((s) => s.isGlobalSearchOpen);
   const openGlobalSearch       = useAppStore((s) => s.openGlobalSearch);
   const closeGlobalSearch      = useAppStore((s) => s.closeGlobalSearch);
@@ -130,7 +126,7 @@ function AppContent() {
 
   usePolling(); // includes external-run detection on each idle tick
   useAgentCompletion();
-  useRunHistoryPolling();
+  useRunHistoryPolling(); // polls /api/v1/agent-runs for the Runs panel
 
   return (
     <div className="flex flex-col h-full">
@@ -147,8 +143,7 @@ function AppContent() {
             <AutoTaskFAB onClick={() => setAutoTaskModalOpen(true)} />
           </div>
           <TerminalPanel />
-          {historyPanelOpen && <RunHistoryPanel />}
-          {logPanelOpen && pipelineState !== null && <PipelineLogPanel />}
+          {runsPanelOpen && <RunsPanel />}
           {configPanelOpen && <ConfigPanel />}
           {agentSettingsPanelOpen && <AgentSettingsPanel />}
         </div>
