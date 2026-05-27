@@ -41,9 +41,19 @@ const FILTER_OPTIONS: FilterOption[] = [
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Return the unique key identifying a RunGroup (pipelineRunId or run.id). */
+/** Return the unique key identifying a RunGroup (pipelineRunId or run.id).
+ *  Used for React list key and expandedRunId tracking. */
 function getGroupKey(group: RunGroup): string {
   return group.type === 'pipeline' ? group.pipelineRunId : group.run.id;
+}
+
+/** Return the key used by pipelineStates / historicalPipelineStates for this group.
+ *  Mirrors the key logic in openLogPanelForRun to avoid a mismatch for single-stage
+ *  pipeline runs where run.id has a stage suffix (e.g. "abc-4") but the store uses
+ *  run.pipelineRunId ("abc"). */
+function getStoreKey(group: RunGroup): string {
+  if (group.type === 'pipeline') return group.pipelineRunId;
+  return group.run.pipelineRunId ?? group.run.id;
 }
 
 /** Return true when a RunGroup represents an active (running) run. */
@@ -336,7 +346,10 @@ export function RunsPanel() {
     }
 
     // Look up PipelineState for this run (needed by RunLogViewer).
-    const ps          = getPipelineState(key);
+    // Use getStoreKey (not key) to match the key written by openLogPanelForRun —
+    // for single-stage runs, run.id has a stage suffix but the store uses pipelineRunId.
+    const storeKey    = getStoreKey(group);
+    const ps          = getPipelineState(storeKey);
     const runId       = ps?.runId ?? null;
     const isRunActive = ps?.status === 'running';
 
