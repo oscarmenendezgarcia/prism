@@ -51,9 +51,22 @@ This single command:
 After installation:
 
 ```bash
-prism start          # start the server → http://localhost:3000
-prism --help         # list all commands and flags
+prism start                       # start the server → http://localhost:3000
+prism stop                        # stop the server gracefully
+prism update                      # update to the latest version
+prism doctor                      # verify runtime dependencies
+prism --help                      # list all commands and flags
 ```
+
+**Common flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--port <n>` | Port to listen on (default `3000`, env: `PORT`) |
+| `--data-dir <path>` | Override the data directory (env: `DATA_DIR`) |
+| `--silent` | Suppress informational output |
+| `--force` | (`stop`) SIGKILL immediately; (`init`) overwrite existing config |
+| `--no-update-check` | Skip the startup version check (env: `PRISM_NO_UPDATE_CHECK`) |
 
 **Pass extra flags to `prism init`** (e.g. a custom data directory):
 
@@ -245,6 +258,28 @@ Both the worktree path and branch are in `.gitignore` and are never committed to
 | `PIPELINE_WORKTREE_ENABLED` | `1` | Set to `0` to disable worktree provisioning entirely |
 | `PIPELINE_WORKTREE_DIR` | `.worktrees` | Subdirectory under the space working directory |
 | `PIPELINE_DELETE_BRANCH_ON_FAILURE` | `0` | Set to `1` to delete the `pipeline/run-*` branch on failure or abort |
+
+---
+
+## `prism stop` — stop the server
+
+```bash
+prism stop                        # send SIGTERM, wait up to 35 s for clean exit
+prism stop --force                # send SIGKILL immediately (use when the server is hung)
+prism stop --data-dir <path>      # specify a custom data directory
+```
+
+Reads `<dataDir>/prism.pid`, sends SIGTERM to the process, and waits up to 35 s for it to exit. Active pipeline runs are allowed to finish within that window. If the server is unresponsive, use `--force` to send SIGKILL immediately.
+
+---
+
+## `prism update` — update to the latest version
+
+```bash
+prism update
+```
+
+Fetches the latest version from npm and installs it globally (`npm install -g prism-kanban@latest`). Prompts for confirmation; auto-confirms in non-TTY / CI environments.
 
 ---
 
