@@ -264,6 +264,36 @@ function handleListAgentRuns(req, res, dataDir, store) {
     const records = readAgentRuns(dataDir);
     const now     = Date.now();
 
+    // Batch-prefetch unique keys needed for read-time enrichment.
+    // Done once before map() to avoid N+1 SQLite queries per request.
+    const taskCache  = new Map();
+    const spaceCache = new Map();
+    if (store) {
+      for (const r of records) {
+        if (r.spaceId && r.taskId && r.taskTitle && UUID_TITLE_RE.test(r.taskTitle)) {
+          const key = `${r.spaceId}\0${r.taskId}`;
+          if (!taskCache.has(key)) {
+            try {
+              taskCache.set(key, store.getTask(r.spaceId, r.taskId) ?? null);
+            } catch (err) {
+              console.debug(`[agent-runs] Could not prefetch task ${r.taskId}:`, err.message);
+              taskCache.set(key, null);
+            }
+          }
+        }
+        if (r.spaceId && r.spaceName && UUID_RE.test(r.spaceName)) {
+          if (!spaceCache.has(r.spaceId)) {
+            try {
+              spaceCache.set(r.spaceId, store.getSpace(r.spaceId) ?? null);
+            } catch (err) {
+              console.debug(`[agent-runs] Could not prefetch space ${r.spaceId}:`, err.message);
+              spaceCache.set(r.spaceId, null);
+            }
+          }
+        }
+      }
+    }
+
     // Apply stale healing + title enrichment (read-time only — does NOT mutate the file)
     const healed = records.map((r) => {
       let result = r;
@@ -271,23 +301,12 @@ function handleListAgentRuns(req, res, dataDir, store) {
         result = { ...result, status: 'failed', reason: 'stale' };
       }
       if (store && result.spaceId && result.taskId && result.taskTitle && UUID_TITLE_RE.test(result.taskTitle)) {
-        try {
-          const task = store.getTask(result.spaceId, result.taskId);
-          if (task?.title) result = { ...result, taskTitle: task.title };
-        } catch (err) {
-          console.debug(`[agent-runs] Could not enrich title for run ${result.id}:`, err.message);
-        }
+        const task = taskCache.get(`${result.spaceId}\0${result.taskId}`);
+        if (task?.title) result = { ...result, taskTitle: task.title };
       }
-      // Replace UUID-fallback spaceName with the actual space name from the store.
-      // This fixes records created before the SQLite migration when readSpaceName()
-      // fell back to spaceId because spaces.json was absent.
       if (store && result.spaceId && result.spaceName && UUID_RE.test(result.spaceName)) {
-        try {
-          const space = store.getSpace(result.spaceId);
-          if (space?.name) result = { ...result, spaceName: space.name };
-        } catch (err) {
-          console.debug(`[agent-runs] Could not enrich spaceName for run ${result.id}:`, err.message);
-        }
+        const space = spaceCache.get(result.spaceId);
+        if (space?.name) result = { ...result, spaceName: space.name };
       }
       return result;
     });
