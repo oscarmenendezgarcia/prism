@@ -575,7 +575,7 @@ html.dark {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #ffffff;
+  color: var(--color-on-primary);
   font-size: 14px;
   font-weight: 500;
   font-family: 'Inter', sans-serif;
@@ -598,7 +598,7 @@ html.dark {
 }
 
 .autotask-fab:focus-visible {
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-on-primary);
   outline-offset: 3px;
 }
 
