@@ -404,7 +404,6 @@ async function runSpaceNameEnrichmentSuite() {
     const spaceId   = crypto.randomUUID();
     const spaceName = 'My Readable Space';
 
-    // Insert the space into the store so the enrichment can look it up.
     store.upsertSpace({
       id:        spaceId,
       name:      spaceName,
@@ -412,11 +411,10 @@ async function runSpaceNameEnrichmentSuite() {
       updatedAt: new Date().toISOString(),
     });
 
-    // POST a run whose spaceName was stored as the raw UUID (legacy records).
     const run = makeRunPayload({
       id:       `run_${Date.now()}_spenrich`,
       spaceId,
-      spaceName: spaceId,  // UUID stored as spaceName — the historical bug
+      spaceName: spaceId,
     });
     await request(port, 'POST', '/api/v1/agent-runs', run);
 
@@ -424,14 +422,8 @@ async function runSpaceNameEnrichmentSuite() {
     const found = res.body.runs.find((r) => r.id === run.id);
 
     assert(found !== undefined, 'run not found in list');
-    assert(
-      found.spaceName === spaceName,
-      `expected spaceName="${spaceName}", got "${found.spaceName}"`,
-    );
-    assert(
-      found.spaceName !== spaceId,
-      `spaceName must not be the UUID "${spaceId}"`,
-    );
+    assert(found.spaceName === spaceName, `expected spaceName="${spaceName}", got "${found.spaceName}"`);
+    assert(found.spaceName !== spaceId, `spaceName must not be the UUID "${spaceId}"`);
   });
 
   await test('spaceName is NOT changed when it is already a human-readable name', async () => {
@@ -445,11 +437,10 @@ async function runSpaceNameEnrichmentSuite() {
       updatedAt: new Date().toISOString(),
     });
 
-    // POST a run whose spaceName is already human-readable.
     const run = makeRunPayload({
       id:       `run_${Date.now()}_spnochange`,
       spaceId,
-      spaceName,  // already correct
+      spaceName,
     });
     await request(port, 'POST', '/api/v1/agent-runs', run);
 
@@ -457,20 +448,16 @@ async function runSpaceNameEnrichmentSuite() {
     const found = res.body.runs.find((r) => r.id === run.id);
 
     assert(found !== undefined, 'run not found in list');
-    assert(
-      found.spaceName === spaceName,
-      `expected spaceName="${spaceName}", got "${found.spaceName}"`,
-    );
+    assert(found.spaceName === spaceName, `expected spaceName="${spaceName}", got "${found.spaceName}"`);
   });
 
   await test('spaceName UUID is left unchanged when the space does not exist in the store', async () => {
     const ghostSpaceId = crypto.randomUUID();
 
-    // POST a run for a space that does NOT exist in the store.
     const run = makeRunPayload({
       id:       `run_${Date.now()}_spghost`,
       spaceId:   ghostSpaceId,
-      spaceName: ghostSpaceId,  // UUID — space was deleted or never created
+      spaceName: ghostSpaceId,
     });
     await request(port, 'POST', '/api/v1/agent-runs', run);
 
@@ -478,11 +465,111 @@ async function runSpaceNameEnrichmentSuite() {
     const found = res.body.runs.find((r) => r.id === run.id);
 
     assert(found !== undefined, 'run not found in list');
-    // Cannot enrich — keep the UUID as-is rather than crashing.
-    assert(
-      found.spaceName === ghostSpaceId,
-      `expected spaceName to remain "${ghostSpaceId}", got "${found.spaceName}"`,
-    );
+    assert(found.spaceName === ghostSpaceId, `expected spaceName to remain "${ghostSpaceId}", got "${found.spaceName}"`);
+  });
+
+  await close();
+}
+
+// ---------------------------------------------------------------------------
+// Suite: Read-time taskTitle enrichment
+// ---------------------------------------------------------------------------
+
+async function runTitleEnrichmentSuite() {
+  suite('GET /api/v1/agent-runs — taskTitle UUID enrichment');
+
+  const { port, store, close } = await startTestServer();
+
+  await test('UUID-pattern taskTitle is replaced with actual task title at read time', async () => {
+    const spaceId   = crypto.randomUUID();
+    const taskId    = crypto.randomUUID();
+    const realTitle = 'My Real Task Title';
+    const ts        = new Date().toISOString();
+
+    store.upsertSpace({ id: spaceId, name: 'Test Space', createdAt: ts, updatedAt: ts });
+    store.upsertTask({ id: taskId, title: realTitle, type: 'task', createdAt: ts, updatedAt: ts }, spaceId, 'todo');
+
+    await request(port, 'POST', '/api/v1/agent-runs', makeRunPayload({
+      id:        `run_${Date.now()}_titleenrich`,
+      spaceId,
+      taskId,
+      taskTitle: `Task ${taskId}`,
+    }));
+
+    const res = await request(port, 'GET', '/api/v1/agent-runs');
+    assert(res.status === 200, `expected 200, got ${res.status}`);
+    const run = res.body.runs.find((r) => r.spaceId === spaceId);
+    assert(run, 'run not found in list');
+    assert(run.taskTitle === realTitle, `expected "${realTitle}", got "${run.taskTitle}"`);
+  });
+
+  await test('UUID-pattern taskTitle is NOT enriched when task does not exist in store', async () => {
+    const spaceId  = crypto.randomUUID();
+    const taskId   = crypto.randomUUID();
+    const uuidTitle = `Task ${taskId}`;
+
+    await request(port, 'POST', '/api/v1/agent-runs', makeRunPayload({
+      id:        `run_${Date.now()}_titleorphan`,
+      spaceId,
+      taskId,
+      taskTitle: uuidTitle,
+    }));
+
+    const res = await request(port, 'GET', '/api/v1/agent-runs');
+    assert(res.status === 200, `expected 200, got ${res.status}`);
+    const run = res.body.runs.find((r) => r.taskId === taskId);
+    assert(run, 'run not found in list');
+    assert(run.taskTitle === uuidTitle, `expected UUID title to be unchanged, got "${run.taskTitle}"`);
+  });
+
+  await test('non-UUID taskTitle is never touched by enrichment', async () => {
+    const spaceId   = crypto.randomUUID();
+    const taskId    = crypto.randomUUID();
+    const realTitle = 'Already a real title';
+    const ts        = new Date().toISOString();
+
+    store.upsertSpace({ id: spaceId, name: 'Test Space 2', createdAt: ts, updatedAt: ts });
+    store.upsertTask({ id: taskId, title: 'Store title', type: 'task', createdAt: ts, updatedAt: ts }, spaceId, 'todo');
+
+    await request(port, 'POST', '/api/v1/agent-runs', makeRunPayload({
+      id:        `run_${Date.now()}_titlereal`,
+      spaceId,
+      taskId,
+      taskTitle: realTitle,
+    }));
+
+    const res = await request(port, 'GET', '/api/v1/agent-runs');
+    assert(res.status === 200, `expected 200, got ${res.status}`);
+    const run = res.body.runs.find((r) => r.taskId === taskId);
+    assert(run, 'run not found in list');
+    assert(run.taskTitle === realTitle, `non-UUID title must not be overwritten, got "${run.taskTitle}"`);
+  });
+
+  await test('multiple runs with same task are deduplicated (only one store.getTask call)', async () => {
+    const spaceId   = crypto.randomUUID();
+    const taskId    = crypto.randomUUID();
+    const realTitle = 'Dedup Task';
+    const ts        = new Date().toISOString();
+
+    store.upsertSpace({ id: spaceId, name: 'Dedup Space', createdAt: ts, updatedAt: ts });
+    store.upsertTask({ id: taskId, title: realTitle, type: 'task', createdAt: ts, updatedAt: ts }, spaceId, 'todo');
+
+    for (let i = 0; i < 3; i++) {
+      await request(port, 'POST', '/api/v1/agent-runs', makeRunPayload({
+        id:        `run_${Date.now() + i}_dedup${i}`,
+        spaceId,
+        taskId,
+        taskTitle: `Task ${taskId}`,
+      }));
+    }
+
+    const res = await request(port, 'GET', '/api/v1/agent-runs');
+    assert(res.status === 200, `expected 200, got ${res.status}`);
+    const runs = res.body.runs.filter((r) => r.spaceId === spaceId);
+    assert(runs.length === 3, `expected 3 runs, got ${runs.length}`);
+    for (const r of runs) {
+      assert(r.taskTitle === realTitle, `expected "${realTitle}", got "${r.taskTitle}"`);
+    }
   });
 
   await close();
@@ -501,6 +588,7 @@ async function runTests() {
   await runStaleSuite();
   await runPruneSuite();
   await runSpaceNameEnrichmentSuite();
+  await runTitleEnrichmentSuite();
 
   console.log(`\n${'─'.repeat(50)}`);
   console.log(`Results: ${passed} passed, ${failed} failed`);
