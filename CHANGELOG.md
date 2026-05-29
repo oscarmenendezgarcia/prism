@@ -1,6 +1,8 @@
 # Changelog
 
-## [Unreleased] — cli-doctor
+## [1.0.0] — 2026-05-29
+
+First stable release.
 
 ### Added
 - **`prism doctor` subcommand** — runs a checklist of offline environment/dependency assertions
@@ -18,8 +20,6 @@
 - `bin/doctor.js` — runner and text/JSON formatters; ANSI colors disabled when `!isTTY` or
   `NO_COLOR` is set.
 
-## [Unreleased] — attachments-merge
-
 ### Changed
 - `PUT /api/v1/spaces/:spaceId/tasks/:id/attachments` (and `kanban_update_task` MCP tool): default
   attachment-update semantics changed from **replace** to **merge-by-name**. Incoming items are
@@ -31,8 +31,6 @@
   to document the new default.
 - `docs/endpoints.md` and `docs/mcp-server.md`: document the new `mode` field, merge semantics,
   and `ATTACHMENT_LIMIT_EXCEEDED` error response.
-
-## [Unreleased] — sqlite-migration
 
 Replaces JSON file persistence with a single SQLite database (`data/prism.db`).
 All read/write operations are now atomic and serialised at the DB level —
@@ -68,8 +66,6 @@ pattern.  See `agent-docs/sqlite-migration/ADR-1.md` for the full rationale.
 
 ---
 
-## [Unreleased] — run-indicator
-
 ### Added
 - `frontend/src/components/agent-launcher/RunIndicator.tsx`: componente unificado que reemplaza `AgentRunIndicator` + `PipelineProgressBar`. Lee exclusivamente de `pipelineState`. Bifurcación null | SingleAgentDot | StepNodes | PausedBanner. STAGE_DISPLAY incluye `code-reviewer`.
 - `frontend/__tests__/components/RunIndicator.test.tsx`: 42 tests (null, single-agent, multi-stage, paused, timer, accessibility).
@@ -85,7 +81,6 @@ pattern.  See `agent-docs/sqlite-migration/ADR-1.md` for the full rationale.
 - `frontend/__tests__/components/PipelineProgressBar.test.tsx` (git rm)
 
 ---
-
 ## [pipeline-field-per-card]
 
 ### T-001 — Extract validatePipelineField helper

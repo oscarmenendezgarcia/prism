@@ -71,18 +71,18 @@ async function run(flags = {}) {
   try {
     latestVersion = await fetchLatestVersion(5000, fetchFn);
   } catch {
-    process.stderr.write('Error: no se pudo obtener la versión desde npm. Comprueba tu conexión.\n');
+    process.stderr.write('Error: could not fetch the latest version from npm. Check your connection.\n');
     return exitFn(1);
   }
 
   // 2. Already up to date?
   if (latestVersion === installedVersion) {
-    process.stdout.write(`prism ya está en la última versión (v${installedVersion})\n`);
+    process.stdout.write(`prism is already up to date (v${installedVersion})\n`);
     return exitFn(0);
   }
 
   // 3. Prompt for confirmation
-  process.stdout.write(`Actualizar prism-kanban v${installedVersion} → v${latestVersion}? [y/N] `);
+  process.stdout.write(`Update prism-kanban v${installedVersion} → v${latestVersion}? [y/N] `);
 
   let answer;
   if (!isTTY) {
@@ -96,7 +96,7 @@ async function run(flags = {}) {
   const confirmed = answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes';
 
   if (!confirmed) {
-    process.stdout.write('Cancelado.\n');
+    process.stdout.write('Cancelled.\n');
     return exitFn(0);
   }
 
@@ -108,12 +108,12 @@ async function run(flags = {}) {
 
   if (result.status !== 0) {
     const code = result.status !== null ? result.status : 'unknown';
-    process.stderr.write(`Error: npm install falló (código ${code})\n`);
+    process.stderr.write(`Error: npm install failed (exit code ${code})\n`);
     return exitFn(1);
   }
 
   // 5. Success
-  process.stdout.write(`✓ Actualizado a v${latestVersion}\n`);
+  process.stdout.write(`✓ Updated to v${latestVersion}\n`);
   return exitFn(0);
 }
 
