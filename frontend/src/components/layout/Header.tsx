@@ -91,18 +91,7 @@ export function Header() {
         <div className="hidden sm:block w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
 
         {/* Utility Strip — hidden on mobile (lives in hamburger menu) */}
-        <div className="hidden sm:flex items-center gap-1">
-          <Tooltip label="Support on Ko-fi" description="Buy me a coffee ☕">
-            <a
-              href="https://ko-fi.com/oscarmdzgarcia"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Support on Ko-fi"
-              className="w-9 h-9 flex items-center justify-center rounded-lg text-text-secondary hover:text-[#FF5E5B] hover:bg-[#FF5E5B]/10 transition-all duration-fast"
-            >
-              <span className="material-symbols-outlined text-[20px] leading-none" aria-hidden="true">coffee</span>
-            </a>
-          </Tooltip>
+        <div className="hidden sm:block">
           <ThemeToggle />
         </div>
 
@@ -146,19 +135,6 @@ export function Header() {
                 <MobileMenuRow label="Config" icon="settings" toggle={<ConfigToggle />} />
                 <MobileMenuRow label="Theme" icon="dark_mode" toggle={<ThemeToggle />} />
               </div>
-
-              <div className="h-px bg-border mx-3 my-1" aria-hidden="true" />
-
-              <a
-                href="https://ko-fi.com/oscarmdzgarcia"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:bg-surface-variant transition-colors duration-fast"
-                onClick={() => setMenuOpen(false)}
-              >
-                <span className="material-symbols-outlined text-[18px] leading-none text-[#FF5E5B]" aria-hidden="true">coffee</span>
-                Support on Ko-fi
-              </a>
             </div>
           )}
         </div>
