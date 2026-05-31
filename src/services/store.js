@@ -16,9 +16,9 @@
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const { applySchema: applyFolioSchema }    = require('./folio/db');
-const { createFolioStore }                 = require('./folio/store');
-const { applyBindingSchema, createFolioBinding } = require('./folioBinding');
+const { applySchema: applyFolioSchema }              = require('./folio/db');
+const { createFolioService, openSqliteBackend }      = require('./folio/index');
+const { applyBindingSchema, createFolioBinding }     = require('./folioBinding');
 
 // ---------------------------------------------------------------------------
 // DDL
@@ -213,8 +213,9 @@ function createStore(dataDir) {
 
   console.log(`[store] open — WAL mode confirmed, schema ready (${dbPath})`);
 
-  // Create Folio core store and Prism-side binding, both sharing this db instance.
-  const folioCore    = createFolioStore(db);
+  // Create Folio facade (SQLite backend = Prism's prism.db) and Prism-side binding.
+  // The facade is a superset of the core store surface; folioBinding consumes it unchanged.
+  const folioCore    = createFolioService(openSqliteBackend({ db }));
   const folioBinding = createFolioBinding(db, folioCore);
 
   // ---------------------------------------------------------------------------
