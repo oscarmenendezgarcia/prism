@@ -558,6 +558,67 @@ function createFolioStore(db) {
     return info.changes > 0;
   }
 
+  // ── File-backend hydration helper ─────────────────────────────────────────
+
+  /**
+   * Insert a fully-specified page (and emerge its chapter if absent) WITHOUT
+   * generating new ids or timestamps.  Used exclusively by file-backend
+   * hydration to reconstruct the FTS index from markdown faithfully.
+   *
+   * This is the single, additive, backward-compatible extension to the audited
+   * core.  It must NOT be called outside the backend hydration path.
+   *
+   * FTS triggers fire normally so the page is searchable immediately.
+   *
+   * @param {string} folioId
+   * @param {{ id: string, chapterSlug: string, pageSlug: string, title?: string,
+   *           content?: string, author?: 'user'|'agent', pinned?: boolean,
+   *           createdAt: string, updatedAt?: string }} record
+   * @returns {Page}
+   */
+  function loadPage(folioId, {
+    id, chapterSlug, pageSlug, title, content, author, pinned, createdAt, updatedAt,
+  }) {
+    const loadTx = db.transaction(() => {
+      // 1. Emerge chapter if absent (identical logic to createPage)
+      let chapter = stmts.getChapterByFolioAndSlug.get(folioId, chapterSlug);
+      if (!chapter) {
+        const { max_pos } = stmts.getMaxChapterPosition.get(folioId);
+        const position     = max_pos + 1;
+        const chapterId    = crypto.randomUUID();
+        const chapterTitle = titleCase(chapterSlug);
+        stmts.insertChapter.run(chapterId, folioId, chapterTitle, chapterSlug, position, createdAt);
+        chapter = {
+          id: chapterId, folio_id: folioId, title: chapterTitle,
+          slug: chapterSlug, position, created_at: createdAt,
+        };
+      }
+
+      // 2. Insert with the caller-supplied id and timestamps
+      const pageTitle  = title ?? titleCase(pageSlug);
+      const pinnedVal  = pinned ? 1 : 0;
+      const resolvedAt = updatedAt ?? createdAt;
+
+      stmts.insertPage.run(
+        id,
+        chapter.id,
+        folioId,
+        chapterSlug,
+        pageTitle,
+        pageSlug,
+        content ?? '',
+        author  ?? 'user',
+        pinnedVal,
+        createdAt,
+        resolvedAt,
+      );
+
+      return rowToPage(stmts.getPage.get(folioId, id));
+    });
+
+    return loadTx();
+  }
+
   // ── Public interface ──────────────────────────────────────────────────────
 
   return {
@@ -570,6 +631,7 @@ function createFolioStore(db) {
     getPageBySlug,
     updatePage,
     deletePage,
+    loadPage,
     // chapters
     listChapters,
     listPages,
