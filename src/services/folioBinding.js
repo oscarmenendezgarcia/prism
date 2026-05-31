@@ -199,6 +199,70 @@ function createFolioBinding(db, core) {
     return core.listPageSections(folioId, chapterSlug, pageSlug);
   }
 
+  // ── Agent write-back ─────────────────────────────────────────────────────
+
+  /**
+   * The ONLY guarded write-back path for agent consolidation.
+   *
+   * Invariants (all structural — never trust the caller):
+   *   - Returns null immediately if no folio is bound to the space (opt-in / createIfMissing:false).
+   *   - Returns { skipped: 'user-owned' } if the slug already exists with author='user'.
+   *   - author is hard-coded to 'agent' — the caller cannot override it.
+   *   - On create: delegates to core.createPage with author='agent'.
+   *   - On update: replaces content wholesale and bumps updated_at (last-write-wins).
+   *   - slug must match ^[a-z0-9-]+\/[a-z0-9-]+$ — throws before any write otherwise.
+   *
+   * @param {string} spaceId
+   * @param {string} slug             - "chapter/page" (e.g. "decisiones/auth-redesign")
+   * @param {string} content          - markdown
+   * @param {{ title?: string, pinned?: boolean }} [opts]
+   * @returns {Page | null | { skipped: 'user-owned' }}
+   */
+  function upsertPageFromAgent(spaceId, slug, content, opts = {}) {
+    const SLUG_RE = /^[a-z0-9-]+\/[a-z0-9-]+$/;
+    if (!SLUG_RE.test(slug)) {
+      throw new TypeError(`upsertPageFromAgent: invalid slug "${slug}" — must match ^[a-z0-9-]+/[a-z0-9-]+$`);
+    }
+
+    const folioId = getFolioIdForSpace(spaceId);
+    if (!folioId) {
+      console.warn(`[folio.binding] op=writeback spaceId=${spaceId} slug=${slug} outcome=noop reason=no-folio`);
+      return null; // opt-in not activated
+    }
+
+    const [chapterSlug, pageSlug] = slug.split('/');
+
+    return db.transaction(() => {
+      const existing = core.getPageBySlug(folioId, chapterSlug, pageSlug);
+
+      if (existing) {
+        if (existing.author === 'user') {
+          console.warn(`[folio.binding] op=writeback spaceId=${spaceId} slug=${slug} outcome=skipped reason=user-owned`);
+          return { skipped: 'user-owned' };
+        }
+        // agent-owned page — update content (last-write-wins)
+        const updated = core.updatePage(folioId, existing.id, {
+          content,
+          ...(opts.title !== undefined && { title: opts.title }),
+          ...(opts.pinned !== undefined && { pinned: opts.pinned }),
+        });
+        // updatePage does not set author — it preserves the existing value.
+        // For agent write-back the existing page is already author='agent' (guard above).
+        console.warn(`[folio.binding] op=writeback spaceId=${spaceId} slug=${slug} outcome=updated`);
+        return updated;
+      }
+
+      // No existing page — create with author='agent' (hard-coded, caller cannot pass author).
+      const page = core.createPage(folioId, slug, content, {
+        author: 'agent',
+        title:  opts.title,
+        pinned: opts.pinned,
+      });
+      console.warn(`[folio.binding] op=writeback spaceId=${spaceId} slug=${slug} outcome=created`);
+      return page;
+    })();
+  }
+
   // ── Injection context (stage-aware) ──────────────────────────────────────
 
   /**
@@ -228,6 +292,7 @@ function createFolioBinding(db, core) {
     getFolioIdForSpace,
     hasFolio,
     createPage,
+    upsertPageFromAgent,
     listChapters,
     listPages,
     getPageBySlug,
