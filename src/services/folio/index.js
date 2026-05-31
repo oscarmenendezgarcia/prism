@@ -103,10 +103,40 @@ function createFolioService(backend) {
 
   // ── Public interface ──────────────────────────────────────────────────────
 
+  // ── Folio-level management (additive — file-backend write-through is out of v1 scope) ──
+  //
+  // NOTE: `deleteFolio` and `listFolios` call through to the store directly.
+  // For the file backend, folio-level lifecycle (manifest / dir) is the CLI's
+  // responsibility (`folio init` / manual removal).  Write-through for these
+  // operations is intentionally NOT implemented in v1 — the store cascade
+  // removes all SQLite rows; the .folio/ directory on disk is untouched.
+
+  /**
+   * List all folios in the backend DB.
+   * Space-scoping (when wired into Prism's shared DB) is a binding concern.
+   * @returns {Folio[]}
+   */
+  function listFolios() {
+    return store.listFolios();
+  }
+
+  /**
+   * Delete a folio and cascade-remove all its data from the store.
+   * For the file backend the .folio/ directory is NOT removed (v1 out of scope).
+   *
+   * @param {string} folioId
+   * @returns {boolean}
+   */
+  function deleteFolio(folioId) {
+    return store.deleteFolio(folioId);
+  }
+
   return {
     // Folios
     createFolio:      store.createFolio.bind(store),
     getFolio:         store.getFolio.bind(store),
+    listFolios,
+    deleteFolio,
     // Pages (mutations have optional write-through)
     createPage,
     getPage:          store.getPage.bind(store),
@@ -129,7 +159,7 @@ function createFolioService(backend) {
     // Lifecycle
     flush,
     close,
-    // Backend metadata (for callers that need to know the active folioId)
+    // Backend metadata (for callers that need to know the active backend kind)
     backend,
   };
 }
