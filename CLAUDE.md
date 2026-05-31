@@ -1,5 +1,24 @@
 # Prism — Project Rules
 
+## Folio — design spec (READ FIRST for any Folio task)
+
+The **Folio** feature (a navigable, augmentable knowledge base for agents) is being
+built under `src/services/folio/` + `mcp/folio-tools.js`. Its complete, authoritative
+design lives in the **`.folio/` directory at the repo root** — a working example of the
+format itself (chapter = folder, page = `.md` with YAML frontmatter).
+
+**Before implementing ANY Folio task, read `.folio/` and treat it as the spec.** Key pages:
+- `.folio/arquitectura/modulo.md` — module layout, isolation rules, extraction plan
+- `.folio/arquitectura/storage-backend.md` — pluggable SQLite vs file backend
+- `.folio/arquitectura/indexacion-fts5.md` — FTS5 in the core, in-memory vs cache
+- `.folio/modelo-datos/schema.md` — schema (core keys on `folio_id`, NOT `space_id`)
+- `.folio/modelo-datos/referencias.md` — `[[chapter/page]]` / `[[chapter/page#section]]`
+- `.folio/inyeccion/` — stage-aware injection by confidence tier
+- `.folio/decisiones/log.md` — every closed decision and why
+- `.folio/estado/actual.md` — current state + task order
+
+Do not re-derive these decisions; honour them. Document any deviation in the task notes.
+
 ## Design System (MANDATORY)
 
 Every UI task MUST use the design system defined in `frontend/tailwind.config.js` and `frontend/src/index.css`.
