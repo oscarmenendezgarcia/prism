@@ -310,20 +310,26 @@ export async function listSpaces() {
 /**
  * Create a new space.
  * @param {string} name
+ * @param {{ folioBackend?: 'sqlite'|'file' }} [opts]
  * @returns {Promise<object|{ error: true, code: string, message: string }>}
  */
-export async function createSpace(name) {
-  return request('POST', '/spaces', { name });
+export async function createSpace(name, opts = {}) {
+  const body = { name };
+  if (opts.folioBackend !== undefined) body.folioBackend = opts.folioBackend;
+  return request('POST', '/spaces', body);
 }
 
 /**
  * Rename a space.
  * @param {string} id
  * @param {string} name
+ * @param {{ folioBackend?: 'sqlite'|'file' }} [opts]
  * @returns {Promise<object|{ error: true, code: string, message: string }>}
  */
-export async function renameSpace(id, name) {
-  return request('PUT', `/spaces/${id}`, { name });
+export async function renameSpace(id, name, opts = {}) {
+  const body = { name };
+  if (opts.folioBackend !== undefined) body.folioBackend = opts.folioBackend;
+  return request('PUT', `/spaces/${id}`, body);
 }
 
 /**

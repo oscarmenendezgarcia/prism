@@ -17,6 +17,7 @@
 
 const crypto = require('crypto');
 const { createStore } = require('./store');
+const { validateFolioBackend } = require('./folioValidation');
 
 const SPACE_NAME_MAX      = 100;
 const NICKNAME_VALUE_MAX  = 50;
@@ -120,7 +121,7 @@ function createSpaceManager(storeOrDataDir) {
   /**
    * Create a new space.
    */
-  function createSpace(name, workingDirectory, pipeline, projectClaudeMdPath, _id) {
+  function createSpace(name, workingDirectory, pipeline, projectClaudeMdPath, _id, folioBackend) {
     const validation = validateName(name);
     if (!validation.valid) {
       return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
@@ -137,6 +138,13 @@ function createSpaceManager(storeOrDataDir) {
       };
     }
 
+    // Validate folioBackend setting.
+    const folioValidation = validateFolioBackend({ folioBackend, workingDirectory });
+    if (!folioValidation.valid) {
+      return { ok: false, code: 'VALIDATION_ERROR', message: folioValidation.errors[0] };
+    }
+    const effectiveBackend = folioValidation.data.folioBackend;
+
     const now = new Date().toISOString();
     const space = {
       id:        _id || crypto.randomUUID(),
@@ -146,6 +154,8 @@ function createSpaceManager(storeOrDataDir) {
       ...(projectClaudeMdPath && typeof projectClaudeMdPath === 'string'
         ? { projectClaudeMdPath }
         : {}),
+      // Only store folioBackend when it's non-default (omit 'sqlite' to keep payload small).
+      ...(effectiveBackend !== 'sqlite' ? { folioBackend: effectiveBackend } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -159,7 +169,7 @@ function createSpaceManager(storeOrDataDir) {
   /**
    * Rename a space (also updates optional fields).
    */
-  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames) {
+  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames, folioBackend) {
     const validation = validateName(newName);
     if (!validation.valid) {
       return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
@@ -193,6 +203,37 @@ function createSpaceManager(storeOrDataDir) {
       normalisedNicknames = nickResult.nicknames;
     }
 
+    // Validate folioBackend if provided.
+    let resolvedFolioBackend;
+    if (folioBackend !== undefined) {
+      // Determine effective working directory for validation.
+      const effectiveWd = workingDirectory !== undefined
+        ? (workingDirectory || undefined)
+        : existing.workingDirectory;
+
+      // Check if a folio is already activated for this space (immutable-after-activation rule).
+      // We reach into store.folio.binding lazily — if it's not available (e.g. tests), we skip.
+      let existingFolioActivated = false;
+      if (store.folio && store.folio.binding) {
+        try {
+          existingFolioActivated = store.folio.binding.hasFolio(id);
+        } catch (_) {
+          // defensive — never block a rename due to folio check failure
+        }
+      }
+
+      const folioValidation = validateFolioBackend({
+        folioBackend,
+        workingDirectory:       effectiveWd,
+        existingFolioActivated,
+        existingBackend:        existing.folioBackend,
+      });
+      if (!folioValidation.valid) {
+        return { ok: false, code: 'VALIDATION_ERROR', message: folioValidation.errors[0] };
+      }
+      resolvedFolioBackend = folioValidation.data.folioBackend;
+    }
+
     const updated = {
       ...existing,
       name:      validation.name,
@@ -211,6 +252,10 @@ function createSpaceManager(storeOrDataDir) {
             agentNicknames:
               Object.keys(normalisedNicknames).length > 0 ? normalisedNicknames : undefined,
           }
+        : {}),
+      // Only update folioBackend when it was explicitly provided.
+      ...(resolvedFolioBackend !== undefined
+        ? { folioBackend: resolvedFolioBackend !== 'sqlite' ? resolvedFolioBackend : undefined }
         : {}),
     };
 

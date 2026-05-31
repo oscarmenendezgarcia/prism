@@ -332,7 +332,8 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         const name             = body && body.name;
         const workingDirectory = body && body.workingDirectory;
         const pipeline         = body && body.pipeline;
-        const result = spaceManager.createSpace(name, workingDirectory, pipeline);
+        const folioBackend     = body && body.folioBackend;
+        const result = spaceManager.createSpace(name, workingDirectory, pipeline, undefined, undefined, folioBackend);
 
         if (!result.ok) {
           const status = result.code === 'DUPLICATE_NAME' ? 409 : 400;
@@ -370,7 +371,8 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         const workingDirectory = body && body.workingDirectory;
         const pipeline         = body && body.pipeline;
         const agentNicknames   = body && body.agentNicknames;
-        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames);
+        const folioBackend     = body && body.folioBackend;
+        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames, folioBackend);
 
         if (!result.ok) {
           const status = result.code === 'SPACE_NOT_FOUND' ? 404
