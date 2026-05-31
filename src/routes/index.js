@@ -55,6 +55,10 @@ const {
   handleUpdateComment,
 } = require('../handlers/comments');
 const { handleSearchTasks } = require('../handlers/search');
+const {
+  handleFolioSearchRefs,
+  handleFolioSections,
+} = require('../handlers/folioRefs');
 
 const {
   PIPELINE_RUNS_LIST_ROUTE,
@@ -89,6 +93,10 @@ const {
 
 const COMMENTS_LIST_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments$/;
 const COMMENTS_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments\/([^/]+)$/;
+
+// Folio reference autocomplete routes — MUST be before SPACES_TASKS_ROUTE.
+const FOLIO_REFS_SEARCH_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/folio\/refs\/search$/;
+const FOLIO_REFS_SECTIONS_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/folio\/refs\/sections$/;
 
 const SYSTEM_INFO_ROUTE   = /^\/api\/v1\/system\/info$/;
 const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
@@ -197,6 +205,45 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
 
       if (method === 'POST') {
         return handleAutoTaskConfirm(req, res, spaceId, store);
+      }
+
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Folio reference autocomplete routes — BEFORE SPACES_TASKS_ROUTE.
+    // GET /api/v1/spaces/:spaceId/folio/refs/search?q=&limit=
+    // GET /api/v1/spaces/:spaceId/folio/refs/sections?slug=chapter/page
+    // -------------------------------------------------------------------------
+    const folioRefsSearchMatch = FOLIO_REFS_SEARCH_ROUTE.exec(urlPath);
+    if (folioRefsSearchMatch) {
+      const spaceId = folioRefsSearchMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'GET') {
+        return handleFolioSearchRefs(req, res, spaceId, store);
+      }
+
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    const folioRefsSectionsMatch = FOLIO_REFS_SECTIONS_ROUTE.exec(urlPath);
+    if (folioRefsSectionsMatch) {
+      const spaceId = folioRefsSectionsMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'GET') {
+        return handleFolioSections(req, res, spaceId, store);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
