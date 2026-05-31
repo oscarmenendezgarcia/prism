@@ -116,11 +116,12 @@ describe('folio-tools registration', () => {
       'folio_list_attachments', 'folio_get_attachment',
       'folio_create_page', 'folio_update_page', 'folio_delete_page',
       'folio_list', 'folio_create', 'folio_delete',
+      'folio_export', 'folio_import',
     ];
     for (const name of expected) {
       assert.ok(names.includes(name), `Tool "${name}" not registered`);
     }
-    assert.strictEqual(names.length, 11);
+    assert.strictEqual(names.length, 13);
   });
 });
 

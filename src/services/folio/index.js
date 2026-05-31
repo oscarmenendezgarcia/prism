@@ -32,6 +32,12 @@ const { createFolioStore, FolioConflictError } = require('./store');
 const { createResolver, extractHeadings }       = require('./resolver');
 const { openSqliteBackend, openFileBackend, reindexFileBackend } = require('./backend');
 const { buildContext }                           = require('./injection');
+const { exportToDir, importFromDir }             = require('./archive');
+const { packDir, unpackBuffer }                  = require('./zip');
+
+const fs     = require('fs');
+const path   = require('path');
+const crypto = require('crypto');
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -130,6 +136,133 @@ function createFolioService(backend) {
     return extractHeadings(page.content);
   }
 
+  // ── Export / Import (Phase 1) + Pack / Unpack (Phase 2) ─────────────────
+
+  /**
+   * Export a folio to a canonical markdown folder.
+   * Atomic: builds into a temp dir then renames into place.
+   *
+   * @param {string} folioId
+   * @param {string} destDir   — target directory
+   * @returns {{ dir: string, name: string, chapters: number, pages: number, attachments: number }}
+   */
+  function exportFolio(folioId, destDir) {
+    return exportToDir(store, folioId, destDir);
+  }
+
+  /**
+   * Import a canonical markdown folder (or a previously exported folder) into
+   * a new folio in the store.
+   *
+   * @param {string} srcDir
+   * @param {{ name?: string }} [opts]
+   * @returns {{ folioId: string, name: string, chapters: number, pages: number, attachments: number, skipped: string[] }}
+   */
+  function importFolder(srcDir, opts = {}) {
+    return importFromDir(store, srcDir, opts);
+  }
+
+  /**
+   * Export a folio to a `.folio` zip archive (Phase 2).
+   * Steps:
+   *   1. exportFolio → tmpDir
+   *   2. Write archive-level manifest.json to tmpDir
+   *   3. packDir(tmpDir) → Buffer → write to destFile
+   *   4. Remove tmpDir
+   *
+   * @param {string} folioId
+   * @param {string} destFile   — output path (e.g. "my-folio.folio")
+   * @returns {{ file: string, name: string, chapters: number, pages: number, attachments: number }}
+   */
+  function packFolio(folioId, destFile) {
+    const resolvedDest = path.resolve(destFile);
+    const tmpDir       = `${resolvedDest}.export-${crypto.randomBytes(6).toString('hex')}`;
+
+    let exportResult;
+    try {
+      exportResult = exportToDir(store, folioId, tmpDir);
+
+      // Write archive-level manifest.json (top-level inside the zip)
+      const archiveManifest = {
+        format:         'folio',
+        archiveVersion: '1.0',
+        formatVersion:  '1.0',
+        tool:           'prism-folio',
+        exportedAt:     new Date().toISOString(),
+        pageCount:      exportResult.pages,
+      };
+      fs.writeFileSync(
+        path.join(tmpDir, 'manifest.json'),
+        JSON.stringify(archiveManifest, null, 2) + '\n',
+        'utf8',
+      );
+
+      // Pack and write
+      const zipBuf = packDir(tmpDir);
+
+      // Write output atomically
+      const outTmp = `${resolvedDest}.tmp`;
+      fs.mkdirSync(path.dirname(resolvedDest), { recursive: true });
+      fs.writeFileSync(outTmp, zipBuf);
+      fs.renameSync(outTmp, resolvedDest);
+
+    } finally {
+      // Always remove the intermediate export dir
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
+    }
+
+    console.warn(
+      `[folio.index] op=pack folioId=${folioId}` +
+      ` pages=${exportResult.pages} file=${resolvedDest} outcome=ok`,
+    );
+
+    // Return file (archive path) + counts — exclude dir (temp, already removed)
+    return {
+      file:        resolvedDest,
+      name:        exportResult.name,
+      chapters:    exportResult.chapters,
+      pages:       exportResult.pages,
+      attachments: exportResult.attachments,
+    };
+  }
+
+  /**
+   * Unpack a `.folio` zip archive and import it into a new folio (Phase 2).
+   * Steps:
+   *   1. Read zip file → Buffer
+   *   2. unpackBuffer → tmpDir
+   *   3. importFromDir(tmpDir) → ImportResult
+   *   4. Remove tmpDir
+   *
+   * @param {string} srcFile   — path to a .folio zip archive
+   * @param {{ name?: string }} [opts]
+   * @returns {{ folioId: string, name: string, chapters: number, pages: number, attachments: number, skipped: string[] }}
+   */
+  function unpackFolio(srcFile, opts = {}) {
+    const resolvedSrc = path.resolve(srcFile);
+    if (!fs.existsSync(resolvedSrc)) {
+      throw new Error(`Folio archive not found: "${srcFile}"`);
+    }
+
+    const tmpDir = `${resolvedSrc}.unpack-${crypto.randomBytes(6).toString('hex')}`;
+    let importResult;
+
+    try {
+      const zipBuf = fs.readFileSync(resolvedSrc);
+      unpackBuffer(zipBuf, tmpDir);
+      importResult = importFromDir(store, tmpDir, opts);
+    } finally {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}
+    }
+
+    console.warn(
+      `[folio.index] op=unpack file=${resolvedSrc}` +
+      ` folioId=${importResult.folioId} pages=${importResult.pages} outcome=ok`,
+    );
+
+    return importResult;
+  }
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   function flush() { backend.flush(); }
@@ -194,6 +327,12 @@ function createFolioService(backend) {
     resolveRefs,
     // Injection context (stage-aware; see folio/injection.js)
     buildInjectionContext,
+    // Export / Import (Phase 1) — folder round-trip
+    exportFolio,
+    importFolder,
+    // Pack / Unpack (Phase 2) — .folio zip wrapper
+    packFolio,
+    unpackFolio,
     // Lifecycle
     flush,
     close,

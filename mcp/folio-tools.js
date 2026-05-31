@@ -410,4 +410,65 @@ export function registerFolioTools(server, service) {
       }
     },
   );
+
+  // ── folio_export ──────────────────────────────────────────────────────────
+
+  server.tool(
+    'folio_export',
+    'Export a Folio to a canonical markdown folder or a .folio zip archive. ' +
+    'If destPath ends in ".folio", produces a standard zip archive (packFolio). ' +
+    'Otherwise writes a plain markdown folder (exportFolio). ' +
+    'Returns an ExportResult with dir/file, name, chapters, pages, attachments counts.',
+    {
+      folioId:  z.string().describe('Folio UUID to export'),
+      destPath: z.string().describe(
+        'Destination directory path (for folder export) or file path ending in ".folio" (for zip archive)',
+      ),
+    },
+    async ({ folioId, destPath }) => {
+      try {
+        let result;
+        if (destPath.endsWith('.folio')) {
+          result = service.packFolio(folioId, destPath);
+        } else {
+          result = service.exportFolio(folioId, destPath);
+        }
+        return ok(JSON.stringify(result, null, 2));
+      } catch (e) {
+        return err(`Error: ${e.message}`);
+      }
+    },
+  );
+
+  // ── folio_import ──────────────────────────────────────────────────────────
+
+  server.tool(
+    'folio_import',
+    'Import a Folio from a canonical markdown folder or a .folio zip archive. ' +
+    'If srcPath ends in ".folio", unpacks the zip first (unpackFolio). ' +
+    'Otherwise reads the folder directly (importFolder). ' +
+    'Creates a new folio in the store. Returns an ImportResult with folioId, counts, and any skipped entries.',
+    {
+      srcPath: z.string().describe(
+        'Source directory path (markdown folder) or file path ending in ".folio" (zip archive)',
+      ),
+      name: z.string().optional().describe(
+        'Override folio name (defaults to the name in folio.json manifest)',
+      ),
+    },
+    async ({ srcPath, name }) => {
+      try {
+        const opts = name ? { name } : {};
+        let result;
+        if (srcPath.endsWith('.folio')) {
+          result = service.unpackFolio(srcPath, opts);
+        } else {
+          result = service.importFolder(srcPath, opts);
+        }
+        return ok(JSON.stringify(result, null, 2));
+      } catch (e) {
+        return err(`Error: ${e.message}`);
+      }
+    },
+  );
 }
