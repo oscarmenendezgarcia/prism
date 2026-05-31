@@ -199,6 +199,29 @@ function createFolioBinding(db, core) {
     return core.listPageSections(folioId, chapterSlug, pageSlug);
   }
 
+  // ── Injection context (stage-aware) ──────────────────────────────────────
+
+  /**
+   * Assemble a stage-relevant Folio context block for the given space.
+   *
+   * Zero-cost guard: returns null immediately when no folio is bound to the
+   * space — no BM25 search, no DB reads, no tokens computed.
+   *
+   * Delegates to the core injection engine (folio/injection.js) which is
+   * space-agnostic and keyed on folioId only.  This is the ONLY place where
+   * space_id meets injection.
+   *
+   * @param {string} spaceId
+   * @param {string} query   - BM25 query string (task title + description + stage descriptor).
+   * @param {object} [opts]  - Engine configuration overrides (scoreThreshold, caps, etc.).
+   * @returns {{ text: string, tokens: number, inline: Array, referenced: Array, truncated: Array } | null}
+   */
+  function buildInjectionContext(spaceId, query, opts) {
+    const folioId = getFolioIdForSpace(spaceId);
+    if (!folioId) return null;  // zero cost — no folio bound
+    return core.buildInjectionContext(folioId, query, opts);
+  }
+
   // ── Public interface ──────────────────────────────────────────────────────
 
   return {
@@ -210,6 +233,7 @@ function createFolioBinding(db, core) {
     getPageBySlug,
     searchPages,
     listPageSections,
+    buildInjectionContext,
   };
 }
 

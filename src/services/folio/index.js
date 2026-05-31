@@ -31,6 +31,7 @@
 const { createFolioStore, FolioConflictError } = require('./store');
 const { createResolver, extractHeadings }       = require('./resolver');
 const { openSqliteBackend, openFileBackend, reindexFileBackend } = require('./backend');
+const { buildContext }                           = require('./injection');
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -81,6 +82,22 @@ function createFolioService(backend) {
     const deleted      = store.deletePage(folioId, pageId);
     if (isFile && pageSnapshot) backend.removePage(pageSnapshot);
     return deleted;
+  }
+
+  // ── Injection context ─────────────────────────────────────────────────────
+
+  /**
+   * Assemble a stage-relevant Folio context block.
+   * Thin pass-through to the injection engine (folio/injection.js).
+   * Space-agnostic: keyed on folioId only — the binding layer owns space_id.
+   *
+   * @param {string} folioId
+   * @param {string} query   - BM25 query string (task title + description + stage descriptor).
+   * @param {object} [opts]  - Engine configuration overrides.
+   * @returns {{ text: string, tokens: number, inline: Array, referenced: Array, truncated: Array }}
+   */
+  function buildInjectionContext(folioId, query, opts) {
+    return buildContext(store, folioId, query, opts);
   }
 
   // ── Resolver ─────────────────────────────────────────────────────────────
@@ -175,6 +192,8 @@ function createFolioService(backend) {
     deleteAttachment: store.deleteAttachment.bind(store),
     // Resolver
     resolveRefs,
+    // Injection context (stage-aware; see folio/injection.js)
+    buildInjectionContext,
     // Lifecycle
     flush,
     close,
