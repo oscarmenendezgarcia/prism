@@ -35,6 +35,8 @@ tags: [decisiones, historia]
 
 13. **FTS5 en el core, in-memory por defecto + caché opcional.** SQLite FTS5 en ambos backends (no BM25-JS, divergiría).
 
+14. **Backend por space.** SQLite default universal; file-backend (`.folio/` en el working dir, git-versionado) opt-in y solo si el space tiene working_directory. Sin repo → SQLite siempre. Ver [[arquitectura/storage-backend]].
+
 ## Diferibles
 
 - Concurrencia write-back (last-write-wins en v1).

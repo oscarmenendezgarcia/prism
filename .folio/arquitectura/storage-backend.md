@@ -29,3 +29,14 @@ El core define las operaciones (get/search/create page); detrás hay dos backend
 - **`nombre.folio` (FICHERO zip)** = solo artefacto de export/compartir. Equivalente a `git bundle`. Ver [[flujos/export-import]].
 
 Si el store vivo fuera el zip, cada read/write tendría que des-zipear/re-zipear y no se diffea en git → mala idea. El zip es para mandar, el directorio para trabajar.
+
+## Selección de backend por space (Prism)
+
+Un space de Prism elige dónde vive su folio, usando esta misma abstracción de backend:
+
+- **SQLite (default universal)** — folio en `data/prism.db`. Para CUALQUIER space.
+- **File-backend (opt-in)** — folio como `.folio/` DIRECTORIO dentro del `working_directory` del space. Versionado con git, viaja con el repo, mismo formato que el CLI standalone.
+
+**Regla:** el file-backend solo está disponible si el space tiene `working_directory`. Sin repo (ops, writing, research) → SQLite siempre. La presencia de working dir habilita la opción (igual que gatea el bootstrap).
+
+Setting por space: `folioBackend: 'sqlite' | 'file'` (default `'sqlite'`). El binding `space_folios` sigue mapeando identidad; en file-backend el "folio" es el `.folio/` del working dir. Conflictos usuario+agente → last-write-wins + git.
