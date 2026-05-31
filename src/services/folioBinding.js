@@ -184,6 +184,21 @@ function createFolioBinding(db, core) {
     return core.searchPages(folioId, query, searchOpts);
   }
 
+  /**
+   * Return the H2 sections of a page, scoped to a space.
+   * Returns [] when the space has no folio bound or the page does not exist.
+   *
+   * @param {string} spaceId
+   * @param {string} chapterSlug
+   * @param {string} pageSlug
+   * @returns {Array<{ title: string, slug: string }>}
+   */
+  function listPageSections(spaceId, chapterSlug, pageSlug) {
+    const folioId = getFolioIdForSpace(spaceId);
+    if (!folioId) return [];
+    return core.listPageSections(folioId, chapterSlug, pageSlug);
+  }
+
   // ── Public interface ──────────────────────────────────────────────────────
 
   return {
@@ -194,6 +209,7 @@ function createFolioBinding(db, core) {
     listPages,
     getPageBySlug,
     searchPages,
+    listPageSections,
   };
 }
 

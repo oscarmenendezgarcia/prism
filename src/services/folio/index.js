@@ -29,7 +29,7 @@
  */
 
 const { createFolioStore, FolioConflictError } = require('./store');
-const { createResolver }                        = require('./resolver');
+const { createResolver, extractHeadings }       = require('./resolver');
 const { openSqliteBackend, openFileBackend, reindexFileBackend } = require('./backend');
 
 // ---------------------------------------------------------------------------
@@ -96,6 +96,23 @@ function createFolioService(backend) {
     return resolver.resolveRefs(text, folioId);
   }
 
+  // ── Headings ──────────────────────────────────────────────────────────────
+
+  /**
+   * Return the H2 sections (as { title, slug } pairs) for a specific page.
+   * Returns [] when the page does not exist.
+   *
+   * @param {string} folioId
+   * @param {string} chapterSlug
+   * @param {string} pageSlug
+   * @returns {Array<{ title: string, slug: string }>}
+   */
+  function listPageSections(folioId, chapterSlug, pageSlug) {
+    const page = store.getPageBySlug(folioId, chapterSlug, pageSlug);
+    if (!page) return [];
+    return extractHeadings(page.content);
+  }
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   function flush() { backend.flush(); }
@@ -149,6 +166,8 @@ function createFolioService(backend) {
     listPages:        store.listPages.bind(store),
     // Search
     searchPages:      store.searchPages.bind(store),
+    // Headings (for autocomplete second level)
+    listPageSections,
     // Attachments (blobs stored in SQLite in both backends for v1)
     addAttachment:    store.addAttachment.bind(store),
     getAttachment:    store.getAttachment.bind(store),

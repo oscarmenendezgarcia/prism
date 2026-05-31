@@ -46,6 +46,30 @@ function githubSlug(text) {
 }
 
 // ---------------------------------------------------------------------------
+// Headings extractor
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract all H2 headings from a markdown string, in document order.
+ * Returns an array of { title, slug } objects where slug is the
+ * GitHub-slugified version of the heading title.
+ *
+ * @param {string} content
+ * @returns {Array<{ title: string, slug: string }>}
+ */
+function extractHeadings(content) {
+  if (typeof content !== 'string') return [];
+  const headings = [];
+  const regex = /^## (.+)$/gm;
+  let m;
+  while ((m = regex.exec(content)) !== null) {
+    const title = m[1].trim();
+    headings.push({ title, slug: githubSlug(title) });
+  }
+  return headings;
+}
+
+// ---------------------------------------------------------------------------
 // Section extractor
 // ---------------------------------------------------------------------------
 
@@ -177,4 +201,5 @@ module.exports = {
   // Exported for testing
   githubSlug,
   extractSection,
+  extractHeadings,
 };
