@@ -744,3 +744,70 @@ export async function getStageLog(
          : `[PipelineLog] fetch error stage=${stageIndex} status=${res.status}`,
   );
 }
+
+// ---------------------------------------------------------------------------
+// Folio reference autocomplete API (folio-task-references)
+// ---------------------------------------------------------------------------
+
+/**
+ * A page reference item returned by the search endpoint.
+ * `slug` is the canonical "chapter/page" form used in [[ ]] syntax.
+ */
+export interface FolioRef {
+  slug:        string;
+  title:       string;
+  chapterSlug: string;
+  pageSlug:    string;
+  /** BM25 relevance score (lower = better for non-empty queries; 0 for empty-query listing). */
+  score:       number;
+}
+
+/**
+ * An H2 section item returned by the sections endpoint.
+ * `slug` is the GitHub-slugified heading title — used after the `#` in [[ ]] syntax.
+ */
+export interface FolioSection {
+  title: string;
+  slug:  string;
+}
+
+/**
+ * Search pages in a space's folio for the [[ autocomplete level-1 dropdown.
+ *
+ * GET /api/v1/spaces/:spaceId/folio/refs/search?q=&limit=
+ *
+ * @param spaceId - Target space.
+ * @param q       - Partial text to search; empty string returns up to `limit` pages.
+ * @param limit   - Max results (default 20, server-capped at 100).
+ * @returns Array of matching page references sorted by relevance.
+ */
+export const searchFolioRefs = (
+  spaceId: string,
+  q: string,
+  limit = 20,
+): Promise<FolioRef[]> => {
+  const qs = new URLSearchParams({ q });
+  if (limit !== 20) qs.set('limit', String(limit));
+  return apiFetch<{ refs: FolioRef[] }>(
+    `/spaces/${encodeURIComponent(spaceId)}/folio/refs/search?${qs.toString()}`,
+  ).then((r) => r.refs);
+};
+
+/**
+ * Fetch the H2 sections of a specific page for the [[ autocomplete level-2 dropdown.
+ *
+ * GET /api/v1/spaces/:spaceId/folio/refs/sections?slug=chapter/page
+ *
+ * @param spaceId - Target space.
+ * @param slug    - Page slug in "chapter/page" format.
+ * @returns Array of H2 section headings with their GitHub slugs.
+ */
+export const getFolioRefSections = (
+  spaceId: string,
+  slug: string,
+): Promise<FolioSection[]> => {
+  const qs = new URLSearchParams({ slug });
+  return apiFetch<{ sections: FolioSection[] }>(
+    `/spaces/${encodeURIComponent(spaceId)}/folio/refs/sections?${qs.toString()}`,
+  ).then((r) => r.sections);
+};
