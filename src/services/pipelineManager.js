@@ -96,6 +96,60 @@ const DEFAULT_STAGES = [
   'qa-engineer-e2e',
 ];
 
+/**
+ * Short role descriptors for each default pipeline stage.
+ * The injection engine never sees agent IDs — it only receives this query fragment.
+ * That keeps the extractable folio/injection.js free of Prism's stage vocabulary (FR2/NFR1).
+ * Unknown agentIds fall back to the agentId string itself (graceful default).
+ */
+const STAGE_DESCRIPTORS = {
+  'senior-architect': 'software architecture system design decisions trade-offs components',
+  'ux-api-designer':  'user experience UI design wireframes API contracts user stories',
+  'developer-agent':  'implementation code modules tests conventions',
+  'code-reviewer':    'code review quality design fidelity standards',
+  'qa-engineer-e2e':  'testing QA end-to-end test plan bugs',
+};
+
+/**
+ * Resolve Folio injection configuration.
+ * Layered: hard-coded defaults ← environment overrides.
+ * Per-space persistence is deferred to a future task (opts shape is identical,
+ * only the source changes — no engine changes required).
+ *
+ * Environment variables (all optional):
+ *   PRISM_FOLIO_INJECTION         - Set to 'off' to disable injection entirely (kill switch).
+ *   PRISM_FOLIO_SCORE_THRESHOLD   - Normalised rel score ≥ this → inline (float, default 2.0).
+ *   PRISM_FOLIO_MAX_INLINE_PAGES  - Max inline pages (int, default 3).
+ *   PRISM_FOLIO_MAX_INLINE_TOKENS - Max inline token budget (int, default 1500).
+ *   PRISM_FOLIO_CONSTRAINT_CHAPTERS - Comma-separated chapter slugs (default 'restricciones,constraints').
+ *   PRISM_FOLIO_PINNED_BOOST      - Rel boost for pinned pages (float, default 1.0).
+ *
+ * @param {string} _spaceId - Reserved for future per-space config (unused in v1).
+ * @returns {object} opts suitable for folio/injection.buildContext
+ */
+function resolveInjectionConfig(_spaceId) {
+  const opts = {};
+
+  const threshold = parseFloat(process.env.PRISM_FOLIO_SCORE_THRESHOLD);
+  if (!isNaN(threshold)) opts.scoreThreshold = threshold;
+
+  const maxPages = parseInt(process.env.PRISM_FOLIO_MAX_INLINE_PAGES, 10);
+  if (!isNaN(maxPages) && maxPages > 0) opts.maxInlinePages = maxPages;
+
+  const maxTokens = parseInt(process.env.PRISM_FOLIO_MAX_INLINE_TOKENS, 10);
+  if (!isNaN(maxTokens) && maxTokens > 0) opts.maxInlineTokens = maxTokens;
+
+  const constraintEnv = process.env.PRISM_FOLIO_CONSTRAINT_CHAPTERS;
+  if (constraintEnv && constraintEnv.trim()) {
+    opts.constraintChapters = constraintEnv.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  const pinnedBoost = parseFloat(process.env.PRISM_FOLIO_PINNED_BOOST);
+  if (!isNaN(pinnedBoost)) opts.pinnedBoost = pinnedBoost;
+
+  return opts;
+}
+
 const DEFAULT_STAGE_TIMEOUT_MS    = 3_600_000; // 1 hour
 const DEFAULT_MAX_CONCURRENT      = 5;
 // Stall watchdog: kill if no output for this long.  5 min is conservative —
@@ -1038,6 +1092,39 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     }
   }
 
+  // Stage-aware Folio context injection.
+  // Kill switch: PRISM_FOLIO_INJECTION=off disables the block entirely without code changes.
+  // Zero cost when no folio is bound (binding.buildInjectionContext returns null).
+  let injectionResult = null;
+  if (
+    process.env.PRISM_FOLIO_INJECTION !== 'off' &&
+    _store?.folio?.binding &&
+    task
+  ) {
+    try {
+      const descriptor  = STAGE_DESCRIPTORS[agentId] ?? agentId;
+      const query       = `${task.title ?? ''} ${task.description ?? ''} ${descriptor}`.trim();
+      const injectionOpts = resolveInjectionConfig(spaceId);
+      injectionResult   = _store.folio.binding.buildInjectionContext(spaceId, query, injectionOpts);
+    } catch (injErr) {
+      // Injection is best-effort: a failure must never break prompt building.
+      console.warn('[pipelineManager] folio injection error (ignored):', injErr.message);
+    }
+  }
+
+  // Emit observability metric regardless of result (folioBound:false is the zero-cost path).
+  pipelineLog('folio.injection', {
+    runId:           runId ?? null,
+    stageIndex,
+    agentId,
+    folioBound:      injectionResult !== null,
+    inlineCount:     injectionResult?.inline?.length    ?? 0,
+    referencedCount: injectionResult?.referenced?.length ?? 0,
+    truncatedCount:  injectionResult?.truncated?.length  ?? 0,
+    tokens:          injectionResult?.tokens             ?? 0,
+    queryLen:        injectionResult !== null ? (task?.title?.length ?? 0) + (task?.description?.length ?? 0) : 0,
+  });
+
   let promptText = task
     ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
     : `TaskId: ${taskId}\nSpaceId: ${spaceId}\n`;
@@ -1093,6 +1180,12 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   // Prevents QA from launching against code that does not compile.
   if (agentId === 'developer-agent') {
     promptText += '\n' + buildCompileGateBlock() + '\n';
+  }
+
+  // Append Folio injection block when the engine returned content.
+  // Placed last so it does not displace the Kanban/compile instructions agents rely on.
+  if (injectionResult && injectionResult.text) {
+    promptText += '\n## FOLIO — KNOWLEDGE BASE (stage-relevant)\n' + injectionResult.text + '\n';
   }
 
   const estimatedTokens = Math.ceil(promptText.length / 4);
@@ -2562,5 +2655,7 @@ module.exports = {
   buildResolverPrompt,
   shellEscape,
   DEFAULT_STAGES,
+  STAGE_DESCRIPTORS,
+  resolveInjectionConfig,
   getStore: () => _store,
 };
