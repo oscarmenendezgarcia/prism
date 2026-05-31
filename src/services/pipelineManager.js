@@ -31,6 +31,7 @@ const { spawn, execSync }       = require('child_process');
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
 const worktreeManager = require('./worktreeManager');
+const folioBootstrap  = require('./folioBootstrap');
 const {
   buildKanbanBlock,
   buildGitContextBlock,
@@ -1328,6 +1329,26 @@ async function spawnStage(dataDir, run, stageIndex) {
       }), 'utf8');
     } catch (metaErr) {
       console.warn(`[pipelineManager] WARN: could not write meta.json for stage ${stageIndex}:`, metaErr.message);
+    }
+  }
+
+  // Folio bootstrap hook: runs once per space on the first pipeline run (stage 0 only).
+  // Blocking (awaited): ensures stage 0's Folio injection already includes architecture
+  // pages written by the folio-bootstrapper agent.
+  // Wrapped in try/catch: a bootstrap failure must never break the pipeline.
+  if (stageIndex === 0 && _store?.folio?.binding) {
+    try {
+      const bootstrapResult = await folioBootstrap.ensureBootstrapped(
+        run.spaceId,
+        effectiveCwd(run) ?? run.workingDirectory,
+        _store.folio.binding,
+        { dataDir, runId: run.runId },
+      );
+      pipelineLog('folio.bootstrap', { runId: run.runId, spaceId: run.spaceId, ...bootstrapResult });
+    } catch (err) {
+      // Best-effort: log and continue so the pipeline is never blocked by bootstrap.
+      console.warn('[pipelineManager] WARN: folio bootstrap error (ignored):', err.message);
+      pipelineLog('folio.bootstrap.error', { runId: run.runId, spaceId: run.spaceId, error: err.message });
     }
   }
 

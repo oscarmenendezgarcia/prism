@@ -37,6 +37,14 @@ CREATE TABLE IF NOT EXISTS space_folios (
 );
 
 CREATE INDEX IF NOT EXISTS idx_space_folios_folio ON space_folios(folio_id);
+
+-- Bootstrap one-shot marker (T-001: folio-bootstrap feature).
+-- Lives binding-side so the core (src/services/folio/) stays space-agnostic.
+-- ON DELETE CASCADE ensures the row is pruned when its space is removed.
+CREATE TABLE IF NOT EXISTS folio_bootstrap (
+  space_id        TEXT NOT NULL UNIQUE REFERENCES spaces(id) ON DELETE CASCADE,
+  bootstrapped_at TEXT NOT NULL
+);
 `;
 
 /**
@@ -70,6 +78,14 @@ function createFolioBinding(db, core) {
     ),
     insertBinding: db.prepare(
       'INSERT INTO space_folios (space_id, folio_id) VALUES (?, ?)',
+    ),
+    // Bootstrap one-shot marker statements (T-002: folio-bootstrap).
+    getBootstrapState: db.prepare(
+      'SELECT bootstrapped_at FROM folio_bootstrap WHERE space_id = ?',
+    ),
+    upsertBootstrappedAt: db.prepare(
+      `INSERT INTO folio_bootstrap (space_id, bootstrapped_at) VALUES (?, ?)
+       ON CONFLICT (space_id) DO UPDATE SET bootstrapped_at = excluded.bootstrapped_at`,
     ),
   };
 
@@ -263,6 +279,41 @@ function createFolioBinding(db, core) {
     })();
   }
 
+  // ── Bootstrap one-shot marker (T-002: folio-bootstrap) ──────────────────
+
+  /**
+   * Return the bootstrap marker for a space.
+   * Returns { bootstrappedAt: null } when the space has not yet been bootstrapped.
+   * Never throws.
+   *
+   * @param {string} spaceId
+   * @returns {{ bootstrappedAt: string | null }}
+   */
+  function getBootstrapState(spaceId) {
+    try {
+      const row = stmts.getBootstrapState.get(spaceId);
+      return { bootstrappedAt: row ? row.bootstrapped_at : null };
+    } catch {
+      return { bootstrappedAt: null };
+    }
+  }
+
+  /**
+   * Mark a space as bootstrapped.  Idempotent: a second call updates the timestamp
+   * but does not insert a duplicate row (ON CONFLICT DO UPDATE).
+   * Never throws.
+   *
+   * @param {string} spaceId
+   * @param {string} ts - ISO 8601 timestamp.
+   */
+  function setBootstrappedAt(spaceId, ts) {
+    try {
+      stmts.upsertBootstrappedAt.run(spaceId, ts);
+    } catch (err) {
+      console.warn(`[folio.binding] op=setBootstrappedAt spaceId=${spaceId} error=${err.message}`);
+    }
+  }
+
   // ── Injection context (stage-aware) ──────────────────────────────────────
 
   /**
@@ -299,6 +350,8 @@ function createFolioBinding(db, core) {
     searchPages,
     listPageSections,
     buildInjectionContext,
+    getBootstrapState,
+    setBootstrappedAt,
   };
 }
 
