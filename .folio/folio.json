@@ -1,0 +1,16 @@
+{
+  "name": "Folio",
+  "formatVersion": "1.0",
+  "description": "Base de conocimiento navegable y aumentable para agentes. Este folio documenta el diseño del propio Folio (dogfooding) y sirve de fixture para probar la implementación.",
+  "createdAt": "2026-05-31",
+  "chapters": [
+    "concepto",
+    "modelo-datos",
+    "arquitectura",
+    "inyeccion",
+    "mcp-tools",
+    "flujos",
+    "decisiones",
+    "estado"
+  ]
+}
