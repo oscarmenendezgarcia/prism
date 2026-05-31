@@ -1028,6 +1028,16 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
 
   const isLastStage = stageIndex === stages.length - 1;
 
+  // Resolve [[folio references]] in task title + description before interpolation.
+  // No-op when: no folio bound, legacy path (_store absent), or no [[...]] in text.
+  if (task && _store?.folio?.binding) {
+    const folioId = _store.folio.binding.getFolioIdForSpace(spaceId);
+    if (folioId) {
+      const resolve = (s) => (typeof s === 'string' ? _store.folio.core.resolveRefs(s, folioId) : s);
+      task = { ...task, title: resolve(task.title), description: resolve(task.description) };
+    }
+  }
+
   let promptText = task
     ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
     : `TaskId: ${taskId}\nSpaceId: ${spaceId}\n`;
