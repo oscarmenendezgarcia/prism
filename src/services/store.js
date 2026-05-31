@@ -16,6 +16,10 @@
 const path = require('path');
 const Database = require('better-sqlite3');
 
+const { applySchema: applyFolioSchema }    = require('./folio/db');
+const { createFolioStore }                 = require('./folio/store');
+const { applyBindingSchema, createFolioBinding } = require('./folioBinding');
+
 // ---------------------------------------------------------------------------
 // DDL
 // ---------------------------------------------------------------------------
@@ -203,7 +207,15 @@ function createStore(dataDir) {
   // exec() runs multi-statement SQL; also applies the PRAGMAs.
   db.exec(SCHEMA_SQL);
 
+  // Apply Folio core schema (space-agnostic) and Prism binding schema.
+  applyFolioSchema(db);
+  applyBindingSchema(db);
+
   console.log(`[store] open — WAL mode confirmed, schema ready (${dbPath})`);
+
+  // Create Folio core store and Prism-side binding, both sharing this db instance.
+  const folioCore    = createFolioStore(db);
+  const folioBinding = createFolioBinding(db, folioCore);
 
   // ---------------------------------------------------------------------------
   // Prepared statements (compiled once, reused for every call)
@@ -692,6 +704,12 @@ function createStore(dataDir) {
     deleteRun: deleteRun,
     // Lifecycle
     close,
+    // Folio — core (folio_id-keyed) and Prism-side binding (space_id-keyed).
+    // Downstream consumers (MCP tools, resolver, injection) use `store.folio`.
+    folio: {
+      core:    folioCore,
+      binding: folioBinding,
+    },
   };
 }
 
