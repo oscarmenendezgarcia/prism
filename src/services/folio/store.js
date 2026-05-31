@@ -180,7 +180,17 @@ function createFolioStore(db) {
     insertFolio: db.prepare(
       'INSERT INTO folios (id, name, created_at) VALUES (?, ?, ?)',
     ),
-    getFolio: db.prepare('SELECT * FROM folios WHERE id = ?'),
+    getFolio:    db.prepare('SELECT * FROM folios WHERE id = ?'),
+    listFolios:  db.prepare('SELECT id, name, created_at FROM folios ORDER BY created_at ASC'),
+    // deleteFolio cascade: attachments → pages → chapters → folios
+    // FTS rows are removed by the existing page_delete trigger in applySchema
+    deleteAttachmentsByFolio: db.prepare(
+      `DELETE FROM attachments
+        WHERE page_id IN (SELECT id FROM pages WHERE folio_id = ?)`,
+    ),
+    deletePagesByFolio:    db.prepare('DELETE FROM pages    WHERE folio_id = ?'),
+    deleteChaptersByFolio: db.prepare('DELETE FROM chapters WHERE folio_id = ?'),
+    deleteFolioById:       db.prepare('DELETE FROM folios   WHERE id = ?'),
 
     // chapters
     getChapterByFolioAndSlug: db.prepare(
@@ -285,6 +295,35 @@ function createFolioStore(db) {
    */
   function getFolio(folioId) {
     return rowToFolio(stmts.getFolio.get(folioId));
+  }
+
+  /**
+   * List all folios ordered by creation date (oldest first).
+   *
+   * @returns {Folio[]}
+   */
+  function listFolios() {
+    return stmts.listFolios.all().map(rowToFolio);
+  }
+
+  /**
+   * Delete a folio and cascade-remove all its chapters, pages, attachments
+   * and FTS rows (FTS rows are removed by the page_delete trigger already
+   * present in applySchema; attachment rows are removed explicitly first to
+   * avoid FK issues in strict mode).
+   *
+   * @param {string} folioId
+   * @returns {boolean}  true if the folio existed and was deleted
+   */
+  function deleteFolio(folioId) {
+    const deleteFolioTx = db.transaction(() => {
+      stmts.deleteAttachmentsByFolio.run(folioId);
+      stmts.deletePagesByFolio.run(folioId);
+      stmts.deleteChaptersByFolio.run(folioId);
+      const info = stmts.deleteFolioById.run(folioId);
+      return info.changes > 0;
+    });
+    return deleteFolioTx();
   }
 
   // ── Pages (chapters emerge from slug) ────────────────────────────────────
@@ -625,6 +664,8 @@ function createFolioStore(db) {
     // folios
     createFolio,
     getFolio,
+    listFolios,
+    deleteFolio,
     // pages
     createPage,
     getPage,
