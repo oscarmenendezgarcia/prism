@@ -15,6 +15,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -195,6 +196,9 @@ export function ReferenceAutocomplete({
   // when there's room below the caret, or by `bottom` (just above the caret line)
   // when flipped up — so a 1-line empty state hugs the caret instead of floating high.
   const [coords, setCoords] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+
+  // Highlight backdrop (renders the coloured [[refs]] behind the transparent textarea).
+  const backdropRef = useRef<HTMLDivElement>(null);
 
   // Abort ref for fetch cancellation
   const abortRef = useRef<AbortController | null>(null);
@@ -391,12 +395,49 @@ export function ReferenceAutocomplete({
   // Render
   // ---------------------------------------------------------------------------
 
+  // Keep the textarea's text transparent (so the coloured backdrop shows through)
+  // while restoring a visible caret, and keep the backdrop scrolled in sync.
+  useLayoutEffect(() => {
+    const ta = textareaRef.current;
+    const bd = backdropRef.current;
+    if (!ta || !bd) return;
+    // The backdrop carries the real text colour (via the shared className); reuse
+    // it for the caret so the caret stays visible over the transparent text.
+    ta.style.caretColor = getComputedStyle(bd).color;
+    bd.scrollTop  = ta.scrollTop;
+    bd.scrollLeft = ta.scrollLeft;
+  });
+
+  // Split the value into plain text and [[ref]] tokens for the highlight backdrop.
+  function renderHighlighted(text: string) {
+    const parts = text.split(/(\[\[[^\]]+?\]\])/g);
+    return parts.map((part, i) =>
+      /^\[\[[^\]]+?\]\]$/.test(part)
+        ? <mark key={i} className="rounded-[3px] bg-primary/15 text-primary">{part}</mark>
+        : <React.Fragment key={i}>{part}</React.Fragment>,
+    );
+    // Trailing newline: pre-wrap renders it; alignment matches the textarea.
+  }
+
+  const sharedClass = (textareaProps.className as string) ?? '';
+
   // Show once a search token exists (skip on a bare `[[`). Includes the empty
   // state so the dropdown never silently fails to appear.
   const showDropdown = trigger.active && coords !== null && (loading || items.length > 0 || pageToken.length > 0);
 
   return (
     <div className="relative w-full">
+      {/* Highlight backdrop — shares the textarea's className (so metrics align) but
+          with a transparent border so only the textarea's focus-aware border shows.
+          Renders [[refs]] in the primary accent behind the transparent textarea. */}
+      <div
+        ref={backdropRef}
+        aria-hidden="true"
+        className={`pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words ${sharedClass}`}
+        style={{ borderColor: 'transparent' }} // lint-ok: hide the backdrop border so only the textarea's focus-aware border renders
+      >
+        {renderHighlighted(value)}
+      </div>
       <textarea
         ref={setTextareaRef}
         value={value}
@@ -408,7 +449,12 @@ export function ReferenceAutocomplete({
         onKeyUp={updateCaret}
         onClick={updateCaret}
         onFocus={updateCaret}
+        onScroll={(e) => {
+          const bd = backdropRef.current;
+          if (bd) { bd.scrollTop = e.currentTarget.scrollTop; bd.scrollLeft = e.currentTarget.scrollLeft; }
+        }}
         {...textareaProps}
+        style={{ ...(textareaProps.style as React.CSSProperties | undefined), position: 'relative', background: 'transparent', color: 'transparent' }} // lint-ok: overlay — transparent textarea bg/text reveals the highlight backdrop; caret colour restored in a layout effect
       />
 
       {showDropdown && coords && createPortal(
