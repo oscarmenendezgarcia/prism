@@ -1,15 +1,18 @@
 /**
  * Folio — Standalone stdio MCP Server (folio-mcp-server.js)
  *
- * The `folio mcp` runtime described in .folio/mcp-tools/uso-standalone.md.
- * Discovers the .folio/ directory by walking up from process.cwd(), builds a
- * FolioService over the file backend, registers all 11 Folio tools, and serves
- * over StdioServerTransport (Claude Code / Cursor / Windsurf manage the
- * process lifecycle).
+ * The `folio mcp` runtime described in .folio/mcp-tools/standalone-usage.md.
+ *
+ * MULTI-FOLIO: the server is NOT pinned to a single folio. It exposes a
+ * per-root service resolver — every tool accepts an optional `folioRoot` and the
+ * server opens/caches a FolioService for that root on demand. One server process
+ * serves any .folio/ on disk; no restart/reconnect to switch folios. When a tool
+ * omits folioRoot, the server's startup directory (process.cwd()) is used as the
+ * default, preserving the simple "cd into your repo" experience.
  *
  * All logging goes to STDERR — stdout is reserved for the MCP protocol.
  * One structured log line per tool invocation: { tool, folioId, ok, ms }.
- * Backend kind + resolved .folio/ path logged once at startup.
+ * Each newly-opened root is logged once.
  *
  * Usage:
  *   node mcp/folio-mcp-server.js
@@ -17,9 +20,10 @@
  *   # { "command": "node", "args": ["/path/to/prism/mcp/folio-mcp-server.js"] }
  */
 
-import { McpServer }          from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer }            from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { createRequire }       from 'module';
+import { createRequire }        from 'module';
+import path                     from 'path';
 
 // The core (CJS) modules are imported via createRequire since mcp/ is ESM
 // but src/ uses CJS ('use strict' + require()).
@@ -38,19 +42,63 @@ function log(obj) {
 }
 
 // ---------------------------------------------------------------------------
+// Per-root service resolver + cache (multi-folio)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `(folioRoot?) => FolioService` resolver backed by a per-root cache.
+ * A directory named `.folio` is opened as an explicit root; any other directory
+ * is used as a discovery cwd (walk up to find the nearest `.folio/`).
+ *
+ * @returns {{ resolve: (folioRoot?: string) => object, closeAll: () => void }}
+ */
+function makeResolver() {
+  const cache = new Map();
+
+  function openAt(dir) {
+    const opts = path.basename(dir) === '.folio' ? { root: dir } : { cwd: dir };
+    return createFolioService(openFileBackend(opts));
+  }
+
+  function resolve(folioRoot) {
+    const key = folioRoot ? path.resolve(folioRoot) : process.cwd();
+    let service = cache.get(key);
+    if (!service) {
+      service = openAt(key); // throws if no .folio/ is found — surfaced to the caller
+      cache.set(key, service);
+      log({
+        event:       'open',
+        root:        key,
+        backendKind: service.backend && service.backend.kind,
+        folioRoot:   (service.backend && service.backend.root) || '(n/a)',
+      });
+    }
+    return service;
+  }
+
+  function closeAll() {
+    for (const service of cache.values()) {
+      try { service.close(); } catch (_) { /* best-effort */ }
+    }
+    cache.clear();
+  }
+
+  return { resolve, closeAll };
+}
+
+// ---------------------------------------------------------------------------
 // Instrument: wrap each tool call to emit { tool, folioId, ok, ms } logs
 // ---------------------------------------------------------------------------
 
 /**
  * Wrap registerFolioTools so every tool call emits a structured log line.
- * We intercept server.tool() to add a timing/logging wrapper around the
- * handler without modifying folio-tools.js itself.
+ * Intercepts server.tool() to add a timing/logging wrapper around the handler
+ * without modifying folio-tools.js itself.
  *
  * @param {McpServer} server
- * @param {object}    service
+ * @param {Function}  resolver  `(folioRoot?) => FolioService`
  */
-function registerFolioToolsWithLogging(server, service) {
-  // Proxy the server so we can wrap handlers before passing to the real server.tool()
+function registerFolioToolsWithLogging(server, resolver) {
   const proxy = {
     tool(name, description, schema, handler) {
       const wrappedHandler = async (args) => {
@@ -65,10 +113,11 @@ function registerFolioToolsWithLogging(server, service) {
           throw e;
         } finally {
           log({
-            tool:    name,
-            folioId: args && args.folioId ? args.folioId : undefined,
-            ok:      success,
-            ms:      Date.now() - start,
+            tool:      name,
+            folioId:   args && args.folioId ? args.folioId : undefined,
+            folioRoot: args && args.folioRoot ? args.folioRoot : undefined,
+            ok:        success,
+            ms:        Date.now() - start,
           });
         }
       };
@@ -76,7 +125,7 @@ function registerFolioToolsWithLogging(server, service) {
     },
   };
 
-  registerFolioTools(proxy, service);
+  registerFolioTools(proxy, resolver);
 }
 
 // ---------------------------------------------------------------------------
@@ -84,42 +133,41 @@ function registerFolioToolsWithLogging(server, service) {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  // Discover .folio/ backend from cwd
-  let backend;
+  const { resolve, closeAll } = makeResolver();
+
+  // Probe the default folio (startup cwd) for a friendly startup log. A missing
+  // default is NOT fatal — multi-folio means callers can target other roots.
   try {
-    backend = openFileBackend({ cwd: process.cwd() });
+    const def = resolve(undefined);
+    log({
+      event:       'startup',
+      multiFolio:  true,
+      backendKind: def.backend && def.backend.kind,
+      defaultRoot: (def.backend && def.backend.root) || '(n/a)',
+    });
   } catch (e) {
-    log({ event: 'startup_error', error: e.message });
-    process.exit(1);
+    log({ event: 'startup', multiFolio: true, defaultFolio: 'none', note: e.message });
   }
-
-  log({
-    event:       'startup',
-    backendKind: backend.kind,
-    folioRoot:   backend.root ?? '(n/a)',
-  });
-
-  const service = createFolioService(backend);
 
   const server = new McpServer({
     name:    'folio',
     version: '1.0.0',
   });
 
-  registerFolioToolsWithLogging(server, service);
+  registerFolioToolsWithLogging(server, resolve);
 
   const transport = new StdioServerTransport();
 
-  // Clean exit on transport close
+  // Clean exit on transport close — close every cached service.
   transport.onclose = () => {
     log({ event: 'transport_closed' });
-    try { service.close(); } catch (_) {}
+    closeAll();
     process.exit(0);
   };
 
   await server.connect(transport);
 
-  log({ event: 'ready', tools: 11 });
+  log({ event: 'ready', tools: 13, multiFolio: true });
 }
 
 main().catch((e) => {

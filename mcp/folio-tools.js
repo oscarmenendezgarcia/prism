@@ -1,8 +1,15 @@
 /**
  * Folio — MCP Adapter (folio-tools.js)
  *
- * Exports `registerFolioTools(server, service)` — a thin, logic-free adapter
- * that maps each Folio MCP tool 1:1 onto the FolioService facade.
+ * Exports `registerFolioTools(server, serviceOrResolver)` — a thin, logic-free
+ * adapter that maps each Folio MCP tool 1:1 onto the FolioService facade.
+ *
+ * Multi-folio: the second argument may be either
+ *   • a FolioService            → single-folio (legacy; folioRoot ignored), or
+ *   • a resolver (folioRoot)=>FolioService → multi-folio. Every tool accepts an
+ *     optional `folioRoot` and resolves its service per call, so one server can
+ *     serve any .folio/ on disk without a restart. Backend selection lives in
+ *     the resolver (the server), never here.
  *
  * No business logic lives here beyond:
  *   • slug parsing (chapter/page split, # section detection)
@@ -11,18 +18,15 @@
  *   • result shaping to MCP { content, isError } format
  *
  * This module imports ONLY `zod` — it never selects a backend, never touches
- * space_id, and is shared by the standalone stdio server today and the future
- * Prism in-process server unchanged.
+ * space_id, and is shared by the standalone stdio server and the future Prism
+ * in-process server unchanged.
  *
- * Wiring note: not connected to mcp/mcp-server.js (HTTP/kanban-coupled).
- * Full wiring is deferred to the Folio HTTP API task. The standalone entry
- * point is mcp/folio-mcp-server.js.
- *
- * Tools registered (11 total):
+ * Tools registered (13 total):
  *   Read:   folio_search, folio_get_page, folio_list_chapters,
  *           folio_list_attachments, folio_get_attachment
  *   Write:  folio_create_page, folio_update_page, folio_delete_page
  *   Mgmt:   folio_list, folio_create, folio_delete
+ *   I/O:    folio_export, folio_import
  */
 
 import { z } from 'zod';
@@ -90,17 +94,32 @@ function resolvePageBySlug(service, folioId, slug) {
   return { page };
 }
 
+// Shared description for the optional multi-folio selector.
+const FOLIO_ROOT_DESC =
+  'Optional path to the target folio — a .folio/ directory, or any directory ' +
+  'at or under a repo that contains one. Omitted → the server default folio ' +
+  '(resolved from its startup directory).';
+
 // ---------------------------------------------------------------------------
 // Tool registration
 // ---------------------------------------------------------------------------
 
 /**
- * Register all 11 Folio MCP tools on an MCP McpServer instance.
+ * Register all Folio MCP tools on an MCP McpServer instance.
  *
  * @param {import('@modelcontextprotocol/sdk/server/mcp.js').McpServer} server
- * @param {object} service  — FolioService from createFolioService(backend)
+ * @param {object|Function} serviceOrResolver
+ *   Either a FolioService (single-folio, legacy) or a resolver
+ *   `(folioRoot?: string) => FolioService` (multi-folio). The resolver may throw
+ *   when a root has no folio — the error is surfaced to the caller.
  */
-export function registerFolioTools(server, service) {
+export function registerFolioTools(server, serviceOrResolver) {
+
+  // Normalise to a resolver. A plain service → a constant resolver that ignores
+  // folioRoot (keeps the legacy single-folio contract and existing tests green).
+  const resolve = typeof serviceOrResolver === 'function'
+    ? serviceOrResolver
+    : () => serviceOrResolver;
 
   // ── folio_search ──────────────────────────────────────────────────────────
 
@@ -108,12 +127,14 @@ export function registerFolioTools(server, service) {
     'folio_search',
     'Search Folio pages using FTS5/BM25 ranking. Returns ranked pages matching the query.',
     {
-      query:   z.string().min(1).describe('Full-text search query'),
-      folioId: z.string().describe('Folio UUID to search within'),
-      limit:   z.number().int().min(1).max(100).optional().describe('Maximum results (default 20)'),
+      query:     z.string().min(1).describe('Full-text search query'),
+      folioId:   z.string().describe('Folio UUID to search within'),
+      limit:     z.number().int().min(1).max(100).optional().describe('Maximum results (default 20)'),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ query, folioId, limit }) => {
+    async ({ query, folioId, limit, folioRoot }) => {
       try {
+        const service = resolve(folioRoot);
         const results = service.searchPages(folioId, query, { limit });
         return ok(JSON.stringify(
           results.map(({ page, score }) => ({
@@ -137,11 +158,13 @@ export function registerFolioTools(server, service) {
     'folio_get_page',
     'Get a Folio page by slug ("chapter/page") or a specific H2 section ("chapter/page#section-slug").',
     {
-      slug:    z.string().describe('Page slug as "chapter/page" or "chapter/page#section-slug"'),
-      folioId: z.string().describe('Folio UUID'),
+      slug:      z.string().describe('Page slug as "chapter/page" or "chapter/page#section-slug"'),
+      folioId:   z.string().describe('Folio UUID'),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ slug, folioId }) => {
+    async ({ slug, folioId, folioRoot }) => {
       try {
+        const service = resolve(folioRoot);
         const hashIdx = slug.indexOf('#');
         if (hashIdx !== -1) {
           // Section request — resolve via resolveRefs
@@ -174,10 +197,12 @@ export function registerFolioTools(server, service) {
     'folio_list_chapters',
     'List all chapters in a Folio with their page counts.',
     {
-      folioId: z.string().describe('Folio UUID'),
+      folioId:   z.string().describe('Folio UUID'),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ folioId }) => {
+    async ({ folioId, folioRoot }) => {
       try {
+        const service  = resolve(folioRoot);
         const chapters = service.listChapters(folioId);
         const result   = chapters.map((ch) => ({
           slug:     ch.slug,
@@ -200,11 +225,13 @@ export function registerFolioTools(server, service) {
     'folio_list_attachments',
     'List attachment metadata (id, name, mimeType, size) for a Folio page. No blob bytes.',
     {
-      slug:    z.string().describe('Page slug as "chapter/page"'),
-      folioId: z.string().describe('Folio UUID'),
+      slug:      z.string().describe('Page slug as "chapter/page"'),
+      folioId:   z.string().describe('Folio UUID'),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ slug, folioId }) => {
+    async ({ slug, folioId, folioRoot }) => {
       try {
+        const service  = resolve(folioRoot);
         const resolved = resolvePageBySlug(service, folioId, slug);
         if (resolved.errorResponse) return resolved.errorResponse;
         const { page } = resolved;
@@ -231,12 +258,14 @@ export function registerFolioTools(server, service) {
     'folio_get_attachment',
     'Get an attachment blob from a Folio page. Images returned as MCP image content; other types as base64 JSON envelope.',
     {
-      slug:    z.string().describe('Page slug as "chapter/page"'),
-      name:    z.string().describe('Attachment file name'),
-      folioId: z.string().describe('Folio UUID'),
+      slug:      z.string().describe('Page slug as "chapter/page"'),
+      name:      z.string().describe('Attachment file name'),
+      folioId:   z.string().describe('Folio UUID'),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ slug, name, folioId }) => {
+    async ({ slug, name, folioId, folioRoot }) => {
       try {
+        const service  = resolve(folioRoot);
         const resolved = resolvePageBySlug(service, folioId, slug);
         if (resolved.errorResponse) return resolved.errorResponse;
         const { page } = resolved;
@@ -277,13 +306,15 @@ export function registerFolioTools(server, service) {
     'folio_create_page',
     'Create a new Folio page. The chapter is created automatically if absent. Author is always "agent".',
     {
-      slug:    z.string().describe('Full slug as "chapter/page"'),
-      content: z.string().describe('Page content in Markdown'),
-      folioId: z.string().describe('Folio UUID'),
-      title:   z.string().optional().describe('Page title (inferred from slug if absent)'),
+      slug:      z.string().describe('Full slug as "chapter/page"'),
+      content:   z.string().describe('Page content in Markdown'),
+      folioId:   z.string().describe('Folio UUID'),
+      title:     z.string().optional().describe('Page title (inferred from slug if absent)'),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ slug, content, folioId, title }) => {
+    async ({ slug, content, folioId, title, folioRoot }) => {
       try {
+        const service = resolve(folioRoot);
         // Activation guard: agents must not back-door-create a folio
         const folio = service.getFolio(folioId);
         if (!folio) {
@@ -307,12 +338,14 @@ export function registerFolioTools(server, service) {
     'folio_update_page',
     'Update the content of an existing Folio page. Title and pin state updates are out of v1 scope.',
     {
-      slug:    z.string().describe('Page slug as "chapter/page"'),
-      content: z.string().describe('New page content in Markdown'),
-      folioId: z.string().describe('Folio UUID'),
+      slug:      z.string().describe('Page slug as "chapter/page"'),
+      content:   z.string().describe('New page content in Markdown'),
+      folioId:   z.string().describe('Folio UUID'),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ slug, content, folioId }) => {
+    async ({ slug, content, folioId, folioRoot }) => {
       try {
+        const service  = resolve(folioRoot);
         const resolved = resolvePageBySlug(service, folioId, slug);
         if (resolved.errorResponse) return resolved.errorResponse;
         const { page } = resolved;
@@ -330,11 +363,13 @@ export function registerFolioTools(server, service) {
     'folio_delete_page',
     'Delete a Folio page by slug. Returns { deleted: true } on success or { deleted: false } if not found.',
     {
-      slug:    z.string().describe('Page slug as "chapter/page"'),
-      folioId: z.string().describe('Folio UUID'),
+      slug:      z.string().describe('Page slug as "chapter/page"'),
+      folioId:   z.string().describe('Folio UUID'),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ slug, folioId }) => {
+    async ({ slug, folioId, folioRoot }) => {
       try {
+        const service  = resolve(folioRoot);
         const resolved = resolvePageBySlug(service, folioId, slug);
         if (resolved.errorResponse) {
           // Unknown slug → not found, not an error
@@ -354,10 +389,13 @@ export function registerFolioTools(server, service) {
   server.tool(
     'folio_list',
     'List all folios in the backend. Returns [{ id, name, createdAt }].',
-    {},
-    async () => {
+    {
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
+    },
+    async ({ folioRoot }) => {
       try {
-        const folios = service.listFolios();
+        const service = resolve(folioRoot);
+        const folios  = service.listFolios();
         return ok(JSON.stringify(
           folios.map((f) => ({ id: f.id, name: f.name, createdAt: f.createdAt })),
           null,
@@ -375,11 +413,13 @@ export function registerFolioTools(server, service) {
     'folio_create',
     'Create a new Folio. This is an explicit user gesture — agents should not call this on behalf of users without confirmation.',
     {
-      name: z.string().min(1).describe('Human-readable folio name'),
+      name:      z.string().min(1).describe('Human-readable folio name'),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ name }) => {
+    async ({ name, folioRoot }) => {
       try {
-        const folio = service.createFolio({ name });
+        const service = resolve(folioRoot);
+        const folio   = service.createFolio({ name });
         return ok(JSON.stringify({ id: folio.id, name: folio.name, createdAt: folio.createdAt }));
       } catch (e) {
         return err(`Error: ${e.message}`);
@@ -395,10 +435,12 @@ export function registerFolioTools(server, service) {
     'folio_delete',
     'Delete a Folio and ALL its chapters, pages, attachments and FTS rows. DESTRUCTIVE. Not available on the file backend.',
     {
-      folioId: z.string().describe('Folio UUID to delete'),
+      folioId:   z.string().describe('Folio UUID to delete'),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ folioId }) => {
+    async ({ folioId, folioRoot }) => {
       try {
+        const service = resolve(folioRoot);
         // File-backend guard — agents must not wipe the user's .folio/ dir
         if (service.backend && service.backend.kind === 'file') {
           return err('folio-level delete unsupported on file backend; use the CLI');
@@ -420,13 +462,15 @@ export function registerFolioTools(server, service) {
     'Otherwise writes a plain markdown folder (exportFolio). ' +
     'Returns an ExportResult with dir/file, name, chapters, pages, attachments counts.',
     {
-      folioId:  z.string().describe('Folio UUID to export'),
-      destPath: z.string().describe(
+      folioId:   z.string().describe('Folio UUID to export'),
+      destPath:  z.string().describe(
         'Destination directory path (for folder export) or file path ending in ".folio" (for zip archive)',
       ),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ folioId, destPath }) => {
+    async ({ folioId, destPath, folioRoot }) => {
       try {
+        const service = resolve(folioRoot);
         let result;
         if (destPath.endsWith('.folio')) {
           result = service.packFolio(folioId, destPath);
@@ -449,15 +493,17 @@ export function registerFolioTools(server, service) {
     'Otherwise reads the folder directly (importFolder). ' +
     'Creates a new folio in the store. Returns an ImportResult with folioId, counts, and any skipped entries.',
     {
-      srcPath: z.string().describe(
+      srcPath:   z.string().describe(
         'Source directory path (markdown folder) or file path ending in ".folio" (zip archive)',
       ),
-      name: z.string().optional().describe(
+      name:      z.string().optional().describe(
         'Override folio name (defaults to the name in folio.json manifest)',
       ),
+      folioRoot: z.string().optional().describe(FOLIO_ROOT_DESC),
     },
-    async ({ srcPath, name }) => {
+    async ({ srcPath, name, folioRoot }) => {
       try {
+        const service = resolve(folioRoot);
         const opts = name ? { name } : {};
         let result;
         if (srcPath.endsWith('.folio')) {
