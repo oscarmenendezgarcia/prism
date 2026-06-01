@@ -7,38 +7,10 @@
  * Vocabulary: neutral author labels — "You" (user), "Agent" (agent).
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { FolioPageMeta } from '@/api/client';
 import { Button } from '@/components/shared/Button';
-
-// ---------------------------------------------------------------------------
-// Relative time helper
-// ---------------------------------------------------------------------------
-
-function relativeTime(isoString: string): string {
-  const now = Date.now();
-  const then = new Date(isoString).getTime();
-  const diffMs = now - then;
-  const diffMins = Math.floor(diffMs / 60_000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
-  const diffHrs = Math.floor(diffMins / 60);
-  if (diffHrs < 24) return `${diffHrs} hour${diffHrs === 1 ? '' : 's'} ago`;
-  const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-  const diffWeeks = Math.floor(diffDays / 7);
-  if (diffDays < 60) return `${diffWeeks} week${diffWeeks === 1 ? '' : 's'} ago`;
-  const diffMonths = Math.floor(diffDays / 30);
-  return `${diffMonths} month${diffMonths === 1 ? '' : 's'} ago`;
-}
-
-// ---------------------------------------------------------------------------
-// Author label
-// ---------------------------------------------------------------------------
-
-function authorLabel(author: 'user' | 'agent'): string {
-  return author === 'user' ? 'You' : 'Agent';
-}
+import { relativeTime, authorLabel } from '@/utils/folioUtils';
 
 // ---------------------------------------------------------------------------
 // Context menu
@@ -133,16 +105,21 @@ function PageRow({ page, onOpen, onDelete }: PageRowProps) {
   const label = authorLabel(page.author);
 
   return (
-    <button
-      type="button"
+    /* BUG-003 fix: outer element must not be a <button> because PageRowMenu
+       contains a real <button>. HTML5 prohibits interactive content inside
+       <button>. A div with role="button" is a valid host for child buttons. */
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onOpen()}
       className="
         group w-full flex items-center gap-4
         px-5 py-3.5 rounded-xl
         bg-surface border border-border
         hover:border-primary/30 hover:bg-surface-elevated
         transition-all duration-200 ease-apple
-        text-left
+        text-left cursor-pointer
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
       "
       aria-label={`Page: ${page.title}, Author: ${label}, Updated ${rel}`}
@@ -176,7 +153,7 @@ function PageRow({ page, onOpen, onDelete }: PageRowProps) {
       <div onClick={(e) => e.stopPropagation()}>
         <PageRowMenu onOpen={onOpen} onDelete={onDelete} />
       </div>
-    </button>
+    </div>
   );
 }
 

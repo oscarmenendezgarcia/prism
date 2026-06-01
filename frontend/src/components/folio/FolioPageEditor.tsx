@@ -13,36 +13,12 @@
  * Neutral vocabulary: author='user' → "You", author='agent' → "Agent".
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { FolioPage } from '@/api/client';
 import { Button } from '@/components/shared/Button';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function relativeTime(isoString: string): string {
-  const now = Date.now();
-  const then = new Date(isoString).getTime();
-  const diffMs = now - then;
-  const diffMins = Math.floor(diffMs / 60_000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
-  const diffHrs = Math.floor(diffMins / 60);
-  if (diffHrs < 24) return `${diffHrs} hour${diffHrs === 1 ? '' : 's'} ago`;
-  const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
-  const diffWeeks = Math.floor(diffDays / 7);
-  if (diffDays < 60) return `${diffWeeks} week${diffWeeks === 1 ? '' : 's'} ago`;
-  const diffMonths = Math.floor(diffDays / 30);
-  return `${diffMonths} month${diffMonths === 1 ? '' : 's'} ago`;
-}
-
-function authorLabel(author: 'user' | 'agent'): string {
-  return author === 'user' ? 'You' : 'Agent';
-}
+import { relativeTime, authorLabel } from '@/utils/folioUtils';
 
 // ---------------------------------------------------------------------------
 // Delete confirmation dialog

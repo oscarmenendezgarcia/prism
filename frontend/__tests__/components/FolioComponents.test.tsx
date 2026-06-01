@@ -23,8 +23,11 @@ import { FolioPageEditor } from '../../src/components/folio/FolioPageEditor';
 import { FolioToggle } from '../../src/components/folio/FolioToggle';
 // ── NewPageModal ─────────────────────────────────────────────────────────────
 import { NewPageModal } from '../../src/components/folio/NewPageModal';
+// ── FolioScreen ──────────────────────────────────────────────────────────────
+import { FolioScreen } from '../../src/components/folio/FolioScreen';
 
 import { useAppStore } from '../../src/stores/useAppStore';
+import { useFolioStore } from '../../src/stores/useFolioStore';
 import type { FolioChapter, FolioPageMeta, FolioPage } from '../../src/api/client';
 
 // ---------------------------------------------------------------------------
@@ -924,6 +927,249 @@ describe('NewPageModal — submit', () => {
       />
     );
     fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+});
+
+// ===========================================================================
+// NewPageModal — inline validation (BUG-001 fix)
+// Tests that onBlur handlers surface inline error messages so users
+// understand why the Create button is disabled.
+// ===========================================================================
+
+describe('NewPageModal — inline blur validation (BUG-001)', () => {
+  // Use role="alert" to distinguish inline errors from the static hint text
+  // that shares similar wording ("Lowercase letters, numbers, and hyphens only").
+
+  it('shows inline error on chapter field after blur with invalid slug', () => {
+    render(
+      <NewPageModal
+        open={true}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        isMutating={false}
+      />
+    );
+    const chapterInput = document.getElementById('np-chapter')!;
+    fireEvent.change(chapterInput, { target: { value: 'Architecture' } }); // uppercase invalid
+    fireEvent.blur(chapterInput);
+    // role="alert" is on the inline error element, not the static hint
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/lowercase letters/i);
+  });
+
+  it('shows inline error on page field after blur with invalid slug', () => {
+    render(
+      <NewPageModal
+        open={true}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        isMutating={false}
+      />
+    );
+    const pageInput = document.getElementById('np-page')!;
+    fireEvent.change(pageInput, { target: { value: 'My Page!' } }); // special chars invalid
+    fireEvent.blur(pageInput);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/lowercase letters/i);
+  });
+
+  it('clears inline error on chapter field when corrected and blurred again', () => {
+    render(
+      <NewPageModal
+        open={true}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        isMutating={false}
+      />
+    );
+    const chapterInput = document.getElementById('np-chapter')!;
+    // First: introduce error
+    fireEvent.change(chapterInput, { target: { value: 'Bad Slug' } });
+    fireEvent.blur(chapterInput);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    // Then: fix it
+    fireEvent.change(chapterInput, { target: { value: 'good-slug' } });
+    fireEvent.blur(chapterInput);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not show error for empty chapter field on blur (error only when non-empty and invalid)', () => {
+    render(
+      <NewPageModal
+        open={true}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        isMutating={false}
+      />
+    );
+    const chapterInput = document.getElementById('np-chapter')!;
+    // Field is already empty on mount; blur it without typing
+    fireEvent.blur(chapterInput);
+    // No alert should appear for empty field
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('clears inline error immediately when user starts typing to correct', () => {
+    render(
+      <NewPageModal
+        open={true}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        isMutating={false}
+      />
+    );
+    const chapterInput = document.getElementById('np-chapter')!;
+    fireEvent.change(chapterInput, { target: { value: 'Bad' } });
+    fireEvent.blur(chapterInput);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    // Any change clears the error immediately (onChange clears error state)
+    fireEvent.change(chapterInput, { target: { value: 'bad-slug' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+// ===========================================================================
+// FolioPageList — PageRow accessibility (BUG-003 fix)
+// Verifies the row element is not a <button> (no nested button violations).
+// ===========================================================================
+
+describe('FolioPageList — PageRow is not a <button> (BUG-003)', () => {
+  it('page row renders as a div with role=button, not a <button> element', () => {
+    render(
+      <FolioPageList
+        chapterTitle="Architecture"
+        pages={PAGES}
+        loading={false}
+        onOpenPage={vi.fn()}
+        onDeletePage={vi.fn()}
+        onNewPage={vi.fn()}
+        onBack={vi.fn()}
+      />
+    );
+    const row = screen.getByTestId('page-row-auth-redesign');
+    // Should be a div, not a button element
+    expect(row.tagName.toLowerCase()).toBe('div');
+    expect(row).toHaveAttribute('role', 'button');
+    expect(row).toHaveAttribute('tabindex', '0');
+  });
+
+  it('page row is keyboard-activatable via Enter key', () => {
+    const onOpenPage = vi.fn();
+    render(
+      <FolioPageList
+        chapterTitle="Architecture"
+        pages={PAGES}
+        loading={false}
+        onOpenPage={onOpenPage}
+        onDeletePage={vi.fn()}
+        onNewPage={vi.fn()}
+        onBack={vi.fn()}
+      />
+    );
+    const row = screen.getByTestId('page-row-auth-redesign');
+    fireEvent.keyDown(row, { key: 'Enter' });
+    expect(onOpenPage).toHaveBeenCalledWith('auth-redesign');
+  });
+
+  it('page row is keyboard-activatable via Space key', () => {
+    const onOpenPage = vi.fn();
+    render(
+      <FolioPageList
+        chapterTitle="Architecture"
+        pages={PAGES}
+        loading={false}
+        onOpenPage={onOpenPage}
+        onDeletePage={vi.fn()}
+        onNewPage={vi.fn()}
+        onBack={vi.fn()}
+      />
+    );
+    const row = screen.getByTestId('page-row-auth-redesign');
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(onOpenPage).toHaveBeenCalledWith('auth-redesign');
+  });
+});
+
+// ===========================================================================
+// FolioScreen — space-switch reset (BUG-006)
+// Verifies that changing activeSpaceId calls reset() then loadIndex().
+// ===========================================================================
+
+describe('FolioScreen — space-switch reset (BUG-006)', () => {
+  let reset: ReturnType<typeof vi.fn>;
+  let loadIndex: ReturnType<typeof vi.fn>;
+
+  function makeFolioStore() {
+    reset = vi.fn();
+    loadIndex = vi.fn();
+    (useFolioStore as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
+      view: 'chapters',
+      active: false,
+      chapters: [],
+      activeChapterSlug: null,
+      pages: [],
+      activePage: null,
+      loading: false,
+      isMutating: false,
+      loadIndex,
+      openChapter: vi.fn(),
+      openPage: vi.fn(),
+      back: vi.fn(),
+      createPage: vi.fn(),
+      savePage: vi.fn(),
+      deletePage: vi.fn(),
+      reset,
+    });
+  }
+
+  it('calls loadIndex on mount', () => {
+    makeFolioStore();
+    useAppStore.setState({ activeSpaceId: 'space-1' });
+    render(<FolioScreen onClose={vi.fn()} />);
+    expect(loadIndex).toHaveBeenCalledOnce();
+  });
+
+  it('calls reset then loadIndex when activeSpaceId changes', async () => {
+    makeFolioStore();
+    useAppStore.setState({ activeSpaceId: 'space-A' });
+    render(<FolioScreen onClose={vi.fn()} />);
+
+    reset.mockClear();
+    loadIndex.mockClear();
+
+    // Simulate space switch
+    useAppStore.setState({ activeSpaceId: 'space-B' });
+
+    await waitFor(() => {
+      expect(reset).toHaveBeenCalledOnce();
+      expect(loadIndex).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('does NOT call reset when space stays the same', async () => {
+    makeFolioStore();
+    useAppStore.setState({ activeSpaceId: 'space-A' });
+    render(<FolioScreen onClose={vi.fn()} />);
+
+    reset.mockClear();
+    loadIndex.mockClear();
+
+    // Set the same spaceId — no reset expected
+    useAppStore.setState({ activeSpaceId: 'space-A' });
+
+    // loadIndex may re-run (dependency array includes activeSpaceId), but reset must not
+    await waitFor(() => {
+      expect(reset).not.toHaveBeenCalled();
+    });
+  });
+
+  it('renders Close button and calls onClose when clicked', () => {
+    makeFolioStore();
+    useAppStore.setState({ activeSpaceId: 'space-1' });
+    const onClose = vi.fn();
+    render(<FolioScreen onClose={onClose} />);
+    fireEvent.click(screen.getByRole('button', { name: /close folio/i }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 });
