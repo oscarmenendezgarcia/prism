@@ -811,3 +811,118 @@ export const getFolioRefSections = (
     `/spaces/${encodeURIComponent(spaceId)}/folio/refs/sections?${qs.toString()}`,
   ).then((r) => r.sections);
 };
+
+// ---------------------------------------------------------------------------
+// Folio CRUD (T-003: folio-index-ui)
+// ---------------------------------------------------------------------------
+
+/** A chapter in the Folio index. */
+export interface FolioChapter {
+  slug:      string;
+  title:     string;
+  position:  number;
+  pageCount: number;
+}
+
+/** Folio index response: active status + chapter list with page counts. */
+export interface FolioIndex {
+  active:   boolean;
+  chapters: FolioChapter[];
+}
+
+/** Lightweight page metadata (no content). */
+export interface FolioPageMeta {
+  id:          string;
+  slug:        string;
+  chapterSlug: string;
+  title:       string;
+  author:      'user' | 'agent';
+  createdAt:   string;
+  updatedAt:   string;
+}
+
+/** Full page object with markdown content. */
+export interface FolioPage {
+  id:          string;
+  slug:        string;
+  chapterSlug: string;
+  title:       string;
+  content:     string;
+  author:      'user' | 'agent';
+  pinned:      boolean;
+  createdAt:   string;
+  updatedAt:   string;
+}
+
+/** Payload for creating a new page. */
+export interface CreateFolioPagePayload {
+  slug:     string;
+  title?:   string;
+  content?: string;
+}
+
+/** Payload for updating an existing page. */
+export interface UpdateFolioPagePayload {
+  content?: string;
+  title?:   string;
+  pinned?:  boolean;
+}
+
+/**
+ * Fetch the Folio index for a space: chapters with page counts.
+ * Returns active=false when no folio is bound.
+ */
+export const getFolioIndex = (spaceId: string): Promise<FolioIndex> =>
+  apiFetch<FolioIndex>(`/spaces/${encodeURIComponent(spaceId)}/folio`);
+
+/**
+ * Fetch all pages in a chapter (metadata only — no content).
+ */
+export const getChapterPages = (spaceId: string, chapterSlug: string): Promise<FolioPageMeta[]> =>
+  apiFetch<{ pages: FolioPageMeta[] }>(
+    `/spaces/${encodeURIComponent(spaceId)}/folio/chapters/${encodeURIComponent(chapterSlug)}/pages`,
+  ).then((r) => r.pages);
+
+/**
+ * Fetch a single page with full markdown content.
+ */
+export const getFolioPage = (spaceId: string, chapterSlug: string, pageSlug: string): Promise<FolioPage> =>
+  apiFetch<FolioPage>(
+    `/spaces/${encodeURIComponent(spaceId)}/folio/pages/${encodeURIComponent(chapterSlug)}/${encodeURIComponent(pageSlug)}`,
+  );
+
+/**
+ * Create a new page (also activates the folio if first page in space).
+ */
+export const createFolioPage = (spaceId: string, payload: CreateFolioPagePayload): Promise<FolioPage> =>
+  apiFetch<FolioPage>(`/spaces/${encodeURIComponent(spaceId)}/folio/pages`, {
+    method: 'POST',
+    body:   JSON.stringify(payload),
+  });
+
+/**
+ * Update a page's content, title, or pinned status. Author is preserved.
+ */
+export const updateFolioPage = (
+  spaceId: string,
+  chapterSlug: string,
+  pageSlug: string,
+  payload: UpdateFolioPagePayload,
+): Promise<FolioPage> =>
+  apiFetch<FolioPage>(
+    `/spaces/${encodeURIComponent(spaceId)}/folio/pages/${encodeURIComponent(chapterSlug)}/${encodeURIComponent(pageSlug)}`,
+    { method: 'PUT', body: JSON.stringify(payload) },
+  );
+
+/**
+ * Delete a page. Returns void (204 No Content).
+ */
+export const deleteFolioPage = (
+  spaceId: string,
+  chapterSlug: string,
+  pageSlug: string,
+): Promise<void> =>
+  apiFetch<void>(
+    `/spaces/${encodeURIComponent(spaceId)}/folio/pages/${encodeURIComponent(chapterSlug)}/${encodeURIComponent(pageSlug)}`,
+    { method: 'DELETE' },
+  );
