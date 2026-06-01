@@ -138,8 +138,16 @@ function createSpaceManager(storeOrDataDir) {
       };
     }
 
+    // Default repo-backed spaces to the file backend: the .folio/ directory
+    // travels with the repo (git = sync) and matches where the standalone MCP
+    // server and pipeline write-back operate, so UI + MCP + git stay in sync.
+    // Spaces without a working directory stay on sqlite. Explicit value wins.
+    const resolvedBackend = folioBackend != null
+      ? folioBackend
+      : (workingDirectory ? 'file' : 'sqlite');
+
     // Validate folioBackend setting.
-    const folioValidation = validateFolioBackend({ folioBackend, workingDirectory });
+    const folioValidation = validateFolioBackend({ folioBackend: resolvedBackend, workingDirectory });
     if (!folioValidation.valid) {
       return { ok: false, code: 'VALIDATION_ERROR', message: folioValidation.errors[0] };
     }
@@ -232,6 +240,15 @@ function createSpaceManager(storeOrDataDir) {
         return { ok: false, code: 'VALIDATION_ERROR', message: folioValidation.errors[0] };
       }
       resolvedFolioBackend = folioValidation.data.folioBackend;
+    } else if (workingDirectory && !existing.workingDirectory && existing.folioBackend == null) {
+      // Working directory newly added to a repo-less space: apply the same
+      // default as createSpace (repo → file) so UI + MCP + git share one .folio/.
+      // Only pre-activation — the backend is immutable once a folio exists.
+      let activated = false;
+      if (store.folio && store.folio.binding) {
+        try { activated = store.folio.binding.hasFolio(id); } catch (_) {}
+      }
+      if (!activated) resolvedFolioBackend = 'file';
     }
 
     const updated = {

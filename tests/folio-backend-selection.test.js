@@ -914,6 +914,22 @@ describe('T-006: spaceManager folioBackend validation from REST perspective', ()
     }
   });
 
+  it('createSpace with a working directory defaults to the file backend', () => {
+    const { createStore } = require('../src/services/store');
+    const { createSpaceManager } = require('../src/services/spaceManager');
+    const tmpDir = makeTempDir();
+    const store = createStore(':memory:');
+    const mgr = createSpaceManager(store);
+    try {
+      const result = mgr.createSpace('RepoSpace', tmpDir);
+      assert.equal(result.ok, true);
+      // Repo-backed spaces default to file so UI + MCP + git share one .folio/.
+      assert.equal(result.space.folioBackend, 'file');
+    } finally {
+      store.close();
+    }
+  });
+
   it('renameSpace accepts folioBackend change when no folio activated yet', () => {
     const { createStore } = require('../src/services/store');
     const { createSpaceManager } = require('../src/services/spaceManager');
