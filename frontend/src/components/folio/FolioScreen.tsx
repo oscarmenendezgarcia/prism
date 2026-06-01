@@ -176,8 +176,10 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* New Page shortcut in header (only visible on chapter/page-list view) */}
-          {(view === 'chapters' || view === 'pages') && (
+          {/* New Page shortcut — only on the chapter index. In the page-list view
+              FolioPageList shows its own (chapter-contextual) New Page button, so
+              showing it here too would duplicate it. */}
+          {view === 'chapters' && (
             <Button variant="secondary" onClick={handleOpenNewPage} aria-label="Create new page">
               <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">add</span>
               New Page
