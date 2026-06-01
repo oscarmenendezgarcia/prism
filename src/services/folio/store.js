@@ -237,14 +237,17 @@ function createFolioStore(db) {
       'SELECT * FROM pages WHERE folio_id = ? AND chapter_slug = ? ORDER BY created_at ASC',
     ),
 
-    // FTS search
+    // FTS search — title weighted 10× content so a page whose *title* matches
+    // (e.g. "MCP Tools" for `[[MCP`) outranks long pages that merely mention the
+    // term in their body. bm25() returns negative scores (lower = better match);
+    // the heavier title weight pushes title hits further negative → to the top.
     searchPages: db.prepare(`
-      SELECT p.*, bm25(pages_fts) AS _score
+      SELECT p.*, bm25(pages_fts, 10.0, 1.0) AS _score
         FROM pages_fts
         JOIN pages p ON p.rowid = pages_fts.rowid
        WHERE pages_fts MATCH ?
          AND p.folio_id = ?
-       ORDER BY bm25(pages_fts)
+       ORDER BY bm25(pages_fts, 10.0, 1.0)
        LIMIT ?
     `),
 
