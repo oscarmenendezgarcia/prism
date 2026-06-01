@@ -3,7 +3,7 @@ title: Agent Write-Back
 author: user
 pinned: false
 created: 2026-05-31
-updated: 2026-05-31
+updated: 2026-06-01
 tags: [write-back, pipeline, acrecion]
 ---
 
@@ -11,9 +11,11 @@ tags: [write-back, pipeline, acrecion]
 
 This is the "augmentable" thesis. The policy:
 
-## 1. They only write if the folio ALREADY exists
+## 1. Write-back itself never CREATES the folio
 
-If the user didn't activate the folio, the pipeline runs without one and nobody creates it through the back door. This preserves the opt-in. No folio → no injection, no write-back, zero overhead. (Implemented via `createIfMissing: false`, see [[data-model/activation]].)
+The consolidation step writes with `createIfMissing: false`: no folio → no-op. So write-back *alone* preserves opt-in — no folio means no injection, no write-back, zero overhead.
+
+**Caveat — write-back is not the only folio step in the pipeline.** On the first run in a space whose working dir is a git repo, the [[flows/bootstrap]] step *does* auto-create the folio (`createIfMissing:true`); from then on this consolidation step contributes too. So for repo-backed spaces the folio activates automatically on first run, not through this step. The "no back-door creation" guarantee holds for write-back, not for bootstrap — see [[data-model/activation]].
 
 ## 2. A SINGLE consolidation write at the end of the pipeline
 

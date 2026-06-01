@@ -3,7 +3,7 @@ title: Activation — opt-in and createIfMissing
 author: user
 pinned: true
 created: 2026-05-31
-updated: 2026-05-31
+updated: 2026-06-01
 tags: [opt-in, activacion, store]
 ---
 
@@ -26,12 +26,14 @@ That way "agents don't create the folio through the back door" is a property of 
 
 ## Chicken and egg, solved
 
-Agents only write to folios that already exist. Creation is ALWAYS a user gesture:
+Agent **write-back** only touches folios that already exist (`createIfMissing:false` — a no-op otherwise). Creation happens through one of these explicit paths:
 1. The "Activate Folio" toggle (UI client) — the primary mental model.
 2. Writing the first page by hand.
-3. Bootstrap from the repo (see [[flows/bootstrap]]).
-4. Importing a .folio / markdown folder.
+3. Importing a .folio / markdown folder.
+4. **Automatic repo bootstrap** — the one path that is NOT a user gesture. The first time a pipeline runs in a space whose working dir is a git repo, the bootstrapper agent materializes the folio (`createIfMissing:true`) with a few conservative architecture pages. One-shot per space; opt out with `PRISM_FOLIO_BOOTSTRAP=off`. See [[flows/bootstrap]].
 
-The clients (UI toggle, CLI, MCP) are interchangeable over the same store operation.
+The user-gesture clients (UI toggle, CLI, MCP) are interchangeable over the same store operation.
 
-Folio exists = it has ≥1 page via an explicit path.
+**Net effect on opt-in:** strict for **non-repo** spaces (nothing auto-creates the folio — it accretes only if you activate it), but **relaxed for repo-backed spaces**, where the bootstrap auto-activates on the first pipeline run. The discriminator is `detectRepo(workingDir)`. This is a deliberate evolution from the original "no back-door creation" stance, kept honest here so the rule isn't re-derived wrongly.
+
+Folio exists = it has ≥1 page via one of those paths.
