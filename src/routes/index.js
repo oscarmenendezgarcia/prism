@@ -59,6 +59,14 @@ const {
   handleFolioSearchRefs,
   handleFolioSections,
 } = require('../handlers/folioRefs');
+const {
+  handleGetFolioIndex,
+  handleGetChapterPages,
+  handleGetFolioPage,
+  handleCreateFolioPage,
+  handleUpdateFolioPage,
+  handleDeleteFolioPage,
+} = require('../handlers/folioPages');
 
 const {
   PIPELINE_RUNS_LIST_ROUTE,
@@ -97,6 +105,13 @@ const COMMENTS_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comm
 // Folio reference autocomplete routes — MUST be before SPACES_TASKS_ROUTE.
 const FOLIO_REFS_SEARCH_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/folio\/refs\/search$/;
 const FOLIO_REFS_SECTIONS_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/folio\/refs\/sections$/;
+
+// Folio CRUD routes — MUST be before SPACES_TASKS_ROUTE.
+// Order matters: more-specific routes must appear before less-specific ones.
+const FOLIO_INDEX_ROUTE          = /^\/api\/v1\/spaces\/([^/]+)\/folio$/;
+const FOLIO_CHAPTER_PAGES_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/folio\/chapters\/([^/]+)\/pages$/;
+const FOLIO_PAGE_SINGLE_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages\/([^/]+)\/([^/]+)$/;
+const FOLIO_PAGES_LIST_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages$/;
 
 const SYSTEM_INFO_ROUTE   = /^\/api\/v1\/system\/info$/;
 const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
@@ -207,6 +222,96 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         return handleAutoTaskConfirm(req, res, spaceId, store);
       }
 
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Folio CRUD routes — BEFORE SPACES_TASKS_ROUTE (T-002: folio-index-ui).
+    // Grouped with existing folio refs routes; ordered most-specific first.
+    //
+    //   GET    /folio                                  → index (chapters + counts)
+    //   GET    /folio/chapters/:slug/pages             → page list (meta only)
+    //   GET    /folio/pages/:chapterSlug/:pageSlug     → single page (full content)
+    //   POST   /folio/pages                            → create page (activation)
+    //   PUT    /folio/pages/:chapterSlug/:pageSlug     → update page
+    //   DELETE /folio/pages/:chapterSlug/:pageSlug     → delete page
+    // -------------------------------------------------------------------------
+
+    // Single-page route (GET/PUT/DELETE) — must be before pages-list route.
+    const folioPageSingleMatch = FOLIO_PAGE_SINGLE_ROUTE.exec(urlPath);
+    if (folioPageSingleMatch) {
+      const spaceId     = folioPageSingleMatch[1];
+      const chapterSlug = folioPageSingleMatch[2];
+      const pageSlug    = folioPageSingleMatch[3];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'GET') {
+        return handleGetFolioPage(req, res, spaceId, chapterSlug, pageSlug, store);
+      }
+      if (method === 'PUT') {
+        return handleUpdateFolioPage(req, res, spaceId, chapterSlug, pageSlug, store);
+      }
+      if (method === 'DELETE') {
+        return handleDeleteFolioPage(req, res, spaceId, chapterSlug, pageSlug, store);
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // Chapter pages list route (GET).
+    const folioChapterPagesMatch = FOLIO_CHAPTER_PAGES_ROUTE.exec(urlPath);
+    if (folioChapterPagesMatch) {
+      const spaceId     = folioChapterPagesMatch[1];
+      const chapterSlug = folioChapterPagesMatch[2];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'GET') {
+        return handleGetChapterPages(req, res, spaceId, chapterSlug, store);
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // Pages list route (POST only — creation / activation gesture).
+    const folioPagesListMatch = FOLIO_PAGES_LIST_ROUTE.exec(urlPath);
+    if (folioPagesListMatch) {
+      const spaceId = folioPagesListMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'POST') {
+        return handleCreateFolioPage(req, res, spaceId, store);
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // Folio index route (GET) — must be last among folio routes to avoid
+    // shadowing the more-specific routes registered above.
+    const folioIndexMatch = FOLIO_INDEX_ROUTE.exec(urlPath);
+    if (folioIndexMatch) {
+      const spaceId = folioIndexMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'GET') {
+        return handleGetFolioIndex(req, res, spaceId, store);
+      }
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
         `Method '${method}' is not allowed on this route`);
     }
