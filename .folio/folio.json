@@ -1,9 +1,15 @@
 {
-  "name": "Folio",
+  "name": "Prism",
   "formatVersion": "1.0",
-  "description": "Base de conocimiento navegable y aumentable para agentes. Este folio documenta el diseño del propio Folio (dogfooding) y sirve de fixture para probar la implementación.",
+  "description": "Base de conocimiento del repo Prism. Capítulos de proyecto (stack, estructura, convenciones, comandos, lecciones) para que un agente no re-analice el repo desde cero, + el diseño completo de la feature Folio (concepto, modelo-datos, arquitectura, inyeccion, mcp-tools, flujos, decisiones, estado).",
   "createdAt": "2026-05-31",
+  "updatedAt": "2026-06-01",
   "chapters": [
+    "stack",
+    "estructura",
+    "convenciones",
+    "comandos",
+    "lecciones",
     "concepto",
     "modelo-datos",
     "arquitectura",
