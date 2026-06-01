@@ -19,6 +19,7 @@ import { FolioPageEditor }  from './FolioPageEditor';
 import { NewPageModal }     from './NewPageModal';
 import { ApiError }         from '@/api/client';
 import { Button }           from '@/components/shared/Button';
+import { usePanelResize }   from '@/hooks/usePanelResize';
 
 // ---------------------------------------------------------------------------
 // FolioScreen
@@ -49,6 +50,14 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
     deletePage,
     reset,
   } = useFolioStore();
+
+  // Resizable width + persistence — shared pattern with sibling panels (ADR-1 §5.1).
+  const { width, handleMouseDown, minWidth, maxWidth } = usePanelResize({
+    storageKey:   'prism:panel-width:folio',
+    defaultWidth: 480,
+    minWidth:     320,
+    maxWidth:     800,
+  });
 
   // ── New page modal state ─────────────────────────────────────────────────
 
@@ -118,12 +127,25 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div
-      className="flex flex-col h-full bg-background"
+    <aside
+      className="relative flex flex-col bg-surface-elevated border-l border-border h-full shrink-0 w-[var(--panel-w)] [animation:var(--animate-panel-in)]"
+      style={{ '--panel-w': `${width}px` } as React.CSSProperties} // lint-ok: CSS custom-property injection for dynamic panel resize — Tailwind cannot set runtime CSS vars at the element level
+      aria-label="Folio"
       data-testid="folio-screen"
     >
+      {/* Left-edge drag handle — shared resize pattern with sibling panels */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize panel"
+        aria-valuenow={width}
+        aria-valuemin={minWidth}
+        aria-valuemax={maxWidth}
+        onMouseDown={handleMouseDown}
+        className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
+      />
       {/* ── Panel header ──────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
           <span
             className="material-symbols-outlined text-[20px] leading-none text-primary"
@@ -205,6 +227,6 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
         onSubmit={handleCreatePage}
         isMutating={isMutating}
       />
-    </div>
+    </aside>
   );
 }
