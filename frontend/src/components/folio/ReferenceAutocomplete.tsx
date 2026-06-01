@@ -191,8 +191,10 @@ export function ReferenceAutocomplete({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Caret-anchored dropdown position (viewport-fixed, rendered in a portal so it
-  // escapes any overflow:auto ancestor such as the modal body).
-  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+  // escapes any overflow:auto ancestor such as the modal body). Anchors by `top`
+  // when there's room below the caret, or by `bottom` (just above the caret line)
+  // when flipped up — so a 1-line empty state hugs the caret instead of floating high.
+  const [coords, setCoords] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
 
   // Abort ref for fetch cancellation
   const abortRef = useRef<AbortController | null>(null);
@@ -268,14 +270,18 @@ export function ReferenceAutocomplete({
       const rect  = el.getBoundingClientRect();
       const caret = getCaretCoordinates(el, el.selectionStart ?? 0);
       const DROPDOWN_W = 320;
+      const caretTop    = rect.top + caret.top - el.scrollTop;
+      const caretBottom = caretTop + caret.height;
       let left = rect.left + caret.left - el.scrollLeft;
-      let top  = rect.top + caret.top - el.scrollTop + caret.height + 4;
       left = Math.max(8, Math.min(left, window.innerWidth - DROPDOWN_W - 8));
-      // Flip above the caret line when there isn't room below.
-      if (top + 240 > window.innerHeight) {
-        top = rect.top + caret.top - el.scrollTop - 240 - 4;
+      // Enough room below the caret? Anchor by top. Otherwise anchor the
+      // dropdown's BOTTOM just above the caret line (grows upward, hugs the caret).
+      const roomBelow = window.innerHeight - caretBottom;
+      if (roomBelow >= 200 || roomBelow >= caretTop) {
+        setCoords({ left, top: caretBottom + 4 });
+      } else {
+        setCoords({ left, bottom: window.innerHeight - caretTop + 4 });
       }
-      setCoords({ top: Math.max(8, top), left });
     }
     compute();
     window.addEventListener('scroll', compute, true);
@@ -410,13 +416,16 @@ export function ReferenceAutocomplete({
           ref={dropdownRef}
           role="listbox"
           aria-label="Folio reference suggestions"
-          style={{ position: 'fixed', top: coords.top, left: coords.left, width: 320 }} // lint-ok: runtime caret-anchored position — Tailwind cannot express dynamic coordinates
+          style={{ position: 'fixed', left: coords.left, top: coords.top, bottom: coords.bottom, width: 320 }} // lint-ok: runtime caret-anchored position — Tailwind cannot express dynamic coordinates
           className="z-[200] max-h-56 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg"
         >
           {loading && items.length === 0 ? (
             <div className="px-3 py-2 text-xs text-text-secondary">Searching…</div>
           ) : items.length === 0 ? (
-            <div className="px-3 py-2 text-xs text-text-secondary">No matching folio pages</div>
+            <div className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-primary">
+              <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">search_off</span>
+              No matching folio pages
+            </div>
           ) : (
             items.map((item, idx) => (
               <button
