@@ -712,12 +712,12 @@ export function TaskDetailPanel(): React.ReactElement | null {
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-[105] bg-black/72 backdrop-blur-[10px]" aria-hidden="true" onClick={closeDetailPanel} />
+      <div className="fixed inset-0 z-[105] bg-black/30 dark:bg-black/72 backdrop-blur-[10px]" aria-hidden="true" onClick={closeDetailPanel} />
 
       {/* Centering wrapper */}
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 pointer-events-none">
         {/* ── Outer bezel shell — gradient ring creates the machined-hardware frame ── */}
-        <div className="pointer-events-auto w-full max-w-[1200px] h-[min(90vh,840px)] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-white/[0.10] to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-modal-dialog-in">
+        <div className="pointer-events-auto w-full max-w-[1200px] h-[min(90vh,840px)] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-black/[0.07] to-transparent dark:from-white/[0.10] dark:to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.22)] dark:shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-modal-dialog-in">
           {/* ── Inner content card ─────────────────────────────────────────────────── */}
           <div
             ref={panelRef}

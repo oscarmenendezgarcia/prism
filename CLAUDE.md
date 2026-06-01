@@ -19,6 +19,20 @@ format itself (chapter = folder, page = `.md` with YAML frontmatter).
 
 Do not re-derive these decisions; honour them. Document any deviation in the task notes.
 
+## Design Skills
+
+When making UI/UX decisions, use these skills in order of scope:
+
+| Skill | When to use |
+|-------|-------------|
+| `ui-ux-pro-max` | Screen-level design — new screens, layout, user flows |
+| `design-taste-frontend` | Component-level decisions — visual hierarchy, spacing, Tailwind classes |
+| `emil-design-eng` | Polish — animations, micro-interactions, invisible details, "does this feel right?" |
+
+**Do not use:** `minimalist-ui` (warm pastel palette — conflicts with dark theme), `high-end-visual-design` (marketing/agency aesthetic — wrong context for a tool UI).
+
+---
+
 ## Design System (MANDATORY)
 
 Every UI task MUST use the design system defined in `frontend/tailwind.config.js` and `frontend/src/index.css`.
