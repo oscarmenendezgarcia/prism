@@ -3,7 +3,7 @@ title: Design Decision Log
 author: user
 pinned: false
 created: 2026-05-31
-updated: 2026-05-31
+updated: 2026-06-01
 tags: [decisiones, historia]
 ---
 
@@ -37,7 +37,11 @@ tags: [decisiones, historia]
 
 14. **Backend per space.** SQLite as the universal default; file-backend (`.folio/` in the working dir, git-versioned) opt-in and only if the space has a working_directory. No repo → SQLite always. See [[architecture/storage-backend]].
 
+15. **Agent-written pages are English by default — NO per-folio language field (yet).** The bootstrapper had Spanish slugs hardcoded (`arquitectura/stack`…) so it wrote Spanish while the consolidator followed the task language (English) → mixed-language folios. Fix: both agents write English. The bootstrap's `allowedSlugs` is a fixed English allow-list — `architecture/stack`, `architecture/structure`, `architecture/request-flow` — and the consolidator prompt pins English. A per-folio `language` column was designed (it belongs on the folio, not the space, so it travels on extraction) but **rejected for now as YAGNI**: it stays inert until there's a UI to set it and a real non-English folio. The idempotent `ALTER TABLE folios ADD COLUMN language` can add it the day a consumer exists. See [[flows/bootstrap]] and [[flows/write-back]].
+
 ## Deferrable
+
+- Per-folio `language` field (decision 15) — add when a UI sets it and a non-English folio actually exists.
 
 - Write-back concurrency (last-write-wins in v1).
 - Versioning of the `.folio` format (importing a different version).
