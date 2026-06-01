@@ -3,7 +3,7 @@ title: FTS5 Indexing
 author: user
 pinned: false
 created: 2026-05-31
-updated: 2026-05-31
+updated: 2026-06-01
 tags: [fts5, busqueda, indice]
 ---
 
@@ -22,6 +22,23 @@ tags: [fts5, busqueda, indice]
 ## Why SQLite FTS5 on both backends
 
 If a JS BM25 library were used for the files and FTS5 for Prism, there would be **two rankings that diverge** — the same search would return different results depending on where it runs. With SQLite FTS5 on both, the ranking is identical everywhere. The `better-sqlite3` dependency is already there; nothing new is added.
+
+## Ranking: title weighted 10× content
+
+The FTS table indexes two columns, `title` and `content`. The search query
+(`store.searchPages`) orders by `bm25(pages_fts, 10.0, 1.0)` — the title column
+is weighted **10× the content**. This is deliberate, not a default: with equal
+weights, a long page that merely *mentions* a term in its body outranks the
+short page whose **title** is literally that term. Concrete failure it fixes:
+typing `[[MCP` in the reference autocomplete buried the `mcp-tools/tools`
+page ("MCP Tools") at rank 9 — the title weight moves it to rank 1.
+
+bm25() returns negative scores (lower = better match); the heavier title weight
+pushes title hits further negative, to the top. The slug is **not** indexed —
+only `title` and `content` — so ranking leans on the title to surface a page by
+its name. If you simplify the `bm25()` call back to no weights, you reintroduce
+the buried-title bug. See `[[data-model/references]]` for the `[[ ]]` syntax the
+autocomplete serves.
 
 ## Mental model
 
