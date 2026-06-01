@@ -94,6 +94,15 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
     setNewPageOpen(true);
   }
 
+  function handleRefresh() {
+    // Re-fetch from the backend. For the file backend this picks up external
+    // edits (git pull, MCP writes, manual changes, renamed slugs). Reset first
+    // so a stale chapter/page view — whose slug may have been renamed or deleted
+    // — can't error; we always land back on a fresh chapter index.
+    reset();
+    loadIndex();
+  }
+
   async function handleCreatePage(payload: { slug: string; title: string; content: string }) {
     try {
       const page = await createPage(payload);
@@ -164,6 +173,26 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
               New Page
             </Button>
           )}
+
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="
+              w-8 h-8 flex items-center justify-center rounded-md
+              text-text-secondary hover:text-text-primary hover:bg-surface-variant
+              transition-[color,background-color] duration-150
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
+            "
+            aria-label="Refresh Folio"
+            title="Refresh — reload from disk"
+          >
+            <span
+              className={`material-symbols-outlined text-[18px] leading-none ${loading ? 'animate-spin' : ''}`}
+              aria-hidden="true"
+            >
+              refresh
+            </span>
+          </button>
 
           <button
             type="button"
