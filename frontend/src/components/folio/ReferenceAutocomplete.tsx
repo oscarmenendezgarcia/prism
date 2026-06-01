@@ -18,6 +18,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { searchFolioRefs, getFolioRefSections } from '@/api/client';
 import type { FolioRef, FolioSection } from '@/api/client';
 import { useAppStore } from '@/stores/useAppStore';
@@ -72,6 +73,48 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 // ---------------------------------------------------------------------------
+// Caret pixel coordinates inside a textarea (mirror-div technique)
+// ---------------------------------------------------------------------------
+
+const MIRROR_PROPS = [
+  'boxSizing', 'width', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+  'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+  'fontStyle', 'fontVariant', 'fontWeight', 'fontStretch', 'fontSize', 'fontFamily',
+  'lineHeight', 'letterSpacing', 'textTransform', 'wordSpacing', 'textIndent',
+  'whiteSpace', 'wordWrap', 'overflowWrap', 'tabSize',
+] as const;
+
+/**
+ * Pixel offset (relative to the textarea's border box) of the caret at `pos`.
+ * Renders a hidden mirror div with the textarea's text metrics and measures a
+ * marker span. Returns { top, left, height }.
+ */
+function getCaretCoordinates(el: HTMLTextAreaElement, pos: number) {
+  const computed = getComputedStyle(el);
+  const div = document.createElement('div');
+  const s = div.style;
+  s.position = 'absolute';
+  s.visibility = 'hidden';
+  s.whiteSpace = 'pre-wrap';
+  s.overflowWrap = 'break-word';
+  const sAny = s as unknown as Record<string, string>;
+  const cAny = computed as unknown as Record<string, string>;
+  for (const prop of MIRROR_PROPS) {
+    sAny[prop] = cAny[prop];
+  }
+  div.textContent = el.value.slice(0, pos);
+  const span = document.createElement('span');
+  span.textContent = el.value.slice(pos) || '.';
+  div.appendChild(span);
+  document.body.appendChild(div);
+  const top    = span.offsetTop + parseInt(computed.borderTopWidth, 10);
+  const left   = span.offsetLeft + parseInt(computed.borderLeftWidth, 10);
+  const height = parseInt(computed.lineHeight, 10) || Math.round(parseInt(computed.fontSize, 10) * 1.4);
+  document.body.removeChild(div);
+  return { top, left, height };
+}
+
+// ---------------------------------------------------------------------------
 // Dropdown item shapes
 // ---------------------------------------------------------------------------
 
@@ -94,6 +137,11 @@ export interface ReferenceAutocompleteProps {
    */
   textareaProps?: Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange'> &
     Record<string, unknown>;
+  /**
+   * Optional external ref to the underlying textarea, merged with the internal
+   * one. Lets callers drive things like auto-grow (e.g. TaskDetailPanel).
+   */
+  inputRef?: React.Ref<HTMLTextAreaElement>;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,10 +152,18 @@ export function ReferenceAutocomplete({
   value,
   onChange,
   textareaProps = {},
+  inputRef,
 }: ReferenceAutocompleteProps) {
   const spaceId = useAppStore((s) => s.activeSpaceId);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Merge the internal ref with an optional external one (e.g. auto-grow).
+  const setTextareaRef = useCallback((node: HTMLTextAreaElement | null) => {
+    textareaRef.current = node;
+    if (typeof inputRef === 'function') inputRef(node);
+    else if (inputRef) (inputRef as React.MutableRefObject<HTMLTextAreaElement | null>).current = node;
+  }, [inputRef]);
 
   // Track caret position on every keyup / click / input
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
@@ -133,6 +189,10 @@ export function ReferenceAutocomplete({
   const [activeIdx, setActiveIdx] = useState(0);
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Caret-anchored dropdown position (viewport-fixed, rendered in a portal so it
+  // escapes any overflow:auto ancestor such as the modal body).
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
 
   // Abort ref for fetch cancellation
   const abortRef = useRef<AbortController | null>(null);
@@ -197,6 +257,35 @@ export function ReferenceAutocomplete({
 
   // Reset active index when items change
   useEffect(() => setActiveIdx(0), [items.length]);
+
+  // Position the dropdown at the caret (viewport-fixed). Recompute on caret/value
+  // change and on scroll/resize while the trigger is active.
+  useEffect(() => {
+    if (!trigger.active) { setCoords(null); return; }
+    function compute() {
+      const el = textareaRef.current;
+      if (!el) return;
+      const rect  = el.getBoundingClientRect();
+      const caret = getCaretCoordinates(el, el.selectionStart ?? 0);
+      const DROPDOWN_W = 320;
+      let left = rect.left + caret.left - el.scrollLeft;
+      let top  = rect.top + caret.top - el.scrollTop + caret.height + 4;
+      left = Math.max(8, Math.min(left, window.innerWidth - DROPDOWN_W - 8));
+      // Flip above the caret line when there isn't room below.
+      if (top + 240 > window.innerHeight) {
+        top = rect.top + caret.top - el.scrollTop - 240 - 4;
+      }
+      setCoords({ top: Math.max(8, top), left });
+    }
+    compute();
+    window.addEventListener('scroll', compute, true);
+    window.addEventListener('resize', compute);
+    return () => {
+      window.removeEventListener('scroll', compute, true);
+      window.removeEventListener('resize', compute);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trigger.active, value, selectionStart, items.length]);
 
   // Close when clicking outside
   useEffect(() => {
@@ -296,12 +385,14 @@ export function ReferenceAutocomplete({
   // Render
   // ---------------------------------------------------------------------------
 
-  const showDropdown = trigger.active && (items.length > 0 || loading);
+  // Show once a search token exists (skip on a bare `[[`). Includes the empty
+  // state so the dropdown never silently fails to appear.
+  const showDropdown = trigger.active && coords !== null && (loading || items.length > 0 || pageToken.length > 0);
 
   return (
     <div className="relative w-full">
       <textarea
-        ref={textareaRef}
+        ref={setTextareaRef}
         value={value}
         onChange={(e) => {
           onChange(e.target.value);
@@ -314,15 +405,18 @@ export function ReferenceAutocomplete({
         {...textareaProps}
       />
 
-      {showDropdown && (
+      {showDropdown && coords && createPortal(
         <div
           ref={dropdownRef}
           role="listbox"
           aria-label="Folio reference suggestions"
-          className="absolute left-0 right-0 z-50 mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg"
+          style={{ position: 'fixed', top: coords.top, left: coords.left, width: 320 }} // lint-ok: runtime caret-anchored position — Tailwind cannot express dynamic coordinates
+          className="z-[200] max-h-56 overflow-y-auto rounded-lg border border-border bg-surface shadow-lg"
         >
           {loading && items.length === 0 ? (
             <div className="px-3 py-2 text-xs text-text-secondary">Searching…</div>
+          ) : items.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-text-secondary">No matching folio pages</div>
           ) : (
             items.map((item, idx) => (
               <button
@@ -346,7 +440,8 @@ export function ReferenceAutocomplete({
               </button>
             ))
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

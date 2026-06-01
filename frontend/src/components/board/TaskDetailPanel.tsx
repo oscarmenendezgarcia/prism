@@ -22,6 +22,7 @@ import React, {
 } from 'react';
 import { useAppStore, useActiveRun, useAvailableAgents, usePipelineStates } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
+import { ReferenceAutocomplete } from '@/components/folio/ReferenceAutocomplete';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
@@ -803,17 +804,19 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
                   Description
                 </label>
-                <textarea
-                  id="detail-description"
-                  ref={descTextareaRef}
+                <ReferenceAutocomplete
                   value={localDescription}
-                  onChange={(e) => setLocalDescription(e.target.value)}
-                  onBlur={handleSaveDescription}
-                  disabled={fieldDisabled}
-                  aria-disabled={fieldDisabled}
-                  rows={1}
-                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-[border-color] duration-[220ms] ease-spring"
-                  placeholder="Add a description..."
+                  onChange={setLocalDescription}
+                  inputRef={descTextareaRef}
+                  textareaProps={{
+                    id: 'detail-description',
+                    onBlur: handleSaveDescription,
+                    disabled: fieldDisabled,
+                    'aria-disabled': fieldDisabled,
+                    rows: 1,
+                    className: "w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-[border-color] duration-[220ms] ease-spring",
+                    placeholder: "Add a description… type [[ for a folio reference",
+                  }}
                 />
               </div>
 
