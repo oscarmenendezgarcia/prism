@@ -14,6 +14,7 @@ import { ConfigToggle } from '@/components/config/ConfigToggle';
 import { RunIndicator } from '@/components/agent-launcher/RunIndicator';
 import { AgentSettingsToggle } from '@/components/agent-launcher/AgentSettingsToggle';
 import { RunsToggle } from '@/components/runs-panel/RunsToggle';
+import { FolioToggle } from '@/components/folio/FolioToggle';
 import { useAppStore } from '@/stores/useAppStore';
 
 export function Header() {
@@ -58,6 +59,9 @@ export function Header() {
       <div className="flex items-center">
         {/* Panel Toggles — hidden on mobile */}
         <div className="hidden sm:flex items-center gap-2">
+          <Tooltip label="Folio" description="Browse and edit the space knowledge base">
+            <FolioToggle />
+          </Tooltip>
           <Tooltip label="Terminal" description="Run shell commands on the server">
             <TerminalToggle />
           </Tooltip>
@@ -129,6 +133,7 @@ export function Header() {
 
               {/* Panel toggles — rendered as menu rows */}
               <div className="flex flex-col">
+                <MobileMenuRow label="Folio" icon="menu_book" toggle={<FolioToggle />} />
                 <MobileMenuRow label="Terminal" icon="terminal" toggle={<TerminalToggle />} />
                 <MobileMenuRow label="Agent Settings" icon="tune" toggle={<AgentSettingsToggle />} />
                 <MobileMenuRow label="Runs" icon="account_tree" toggle={<RunsToggle />} />

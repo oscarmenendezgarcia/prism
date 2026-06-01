@@ -28,6 +28,7 @@ import { TaggerReviewModal } from '@/components/modals/TaggerReviewModal';
 import { GlobalSearchModal } from '@/components/modals/GlobalSearchModal';
 import { AutoTaskFAB } from '@/components/AutoTaskFAB';
 import { AutoTaskModal } from '@/components/AutoTaskModal';
+import { FolioScreen } from '@/components/folio/FolioScreen';
 import { Toast } from '@/components/shared/Toast';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
@@ -83,6 +84,8 @@ function AppContent() {
   const loadSystemInfo       = useAppStore((s) => s.loadSystemInfo);
   const configPanelOpen        = useAppStore((s) => s.configPanelOpen);
   const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
+  const folioOpen              = useAppStore((s) => s.folioOpen);
+  const closeFolio             = useAppStore((s) => s.closeFolio);
   const runsPanelOpen          = usePipelineLogStore((s) => s.runsPanelOpen);
   const isGlobalSearchOpen     = useAppStore((s) => s.isGlobalSearchOpen);
   const openGlobalSearch       = useAppStore((s) => s.openGlobalSearch);
@@ -146,6 +149,11 @@ function AppContent() {
           {runsPanelOpen && <RunsPanel />}
           {configPanelOpen && <ConfigPanel />}
           {agentSettingsPanelOpen && <AgentSettingsPanel />}
+          {folioOpen && (
+            <div className="w-[480px] flex-shrink-0 border-l border-border bg-background overflow-hidden flex flex-col">
+              <FolioScreen onClose={closeFolio} />
+            </div>
+          )}
         </div>
       </div>
 

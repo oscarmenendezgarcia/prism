@@ -331,6 +331,17 @@ interface AppState {
   /** Close the GlobalSearchModal. */
   closeGlobalSearch: () => void;
 
+  // ── Folio panel (folio-index-ui) ─────────────────────────────────────────
+
+  /** Whether the Folio panel is open. */
+  folioOpen: boolean;
+  /** Open the Folio panel. */
+  openFolio: () => void;
+  /** Close the Folio panel. */
+  closeFolio: () => void;
+  /** Toggle the Folio panel open/closed. */
+  toggleFolio: () => void;
+
   // ── Tagger agent (ADR-1: Tagger Agent) ───────────────────────────────────
 
   /** True while a tagger API call is in flight. Disables the TaggerButton. */
@@ -1571,6 +1582,13 @@ export const useAppStore = create<AppState>((set, get) => {
   isGlobalSearchOpen: false,
   openGlobalSearch:   () => set({ isGlobalSearchOpen: true }),
   closeGlobalSearch:  () => set({ isGlobalSearchOpen: false }),
+
+  // ── Folio panel (folio-index-ui) ─────────────────────────────────────────
+
+  folioOpen:   false,
+  openFolio:   () => set({ folioOpen: true }),
+  closeFolio:  () => set({ folioOpen: false }),
+  toggleFolio: () => set((s) => ({ folioOpen: !s.folioOpen })),
 
   // ── Tagger agent (ADR-1: Tagger Agent) ───────────────────────────────────
 
