@@ -300,6 +300,73 @@ function createFolioRouter({ db, sqliteBinding, getSpace, makeFileService }) {
     return getFileBinding(spaceId, root).resolveRefs(spaceId, text);
   }
 
+  /**
+   * Migrate a space's SQLite-backed folio into its working directory's .folio/
+   * (file backend), then flip the backend and delete the SQLite rows.
+   *
+   * Safe order — export FIRST (content lands in files), then flip, then delete.
+   * The SQLite copy survives until the final delete, so a mid-way failure never
+   * loses data. This is the deliberate path that bypasses the immutable-after-
+   * activation guard (used when a working directory is added to a space whose
+   * folio was already activated on SQLite).
+   *
+   * @param {string} spaceId
+   * @returns {{ ok: boolean, code?: string, message?: string, root?: string, pages?: number }}
+   */
+  function migrateSpaceToFile(spaceId) {
+    const space = getSpace(spaceId);
+    if (!space) {
+      return { ok: false, code: 'SPACE_NOT_FOUND', message: `No space with ID "${spaceId}".` };
+    }
+    if (!space.workingDirectory) {
+      return { ok: false, code: 'NO_WORKING_DIR', message: 'The file backend requires a working directory.' };
+    }
+    if (space.folioBackend === 'file') {
+      return { ok: false, code: 'ALREADY_FILE', message: 'This space already uses the file backend.' };
+    }
+    if (!_sqliteCore) {
+      return { ok: false, code: 'NO_CORE', message: 'SQLite folio service unavailable.' };
+    }
+
+    const folioId = sqliteBinding.getFolioIdForSpace(spaceId);
+    const root    = folioRoot(space.workingDirectory);
+
+    // Nothing to migrate — just flip the backend (no content to move or delete).
+    if (!folioId) {
+      db.prepare('UPDATE spaces SET folio_backend = ? WHERE id = ?').run('file', spaceId);
+      serviceCache.delete(root);
+      console.log(`[folio.router] op=migrate spaceId=${spaceId} outcome=flip-only reason=no-sqlite-folio`);
+      return { ok: true, root, pages: 0 };
+    }
+
+    // 1. EXPORT — content lands safely in <wd>/.folio/ before anything is mutated.
+    let exportResult;
+    try {
+      fs.mkdirSync(root, { recursive: true });
+      exportResult = _sqliteCore.exportFolio(folioId, root);
+    } catch (err) {
+      // Nothing changed yet — the SQLite folio is intact.
+      console.warn(`[folio.router] op=migrate spaceId=${spaceId} stage=export outcome=error error=${err.message}`);
+      return { ok: false, code: 'EXPORT_FAILED', message: `Export failed: ${err.message}` };
+    }
+
+    // 2. FLIP — deliberate migration; bypasses the immutable-after-activation guard.
+    db.prepare('UPDATE spaces SET folio_backend = ? WHERE id = ?').run('file', spaceId);
+
+    // 3. DELETE — clean up the now-orphaned SQLite rows. Content is already in files,
+    //    so a failed cleanup is non-fatal (logged, not surfaced as migration failure).
+    try {
+      _sqliteCore.deleteFolio(folioId);
+    } catch (err) {
+      console.warn(`[folio.router] op=migrate spaceId=${spaceId} stage=delete outcome=warn error=${err.message}`);
+    }
+
+    serviceCache.delete(root);
+    const pages = exportResult && typeof exportResult.pages === 'number' ? exportResult.pages : undefined;
+    console.log(`[folio.router] op=migrate spaceId=${spaceId} outcome=ok root=${root} pages=${pages}`);
+    return { ok: true, root, pages };
+  }
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   /**
@@ -349,6 +416,7 @@ function createFolioRouter({ db, sqliteBinding, getSpace, makeFileService }) {
     setBootstrappedAt,
     // Additive
     resolveRefs,
+    migrateSpaceToFile,
     // Lifecycle
     close,
     // Internal — for store.js wiring only

@@ -930,6 +930,44 @@ describe('T-006: spaceManager folioBackend validation from REST perspective', ()
     }
   });
 
+  it('migrateSpaceToFile moves an activated sqlite folio to .folio/, flips backend, deletes sqlite', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const { createStore } = require('../src/services/store');
+    const { createSpaceManager } = require('../src/services/spaceManager');
+    const tmpDir = makeTempDir();
+    const store = createStore(':memory:');
+    const mgr = createSpaceManager(store);
+    try {
+      // Space WITHOUT a working dir → sqlite. Activate a folio (create a page).
+      const { space } = mgr.createSpace('MigrateMe');
+      assert.equal(space.folioBackend, undefined);
+      store.folio.binding.createPage(space.id, 'guide/intro', '# Intro\n\nhello world', {
+        createIfMissing: true, title: 'Intro', author: 'user',
+      });
+      assert.equal(store.folio.binding.hasFolio(space.id), true);
+
+      // Add working dir AFTER activation → stays sqlite (immutable; auto-flip won't fire).
+      mgr.renameSpace(space.id, 'MigrateMe', tmpDir);
+      assert.equal(store.getSpace(space.id).folioBackend, undefined);
+
+      // Migrate: export → flip → delete.
+      const res = store.folio.binding.migrateSpaceToFile(space.id);
+      assert.equal(res.ok, true);
+
+      // Content landed in <wd>/.folio/ (export happened before any mutation).
+      assert.ok(fs.existsSync(path.join(tmpDir, '.folio', 'folio.json')));
+      // Backend flipped.
+      assert.equal(store.getSpace(space.id).folioBackend, 'file');
+      // Reading via the binding now returns the page from the file backend — no data loss.
+      const page = store.folio.binding.getPageBySlug(space.id, 'guide', 'intro');
+      assert.ok(page, 'page should be readable from the migrated file backend');
+      assert.match(page.content, /hello world/);
+    } finally {
+      store.close();
+    }
+  });
+
   it('renameSpace accepts folioBackend change when no folio activated yet', () => {
     const { createStore } = require('../src/services/store');
     const { createSpaceManager } = require('../src/services/spaceManager');

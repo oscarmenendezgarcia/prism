@@ -112,6 +112,7 @@ const FOLIO_INDEX_ROUTE          = /^\/api\/v1\/spaces\/([^/]+)\/folio$/;
 const FOLIO_CHAPTER_PAGES_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/folio\/chapters\/([^/]+)\/pages$/;
 const FOLIO_PAGE_SINGLE_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages\/([^/]+)\/([^/]+)$/;
 const FOLIO_PAGES_LIST_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages$/;
+const FOLIO_MIGRATE_ROUTE        = /^\/api\/v1\/spaces\/([^/]+)\/folio\/migrate$/;
 
 const SYSTEM_INFO_ROUTE   = /^\/api\/v1\/system\/info$/;
 const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
@@ -293,6 +294,32 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
 
       if (method === 'POST') {
         return handleCreateFolioPage(req, res, spaceId, store);
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // Migrate route (POST) — move an activated sqlite folio to the file backend
+    // (export → flip → delete). Deliberate, destructive cleanup; preserves data.
+    const folioMigrateMatch = FOLIO_MIGRATE_ROUTE.exec(urlPath);
+    if (folioMigrateMatch) {
+      const spaceId = folioMigrateMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'POST') {
+        const result = store.folio.binding.migrateSpaceToFile(spaceId);
+        if (!result.ok) {
+          const status = result.code === 'SPACE_NOT_FOUND' ? 404
+                       : result.code === 'ALREADY_FILE'    ? 409
+                       : result.code === 'NO_WORKING_DIR'  ? 400
+                       : 500;
+          return sendError(res, status, result.code, result.message);
+        }
+        return sendJSON(res, 200, result);
       }
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
         `Method '${method}' is not allowed on this route`);
