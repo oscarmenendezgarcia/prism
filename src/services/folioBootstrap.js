@@ -91,9 +91,9 @@ const BOOTSTRAP_CONFIG = {
    * Must satisfy ^[a-z0-9-]+/[a-z0-9-]+$ (folioBinding SLUG_RE).
    */
   allowedSlugs: new Set([
-    'arquitectura/stack',
-    'arquitectura/estructura',
-    'arquitectura/flujo-request',
+    'architecture/stack',
+    'architecture/structure',
+    'architecture/request-flow',
   ]),
 };
 
@@ -202,7 +202,7 @@ function buildBootstrapPrompt(workingDir, signalPath, doneFile) {
  *   4. Honour BOOTSTRAP_CONFIG.maxPages — silently drop excess pages.
  *
  * Valid pages are written via binding.createPage with createIfMissing:true and
- * author:'agent'.  The sources list is appended to the markdown as a `## Fuentes`
+ * author:'agent'.  The sources list is appended to the markdown as a `## Sources`
  * section for human traceability.
  *
  * @param {string}  spaceId
@@ -270,15 +270,15 @@ function applyBootstrapPages(spaceId, agentOutput, workingDir, binding) {
       continue;
     }
 
-    // Append ## Fuentes section for human traceability (sources are not a DB column).
-    const fuentesSection = '\n\n## Fuentes\n\n' + resolvedSources.map((s) => `- ${s}`).join('\n');
+    // Append ## Sources section for human traceability (sources are not a DB column).
+    const sourcesSection = '\n\n## Sources\n\n' + resolvedSources.map((s) => `- ${s}`).join('\n');
     // Re-check total length after appending; drop if it would blow the cap.
-    const content = rawContent + fuentesSection;
+    const content = rawContent + sourcesSection;
     if (content.length > BOOTSTRAP_CONFIG.maxContentLength) {
       bootstrapLog('apply.drop', {
         spaceId,
         slug:   page.slug,
-        reason: 'content_too_long_after_fuentes',
+        reason: 'content_too_long_after_sources',
         length: content.length,
         cap:    BOOTSTRAP_CONFIG.maxContentLength,
       });

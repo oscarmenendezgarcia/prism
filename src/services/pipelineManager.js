@@ -2118,6 +2118,8 @@ function buildConsolidationPrompt(run, task, dataDir) {
 
 Be CONSERVATIVE. Only record durable, actionable knowledge that future agents would benefit from. Skip everything ephemeral or obvious.
 
+Write all page slugs, titles, and content in English, regardless of the language used in the task or its notes. Folios are English by default.
+
 ## Task Context
 Title: ${task ? task.title : run.taskId}
 ${task && task.description ? `Description: ${task.description}\n` : ''}SpaceId: ${run.spaceId}

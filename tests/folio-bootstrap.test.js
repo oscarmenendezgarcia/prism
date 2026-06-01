@@ -310,7 +310,7 @@ describe('applyBootstrapPages — happy path: activates folio with author=agent'
   it('should_write_page_with_author_agent', () => {
     const output = {
       pages: [{
-        slug:       'arquitectura/stack',
+        slug:       'architecture/stack',
         title:      'Stack técnico',
         content:    '## Stack\n\n- Node.js 23\n- Express 4',
         sources:    ['package.json'],
@@ -320,15 +320,15 @@ describe('applyBootstrapPages — happy path: activates folio with author=agent'
     const written = applyBootstrapPages('space-1', output, repoDir, binding);
     assert.equal(written, 1);
 
-    const page = binding.getPageBySlug('space-1', 'arquitectura', 'stack');
+    const page = binding.getPageBySlug('space-1', 'architecture', 'stack');
     assert.ok(page, 'Page should exist');
     assert.equal(page.author, 'agent', 'Author must be "agent"');
   });
 
-  it('should_append_fuentes_section_to_content', () => {
+  it('should_append_sources_section_to_content', () => {
     const output = {
       pages: [{
-        slug:       'arquitectura/stack',
+        slug:       'architecture/stack',
         title:      'Stack',
         content:    '## Stack\n\n- Node.js',
         sources:    ['package.json'],
@@ -336,8 +336,8 @@ describe('applyBootstrapPages — happy path: activates folio with author=agent'
       }],
     };
     applyBootstrapPages('space-1', output, repoDir, binding);
-    const page = binding.getPageBySlug('space-1', 'arquitectura', 'stack');
-    assert.ok(page.content.includes('## Fuentes'), 'Content should include ## Fuentes section');
+    const page = binding.getPageBySlug('space-1', 'architecture', 'stack');
+    assert.ok(page.content.includes('## Sources'), 'Content should include ## Sources section');
     assert.ok(page.content.includes('package.json'), 'Content should include the source filename');
   });
 
@@ -345,7 +345,7 @@ describe('applyBootstrapPages — happy path: activates folio with author=agent'
     assert.equal(binding.hasFolio('space-1'), false, 'No folio yet');
     const output = {
       pages: [{
-        slug:       'arquitectura/stack',
+        slug:       'architecture/stack',
         title:      'Stack',
         content:    '## Stack\n- Go 1.22',
         sources:    ['go.mod'],
@@ -360,9 +360,9 @@ describe('applyBootstrapPages — happy path: activates folio with author=agent'
 
   it('should_write_up_to_maxPages_pages', () => {
     const pages = [
-      { slug: 'arquitectura/stack',          title: 'Stack',      content: 'A', sources: ['package.json'], confidence: 'high' },
-      { slug: 'arquitectura/estructura',      title: 'Estructura', content: 'B', sources: ['package.json'], confidence: 'high' },
-      { slug: 'arquitectura/flujo-request',   title: 'Flujo',      content: 'C', sources: ['package.json'], confidence: 'high' },
+      { slug: 'architecture/stack',          title: 'Stack',      content: 'A', sources: ['package.json'], confidence: 'high' },
+      { slug: 'architecture/structure',      title: 'Estructura', content: 'B', sources: ['package.json'], confidence: 'high' },
+      { slug: 'architecture/request-flow',   title: 'Flujo',      content: 'C', sources: ['package.json'], confidence: 'high' },
     ];
     const written = applyBootstrapPages('space-1', { pages }, repoDir, binding);
     assert.equal(written, BOOTSTRAP_CONFIG.maxPages);
@@ -399,7 +399,7 @@ describe('applyBootstrapPages — drop logic', () => {
   it('should_drop_page_with_no_sources', () => {
     const output = {
       pages: [{
-        slug:       'arquitectura/stack',
+        slug:       'architecture/stack',
         title:      'Stack',
         content:    '## Stack',
         sources:    [],
@@ -413,7 +413,7 @@ describe('applyBootstrapPages — drop logic', () => {
   it('should_drop_page_when_source_file_does_not_exist', () => {
     const output = {
       pages: [{
-        slug:       'arquitectura/stack',
+        slug:       'architecture/stack',
         title:      'Stack',
         content:    '## Stack',
         sources:    ['nonexistent-file.json'],
@@ -427,7 +427,7 @@ describe('applyBootstrapPages — drop logic', () => {
   it('should_drop_page_when_content_exceeds_maxContentLength', () => {
     const output = {
       pages: [{
-        slug:       'arquitectura/stack',
+        slug:       'architecture/stack',
         title:      'Stack',
         content:    'x'.repeat(BOOTSTRAP_CONFIG.maxContentLength + 1),
         sources:    ['package.json'],
@@ -440,11 +440,11 @@ describe('applyBootstrapPages — drop logic', () => {
 
   it('should_drop_excess_pages_beyond_cap', () => {
     const pages = [
-      { slug: 'arquitectura/stack',         title: 'S', content: 'A', sources: ['package.json'], confidence: 'high' },
-      { slug: 'arquitectura/estructura',     title: 'E', content: 'B', sources: ['package.json'], confidence: 'high' },
-      { slug: 'arquitectura/flujo-request',  title: 'F', content: 'C', sources: ['package.json'], confidence: 'high' },
+      { slug: 'architecture/stack',         title: 'S', content: 'A', sources: ['package.json'], confidence: 'high' },
+      { slug: 'architecture/structure',     title: 'E', content: 'B', sources: ['package.json'], confidence: 'high' },
+      { slug: 'architecture/request-flow',  title: 'F', content: 'C', sources: ['package.json'], confidence: 'high' },
       // This 4th page should be silently dropped:
-      { slug: 'arquitectura/stack',          title: 'S2', content: 'D', sources: ['package.json'], confidence: 'high' },
+      { slug: 'architecture/stack',          title: 'S2', content: 'D', sources: ['package.json'], confidence: 'high' },
     ];
     const written = applyBootstrapPages('space-1', { pages }, repoDir, binding);
     assert.equal(written, BOOTSTRAP_CONFIG.maxPages, 'Should write at most maxPages pages');
@@ -634,7 +634,7 @@ describe('ensureBootstrapped — full happy path with PIPELINE_NO_SPAWN=1', () =
 
   it('should_return_bootstrapped_when_pages_written', async () => {
     const testPages = [{
-      slug:       'arquitectura/stack',
+      slug:       'architecture/stack',
       title:      'Stack técnico',
       content:    '## Stack\n\n- Node.js',
       sources:    ['package.json'],
@@ -651,7 +651,7 @@ describe('ensureBootstrapped — full happy path with PIPELINE_NO_SPAWN=1', () =
 
   it('should_write_page_with_author_agent_via_createIfMissing', async () => {
     const testPages = [{
-      slug:       'arquitectura/stack',
+      slug:       'architecture/stack',
       title:      'Stack',
       content:    '## Stack\n\n- Go',
       sources:    ['package.json'],
@@ -662,7 +662,7 @@ describe('ensureBootstrapped — full happy path with PIPELINE_NO_SPAWN=1', () =
 
     await ensureBootstrapped('space-1', repoDir, binding, opts);
 
-    const page = binding.getPageBySlug('space-1', 'arquitectura', 'stack');
+    const page = binding.getPageBySlug('space-1', 'architecture', 'stack');
     assert.ok(page, 'Page should have been written');
     assert.equal(page.author, 'agent', 'Author must be "agent"');
     assert.equal(binding.hasFolio('space-1'), true, 'Folio should have been activated');
@@ -701,7 +701,7 @@ describe('ensureBootstrapped — full happy path with PIPELINE_NO_SPAWN=1', () =
 
   it('should_drop_page_with_unresolvable_source_and_not_write_it', async () => {
     const testPages = [{
-      slug:       'arquitectura/stack',
+      slug:       'architecture/stack',
       title:      'Stack',
       content:    '## Stack\n\n- Phantom',
       sources:    ['this-file-does-not-exist.json'],
