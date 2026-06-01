@@ -33,12 +33,14 @@ function EmptyFolioState({ onNewPage }: { onNewPage: () => void }) {
       className="flex flex-col items-center justify-center h-full gap-6 px-6 py-16 text-center"
       data-testid="folio-empty-state"
     >
-      <span
-        className="material-symbols-outlined text-6xl text-text-secondary/50 select-none"
-        aria-hidden="true"
-      >
-        menu_book
-      </span>
+      <div className="w-20 h-20 rounded-2xl bg-surface-variant/60 border border-border flex items-center justify-center">
+        <span
+          className="material-symbols-outlined text-5xl text-primary/60 select-none leading-none"
+          aria-hidden="true"
+        >
+          menu_book
+        </span>
+      </div>
 
       <div className="flex flex-col items-center gap-2">
         <h2 className="text-lg font-semibold text-text-primary">
@@ -86,7 +88,8 @@ function ChapterCard({
         bg-surface border border-border
         hover:border-primary/30 hover:bg-surface-elevated
         hover:shadow-[0_8px_24px_rgba(124,109,250,0.12)]
-        transition-all duration-200 ease-apple
+        transition-[border-color,background-color,box-shadow,transform] duration-200 ease-apple
+        active:scale-[0.99]
         text-left
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
       "
@@ -110,7 +113,7 @@ function ChapterCard({
           {pageLabel}
         </span>
         <span
-          className="material-symbols-outlined text-[18px] leading-none text-text-secondary/50 group-hover:text-primary/70 group-hover:translate-x-0.5 transition-all duration-150"
+          className="material-symbols-outlined text-[18px] leading-none text-text-secondary/50 group-hover:text-primary/70 group-hover:translate-x-0.5 transition-[color,transform] duration-150"
           aria-hidden="true"
         >
           chevron_right

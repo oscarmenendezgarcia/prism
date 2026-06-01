@@ -150,7 +150,7 @@ function AppContent() {
           {configPanelOpen && <ConfigPanel />}
           {agentSettingsPanelOpen && <AgentSettingsPanel />}
           {folioOpen && (
-            <div className="w-[480px] flex-shrink-0 border-l border-border bg-background overflow-hidden flex flex-col">
+            <div className="w-[480px] flex-shrink-0 border-l border-border bg-background overflow-hidden flex flex-col transition-transform duration-300 ease-apple starting:translate-x-full">
               <FolioScreen onClose={closeFolio} />
             </div>
           )}

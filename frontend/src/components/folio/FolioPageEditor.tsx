@@ -210,7 +210,7 @@ export function FolioPageEditor({
           className="
             w-8 h-8 flex items-center justify-center rounded-md
             text-text-secondary hover:text-text-primary hover:bg-surface-variant
-            transition-all duration-150
+            transition-[color,background-color] duration-150
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
           "
           aria-label="Back to page list"

@@ -53,7 +53,7 @@ function PageRowMenu({ onOpen, onDelete }: PageRowMenuProps) {
         className="
           w-7 h-7 flex items-center justify-center rounded-md
           text-text-secondary/50 hover:text-text-primary hover:bg-surface-variant
-          transition-all duration-100
+          transition-[color,background-color,opacity] duration-100
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
           opacity-0 group-hover:opacity-100
         "
@@ -63,7 +63,7 @@ function PageRowMenu({ onOpen, onDelete }: PageRowMenuProps) {
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 w-36 bg-surface-elevated border border-border rounded-xl shadow-modal py-1.5 z-10"
+          className="absolute right-0 top-full mt-1 w-36 bg-surface-elevated border border-border rounded-xl shadow-modal py-1.5 z-10 origin-top-right transition-[opacity,transform] duration-150 ease-apple starting:opacity-0 starting:scale-95"
           role="menu"
         >
           <button
@@ -118,7 +118,8 @@ function PageRow({ page, onOpen, onDelete }: PageRowProps) {
         px-5 py-3.5 rounded-xl
         bg-surface border border-border
         hover:border-primary/30 hover:bg-surface-elevated
-        transition-all duration-200 ease-apple
+        transition-[border-color,background-color,transform] duration-200 ease-apple
+        active:scale-[0.99]
         text-left cursor-pointer
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
       "
@@ -195,7 +196,7 @@ export function FolioPageList({
           className="
             w-8 h-8 flex items-center justify-center rounded-md
             text-text-secondary hover:text-text-primary hover:bg-surface-variant
-            transition-all duration-150
+            transition-[color,background-color] duration-150
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
           "
           aria-label="Back to chapters"
