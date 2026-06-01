@@ -53,6 +53,8 @@ interface NewPageModalProps {
   onClose:           () => void;
   /** If provided, pre-fills the chapter slug field. */
   prefilledChapter?: string;
+  /** Existing chapter slugs in the folio — offered as datalist suggestions. */
+  chapters?: string[];
   /** Called when the user confirms. Returns false to keep modal open (e.g. on conflict). */
   onSubmit: (payload: { slug: string; title: string; content: string }) => Promise<boolean>;
   isMutating: boolean;
@@ -66,6 +68,7 @@ export function NewPageModal({
   open,
   onClose,
   prefilledChapter = '',
+  chapters = [],
   onSubmit,
   isMutating,
 }: NewPageModalProps) {
@@ -207,6 +210,7 @@ export function NewPageModal({
             <input
               id="np-chapter"
               type="text"
+              list="np-chapter-options"
               value={chapterSlug}
               onChange={(e) => { setChapterSlug(e.target.value); setChapterError(''); }}
               onBlur={handleChapterBlur}
@@ -221,12 +225,21 @@ export function NewPageModal({
                 transition-colors duration-150
                 ${chapterError ? 'border-error focus:border-error' : 'border-border focus:border-primary/50'}
               `}
-              aria-describedby={chapterError ? 'np-chapter-error' : undefined}
+              aria-describedby={chapterError ? 'np-chapter-error' : 'np-chapter-help'}
               required
             />
-            {chapterError && (
+            {chapters.length > 0 && (
+              <datalist id="np-chapter-options">
+                {chapters.map((c) => <option key={c} value={c} />)}
+              </datalist>
+            )}
+            {chapterError ? (
               <p id="np-chapter-error" role="alert" className="mt-1 text-xs text-error">
                 {chapterError}
+              </p>
+            ) : (
+              <p id="np-chapter-help" className="mt-1 text-xs text-text-secondary/60">
+                Pick an existing chapter or type a new one to create it.
               </p>
             )}
           </div>

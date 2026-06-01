@@ -298,6 +298,7 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
         open={newPageOpen}
         onClose={() => setNewPageOpen(false)}
         prefilledChapter={view === 'pages' ? (activeChapterSlug ?? '') : ''}
+        chapters={chapters.map((c) => c.slug)}
         onSubmit={handleCreatePage}
         isMutating={isMutating}
       />
