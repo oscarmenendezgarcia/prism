@@ -637,3 +637,21 @@ html.dark {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   FOLIO — shared-element morph for the "New Page" button
+   The same button lives in the panel header (chapter index) and in the page-list
+   sub-header. Giving both instances the same view-transition-name lets the View
+   Transitions API glide it between the two positions instead of pop in/out. The
+   JS side (FolioScreen) only starts a transition when motion is allowed.
+───────────────────────────────────────────────────────────────────────────── */
+.folio-newpage-shared { view-transition-name: folio-new-page; }
+
+/* Only the New Page button glides; the rest of the panel content swaps instantly
+   (no full-page cross-fade). */
+::view-transition-group(root) { animation: none; }
+
+::view-transition-group(folio-new-page) {
+  animation-duration: 260ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}

@@ -20,6 +20,7 @@ import { NewPageModal }     from './NewPageModal';
 import { ApiError }         from '@/api/client';
 import { Button }           from '@/components/shared/Button';
 import { usePanelResize }   from '@/hooks/usePanelResize';
+import { flushSync }        from 'react-dom';
 
 // ---------------------------------------------------------------------------
 // FolioScreen
@@ -27,6 +28,27 @@ import { usePanelResize }   from '@/hooks/usePanelResize';
 
 interface FolioScreenProps {
   onClose: () => void;
+}
+
+/**
+ * Run a navigation that moves the shared "New Page" button (chapters ↔ pages)
+ * inside a View Transition so the button glides between its two positions
+ * instead of popping. flushSync forces the synchronous view-state update so the
+ * browser snapshots the new layout. Falls back to a plain call when the API is
+ * unavailable or the user prefers reduced motion.
+ */
+function navigateWithTransition(fn: () => void) {
+  const reduce =
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  const start = (document as unknown as {
+    startViewTransition?: (cb: () => void) => unknown;
+  }).startViewTransition;
+  if (!reduce && typeof start === 'function') {
+    start.call(document, () => flushSync(fn));
+  } else {
+    fn();
+  }
 }
 
 export function FolioScreen({ onClose }: FolioScreenProps) {
@@ -87,7 +109,14 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
   // ── Actions ───────────────────────────────────────────────────────────────
 
   function handleOpenChapter(slug: string) {
-    openChapter(slug);
+    // chapters → pages: the New Page button moves from the header to the page-list
+    // sub-header — glide it via a View Transition.
+    navigateWithTransition(() => openChapter(slug));
+  }
+
+  function handleBackToChapters() {
+    // pages → chapters: glide the New Page button back to the header.
+    navigateWithTransition(() => back());
   }
 
   function handleOpenPage(pageSlug: string) {
@@ -180,7 +209,7 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
               FolioPageList shows its own (chapter-contextual) New Page button, so
               showing it here too would duplicate it. */}
           {view === 'chapters' && (
-            <Button variant="secondary" onClick={handleOpenNewPage} aria-label="Create new page">
+            <Button variant="secondary" onClick={handleOpenNewPage} aria-label="Create new page" className="folio-newpage-shared">
               <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">add</span>
               New Page
             </Button>
@@ -247,7 +276,7 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
             onOpenPage={handleOpenPage}
             onDeletePage={handleDeletePageFromList}
             onNewPage={handleOpenNewPage}
-            onBack={back}
+            onBack={handleBackToChapters}
           />
         )}
 
