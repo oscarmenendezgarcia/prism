@@ -1,22 +1,22 @@
 {
   "name": "Prism",
   "formatVersion": "1.0",
-  "description": "Base de conocimiento del repo Prism. Capítulos de proyecto (stack, estructura, convenciones, comandos, lecciones) para que un agente no re-analice el repo desde cero, + el diseño completo de la feature Folio (concepto, modelo-datos, arquitectura, inyeccion, mcp-tools, flujos, decisiones, estado).",
+  "description": "Knowledge base for the Prism repo. Project chapters (stack, structure, conventions, commands, lessons) so an agent doesn't have to re-analyze the repo from scratch, plus the complete design of the Folio feature (concept, data-model, architecture, injection, mcp-tools, flows, decisions, state).",
   "createdAt": "2026-05-31",
   "updatedAt": "2026-06-01",
   "chapters": [
     "stack",
-    "estructura",
-    "convenciones",
-    "comandos",
-    "lecciones",
-    "concepto",
-    "modelo-datos",
-    "arquitectura",
-    "inyeccion",
+    "structure",
+    "conventions",
+    "commands",
+    "lessons",
+    "concept",
+    "data-model",
+    "architecture",
+    "injection",
     "mcp-tools",
-    "flujos",
-    "decisiones",
-    "estado"
+    "flows",
+    "decisions",
+    "state"
   ]
 }

@@ -1,5 +1,5 @@
 ---
-title: MCP tools
+title: MCP Tools
 author: user
 pinned: false
 created: 2026-05-31
@@ -7,28 +7,28 @@ updated: 2026-05-31
 tags: [mcp, tools, api]
 ---
 
-## Superficie mínima (vs los 19 de Engram)
+## Minimal surface (vs Engram's 19)
 
-No hay gestión de sesiones ni conflict detection en v1.
+There is no session management or conflict detection in v1.
 
-### Lectura
-- `folio_search(query, folioId)` — FTS5/BM25, devuelve pages relevantes.
-- `folio_get_page(slug, folioId)` — page completa por slug.
-- `folio_get_page(slug#section, folioId)` — solo el bloque H2 indicado.
-- `folio_list_chapters(folioId)` — índice del folio.
-- `folio_list_attachments(slug)` — lista adjuntos de una page.
-- `folio_get_attachment(slug, nombre)` — devuelve blob de adjunto.
+### Reading
+- `folio_search(query, folioId)` — FTS5/BM25, returns relevant pages.
+- `folio_get_page(slug, folioId)` — the full page by slug.
+- `folio_get_page(slug#section, folioId)` — only the indicated H2 block.
+- `folio_list_chapters(folioId)` — the folio's index.
+- `folio_list_attachments(slug)` — lists a page's attachments.
+- `folio_get_attachment(slug, name)` — returns an attachment blob.
 
-### Escritura
-- `folio_create_page(slug, título, contenido, folioId)`
-- `folio_update_page(slug, contenido, folioId)`
+### Writing
+- `folio_create_page(slug, title, content, folioId)`
+- `folio_update_page(slug, content, folioId)`
 
-### Gestión de folios
-- `folio_list()` — lista todos los folios.
-- `folio_create(nombre)` — nuevo folio.
+### Folio management
+- `folio_list()` — lists all folios.
+- `folio_create(name)` — a new folio.
 
-## Notas
+## Notes
 
-- Los chapters se crean implícitamente al crear una page con un chapter_slug nuevo (no hay `create_chapter` explícito).
-- Las escrituras de agente pasan `createIfMissing: false` (ver [[modelo-datos/activacion]]).
-- Todo write de agente queda con `author='agent'`.
+- Chapters are created implicitly when a page is created with a new chapter_slug (there is no explicit `create_chapter`).
+- Agent writes pass `createIfMissing: false` (see [[data-model/activation]]).
+- Every agent write is recorded with `author='agent'`.
