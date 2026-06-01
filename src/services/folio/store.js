@@ -21,6 +21,7 @@
  */
 
 const crypto = require('crypto');
+const { sanitizeFtsQuery } = require('./fts');
 
 // ---------------------------------------------------------------------------
 // Slug validation
@@ -510,9 +511,17 @@ function createFolioStore(db) {
     }
     const limit = opts.limit ?? 20;
 
+    // Sanitize to an OR-of-quoted-terms MATCH expression: multi-word queries
+    // rank by term overlap (not strict AND → 0 hits), and quoting makes each
+    // term a literal token (immune to FTS5 operator/column-qualifier parse errors).
+    // opts.prebuilt → the caller already produced a valid MATCH expression
+    // (e.g. the injection engine's stage-aware sanitizer); use it verbatim.
+    const match = opts.prebuilt ? query.trim() : sanitizeFtsQuery(query);
+    if (!match) return [];
+
     let rows;
     try {
-      rows = stmts.searchPages.all(query.trim(), folioId, limit);
+      rows = stmts.searchPages.all(match, folioId, limit);
     } catch (err) {
       // FTS MATCH syntax error — return empty rather than crashing
       console.warn('[folio.store] searchPages: FTS query error —', err.message);

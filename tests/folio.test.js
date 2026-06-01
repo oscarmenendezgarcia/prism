@@ -619,11 +619,15 @@ describe('T-007 — Isolation: src/services/folio/ has no reference to space_id'
       .filter((line) => !line.trimStart().startsWith('*') && !line.trimStart().startsWith('//'))
       .join('\n');
 
-    // Only allowed import is crypto (built-in)
+    // Allowed: crypto (built-in) and intra-module relative imports ("./x") that
+    // stay inside src/services/folio/. Parent-escaping ("../x") or bare package
+    // imports are NOT allowed — that is the actual isolation guarantee.
     const requireCalls = nonCommentLines.match(/require\(['"][^'"]+['"]\)/g) || [];
     for (const req of requireCalls) {
+      const isCrypto      = req.includes("'crypto'") || req.includes('"crypto"');
+      const isIntraModule = /require\((['"])\.\/[^'"]+\1\)/.test(req);
       assert.ok(
-        req.includes("'crypto'") || req.includes('"crypto"'),
+        isCrypto || isIntraModule,
         `folio/store.js has unexpected non-comment import: ${req}`,
       );
     }

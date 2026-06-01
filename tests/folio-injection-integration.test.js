@@ -65,10 +65,10 @@ const CALIBRATED_PINNED_BOOST = 1.0;
 
 const FOLIO_ROOT = path.join(__dirname, '../.folio');
 const SPACE_ID   = 'test-space-integration';
-// Task description in Spanish to match the Spanish-language .folio/ fixture content.
+// Task title/description in English to match the English .folio/ fixture content.
 // BM25 requires lexical overlap between query and document — cross-language queries yield 0 hits.
-const TASK_TITLE = 'Implementar inyeccion de contexto Folio en el pipeline';
-const TASK_DESC  = 'Inyeccion de contexto por stage usando BM25 sobre modulo arquitectura schema decisiones';
+const TASK_TITLE = 'Implement Folio context injection in the pipeline';
+const TASK_DESC  = 'Per-stage context injection using BM25 over module architecture schema decisions storage backend';
 
 let db, store, folioId, binding;
 
@@ -140,8 +140,8 @@ describe('T-005 integration — .folio/ fixture', () => {
     });
     assert.notEqual(result, null, 'bound space returns a result');
     assert.ok(result.text.includes('Index — chapters'), 'Layer-1 index present');
-    // The fixture has chapters: arquitectura, decisiones, modelo-datos, etc.
-    assert.ok(result.text.includes('arquitectura'), 'arquitectura chapter in index');
+    // The fixture has chapters: architecture, decisions, data-model, etc.
+    assert.ok(result.text.includes('architecture'), 'architecture chapter in index');
   });
 
   it('senior-architect descriptor surfaces arquitectura-relevant pages', (t) => {
@@ -165,11 +165,11 @@ describe('T-005 integration — .folio/ fixture', () => {
       ...result.referenced.map((r) => r.slug),
     ];
     const archRelated = allSlugs.filter((s) =>
-      s.startsWith('arquitectura/') || s.startsWith('decisiones/'),
+      s.startsWith('architecture/') || s.startsWith('decisions/'),
     );
     assert.ok(
       archRelated.length >= 1,
-      `arquitectura or decisiones pages should appear somewhere; got: ${JSON.stringify(allSlugs)}`,
+      `architecture or decisions pages should appear somewhere; got: ${JSON.stringify(allSlugs)}`,
     );
   });
 

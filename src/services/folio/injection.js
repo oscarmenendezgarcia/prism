@@ -261,7 +261,7 @@ function buildContext(store, folioId, query, opts = {}) {
   // (hyphens in compound words like "stage-aware", "trade-offs") from being
   // interpreted as FTS5 NOT operators and causing parse errors.
 
-  const hits    = store.searchPages(folioId, sanitizeFtsQuery(query), { limit: cfg.searchLimit });
+  const hits    = store.searchPages(folioId, sanitizeFtsQuery(query), { limit: cfg.searchLimit, prebuilt: true });
   /** @type {Map<string, { page: Page, rel: number }>} */
   const hitMap  = new Map();
   for (const { page, score } of hits) {
