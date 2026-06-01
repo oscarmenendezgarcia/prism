@@ -113,6 +113,7 @@ const FOLIO_CHAPTER_PAGES_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/folio\/chapters
 const FOLIO_PAGE_SINGLE_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages\/([^/]+)\/([^/]+)$/;
 const FOLIO_PAGES_LIST_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages$/;
 const FOLIO_MIGRATE_ROUTE        = /^\/api\/v1\/spaces\/([^/]+)\/folio\/migrate$/;
+const FOLIO_REVISION_ROUTE       = /^\/api\/v1\/spaces\/([^/]+)\/folio\/revision$/;
 
 const SYSTEM_INFO_ROUTE   = /^\/api\/v1\/system\/info$/;
 const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
@@ -294,6 +295,21 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
 
       if (method === 'POST') {
         return handleCreateFolioPage(req, res, spaceId, store);
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // Revision route (GET) — cheap external-change probe for the refresh affordance.
+    const folioRevisionMatch = FOLIO_REVISION_ROUTE.exec(urlPath);
+    if (folioRevisionMatch) {
+      const spaceId = folioRevisionMatch[1];
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+      if (method === 'GET') {
+        return sendJSON(res, 200, { revision: store.folio.binding.getRevision(spaceId) });
       }
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
         `Method '${method}' is not allowed on this route`);

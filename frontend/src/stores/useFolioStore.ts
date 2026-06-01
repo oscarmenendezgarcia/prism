@@ -41,6 +41,12 @@ interface FolioState {
   error:             string | null;
   isMutating:        boolean;
 
+  // ── External-change detection (file backend) ───────────────────────────────
+  /** Backend revision captured at last load (newest markdown mtime; 0 for sqlite). */
+  revision:          number;
+  /** True when the on-disk folio is newer than `revision` — surfaces a refresh affordance. */
+  stale:             boolean;
+
   // ── Actions ───────────────────────────────────────────────────────────────
 
   /** Load the folio index for the active space. */
@@ -66,6 +72,9 @@ interface FolioState {
 
   /** Reset to initial state. */
   reset: () => void;
+
+  /** Poll the backend revision; set `stale` when the on-disk folio changed externally. */
+  checkStale: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +82,7 @@ interface FolioState {
 // ---------------------------------------------------------------------------
 
 const INITIAL: Pick<FolioState,
-  'view' | 'active' | 'chapters' | 'activeChapterSlug' | 'pages' | 'activePage' | 'loading' | 'error' | 'isMutating'
+  'view' | 'active' | 'chapters' | 'activeChapterSlug' | 'pages' | 'activePage' | 'loading' | 'error' | 'isMutating' | 'revision' | 'stale'
 > = {
   view:              'chapters',
   active:            false,
@@ -84,6 +93,8 @@ const INITIAL: Pick<FolioState,
   loading:           false,
   error:             null,
   isMutating:        false,
+  revision:          0,
+  stale:             false,
 };
 
 // ---------------------------------------------------------------------------
@@ -111,10 +122,14 @@ export const useFolioStore = create<FolioState>((set, get) => {
       set({ loading: true, error: null });
       try {
         const index = await api.getFolioIndex(spaceId());
+        let revision = 0;
+        try { revision = await api.getFolioRevision(spaceId()); } catch (_) { /* non-fatal */ }
         set({
           active:   index.active,
           chapters: index.chapters,
           loading:  false,
+          revision,
+          stale:    false,
         });
       } catch (err) {
         const message = (err as Error).message ?? 'Failed to load Folio';
@@ -122,6 +137,16 @@ export const useFolioStore = create<FolioState>((set, get) => {
         set({ loading: false, error: message });
         toast(`Failed to load Folio: ${message}`, 'error');
       }
+    },
+
+    // ── checkStale ─────────────────────────────────────────────────────────────
+
+    checkStale: async () => {
+      // File backend only (sqlite returns 0 → never stale). Cheap mtime probe.
+      try {
+        const rev = await api.getFolioRevision(spaceId());
+        if (rev > get().revision) set({ stale: true });
+      } catch (_) { /* ignore transient polling errors */ }
     },
 
     // ── openChapter ──────────────────────────────────────────────────────────

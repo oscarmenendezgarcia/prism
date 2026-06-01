@@ -49,6 +49,8 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
     savePage,
     deletePage,
     reset,
+    stale,
+    checkStale,
   } = useFolioStore();
 
   // Resizable width + persistence — shared pattern with sibling panels (ADR-1 §5.1).
@@ -73,6 +75,14 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
     }
     loadIndex();
   }, [activeSpaceId, reset, loadIndex]);
+
+  // ── Poll for external changes while the panel is open ──────────────────────
+  // File backend only (sqlite returns revision 0 → never stale). Surfaces the
+  // refresh affordance when the on-disk .folio/ changes (git pull, MCP, manual).
+  useEffect(() => {
+    const id = setInterval(() => { checkStale(); }, 4000);
+    return () => clearInterval(id);
+  }, [checkStale, activeSpaceId]);
 
   // ── Actions ───────────────────────────────────────────────────────────────
 
@@ -174,25 +184,29 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
             </Button>
           )}
 
-          <button
-            type="button"
-            onClick={handleRefresh}
-            className="
-              w-8 h-8 flex items-center justify-center rounded-md
-              text-text-secondary hover:text-text-primary hover:bg-surface-variant
-              transition-[color,background-color] duration-150
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
-            "
-            aria-label="Refresh Folio"
-            title="Refresh — reload from disk"
-          >
-            <span
-              className={`material-symbols-outlined text-[18px] leading-none ${loading ? 'animate-spin' : ''}`}
-              aria-hidden="true"
+          {/* Refresh affordance — only when the on-disk folio changed externally. */}
+          {stale && (
+            <button
+              type="button"
+              onClick={handleRefresh}
+              className="
+                flex items-center gap-1.5 h-8 px-2.5 rounded-md
+                text-xs font-medium text-primary bg-primary/10 border border-primary/20
+                hover:bg-primary/20 transition-colors duration-150
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
+              "
+              aria-label="Folio changed on disk — refresh"
+              title="The folio changed on disk — click to reload"
             >
-              refresh
-            </span>
-          </button>
+              <span
+                className={`material-symbols-outlined text-[16px] leading-none ${loading ? 'animate-spin' : ''}`}
+                aria-hidden="true"
+              >
+                refresh
+              </span>
+              Updated
+            </button>
+          )}
 
           <button
             type="button"

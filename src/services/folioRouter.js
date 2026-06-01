@@ -367,6 +367,21 @@ function createFolioRouter({ db, sqliteBinding, getSpace, makeFileService }) {
     return { ok: true, root, pages };
   }
 
+  /**
+   * Cheap "revision" of a space's folio for external-change detection.
+   * File backend → newest markdown mtime (ms). SQLite → 0 (the app is the only
+   * writer; no external-edit staleness to surface). The frontend polls this and
+   * shows a refresh affordance only when it exceeds the value captured on load.
+   *
+   * @param {string} spaceId
+   * @returns {number}
+   */
+  function getRevision(spaceId) {
+    const { useFile, root } = resolveBackend(spaceId);
+    if (!useFile) return 0;
+    try { return maxMarkdownMtime(root); } catch (_) { return 0; }
+  }
+
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   /**
@@ -417,6 +432,7 @@ function createFolioRouter({ db, sqliteBinding, getSpace, makeFileService }) {
     // Additive
     resolveRefs,
     migrateSpaceToFile,
+    getRevision,
     // Lifecycle
     close,
     // Internal — for store.js wiring only

@@ -876,6 +876,15 @@ export const getFolioIndex = (spaceId: string): Promise<FolioIndex> =>
   apiFetch<FolioIndex>(`/spaces/${encodeURIComponent(spaceId)}/folio`);
 
 /**
+ * Cheap revision probe for external-change detection (file backend → newest
+ * markdown mtime; sqlite → 0). The Folio panel polls this and surfaces a refresh
+ * affordance only when the value exceeds the revision captured at last load.
+ */
+export const getFolioRevision = (spaceId: string): Promise<number> =>
+  apiFetch<{ revision: number }>(`/spaces/${encodeURIComponent(spaceId)}/folio/revision`)
+    .then((r) => r.revision);
+
+/**
  * Fetch all pages in a chapter (metadata only — no content).
  */
 export const getChapterPages = (spaceId: string, chapterSlug: string): Promise<FolioPageMeta[]> =>
