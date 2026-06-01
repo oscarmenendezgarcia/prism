@@ -240,14 +240,17 @@ function createSpaceManager(storeOrDataDir) {
         return { ok: false, code: 'VALIDATION_ERROR', message: folioValidation.errors[0] };
       }
       resolvedFolioBackend = folioValidation.data.folioBackend;
-    } else if (workingDirectory && !existing.workingDirectory && existing.folioBackend == null) {
+    } else if (
+      workingDirectory && !existing.workingDirectory && existing.folioBackend == null &&
+      store.folio && store.folio.binding
+    ) {
       // Working directory newly added to a repo-less space: apply the same
       // default as createSpace (repo → file) so UI + MCP + git share one .folio/.
-      // Only pre-activation — the backend is immutable once a folio exists.
-      let activated = false;
-      if (store.folio && store.folio.binding) {
-        try { activated = store.folio.binding.hasFolio(id); } catch (_) {}
-      }
+      // Only when the folio is NOT yet activated — flipping would otherwise orphan
+      // existing sqlite content (a real migration must move it first, then delete).
+      // Fail-safe: if we cannot confirm it's empty, do NOT flip (stay on sqlite).
+      let activated = true;
+      try { activated = store.folio.binding.hasFolio(id); } catch (_) { activated = true; }
       if (!activated) resolvedFolioBackend = 'file';
     }
 
