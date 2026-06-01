@@ -279,6 +279,59 @@ function createFolioBinding(db, core) {
     })();
   }
 
+  // ── Mutation methods (T-001: folio-index-ui) ─────────────────────────────
+
+  /**
+   * Update a page, identified by slug. Preserves author (core invariant).
+   * Returns null when no folio is bound or the page does not exist.
+   *
+   * @param {string} spaceId
+   * @param {string} chapterSlug
+   * @param {string} pageSlug
+   * @param {{ content?: string, title?: string, pinned?: boolean }} updates
+   * @returns {Page | null}
+   */
+  function updatePage(spaceId, chapterSlug, pageSlug, updates) {
+    const folioId = getFolioIdForSpace(spaceId);
+    if (!folioId) {
+      console.warn(`[folio.binding] op=updatePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=noop reason=no-folio`);
+      return null;
+    }
+    const page = core.getPageBySlug(folioId, chapterSlug, pageSlug);
+    if (!page) {
+      console.warn(`[folio.binding] op=updatePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=noop reason=page-not-found`);
+      return null;
+    }
+    const updated = core.updatePage(folioId, page.id, updates);
+    console.log(`[folio.binding] op=updatePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=ok`);
+    return updated;
+  }
+
+  /**
+   * Delete a page, identified by slug.
+   * Returns false when no folio is bound or the page does not exist.
+   *
+   * @param {string} spaceId
+   * @param {string} chapterSlug
+   * @param {string} pageSlug
+   * @returns {boolean}
+   */
+  function deletePage(spaceId, chapterSlug, pageSlug) {
+    const folioId = getFolioIdForSpace(spaceId);
+    if (!folioId) {
+      console.warn(`[folio.binding] op=deletePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=noop reason=no-folio`);
+      return false;
+    }
+    const page = core.getPageBySlug(folioId, chapterSlug, pageSlug);
+    if (!page) {
+      console.warn(`[folio.binding] op=deletePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=noop reason=page-not-found`);
+      return false;
+    }
+    const deleted = core.deletePage(folioId, page.id);
+    console.log(`[folio.binding] op=deletePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=${deleted ? 'ok' : 'noop'}`);
+    return deleted;
+  }
+
   // ── Bootstrap one-shot marker (T-002: folio-bootstrap) ──────────────────
 
   /**
@@ -344,6 +397,8 @@ function createFolioBinding(db, core) {
     hasFolio,
     createPage,
     upsertPageFromAgent,
+    updatePage,
+    deletePage,
     listChapters,
     listPages,
     getPageBySlug,

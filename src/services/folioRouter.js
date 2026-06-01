@@ -215,6 +215,18 @@ function createFolioRouter({ db, sqliteBinding, getSpace, makeFileService }) {
     return getFileBinding(spaceId, root).upsertPageFromAgent(spaceId, slug, content, opts);
   }
 
+  function updatePage(spaceId, chapterSlug, pageSlug, updates) {
+    const { useFile, root } = resolveBackend(spaceId);
+    if (!useFile) return sqliteBinding.updatePage(spaceId, chapterSlug, pageSlug, updates);
+    return getFileBinding(spaceId, root).updatePage(spaceId, chapterSlug, pageSlug, updates);
+  }
+
+  function deletePage(spaceId, chapterSlug, pageSlug) {
+    const { useFile, root } = resolveBackend(spaceId);
+    if (!useFile) return sqliteBinding.deletePage(spaceId, chapterSlug, pageSlug);
+    return getFileBinding(spaceId, root).deletePage(spaceId, chapterSlug, pageSlug);
+  }
+
   function listChapters(spaceId) {
     const { useFile, root } = resolveBackend(spaceId);
     if (!useFile) return sqliteBinding.listChapters(spaceId);
@@ -325,6 +337,8 @@ function createFolioRouter({ db, sqliteBinding, getSpace, makeFileService }) {
     hasFolio,
     createPage,
     upsertPageFromAgent,
+    updatePage,
+    deletePage,
     listChapters,
     listPages,
     getPageBySlug,

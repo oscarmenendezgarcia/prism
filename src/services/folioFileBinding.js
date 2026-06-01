@@ -215,6 +215,61 @@ function createFileBinding({ db, getService, spaceId }) {
     return page;
   }
 
+  // ── Mutation methods (T-001: folio-index-ui) ─────────────────────────────
+
+  /**
+   * Update a page by slug. Preserves author (core invariant).
+   * Returns null when the service is unavailable or the page does not exist.
+   *
+   * @param {string} _spaceId
+   * @param {string} chapterSlug
+   * @param {string} pageSlug
+   * @param {{ content?: string, title?: string, pinned?: boolean }} updates
+   * @returns {Page | null}
+   */
+  function updatePage(_spaceId, chapterSlug, pageSlug, updates) {
+    const svc = getService();
+    if (!svc) {
+      console.warn(`[folio.fileBinding] op=updatePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=noop reason=no-folio`);
+      return null;
+    }
+    const folioId = svc.backend.folioId;
+    const page = svc.getPageBySlug(folioId, chapterSlug, pageSlug);
+    if (!page) {
+      console.warn(`[folio.fileBinding] op=updatePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=noop reason=page-not-found`);
+      return null;
+    }
+    const updated = svc.updatePage(folioId, page.id, updates);
+    console.log(`[folio.fileBinding] op=updatePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=ok`);
+    return updated;
+  }
+
+  /**
+   * Delete a page by slug.
+   * Returns false when the service is unavailable or the page does not exist.
+   *
+   * @param {string} _spaceId
+   * @param {string} chapterSlug
+   * @param {string} pageSlug
+   * @returns {boolean}
+   */
+  function deletePage(_spaceId, chapterSlug, pageSlug) {
+    const svc = getService();
+    if (!svc) {
+      console.warn(`[folio.fileBinding] op=deletePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=noop reason=no-folio`);
+      return false;
+    }
+    const folioId = svc.backend.folioId;
+    const page = svc.getPageBySlug(folioId, chapterSlug, pageSlug);
+    if (!page) {
+      console.warn(`[folio.fileBinding] op=deletePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=noop reason=page-not-found`);
+      return false;
+    }
+    const deleted = svc.deletePage(folioId, page.id);
+    console.log(`[folio.fileBinding] op=deletePage spaceId=${spaceId} slug=${chapterSlug}/${pageSlug} outcome=${deleted ? 'ok' : 'noop'}`);
+    return deleted;
+  }
+
   // ── Bootstrap one-shot marker ─────────────────────────────────────────────
 
   /**
@@ -278,6 +333,8 @@ function createFileBinding({ db, getService, spaceId }) {
     hasFolio,
     createPage,
     upsertPageFromAgent,
+    updatePage,
+    deletePage,
     listChapters,
     listPages,
     getPageBySlug,
