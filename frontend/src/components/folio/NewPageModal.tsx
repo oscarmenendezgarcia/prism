@@ -110,18 +110,38 @@ export function NewPageModal({
     setPageSlug(value);
   }
 
+  // ── BUG-001 fix: validate individual fields on blur so users see inline
+  // errors as soon as they leave an invalid field (not just on submit).
+  // validate() on handleSubmit remains as a belt-and-suspenders final check.
+
+  function handleChapterBlur() {
+    if (chapterSlug.length > 0 && !isValidSlug(chapterSlug)) {
+      setChapterError('Lowercase letters, numbers, and hyphens only (e.g. my-chapter)');
+    } else {
+      setChapterError('');
+    }
+  }
+
+  function handlePageBlur() {
+    if (pageSlug.length > 0 && !isValidSlug(pageSlug)) {
+      setPageError('Lowercase letters, numbers, and hyphens only (e.g. getting-started)');
+    } else {
+      setPageError('');
+    }
+  }
+
   function validate(): boolean {
     let ok = true;
 
     if (!isValidSlug(chapterSlug)) {
-      setChapterError('Must match [a-z0-9]+(-[a-z0-9]+)* (lowercase letters, numbers, hyphens)');
+      setChapterError('Lowercase letters, numbers, and hyphens only (e.g. my-chapter)');
       ok = false;
     } else {
       setChapterError('');
     }
 
     if (!isValidSlug(pageSlug)) {
-      setPageError('Must match [a-z0-9]+(-[a-z0-9]+)* (lowercase letters, numbers, hyphens)');
+      setPageError('Lowercase letters, numbers, and hyphens only (e.g. getting-started)');
       ok = false;
     } else {
       setPageError('');
@@ -189,6 +209,7 @@ export function NewPageModal({
               type="text"
               value={chapterSlug}
               onChange={(e) => { setChapterSlug(e.target.value); setChapterError(''); }}
+              onBlur={handleChapterBlur}
               placeholder="architecture"
               autoComplete="off"
               spellCheck={false}
@@ -220,6 +241,7 @@ export function NewPageModal({
               type="text"
               value={pageSlug}
               onChange={(e) => handlePageSlugChange(e.target.value)}
+              onBlur={handlePageBlur}
               placeholder="getting-started"
               autoComplete="off"
               spellCheck={false}
