@@ -25,7 +25,7 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 // Shape + behaviour shared by all non-icon variants. Size and colour are layered
 // separately so a size override never collides with colour utilities.
 const base =
-  'inline-flex items-center rounded-md font-medium transition-all duration-150 ease-apple disabled:cursor-not-allowed';
+  'inline-flex items-center rounded-lg font-medium transition-all duration-150 ease-apple disabled:cursor-not-allowed';
 
 const sizeClasses: Record<ButtonSize, string> = {
   md: 'gap-2 px-4 py-2 text-sm',
@@ -34,7 +34,7 @@ const sizeClasses: Record<ButtonSize, string> = {
 
 const variantClasses: Record<Exclude<ButtonVariant, 'icon'>, string> = {
   primary:
-    'bg-primary text-on-primary shadow-sm hover:bg-primary-hover active:bg-primary-active active:scale-[0.97] disabled:bg-surface-variant disabled:text-text-disabled disabled:opacity-50',
+    'bg-primary text-on-primary shadow-[0_2px_8px_-2px] shadow-primary/30 hover:bg-primary-hover hover:shadow-[0_4px_12px_-3px] hover:shadow-primary/40 active:bg-primary-active active:scale-[0.97] disabled:bg-surface-variant disabled:text-text-disabled disabled:opacity-50 disabled:shadow-none',
   secondary:
     'bg-surface-variant text-text-secondary border border-border hover:bg-surface disabled:bg-surface-variant disabled:text-text-disabled disabled:opacity-50',
   ghost:
@@ -49,7 +49,7 @@ const variantClasses: Record<Exclude<ButtonVariant, 'icon'>, string> = {
 
 // Icon variant is fixed-size (32px) and self-contained — size prop does not apply.
 const iconClasses =
-  'inline-flex items-center justify-center w-8 h-8 rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150 ease-apple text-base leading-none';
+  'inline-flex items-center justify-center w-8 h-8 rounded-lg text-text-secondary hover:bg-surface-variant hover:text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150 ease-apple text-base leading-none';
 
 export function Button({
   variant = 'primary',
