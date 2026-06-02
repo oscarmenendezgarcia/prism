@@ -176,7 +176,7 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
 
   return (
     <aside
-      className="relative flex flex-col bg-surface-elevated border-l border-border h-full shrink-0 w-[var(--panel-w)] [animation:var(--animate-panel-in)]"
+      className="panel-shell relative flex flex-col bg-surface-elevated border-l border-border h-full shrink-0 w-[var(--panel-w)] [animation:var(--animate-panel-in)]"
       style={{ '--panel-w': `${width}px` } as React.CSSProperties} // lint-ok: CSS custom-property injection for dynamic panel resize — Tailwind cannot set runtime CSS vars at the element level
       aria-label="Folio"
       data-testid="folio-screen"
@@ -190,7 +190,7 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
         aria-valuemin={minWidth}
         aria-valuemax={maxWidth}
         onMouseDown={handleMouseDown}
-        className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
+        className="panel-resize-handle absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
       />
       {/* ── Panel header ──────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">

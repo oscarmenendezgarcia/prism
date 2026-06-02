@@ -292,7 +292,7 @@ export function RunsPanel() {
       aria-valuemin={minWidth}
       aria-valuemax={maxWidth}
       onMouseDown={handleMouseDown}
-      className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
+      className="panel-resize-handle absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
     />
   );
 
@@ -317,7 +317,7 @@ export function RunsPanel() {
       <aside
         role="region"
         aria-label={`Run detail: ${taskTitle}`}
-        className="relative flex flex-col bg-surface border-l border-border h-full shrink-0 overflow-hidden w-[var(--panel-w)]"
+        className="panel-shell relative flex flex-col bg-surface border-l border-border h-full shrink-0 overflow-hidden w-[var(--panel-w)]"
         style={{ '--panel-w': `${width}px` } as React.CSSProperties} // lint-ok: CSS custom-property injection for dynamic panel resize
       >
         {resizeHandle}
@@ -397,7 +397,7 @@ export function RunsPanel() {
     <aside
       role="region"
       aria-label="Runs panel with active and historical pipeline runs"
-      className="relative flex flex-col bg-surface border-l border-border h-full shrink-0 overflow-hidden w-[var(--panel-w)] [animation:var(--animate-panel-in)]"
+      className="panel-shell relative flex flex-col bg-surface border-l border-border h-full shrink-0 overflow-hidden w-[var(--panel-w)] [animation:var(--animate-panel-in)]"
       style={{ '--panel-w': `${width}px` } as React.CSSProperties} // lint-ok: CSS custom-property injection for dynamic panel resize
     >
       {resizeHandle}

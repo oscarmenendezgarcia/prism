@@ -655,3 +655,22 @@ html.dark {
   animation-duration: 260ms;
   animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SIDE PANELS — responsive shell (terminal, runs, config, agent-settings, folio)
+   Desktop: fixed-width resizable asides in a flex row next to the board.
+   Mobile (<640px): a fixed-width aside would be pushed off-screen by the board,
+   so each becomes a full-screen overlay. The app store enforces one-open-at-a-time
+   on mobile so overlays never stack. The resize grip is meaningless full-screen,
+   so it is hidden. `!important` on width overrides the per-panel w-[var(--panel-w)].
+───────────────────────────────────────────────────────────────────────────── */
+@media (max-width: 639px) {
+  .panel-shell {
+    position: fixed;
+    inset: 0;
+    width: 100% !important;
+    z-index: 50;
+    border-left: 0;
+  }
+  .panel-resize-handle { display: none; }
+}
