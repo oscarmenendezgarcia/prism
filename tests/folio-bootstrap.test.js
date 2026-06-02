@@ -317,7 +317,7 @@ describe('applyBootstrapPages — happy path: activates folio with author=agent'
         confidence: 'high',
       }],
     };
-    const written = applyBootstrapPages('space-1', output, repoDir, binding);
+    const { written } = applyBootstrapPages('space-1', output, repoDir, binding);
     assert.equal(written, 1);
 
     const page = binding.getPageBySlug('space-1', 'architecture', 'stack');
@@ -364,7 +364,7 @@ describe('applyBootstrapPages — happy path: activates folio with author=agent'
       { slug: 'architecture/structure',      title: 'Estructura', content: 'B', sources: ['package.json'], confidence: 'high' },
       { slug: 'architecture/request-flow',   title: 'Flujo',      content: 'C', sources: ['package.json'], confidence: 'high' },
     ];
-    const written = applyBootstrapPages('space-1', { pages }, repoDir, binding);
+    const { written } = applyBootstrapPages('space-1', { pages }, repoDir, binding);
     assert.equal(written, BOOTSTRAP_CONFIG.maxPages);
   });
 });
@@ -392,7 +392,7 @@ describe('applyBootstrapPages — drop logic', () => {
         confidence: 'high',
       }],
     };
-    const written = applyBootstrapPages('space-1', output, repoDir, binding);
+    const { written } = applyBootstrapPages('space-1', output, repoDir, binding);
     assert.equal(written, 0, 'Disallowed slug must be dropped');
   });
 
@@ -406,7 +406,7 @@ describe('applyBootstrapPages — drop logic', () => {
         confidence: 'high',
       }],
     };
-    const written = applyBootstrapPages('space-1', output, repoDir, binding);
+    const { written } = applyBootstrapPages('space-1', output, repoDir, binding);
     assert.equal(written, 0, 'Page with empty sources must be dropped');
   });
 
@@ -420,7 +420,7 @@ describe('applyBootstrapPages — drop logic', () => {
         confidence: 'high',
       }],
     };
-    const written = applyBootstrapPages('space-1', output, repoDir, binding);
+    const { written } = applyBootstrapPages('space-1', output, repoDir, binding);
     assert.equal(written, 0, 'Page whose source files do not exist must be dropped');
   });
 
@@ -434,7 +434,7 @@ describe('applyBootstrapPages — drop logic', () => {
         confidence: 'high',
       }],
     };
-    const written = applyBootstrapPages('space-1', output, repoDir, binding);
+    const { written } = applyBootstrapPages('space-1', output, repoDir, binding);
     assert.equal(written, 0, 'Page with content exceeding maxContentLength must be dropped');
   });
 
@@ -446,18 +446,67 @@ describe('applyBootstrapPages — drop logic', () => {
       // This 4th page should be silently dropped:
       { slug: 'architecture/stack',          title: 'S2', content: 'D', sources: ['package.json'], confidence: 'high' },
     ];
-    const written = applyBootstrapPages('space-1', { pages }, repoDir, binding);
+    const { written } = applyBootstrapPages('space-1', { pages }, repoDir, binding);
     assert.equal(written, BOOTSTRAP_CONFIG.maxPages, 'Should write at most maxPages pages');
   });
 
   it('should_return_zero_when_agentOutput_is_null', () => {
-    const written = applyBootstrapPages('space-1', null, repoDir, binding);
+    const { written } = applyBootstrapPages('space-1', null, repoDir, binding);
     assert.equal(written, 0);
   });
 
   it('should_return_zero_when_pages_is_empty_array', () => {
-    const written = applyBootstrapPages('space-1', { pages: [] }, repoDir, binding);
+    const { written } = applyBootstrapPages('space-1', { pages: [] }, repoDir, binding);
     assert.equal(written, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T-004 — applyBootstrapPages: transient vs permanent write failures
+// (robustness fix — a transient SQLITE_BUSY must be retry-worthy, not final)
+// ---------------------------------------------------------------------------
+
+describe('applyBootstrapPages — write-failure classification', () => {
+  let repoDir;
+
+  // A valid page that passes every validation gate, so the call REACHES
+  // binding.createPage and we can observe how the failure is classified.
+  const validOutput = () => ({
+    pages: [{
+      slug:       'architecture/stack',
+      title:      'Stack',
+      content:    '## Stack\n- Node',
+      sources:    ['package.json'],
+      confidence: 'high',
+    }],
+  });
+
+  const throwingBinding = (code) => ({
+    createPage() {
+      const err = new Error('simulated write failure');
+      if (code) err.code = code;
+      throw err;
+    },
+  });
+
+  beforeEach(() => { repoDir = makeRepoDir(); });
+  after(() => { try { fs.rmSync(repoDir, { recursive: true }); } catch {} });
+
+  it('should_count_SQLITE_BUSY_as_a_transient_error', () => {
+    const r = applyBootstrapPages('space-1', validOutput(), repoDir, throwingBinding('SQLITE_BUSY'));
+    assert.equal(r.written, 0);
+    assert.equal(r.transientErrors, 1, 'SQLITE_BUSY must be classified transient');
+  });
+
+  it('should_count_SQLITE_LOCKED_as_a_transient_error', () => {
+    const r = applyBootstrapPages('space-1', validOutput(), repoDir, throwingBinding('SQLITE_LOCKED'));
+    assert.equal(r.transientErrors, 1);
+  });
+
+  it('should_NOT_count_a_permanent_error_as_transient', () => {
+    const r = applyBootstrapPages('space-1', validOutput(), repoDir, throwingBinding('SQLITE_CONSTRAINT'));
+    assert.equal(r.written, 0);
+    assert.equal(r.transientErrors, 0, 'A non-busy error must not be retry-worthy (avoids infinite re-bootstrap)');
   });
 });
 
@@ -684,6 +733,30 @@ describe('ensureBootstrapped — full happy path with PIPELINE_NO_SPAWN=1', () =
     const result = await ensureBootstrapped('space-1', repoDir, binding, opts);
     assert.equal(result.status, 'skipped');
     assert.equal(result.reason, 'no-pages');
+  });
+
+  it('should_NOT_mark_bootstrapped_on_transient_write_failure', async () => {
+    // Real binding for the guards/mark, but every createPage throws SQLITE_BUSY
+    // so the apply writes 0 pages purely due to (simulated) transient contention.
+    const busyBinding = Object.assign({}, binding, {
+      createPage() { const e = new Error('database is locked'); e.code = 'SQLITE_BUSY'; throw e; },
+    });
+    const testPages = [{
+      slug:       'architecture/stack',
+      title:      'Stack',
+      content:    '## Stack\n\n- Node.js',
+      sources:    ['package.json'],
+      confidence: 'high',
+    }];
+    const opts = { dataDir, runId: crypto.randomUUID(), _testPages: testPages };
+    fs.mkdirSync(path.join(dataDir, 'runs', opts.runId), { recursive: true });
+
+    const result = await ensureBootstrapped('space-1', repoDir, busyBinding, opts);
+    assert.equal(result.status, 'error');
+    assert.equal(result.reason, 'transient_write_failure');
+    // The one-shot mark must NOT be set, so a later pipeline run retries.
+    const { bootstrappedAt } = binding.getBootstrapState('space-1');
+    assert.equal(bootstrappedAt, null, 'transient failure must stay unmarked for retry');
   });
 
   it('should_be_idempotent_second_call_returns_already_bootstrapped', async () => {

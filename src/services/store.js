@@ -29,6 +29,11 @@ const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 PRAGMA synchronous = NORMAL;
+-- Wait up to 5s for a write lock instead of throwing SQLITE_BUSY immediately.
+-- WAL serialises concurrent writers (e.g. an HTTP request + the bootstrap apply
+-- transaction); without this they collide and the loser throws. See the Folio
+-- bootstrap transient-failure post-mortem (decision 16 in .folio/decisions/log).
+PRAGMA busy_timeout = 5000;
 
 CREATE TABLE IF NOT EXISTS spaces (
   id                TEXT PRIMARY KEY,

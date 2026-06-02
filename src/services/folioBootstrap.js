@@ -209,16 +209,20 @@ function buildBootstrapPrompt(workingDir, signalPath, doneFile) {
  * @param {object}  agentOutput  - Parsed JSON from the agent signal file.
  * @param {string}  workingDir
  * @param {object}  binding      - folioBinding instance.
- * @returns {number} Number of pages successfully written.
+ * @returns {{ written: number, transientErrors: number }} Pages written, plus a
+ *   count of createPage calls that failed with a transient DB error
+ *   (SQLITE_BUSY/LOCKED). The caller uses transientErrors to decide whether a
+ *   0-write outcome is retry-worthy (contention) or final (nothing qualified).
  */
 function applyBootstrapPages(spaceId, agentOutput, workingDir, binding) {
   if (!agentOutput || !Array.isArray(agentOutput.pages)) {
     bootstrapLog('apply.invalid_output', { spaceId, reason: 'missing_pages_array' });
-    return 0;
+    return { written: 0, transientErrors: 0 };
   }
 
   let pagesWritten = 0;
   let pagesProcessed = 0;
+  let transientErrors = 0;
 
   for (const page of agentOutput.pages) {
     if (pagesProcessed >= BOOTSTRAP_CONFIG.maxPages) {
@@ -299,13 +303,20 @@ function applyBootstrapPages(spaceId, agentOutput, workingDir, binding) {
         bootstrapLog('apply.noop', { spaceId, slug: page.slug, reason: 'createPage_returned_null' });
       }
     } catch (err) {
-      bootstrapLog('apply.error', { spaceId, slug: page.slug, error: err.message });
+      // Distinguish transient DB contention (worth a retry next run) from a
+      // permanent failure (a bug — marking as bootstrapped avoids an infinite
+      // re-bootstrap loop). With store.js's busy_timeout this should be rare.
+      const transient = err.code === 'SQLITE_BUSY'
+        || err.code === 'SQLITE_BUSY_SNAPSHOT'
+        || err.code === 'SQLITE_LOCKED';
+      if (transient) transientErrors++;
+      bootstrapLog('apply.error', { spaceId, slug: page.slug, error: err.message, code: err.code, transient });
     }
 
     pagesProcessed++;
   }
 
-  return pagesWritten;
+  return { written: pagesWritten, transientErrors };
 }
 
 // ---------------------------------------------------------------------------
@@ -440,12 +451,19 @@ async function ensureBootstrapped(spaceId, workingDir, binding, opts = {}) {
       fs.writeFileSync(doneFile, '0', 'utf8');
       bootstrapLog('bootstrap.started', { spaceId, pid: null, mock: true });
 
-      const pagesWritten = applyBootstrapPages(spaceId, { pages: testPages }, workingDir, binding);
-      binding.setBootstrappedAt(spaceId, new Date().toISOString());
+      const { written, transientErrors } = applyBootstrapPages(spaceId, { pages: testPages }, workingDir, binding);
       const durationMs = Date.now() - t0;
 
-      if (pagesWritten > 0) {
-        const result = { status: 'bootstrapped', pagesWritten, durationMs };
+      if (written === 0 && transientErrors > 0) {
+        const result = { status: 'error', reason: 'transient_write_failure', transientErrors, durationMs };
+        bootstrapLog('bootstrap.retry_pending', { spaceId, ...result });
+        return result;
+      }
+
+      binding.setBootstrappedAt(spaceId, new Date().toISOString());
+
+      if (written > 0) {
+        const result = { status: 'bootstrapped', pagesWritten: written, durationMs };
         bootstrapLog('bootstrap.completed', { spaceId, ...result });
         return result;
       }
@@ -534,14 +552,24 @@ async function ensureBootstrapped(spaceId, workingDir, binding, opts = {}) {
     }
 
     // Apply pages (deterministic validation layer)
-    const pagesWritten = applyBootstrapPages(spaceId, agentOutput, workingDir, binding);
-
-    // Mark one-shot
-    binding.setBootstrappedAt(spaceId, new Date().toISOString());
+    const { written, transientErrors } = applyBootstrapPages(spaceId, agentOutput, workingDir, binding);
     const durationMs = Date.now() - t0;
 
-    if (pagesWritten > 0) {
-      const result = { status: 'bootstrapped', pagesWritten, durationMs };
+    // Retry-worthy: nothing written AND the only failures were transient DB
+    // contention (SQLITE_BUSY/LOCKED). Do NOT mark bootstrapped — let the next
+    // pipeline run retry. A permanent failure or a legitimately empty result
+    // (transientErrors === 0) falls through and IS marked, so we never loop.
+    if (written === 0 && transientErrors > 0) {
+      const result = { status: 'error', reason: 'transient_write_failure', transientErrors, durationMs };
+      bootstrapLog('bootstrap.retry_pending', { spaceId, ...result });
+      return result;
+    }
+
+    // Mark one-shot (final outcome)
+    binding.setBootstrappedAt(spaceId, new Date().toISOString());
+
+    if (written > 0) {
+      const result = { status: 'bootstrapped', pagesWritten: written, durationMs };
       bootstrapLog('bootstrap.completed', { spaceId, ...result });
       return result;
     }
