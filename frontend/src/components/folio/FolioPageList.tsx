@@ -211,8 +211,8 @@ export function FolioPageList({
           </p>
         </div>
 
-        <Button variant="secondary" onClick={onNewPage} aria-label="Create new page" className="folio-newpage-shared">
-          <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">add</span>
+        <Button variant="secondary" size="sm" onClick={onNewPage} aria-label="Create new page" className="folio-newpage-shared">
+          <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">add</span>
           New Page
         </Button>
       </div>

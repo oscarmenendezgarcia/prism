@@ -236,10 +236,11 @@ export function FolioPageEditor({
             <>
               <Button
                 variant="secondary"
+                size="sm"
                 onClick={handleEdit}
                 aria-label="Edit page"
               >
-                <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">edit</span>
+                <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">edit</span>
                 Edit
               </Button>
               <Button
@@ -255,6 +256,7 @@ export function FolioPageEditor({
             <>
               <Button
                 variant="secondary"
+                size="sm"
                 onClick={handleCancelEdit}
                 disabled={isMutating}
                 aria-label="Cancel editing"
@@ -263,6 +265,7 @@ export function FolioPageEditor({
               </Button>
               <Button
                 variant="primary"
+                size="sm"
                 onClick={handleSave}
                 disabled={!isDirty || isMutating}
                 aria-label="Save changes"

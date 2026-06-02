@@ -209,8 +209,8 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
               FolioPageList shows its own (chapter-contextual) New Page button, so
               showing it here too would duplicate it. */}
           {view === 'chapters' && (
-            <Button variant="secondary" onClick={handleOpenNewPage} aria-label="Create new page" className="folio-newpage-shared">
-              <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">add</span>
+            <Button variant="secondary" size="sm" onClick={handleOpenNewPage} aria-label="Create new page" className="folio-newpage-shared">
+              <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">add</span>
               New Page
             </Button>
           )}
