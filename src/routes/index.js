@@ -67,6 +67,7 @@ const {
   handleUpdateFolioPage,
   handleDeleteFolioPage,
 } = require('../handlers/folioPages');
+const folioBootstrap = require('../services/folioBootstrap');
 
 const {
   PIPELINE_RUNS_LIST_ROUTE,
@@ -114,6 +115,7 @@ const FOLIO_PAGE_SINGLE_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages\/(
 const FOLIO_PAGES_LIST_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages$/;
 const FOLIO_MIGRATE_ROUTE        = /^\/api\/v1\/spaces\/([^/]+)\/folio\/migrate$/;
 const FOLIO_REVISION_ROUTE       = /^\/api\/v1\/spaces\/([^/]+)\/folio\/revision$/;
+const FOLIO_BOOTSTRAP_ROUTE      = /^\/api\/v1\/spaces\/([^/]+)\/folio\/bootstrap$/;
 
 const SYSTEM_INFO_ROUTE   = /^\/api\/v1\/system\/info$/;
 const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
@@ -341,6 +343,36 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         `Method '${method}' is not allowed on this route`);
     }
 
+    // Bootstrap route (POST) — manual "Bootstrap from repo" trigger for the
+    // Folio empty state. Fire-and-forget background job; surfaces in the Runs
+    // panel. 202 Accepted when started; 409/400 when it can't run.
+    const folioBootstrapMatch = FOLIO_BOOTSTRAP_ROUTE.exec(urlPath);
+    if (folioBootstrapMatch) {
+      const spaceId = folioBootstrapMatch[1];
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+      if (method !== 'POST') {
+        return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+          `Method '${method}' is not allowed on this route`);
+      }
+      const space   = spaceResult.space;
+      const binding = store.folio && store.folio.binding;
+      const wd      = space.workingDirectory;
+      if (!binding) {
+        return sendError(res, 400, 'NO_FOLIO_BACKEND', 'Folio backend is not available.');
+      }
+      if (binding.hasFolio(spaceId)) {
+        return sendError(res, 409, 'FOLIO_EXISTS', 'This space already has a folio.');
+      }
+      if (!wd || !folioBootstrap.detectRepo(wd)) {
+        return sendError(res, 400, 'NO_REPO', 'This space has no repository working directory to bootstrap from.');
+      }
+      folioBootstrap.triggerBackgroundBootstrap({ spaceId, workingDir: wd, binding, dataDir, spaceName: space.name });
+      return sendJSON(res, 202, { started: true });
+    }
+
     // Folio index route (GET) — must be last among folio routes to avoid
     // shadowing the more-specific routes registered above.
     const folioIndexMatch = FOLIO_INDEX_ROUTE.exec(urlPath);
@@ -520,6 +552,11 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         const pipeline         = body && body.pipeline;
         const agentNicknames   = body && body.agentNicknames;
         const folioBackend     = body && body.folioBackend;
+
+        // Capture the prior working dir so we can detect a fresh repo activation.
+        const prevSpace = spaceManager.getSpace(spaceId);
+        const prevWd    = prevSpace.ok ? prevSpace.space.workingDirectory : undefined;
+
         const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames, folioBackend);
 
         if (!result.ok) {
@@ -527,6 +564,22 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
                        : result.code === 'DUPLICATE_NAME'  ? 409
                        : 400;
           return sendError(res, status, result.code, result.message);
+        }
+
+        // Activation: a working directory was just added to a repo-backed space
+        // with no folio yet → fire a background bootstrap (NOT a pipeline concern).
+        // Fire-and-forget; it surfaces in the Runs panel. Guarded so it never
+        // affects the space-edit response.
+        try {
+          const newWd   = result.space.workingDirectory;
+          const binding = store.folio && store.folio.binding;
+          if (newWd && !prevWd && binding && !binding.hasFolio(spaceId) && folioBootstrap.detectRepo(newWd)) {
+            folioBootstrap.triggerBackgroundBootstrap({
+              spaceId, workingDir: newWd, binding, dataDir, spaceName: result.space.name,
+            });
+          }
+        } catch (err) {
+          console.warn('[routes] WARN: could not trigger folio bootstrap on space edit:', err.message);
         }
 
         return sendJSON(res, 200, result.space);

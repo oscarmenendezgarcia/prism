@@ -35,6 +35,7 @@ const {
   detectRepo,
   applyBootstrapPages,
   ensureBootstrapped,
+  triggerBackgroundBootstrap,
   BOOTSTRAP_CONFIG,
 } = require('../src/services/folioBootstrap');
 
@@ -879,5 +880,65 @@ describe('pipelineManager hook — bootstrap is invoked before stage-0 prompt', 
 
     const pagesAfter = binding.listPages('space-1').length;
     assert.equal(pagesAfter, pagesBefore, 'No pages should be added to an existing folio');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// triggerBackgroundBootstrap — activation-triggered (not pipeline), recorded in Runs
+// ---------------------------------------------------------------------------
+
+describe('triggerBackgroundBootstrap — fire-and-forget, visible in Runs', () => {
+  let db, binding, repoDir, dataDir, origNoSpawn;
+
+  function readRunRecords() {
+    const file = path.join(dataDir, 'agent-runs.jsonl');
+    if (!fs.existsSync(file)) return [];
+    return fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  }
+
+  before(() => { origNoSpawn = process.env.PIPELINE_NO_SPAWN; });
+  after(() => {
+    if (origNoSpawn === undefined) delete process.env.PIPELINE_NO_SPAWN;
+    else process.env.PIPELINE_NO_SPAWN = origNoSpawn;
+    try { if (repoDir) fs.rmSync(repoDir, { recursive: true }); } catch {}
+    try { if (dataDir) fs.rmSync(dataDir, { recursive: true }); } catch {}
+  });
+
+  beforeEach(() => {
+    db = openDb();
+    insertSpace(db, 'space-1');
+    const core = createFolioStore(db);
+    binding = createFolioBinding(db, core);
+    repoDir = makeRepoDir();
+    dataDir = makeTmpDir();
+    process.env.PIPELINE_NO_SPAWN = '1';
+    delete process.env.PRISM_FOLIO_BOOTSTRAP;
+  });
+
+  it('creates the folio and records a completed bootstrap run', async () => {
+    const testPages = [{
+      slug: 'architecture/stack', title: 'Stack', content: '## Stack',
+      sources: ['package.json'], confidence: 'high',
+    }];
+    await triggerBackgroundBootstrap({
+      spaceId: 'space-1', workingDir: repoDir, binding, dataDir,
+      spaceName: 'Test Space', _testPages: testPages,
+    });
+
+    assert.equal(binding.hasFolio('space-1'), true, 'folio should be created');
+    const rec = readRunRecords().find((r) => r.phase === 'bootstrap' && r.spaceId === 'space-1');
+    assert.ok(rec, 'a bootstrap run record should exist in agent-runs.jsonl');
+    assert.equal(rec.agentId, 'folio-bootstrapper');
+    assert.equal(rec.status, 'completed');
+    assert.ok(rec.completedAt, 'record should be finalised');
+  });
+
+  it('drops the run record when the bootstrap skips (folio already exists)', async () => {
+    binding.createPage('space-1', 'setup/init', 'x', { createIfMissing: true, author: 'user' });
+    await triggerBackgroundBootstrap({
+      spaceId: 'space-1', workingDir: repoDir, binding, dataDir, spaceName: 'Test', _testPages: [],
+    });
+    const rec = readRunRecords().find((r) => r.phase === 'bootstrap');
+    assert.equal(rec, undefined, 'a skipped bootstrap should leave no run record');
   });
 });

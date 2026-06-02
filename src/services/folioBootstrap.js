@@ -31,6 +31,7 @@ const os   = require('os');
 const { spawn, execSync } = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
+const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
 
 // ---------------------------------------------------------------------------
 // CLAUDE_BIN — resolved once at module load (same pattern as pipelineManager)
@@ -587,10 +588,102 @@ async function ensureBootstrapped(spaceId, workingDir, binding, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Background trigger (activation-time, NOT pipeline)
+// ---------------------------------------------------------------------------
+
+// Bootstrap-result reasons that mean the agent never spawned → nothing to show.
+const NON_SPAWN_REASONS = new Set([
+  'kill-switch', 'already-bootstrapped', 'folio-exists', 'no-repo', 'agent_not_found',
+]);
+
+/**
+ * Finalise the agent-runs.jsonl record for a background bootstrap: mark it
+ * completed/failed when the agent ran, or remove it when the bootstrap skipped
+ * (so the Runs panel isn't polluted by no-op activations). Non-fatal.
+ */
+function finalizeBootstrapRunEntry(dataDir, entryId, result, startedAt) {
+  try {
+    const records = readAgentRuns(dataDir);
+    const idx = records.findIndex((r) => r.id === entryId);
+    if (idx === -1) return;
+
+    if (NON_SPAWN_REASONS.has(result.reason)) {
+      records.splice(idx, 1); // skipped → drop the row
+    } else {
+      const completedAt = new Date().toISOString();
+      records[idx] = {
+        ...records[idx],
+        status:      result.status === 'bootstrapped' ? 'completed' : 'failed',
+        completedAt,
+        durationMs:  result.durationMs ?? (Date.parse(completedAt) - Date.parse(startedAt)),
+        pagesWritten: result.pagesWritten,
+      };
+    }
+    writeAgentRuns(dataDir, records);
+  } catch (err) {
+    console.warn('[folio.bootstrap] WARN: could not finalise bootstrap run entry:', err.message);
+  }
+}
+
+/**
+ * Fire-and-forget bootstrap triggered by activation (adding a working dir to a
+ * space, or the manual "Bootstrap from repo" button) — NOT by the pipeline.
+ *
+ * Writes a 'running' agent-runs.jsonl record up front (so it shows in the Runs
+ * panel as a standalone "Folio Bootstrapper" entry), runs ensureBootstrapped in
+ * the background, then marks the record completed/failed (or removes it if the
+ * bootstrap skipped). Returns the promise for tests; callers ignore it.
+ *
+ * @param {{ spaceId: string, workingDir: string, binding: object, dataDir: string, spaceName?: string }} args
+ * @returns {Promise<BootstrapResult>}
+ */
+function triggerBackgroundBootstrap({ spaceId, workingDir, binding, dataDir, spaceName, _testPages }) {
+  const runId     = `bootstrap-${spaceId}-${Date.now()}`;
+  const entryId   = `${runId}-bootstrap`;
+  const startedAt = new Date().toISOString();
+
+  // Up-front 'running' record so the Runs panel shows it live.
+  try {
+    const entry = {
+      id:               entryId,
+      pipelineRunId:    runId,
+      stageIndex:       0,
+      taskId:           null,
+      taskTitle:        'Bootstrap folio from repo',
+      agentId:          'folio-bootstrapper',
+      agentDisplayName: 'Folio Bootstrapper',
+      spaceId,
+      spaceName:        spaceName || '',
+      phase:            'bootstrap',
+      status:           'running',
+      startedAt,
+      completedAt:      null,
+      durationMs:       null,
+    };
+    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+    fs.appendFileSync(path.join(dataDir, 'agent-runs.jsonl'), JSON.stringify(entry) + '\n', 'utf8');
+  } catch (err) {
+    console.warn('[folio.bootstrap] WARN: could not write bootstrap run entry:', err.message);
+  }
+
+  return (async () => {
+    let result;
+    try {
+      result = await ensureBootstrapped(spaceId, workingDir, binding, { dataDir, runId, _testPages });
+    } catch (err) {
+      result = { status: 'error', reason: `unexpected: ${err.message}`, durationMs: Date.now() - Date.parse(startedAt) };
+    }
+    finalizeBootstrapRunEntry(dataDir, entryId, result, startedAt);
+    return result;
+  })();
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
 module.exports = {
+  triggerBackgroundBootstrap,
   detectRepo,
   buildBootstrapPrompt,
   applyBootstrapPages,
