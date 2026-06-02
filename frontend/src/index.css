@@ -664,6 +664,15 @@ html.dark {
    on mobile so overlays never stack. The resize grip is meaningless full-screen,
    so it is hidden. `!important` on width overrides the per-panel w-[var(--panel-w)].
 ───────────────────────────────────────────────────────────────────────────── */
+/* When the board + open side panels would overflow a medium viewport, let the
+   panels shrink to fit (their content reflows) instead of the rightmost panel
+   being clipped off the edge — the panel row is overflow-hidden, and the panels
+   are otherwise shrink-0. min-width:0 lets a flex item shrink below its content;
+   flex-shrink:1 overrides the per-panel `shrink-0`. The flex board (flex-1,
+   basis 0) still absorbs/releases space first, so panels only shrink once the
+   board is squeezed to nothing. (Below 640px the overlay rule above takes over.) */
+.panel-shell { min-width: 20rem; flex-shrink: 1; }
+
 @media (max-width: 639px) {
   .panel-shell {
     position: fixed;
