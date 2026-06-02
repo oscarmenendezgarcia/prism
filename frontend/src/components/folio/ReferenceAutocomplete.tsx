@@ -191,6 +191,20 @@ export function ReferenceAutocomplete({
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Explicit dismissal (Escape / Enter-insert / click-outside). Clearing items
+  // alone no longer hides the dropdown — the empty state keeps it open while a
+  // token is typed (pageToken.length > 0) — so we need a flag that forces it
+  // shut. It auto-resets when the trigger moves or toggles (the effect below),
+  // i.e. when the user starts/edits a different reference.
+  const [dismissed, setDismissed] = useState(false);
+
+  // Re-arm the dropdown when the user starts or moves to a different reference:
+  // a new `[[` position (triggerStart) or the trigger toggling active. Typing
+  // more of the SAME dismissed token keeps it shut, which matches Escape UX.
+  useEffect(() => {
+    setDismissed(false);
+  }, [trigger.triggerStart, trigger.active]);
+
   // Caret-anchored dropdown position (viewport-fixed, rendered in a portal so it
   // escapes any overflow:auto ancestor such as the modal body). Anchors by `top`
   // when there's room below the caret, or by `bottom` (just above the caret line)
@@ -306,6 +320,7 @@ export function ReferenceAutocomplete({
         textareaRef.current &&
         !textareaRef.current.contains(e.target as Node)
       ) {
+        setDismissed(true);
         setItems([]);
       }
     }
@@ -339,6 +354,7 @@ export function ReferenceAutocomplete({
 
       onChange(newValue);
       setItems([]);
+      setDismissed(true);  // keep shut until the next [[ trigger (caret update is async via rAF)
 
       // Restore caret after React re-renders the textarea
       requestAnimationFrame(() => {
@@ -356,7 +372,17 @@ export function ReferenceAutocomplete({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!trigger.active || items.length === 0) return;
+      if (!trigger.active) return;
+
+      // Escape works even on the empty state (no items), so it always dismisses.
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setDismissed(true);
+        setItems([]);
+        return;
+      }
+
+      if (items.length === 0) return;
 
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -367,9 +393,6 @@ export function ReferenceAutocomplete({
       } else if (e.key === 'Enter') {
         e.preventDefault();
         insertItem(items[activeIdx]);
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        setItems([]);
       }
     },
     [trigger.active, items, activeIdx, insertItem],
@@ -423,7 +446,7 @@ export function ReferenceAutocomplete({
 
   // Show once a search token exists (skip on a bare `[[`). Includes the empty
   // state so the dropdown never silently fails to appear.
-  const showDropdown = trigger.active && coords !== null && (loading || items.length > 0 || pageToken.length > 0);
+  const showDropdown = trigger.active && coords !== null && !dismissed && (loading || items.length > 0 || pageToken.length > 0);
 
   return (
     <div className="relative w-full">
