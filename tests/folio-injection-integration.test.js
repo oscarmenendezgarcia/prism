@@ -1,92 +1,55 @@
 'use strict';
 
 /**
- * T-005 Integration test — Stage-aware injection on the real .folio/ fixture.
+ * Folio injection — integration tests.
  *
- * Loads the repo-root .folio/ directory into an in-memory folio and asserts
- * that stage-aware relevance holds end-to-end through binding.buildInjectionContext:
+ * Deliberately split into two layers so the design docs can evolve freely:
  *
- *  - The senior-architect descriptor surfaces arquitectura/decisiones pages inline.
- *  - The ux-api-designer descriptor surfaces UI/UX-oriented pages.
- *  - Both stay within the 3-page / 1500-token cap.
- *  - The Layer-1 index is always present.
- *  - Calibrated scoreThreshold and pinnedBoost are documented here.
- *  - Zero-cost path: a space with no folio produces no FOLIO block.
+ *  1. FROZEN FIXTURE (tests/fixtures/folio-sample/) — stable content with known
+ *     chapters (architecture/, decisions/, ux/, data-model/) and vocabulary.
+ *     ALL content-coupled assertions live here: per-stage relevance (architect
+ *     vs UX surface different pages), specific chapters surfacing. This fixture
+ *     never changes, so these assertions are deterministic.
  *
- * Calibration values (measured on .folio/ fixture, 2026-05-31):
- *   scoreThreshold = 2.0  — BM25 raw values for decent matches are typically
- *                           in the range [-5, -15]; normalised rel = -score ≥ 2.0
- *                           filters out near-miss results while capturing relevant pages.
- *   pinnedBoost    = 1.0  — Adds 1 normalised point to pinned pages; enough to
- *                           lift a near-threshold page for a stage that emphasises it.
+ *  2. LIVE .folio/ (repo root) — a GENERIC SMOKE TEST only. Asserts invariants
+ *     that hold for ANY folio: it loads, produces a non-null context with an
+ *     index, every stage stays within caps, and an unbound space returns null.
+ *     It makes NO assumptions about chapter names or BM25 ranking, so editing
+ *     the design documentation never breaks it.
+ *
+ * Why the split: the root .folio/ is the project's living design doc. Coupling
+ * relevance assertions to its exact content made the test brittle — a docs edit
+ * (e.g. the Spanish→English translation) broke it. The fixture decouples them.
  *
  * Run with: node --test tests/folio-injection-integration.test.js
  */
 
-const { describe, it, before }   = require('node:test');
+const { describe, it, before } = require('node:test');
 const assert = require('node:assert/strict');
 const path   = require('path');
 const crypto = require('crypto');
 const fs     = require('fs');
 
-const Database = require('better-sqlite3');
-
-const { applySchema }                            = require('../src/services/folio/db');
-const { createFolioStore }                       = require('../src/services/folio/store');
 const { applyBindingSchema, createFolioBinding } = require('../src/services/folioBinding');
 const { createFolioService, openFileBackend }    = require('../src/services/folio/index');
 const { countTokens }                            = require('../src/services/folio/tokens');
 const { STAGE_DESCRIPTORS, DEFAULT_STAGES }      = require('../src/services/pipelineManager');
 
-// ---------------------------------------------------------------------------
-// Calibrated constants (document here AND in buildContext call below)
-// ---------------------------------------------------------------------------
+// Calibrated on the FROZEN fixture (not the live docs), so it cannot drift.
+const SCORE_THRESHOLD = 1.3;
+const PINNED_BOOST    = 1.0;
 
 /**
- * Minimum normalised rel score for a page to be inlined.
- * Calibrated on .folio/ fixture (19 Spanish pages, 2026-05-31):
- *   OR-mode BM25 rel scores range from ~0 (unrelated) to ~2.6 (strongly related).
- *   Threshold=1.3 is the midpoint: strong matches (≥1.3) go inline;
- *   weaker but still-related pages (0–1.3) appear in the reference tier.
- *   At 1.3, the architect query surfaces arquitectura pages while the UX query
- *   surfaces modelo-datos/schema, demonstrating per-stage differentiation.
+ * Load a `.folio/` directory into an in-memory folio bound to a fresh space.
+ * Returns { binding, spaceId } or null when the directory is absent / empty.
  */
-const CALIBRATED_SCORE_THRESHOLD = 1.3;
+function loadFolio(root, spaceId) {
+  if (!fs.existsSync(root)) return null;
 
-/**
- * Rel boost added for pinned pages.
- * 1.0 is enough to lift a near-threshold page without overriding relevance.
- */
-const CALIBRATED_PINNED_BOOST = 1.0;
-
-// ---------------------------------------------------------------------------
-// Setup — load .folio/ fixture into in-memory SQLite once for all tests
-// ---------------------------------------------------------------------------
-
-const FOLIO_ROOT = path.join(__dirname, '../.folio');
-const SPACE_ID   = 'test-space-integration';
-// Task title/description in English to match the English .folio/ fixture content.
-// BM25 requires lexical overlap between query and document — cross-language queries yield 0 hits.
-const TASK_TITLE = 'Implement Folio context injection in the pipeline';
-const TASK_DESC  = 'Per-stage context injection using BM25 over module architecture schema decisions storage backend';
-
-let db, store, folioId, binding;
-
-before(async () => {
-  // Skip all tests if the .folio/ fixture is missing (CI without the fixture).
-  if (!fs.existsSync(FOLIO_ROOT)) {
-    console.warn('[T-005] .folio/ fixture not found — skipping integration tests');
-    return;
-  }
-
-  // Open the file backend — it creates its own in-memory DB and hydrates from .folio/.
-  const fileBackend = openFileBackend({ root: FOLIO_ROOT });
+  const fileBackend = openFileBackend({ root });
   const service     = createFolioService(fileBackend);
+  const db          = fileBackend.db;  // share the backend's hydrated in-memory DB
 
-  // Use the backend's own DB so everything (folios, pages, binding) shares one DB.
-  db = fileBackend.db;
-
-  // Apply the Prism-side DDL (spaces table + binding table) to the same DB.
   db.exec(`
     PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS spaces (
@@ -102,170 +65,103 @@ before(async () => {
   `);
   applyBindingSchema(db);
 
-  // Insert the test space.
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT INTO spaces (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, created_at, updated_at)
-     VALUES (?, 'Integration Test Space', NULL, NULL, NULL, NULL, ?, ?)`,
-  ).run(SPACE_ID, now, now);
+    `INSERT INTO spaces (id, name, created_at, updated_at) VALUES (?, 'Test Space', ?, ?)`,
+  ).run(spaceId, now, now);
 
-  // Retrieve the folio ID (hydrated from .folio/ on backend open).
   const folios = service.listFolios();
-  assert.ok(folios.length >= 1, 'file backend must hydrate at least one folio');
-  folioId = folios[0].id;
+  if (!folios.length) return null;
+  db.prepare('INSERT INTO space_folios (space_id, folio_id) VALUES (?, ?)').run(spaceId, folios[0].id);
 
-  // Bind the folio to the test space.
-  db.prepare('INSERT INTO space_folios (space_id, folio_id) VALUES (?, ?)').run(SPACE_ID, folioId);
-
-  store   = createFolioStore(db);
-  binding = createFolioBinding(db, service);
-});
-
-function skipIfNoFixture(t) {
-  if (!fs.existsSync(FOLIO_ROOT)) t.skip('.folio/ fixture missing');
+  return { binding: createFolioBinding(db, service), spaceId };
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+// A neutral task base; the per-stage DESCRIPTOR is what drives differentiation.
+const BASE = 'Implement the feature end to end with full context';
+const archQuery = `${BASE} ${STAGE_DESCRIPTORS['senior-architect']}`;
+const uxQuery   = `${BASE} ${STAGE_DESCRIPTORS['ux-api-designer']}`;
+const OPTS = { scoreThreshold: SCORE_THRESHOLD, pinnedBoost: PINNED_BOOST };
 
-describe('T-005 integration — .folio/ fixture', () => {
+// ===========================================================================
+// 1. Frozen fixture — content-coupled relevance assertions
+// ===========================================================================
 
-  it('Layer-1 index is present in every assembled block', (t) => {
-    skipIfNoFixture(t);
-    const query  = `${TASK_TITLE} ${TASK_DESC} ${STAGE_DESCRIPTORS['senior-architect']}`;
-    const result = binding.buildInjectionContext(SPACE_ID, query, {
-      scoreThreshold: CALIBRATED_SCORE_THRESHOLD,
-      pinnedBoost:    CALIBRATED_PINNED_BOOST,
-    });
-    assert.notEqual(result, null, 'bound space returns a result');
-    assert.ok(result.text.includes('Index — chapters'), 'Layer-1 index present');
-    // The fixture has chapters: architecture, decisions, data-model, etc.
-    assert.ok(result.text.includes('architecture'), 'architecture chapter in index');
+describe('folio injection — frozen fixture (content-coupled relevance)', () => {
+  let ctx;
+
+  before(() => {
+    ctx = loadFolio(path.join(__dirname, 'fixtures', 'folio-sample'), 'fixture-space');
+    assert.ok(ctx, 'frozen fixture must load (tests/fixtures/folio-sample/)');
   });
 
-  it('senior-architect descriptor surfaces arquitectura-relevant pages', (t) => {
-    skipIfNoFixture(t);
-    const query = `${TASK_TITLE} ${TASK_DESC} ${STAGE_DESCRIPTORS['senior-architect']}`;
-    const result = binding.buildInjectionContext(SPACE_ID, query, {
-      scoreThreshold: CALIBRATED_SCORE_THRESHOLD,
-      pinnedBoost:    CALIBRATED_PINNED_BOOST,
-    });
-    assert.notEqual(result, null);
-    console.log('[T-005] senior-architect inline:', result.inline.map((i) => i.slug));
-    console.log('[T-005] senior-architect referenced:', result.referenced.map((r) => r.slug).slice(0, 5));
-    // Should surface at least one inline page
-    assert.ok(
-      result.inline.length >= 1,
-      `senior-architect should surface at least one inline page; got: ${JSON.stringify(result.inline.map((i) => i.slug))}`,
-    );
-    // Architecture-related pages should appear inline or referenced
-    const allSlugs = [
-      ...result.inline.map((i) => i.slug),
-      ...result.referenced.map((r) => r.slug),
-    ];
-    const archRelated = allSlugs.filter((s) =>
-      s.startsWith('architecture/') || s.startsWith('decisions/'),
-    );
-    assert.ok(
-      archRelated.length >= 1,
-      `architecture or decisions pages should appear somewhere; got: ${JSON.stringify(allSlugs)}`,
-    );
+  it('architect query surfaces architecture/decisions pages', () => {
+    const r = ctx.binding.buildInjectionContext(ctx.spaceId, archQuery, OPTS);
+    assert.notEqual(r, null);
+    assert.ok(r.inline.length >= 1,
+      `architect should inline >=1 page; got ${JSON.stringify(r.inline.map((i) => i.slug))}`);
+    const slugs = [...r.inline, ...r.referenced].map((x) => x.slug);
+    const arch  = slugs.filter((s) => s.startsWith('architecture/') || s.startsWith('decisions/'));
+    assert.ok(arch.length >= 1, `architecture/decisions expected; got ${JSON.stringify(slugs)}`);
   });
 
-  it('ux-api-designer descriptor surfaces UI/UX-oriented pages', (t) => {
-    skipIfNoFixture(t);
-    const query = `${TASK_TITLE} ${TASK_DESC} ${STAGE_DESCRIPTORS['ux-api-designer']}`;
-    const result = binding.buildInjectionContext(SPACE_ID, query, {
-      scoreThreshold: CALIBRATED_SCORE_THRESHOLD,
-      pinnedBoost:    CALIBRATED_PINNED_BOOST,
-    });
-    assert.notEqual(result, null);
-    // Log both stage results to verify they differ
-    const archQuery  = `${TASK_TITLE} ${TASK_DESC} ${STAGE_DESCRIPTORS['senior-architect']}`;
-    const archResult = binding.buildInjectionContext(SPACE_ID, archQuery, {
-      scoreThreshold: CALIBRATED_SCORE_THRESHOLD,
-      pinnedBoost:    CALIBRATED_PINNED_BOOST,
-    });
-    // Both must stay within caps
-    assert.ok(result.inline.length <= 3, 'ux stage: maxInlinePages cap (3) respected');
-    assert.ok(result.tokens <= 2000, 'ux stage: total tokens reasonable');
-    // The queries differ so the results should differ (per-stage relevance)
-    if (result.inline.length > 0 && archResult && archResult.inline.length > 0) {
-      const uxSlugs   = result.inline.map((i) => i.slug).sort().join(',');
-      const archSlugs = archResult.inline.map((i) => i.slug).sort().join(',');
-      // Log both for calibration
-      console.log('[T-005] ux   inline:', uxSlugs);
-      console.log('[T-005] arch inline:', archSlugs);
-      // They should differ — different stages get different context
-      assert.notEqual(uxSlugs, archSlugs, 'per-stage: ux and architect get different inline pages');
-    }
+  it('UX query surfaces ux/ pages', () => {
+    const r = ctx.binding.buildInjectionContext(ctx.spaceId, uxQuery, OPTS);
+    assert.notEqual(r, null);
+    const slugs = [...r.inline, ...r.referenced].map((x) => x.slug);
+    assert.ok(slugs.some((s) => s.startsWith('ux/')), `ux/ pages expected; got ${JSON.stringify(slugs)}`);
   });
 
-  it('inline output never exceeds maxInlinePages or maxInlineTokens in fixture run', (t) => {
-    skipIfNoFixture(t);
-    const maxInlinePages  = 3;
-    const maxInlineTokens = 1500;
+  it('architect and UX queries surface DIFFERENT inline pages (per-stage relevance)', () => {
+    const a = ctx.binding.buildInjectionContext(ctx.spaceId, archQuery, OPTS);
+    const u = ctx.binding.buildInjectionContext(ctx.spaceId, uxQuery, OPTS);
+    assert.ok(a.inline.length > 0 && u.inline.length > 0, 'both stages should inline something');
+    const aSlugs = a.inline.map((i) => i.slug).sort().join(',');
+    const uSlugs = u.inline.map((i) => i.slug).sort().join(',');
+    assert.notEqual(aSlugs, uSlugs, 'architect and UX must surface different inline pages');
+  });
+
+  it('respects maxInlinePages and tokens accounting', () => {
+    const r = ctx.binding.buildInjectionContext(ctx.spaceId, archQuery,
+      { ...OPTS, maxInlinePages: 3, maxInlineTokens: 1500 });
+    assert.ok(r.inline.length <= 3, 'inline cap (3) respected');
+    assert.equal(r.tokens, countTokens(r.text), 'tokens field equals countTokens(text)');
+  });
+});
+
+// ===========================================================================
+// 2. Live repo-root .folio/ — generic smoke test (no content assumptions)
+// ===========================================================================
+
+describe('folio injection — live .folio/ smoke (generic invariants only)', () => {
+  let ctx;
+
+  before(() => {
+    ctx = loadFolio(path.join(__dirname, '..', '.folio'), 'live-space');
+  });
+
+  function guard(t) { if (!ctx) t.skip('.folio/ fixture missing'); }
+
+  it('loads the design folio and produces a non-null context with an index', (t) => {
+    guard(t);
+    const r = ctx.binding.buildInjectionContext(ctx.spaceId, 'architecture design schema decisions storage', OPTS);
+    assert.notEqual(r, null, 'a bound space returns a context');
+    assert.ok(r.text.includes('Index'), 'Layer-1 index present');
+  });
+
+  it('every default stage stays within caps over the live folio', (t) => {
+    guard(t);
     for (const agentId of DEFAULT_STAGES) {
-      const query  = `${TASK_TITLE} ${TASK_DESC} ${STAGE_DESCRIPTORS[agentId] ?? agentId}`;
-      const result = binding.buildInjectionContext(SPACE_ID, query, {
-        scoreThreshold: CALIBRATED_SCORE_THRESHOLD,
-        pinnedBoost:    CALIBRATED_PINNED_BOOST,
-        maxInlinePages,
-        maxInlineTokens,
-      });
-      assert.ok(result.inline.length <= maxInlinePages,
-        `${agentId}: inline pages ${result.inline.length} exceeds ${maxInlinePages}`);
-      // Verify tokens field is accurate
-      assert.equal(result.tokens, countTokens(result.text),
-        `${agentId}: tokens field must equal countTokens(text)`);
+      const r = ctx.binding.buildInjectionContext(ctx.spaceId, STAGE_DESCRIPTORS[agentId] ?? agentId,
+        { ...OPTS, maxInlinePages: 3, maxInlineTokens: 1500 });
+      assert.ok(r.inline.length <= 3, `${agentId}: inline <= 3`);
+      assert.equal(r.tokens, countTokens(r.text), `${agentId}: tokens accurate`);
     }
   });
 
-  it('architect and UX stage yield DIFFERENT inline pages (relevance is per-stage)', (t) => {
-    skipIfNoFixture(t);
-    const archQuery = `${TASK_TITLE} ${TASK_DESC} ${STAGE_DESCRIPTORS['senior-architect']}`;
-    const uxQuery   = `${TASK_TITLE} ${TASK_DESC} ${STAGE_DESCRIPTORS['ux-api-designer']}`;
-    const archResult = binding.buildInjectionContext(SPACE_ID, archQuery, {
-      scoreThreshold: CALIBRATED_SCORE_THRESHOLD, pinnedBoost: CALIBRATED_PINNED_BOOST,
-    });
-    const uxResult   = binding.buildInjectionContext(SPACE_ID, uxQuery, {
-      scoreThreshold: CALIBRATED_SCORE_THRESHOLD, pinnedBoost: CALIBRATED_PINNED_BOOST,
-    });
-    // Skip assertion if neither has inline content (very small fixture)
-    if (!archResult?.inline?.length && !uxResult?.inline?.length) {
-      t.skip('fixture too small to test per-stage relevance');
-      return;
-    }
-    // If both have inline content, the sets must differ
-    if (archResult?.inline?.length > 0 && uxResult?.inline?.length > 0) {
-      const archSlugs = archResult.inline.map((i) => i.slug).sort().join(',');
-      const uxSlugs   = uxResult.inline.map((i) => i.slug).sort().join(',');
-      assert.notEqual(archSlugs, uxSlugs,
-        'architect and UX stage should surface different inline pages');
-    }
-  });
-
-  it('zero-cost: a space with no folio produces no FOLIO block (null result)', (t) => {
-    skipIfNoFixture(t);
-    // Use an unbound space ID
-    const unboundSpaceId = 'unbound-' + crypto.randomUUID().slice(0, 8);
-    const result = binding.buildInjectionContext(unboundSpaceId, 'any query', {});
-    assert.equal(result, null, 'unbound space must return null — zero cost');
-  });
-
-  it('calibrated scoreThreshold and pinnedBoost are documented (sanity check)', (t) => {
-    skipIfNoFixture(t);
-    assert.equal(typeof CALIBRATED_SCORE_THRESHOLD, 'number');
-    assert.ok(CALIBRATED_SCORE_THRESHOLD > 0, 'threshold must be positive');
-    assert.equal(typeof CALIBRATED_PINNED_BOOST, 'number');
-    assert.ok(CALIBRATED_PINNED_BOOST >= 0, 'pinnedBoost must be non-negative');
-  });
-
-  it('full suite runs synchronously — no background processes', (t) => {
-    skipIfNoFixture(t);
-    // This test just verifies the test file itself is synchronous (no async steps).
-    // The before() hook uses async only to allow before() syntax; all DB calls are sync.
-    assert.ok(true, 'synchronous run confirmed');
+  it('zero-cost: an unbound space produces no FOLIO block (null)', (t) => {
+    guard(t);
+    const r = ctx.binding.buildInjectionContext('unbound-' + crypto.randomUUID().slice(0, 8), 'any query', OPTS);
+    assert.equal(r, null, 'unbound space returns null');
   });
 });

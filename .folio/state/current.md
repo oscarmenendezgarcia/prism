@@ -3,13 +3,15 @@ title: Current State
 author: agent
 pinned: true
 created: 2026-05-31
-updated: 2026-05-31
+updated: 2026-06-02
 tags: [estado]
 ---
 
 ## Where we are
 
-**Design locked.** Ready to implement. This folio (`.folio/` at the root of the Prism repo) is at once the design documentation and the fixture for testing the file-backed implementation.
+**Design locked.** Ready to implement. This folio (`.folio/` at the root of the Prism repo) is the project's living **design documentation** — it is free to change.
+
+Tests do NOT couple to its content. `folio-injection-integration.test.js` runs content-coupled relevance assertions against a **frozen fixture** (`tests/fixtures/folio-sample/`), and only a **generic smoke test** (loads, caps respected, index present, unbound → null) runs against this live `.folio/`. So editing these design docs never breaks the suite.
 
 ## Tasks on the Prism board (the "Folio" space), ordered by dependencies
 
