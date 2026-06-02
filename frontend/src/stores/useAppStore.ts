@@ -641,8 +641,10 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   renameSpace: async (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>) => {
-    // Detect a freshly-added working directory → the backend kicks off a folio
-    // bootstrap from the repo (background, shown in the Runs panel). Surface it.
+    // Detect a freshly-added working directory. Invariant: a space with a repo keeps
+    // its folio in the repo's .folio/. The backend handles both cases on save —
+    // an existing sqlite folio is migrated into .folio/ synchronously; an absent one
+    // is bootstrapped from the repo in the background (shown in the Runs panel).
     const prev = get().spaces.find((s) => s.id === id);
     const wdAdded = !!workingDirectory && !prev?.workingDirectory;
 
@@ -651,7 +653,18 @@ export const useAppStore = create<AppState>((set, get) => {
     get().showToast('Space updated.');
 
     if (wdAdded) {
-      get().showToast('Bootstrapping the folio from the repo… it will appear in the Folio panel shortly.', 'info');
+      // Distinguish migration (content already present) from bootstrap (empty,
+      // content arrives async) by checking whether the folio has content now.
+      try {
+        const index = await api.getFolioIndex(id);
+        if (index.active && index.chapters.length > 0) {
+          get().showToast('Folio moved into the repo — it now lives in .folio/.', 'success');
+        } else {
+          get().showToast('Bootstrapping the folio from the repo… it will appear in the Folio panel shortly.', 'info');
+        }
+      } catch {
+        get().showToast('Bootstrapping the folio from the repo… it will appear in the Folio panel shortly.', 'info');
+      }
     }
   },
 

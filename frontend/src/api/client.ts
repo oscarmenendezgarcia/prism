@@ -895,6 +895,18 @@ export const bootstrapFolio = (spaceId: string): Promise<{ started: boolean }> =
   });
 
 /**
+ * Move an activated sqlite folio into the repo working directory's .folio/
+ * (export → flip backend → delete sqlite rows). Deliberate, destructive cleanup
+ * that preserves content. Resolves with the new root + page count; rejects with
+ * ApiError on 409 (already file) / 400 (no working dir).
+ */
+export const migrateFolio = (spaceId: string): Promise<{ ok: true; root: string; pages?: number }> =>
+  apiFetch<{ ok: true; root: string; pages?: number }>(
+    `/spaces/${encodeURIComponent(spaceId)}/folio/migrate`,
+    { method: 'POST' },
+  );
+
+/**
  * Fetch all pages in a chapter (metadata only — no content).
  */
 export const getChapterPages = (spaceId: string, chapterSlug: string): Promise<FolioPageMeta[]> =>

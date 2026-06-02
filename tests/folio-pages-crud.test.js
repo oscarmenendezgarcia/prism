@@ -445,3 +445,65 @@ describe('T-002 — HTTP CRUD endpoints', () => {
     assert.strictEqual(r.body.error.code, 'SPACE_NOT_FOUND');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Auto-migration — adding a working directory moves an activated sqlite folio
+// into the repo's .folio/ on save (export → flip → delete). Invariant: a space
+// with a repo keeps its folio in the repo.
+// ---------------------------------------------------------------------------
+
+describe('Auto-migrate sqlite → file when a working directory is added', () => {
+  const fs   = require('fs');
+  const os   = require('os');
+  const path = require('path');
+
+  let serverHandle;
+  let spaceId;
+  let workDir;
+
+  before(async () => {
+    serverHandle = await startTestServer();
+    workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'folio-migrate-'));
+    // Space WITHOUT a working dir → sqlite folio backend.
+    const r = await httpPost(serverHandle.port, '/api/v1/spaces', { name: 'MigrateOnSave' });
+    assert.strictEqual(r.status, 201, `space creation failed: ${JSON.stringify(r.body)}`);
+    spaceId = r.body.id;
+  });
+
+  after(async () => {
+    await serverHandle.close();
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  });
+
+  it('activates a sqlite folio (no working dir yet → stays in the app database)', async () => {
+    const r = await httpPost(serverHandle.port, `/api/v1/spaces/${spaceId}/folio/pages`, {
+      slug:    'guide/intro',
+      title:   'Intro',
+      content: '# Intro\n\nhello migration',
+    });
+    assert.strictEqual(r.status, 201);
+  });
+
+  it('PUT adding a working dir migrates the folio into .folio/ and flips the backend to file', async () => {
+    const r = await httpPut(serverHandle.port, `/api/v1/spaces/${spaceId}`, {
+      name: 'MigrateOnSave',
+      workingDirectory: workDir,
+    });
+    assert.strictEqual(r.status, 200, `PUT failed: ${JSON.stringify(r.body)}`);
+    // The response reflects the flipped backend (re-read after migration).
+    assert.strictEqual(r.body.folioBackend, 'file');
+    // Content was exported to <wd>/.folio/ before the sqlite rows were dropped.
+    assert.ok(fs.existsSync(path.join(workDir, '.folio', 'folio.json')), '.folio/folio.json should exist');
+  });
+
+  it('the migrated page is still readable — no data loss', async () => {
+    const idx = await httpGet(serverHandle.port, `/api/v1/spaces/${spaceId}/folio`);
+    assert.strictEqual(idx.status, 200);
+    assert.strictEqual(idx.body.active, true);
+    assert.ok(idx.body.chapters.some((c) => c.slug === 'guide'), 'guide chapter survives migration');
+
+    const page = await httpGet(serverHandle.port, `/api/v1/spaces/${spaceId}/folio/pages/guide/intro`);
+    assert.strictEqual(page.status, 200);
+    assert.match(page.body.content, /hello migration/);
+  });
+});

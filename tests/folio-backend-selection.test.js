@@ -968,6 +968,40 @@ describe('T-006: spaceManager folioBackend validation from REST perspective', ()
     }
   });
 
+  it('migrateSpaceToFile rejects a space already on the file backend (ALREADY_FILE)', () => {
+    const { createStore } = require('../src/services/store');
+    const { createSpaceManager } = require('../src/services/spaceManager');
+    const tmpDir = makeTempDir();
+    const store = createStore(':memory:');
+    const mgr = createSpaceManager(store);
+    try {
+      // Repo-backed space defaults to file.
+      const { space } = mgr.createSpace('AlreadyFile', tmpDir);
+      assert.equal(space.folioBackend, 'file');
+
+      const res = store.folio.binding.migrateSpaceToFile(space.id);
+      assert.equal(res.ok, false);
+      assert.equal(res.code, 'ALREADY_FILE');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('migrateSpaceToFile rejects a space with no working directory (NO_WORKING_DIR)', () => {
+    const { createStore } = require('../src/services/store');
+    const { createSpaceManager } = require('../src/services/spaceManager');
+    const store = createStore(':memory:');
+    const mgr = createSpaceManager(store);
+    try {
+      const { space } = mgr.createSpace('NoRepo');
+      const res = store.folio.binding.migrateSpaceToFile(space.id);
+      assert.equal(res.ok, false);
+      assert.equal(res.code, 'NO_WORKING_DIR');
+    } finally {
+      store.close();
+    }
+  });
+
   it('renameSpace accepts folioBackend change when no folio activated yet', () => {
     const { createStore } = require('../src/services/store');
     const { createSpaceManager } = require('../src/services/spaceManager');

@@ -570,21 +570,37 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
           return sendError(res, status, result.code, result.message);
         }
 
-        // Activation: a working directory was just added to a repo-backed space
-        // with no folio yet → fire a background bootstrap (NOT a pipeline concern).
-        // Fire-and-forget; it surfaces in the Runs panel. Guarded so it never
-        // affects the space-edit response.
+        // Activation: a working directory was just added. Invariant — a space with
+        // a repo keeps its folio in the repo's .folio/. Two symmetric cases, both
+        // fire on wd-add and never break the space-edit response (guarded):
+        //   • no folio yet  → background bootstrap from the repo (surfaces in Runs).
+        //   • sqlite folio  → migrate it into .folio/ (export → flip → delete; the
+        //                     content is copied before the DB rows drop, so it's safe).
         try {
           const newWd   = result.space.workingDirectory;
           const binding = store.folio && store.folio.binding;
-          if (newWd && !prevWd && binding && !binding.hasFolio(spaceId) && folioBootstrap.detectRepo(newWd)) {
-            folioBootstrap.triggerBackgroundBootstrap({
-              spaceId, workingDir: newWd, binding, dataDir, spaceName: result.space.name,
-              runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
-            });
+          if (newWd && !prevWd && binding) {
+            if (!binding.hasFolio(spaceId)) {
+              if (folioBootstrap.detectRepo(newWd)) {
+                folioBootstrap.triggerBackgroundBootstrap({
+                  spaceId, workingDir: newWd, binding, dataDir, spaceName: result.space.name,
+                  runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
+                });
+              }
+            } else if (result.space.folioBackend !== 'file' && typeof binding.migrateSpaceToFile === 'function') {
+              const mig = binding.migrateSpaceToFile(spaceId);
+              if (mig && mig.ok) {
+                // Reflect the flipped backend in the response so the client updates.
+                const reread = spaceManager.getSpace(spaceId);
+                if (reread.ok) result.space = reread.space;
+                console.log(`[routes] op=auto-migrate spaceId=${spaceId} outcome=ok pages=${mig.pages}`);
+              } else {
+                console.warn(`[routes] op=auto-migrate spaceId=${spaceId} outcome=skip code=${mig && mig.code}`);
+              }
+            }
           }
         } catch (err) {
-          console.warn('[routes] WARN: could not trigger folio bootstrap on space edit:', err.message);
+          console.warn('[routes] WARN: folio auto-bootstrap/migrate on space edit failed:', err.message);
         }
 
         return sendJSON(res, 200, result.space);
