@@ -885,6 +885,16 @@ export const getFolioRevision = (spaceId: string): Promise<number> =>
     .then((r) => r.revision);
 
 /**
+ * Manually trigger a background bootstrap of the space's folio from its repo
+ * working directory (the "Bootstrap from repo" empty-state button). Resolves
+ * when accepted (202); rejects with ApiError on 409 (folio exists) / 400 (no repo).
+ */
+export const bootstrapFolio = (spaceId: string): Promise<{ started: boolean }> =>
+  apiFetch<{ started: boolean }>(`/spaces/${encodeURIComponent(spaceId)}/folio/bootstrap`, {
+    method: 'POST',
+  });
+
+/**
  * Fetch all pages in a chapter (metadata only — no content).
  */
 export const getChapterPages = (spaceId: string, chapterSlug: string): Promise<FolioPageMeta[]> =>

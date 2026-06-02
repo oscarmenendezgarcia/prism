@@ -21,13 +21,24 @@ interface FolioChapterListProps {
   loading:   boolean;
   onOpenChapter:  (slug: string) => void;
   onNewPage: () => void;
+  /** True when the space has a repo working dir → offer "Bootstrap from repo". */
+  canBootstrap?: boolean;
+  onBootstrap?: () => void;
 }
 
 // ---------------------------------------------------------------------------
 // Empty state
 // ---------------------------------------------------------------------------
 
-function EmptyFolioState({ onNewPage }: { onNewPage: () => void }) {
+function EmptyFolioState({
+  onNewPage,
+  canBootstrap,
+  onBootstrap,
+}: {
+  onNewPage: () => void;
+  canBootstrap?: boolean;
+  onBootstrap?: () => void;
+}) {
   return (
     <div
       className="flex flex-col items-center justify-center h-full gap-6 px-6 py-16 text-center"
@@ -47,20 +58,36 @@ function EmptyFolioState({ onNewPage }: { onNewPage: () => void }) {
           This space has no Folio yet
         </h2>
         <p className="text-sm text-text-secondary max-w-xs">
-          Create your first page to get started.
+          Create your first page to get started{canBootstrap ? ', or generate one from the repository.' : '.'}
         </p>
       </div>
 
-      <Button
-        variant="primary"
-        onClick={onNewPage}
-        aria-label="Create your first page"
-      >
-        <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
-          add
-        </span>
-        Create Your First Page
-      </Button>
+      <div className="flex flex-col items-center gap-3">
+        <Button
+          variant="primary"
+          onClick={onNewPage}
+          aria-label="Create your first page"
+        >
+          <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+            add
+          </span>
+          Create Your First Page
+        </Button>
+
+        {canBootstrap && onBootstrap && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={onBootstrap}
+            aria-label="Bootstrap folio from the repository"
+          >
+            <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">
+              auto_awesome
+            </span>
+            Bootstrap from repo
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -133,6 +160,8 @@ export function FolioChapterList({
   loading,
   onOpenChapter,
   onNewPage,
+  canBootstrap,
+  onBootstrap,
 }: FolioChapterListProps) {
 
   if (loading) {
@@ -146,7 +175,7 @@ export function FolioChapterList({
   }
 
   if (!active || chapters.length === 0) {
-    return <EmptyFolioState onNewPage={onNewPage} />;
+    return <EmptyFolioState onNewPage={onNewPage} canBootstrap={canBootstrap} onBootstrap={onBootstrap} />;
   }
 
   return (

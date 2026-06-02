@@ -17,7 +17,7 @@ import { FolioChapterList } from './FolioChapterList';
 import { FolioPageList }    from './FolioPageList';
 import { FolioPageEditor }  from './FolioPageEditor';
 import { NewPageModal }     from './NewPageModal';
-import { ApiError }         from '@/api/client';
+import { ApiError, bootstrapFolio } from '@/api/client';
 import { Button }           from '@/components/shared/Button';
 import { usePanelResize }   from '@/hooks/usePanelResize';
 import { flushSync }        from 'react-dom';
@@ -53,6 +53,8 @@ function navigateWithTransition(fn: () => void) {
 
 export function FolioScreen({ onClose }: FolioScreenProps) {
   const activeSpaceId = useAppStore((s) => s.activeSpaceId);
+  // A repo working directory enables the "Bootstrap from repo" empty-state action.
+  const hasWorkingDir = useAppStore((s) => !!s.spaces.find((sp) => sp.id === s.activeSpaceId)?.workingDirectory);
 
   const {
     view,
@@ -140,6 +142,25 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
     // — can't error; we always land back on a fresh chapter index.
     reset();
     loadIndex();
+  }
+
+  async function handleBootstrap() {
+    const { showToast } = useAppStore.getState();
+    try {
+      await bootstrapFolio(activeSpaceId);
+      showToast('Bootstrapping the folio from the repo… it will appear here shortly.', 'info');
+      // The bootstrap runs in the background — poll the index until the folio
+      // shows up (bounded to ~2 min so a non-repo / failure stops cleanly).
+      let tries = 0;
+      const poll = setInterval(() => {
+        tries += 1;
+        loadIndex();
+        if (useFolioStore.getState().active || tries >= 24) clearInterval(poll);
+      }, 5000);
+    } catch (err) {
+      const ae = err as ApiError;
+      showToast(ae?.message ?? 'Could not bootstrap the folio.', 'error');
+    }
   }
 
   async function handleCreatePage(payload: { slug: string; title: string; content: string }) {
@@ -265,6 +286,8 @@ export function FolioScreen({ onClose }: FolioScreenProps) {
             loading={loading}
             onOpenChapter={handleOpenChapter}
             onNewPage={handleOpenNewPage}
+            canBootstrap={hasWorkingDir}
+            onBootstrap={handleBootstrap}
           />
         )}
 

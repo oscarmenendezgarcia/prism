@@ -641,9 +641,18 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   renameSpace: async (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>) => {
+    // Detect a freshly-added working directory → the backend kicks off a folio
+    // bootstrap from the repo (background, shown in the Runs panel). Surface it.
+    const prev = get().spaces.find((s) => s.id === id);
+    const wdAdded = !!workingDirectory && !prev?.workingDirectory;
+
     await api.renameSpace(id, name, workingDirectory, pipeline, agentNicknames);
     await get().loadSpaces();
     get().showToast('Space updated.');
+
+    if (wdAdded) {
+      get().showToast('Bootstrapping the folio from the repo… it will appear in the Folio panel shortly.', 'info');
+    }
   },
 
   deleteSpace: async (id: string) => {
