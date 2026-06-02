@@ -653,11 +653,17 @@ function createStore(dataDir) {
    * @param {number} [opts.offset] - Skip this many rows (for pagination).
    * @returns {object[]}
    */
+  // Folio bootstrap runs are stored as single-stage runs so their logs are
+  // viewable through the normal run log viewer, but they are NOT pipeline runs
+  // — exclude them from the pipeline run lists / active-run indicator. getRun()
+  // still returns them (the log viewer looks one up by id).
+  const notBootstrap = (r) => r && r.kind !== 'bootstrap';
+
   function listRuns({ limit, offset } = {}) {
     if (limit !== undefined) {
-      return stmts.listRunsLimitOffset.all(limit, offset ?? 0).map(rowToRun);
+      return stmts.listRunsLimitOffset.all(limit, offset ?? 0).map(rowToRun).filter(notBootstrap);
     }
-    return stmts.listRuns.all().map(rowToRun);
+    return stmts.listRuns.all().map(rowToRun).filter(notBootstrap);
   }
 
   /**
@@ -665,7 +671,7 @@ function createStore(dataDir) {
    * @returns {object[]}
    */
   function listActiveRuns() {
-    return stmts.listActiveRuns.all().map(rowToRun);
+    return stmts.listActiveRuns.all().map(rowToRun).filter(notBootstrap);
   }
 
   /**

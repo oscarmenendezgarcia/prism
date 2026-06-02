@@ -915,30 +915,55 @@ describe('triggerBackgroundBootstrap — fire-and-forget, visible in Runs', () =
     delete process.env.PRISM_FOLIO_BOOTSTRAP;
   });
 
-  it('creates the folio and records a completed bootstrap run', async () => {
+  // In-memory runStore stub mirroring store.upsertRun / store.deleteRun.
+  function makeRunStore() {
+    const runs = new Map();
+    return {
+      runs,
+      upsert: (r) => runs.set(r.runId, r),
+      remove: (id) => runs.delete(id),
+    };
+  }
+
+  it('creates the folio, records a completed run, and a completed single-stage store run', async () => {
     const testPages = [{
       slug: 'architecture/stack', title: 'Stack', content: '## Stack',
       sources: ['package.json'], confidence: 'high',
     }];
+    const runStore = makeRunStore();
     await triggerBackgroundBootstrap({
       spaceId: 'space-1', workingDir: repoDir, binding, dataDir,
-      spaceName: 'Test Space', _testPages: testPages,
+      spaceName: 'Test Space', runStore, _testPages: testPages,
     });
 
     assert.equal(binding.hasFolio('space-1'), true, 'folio should be created');
+
+    // agent-runs.jsonl entry (Runs panel list)
     const rec = readRunRecords().find((r) => r.phase === 'bootstrap' && r.spaceId === 'space-1');
     assert.ok(rec, 'a bootstrap run record should exist in agent-runs.jsonl');
     assert.equal(rec.agentId, 'folio-bootstrapper');
     assert.equal(rec.status, 'completed');
-    assert.ok(rec.completedAt, 'record should be finalised');
+
+    // store run (log viewer) — single stage, completed, kind:'bootstrap'
+    const storeRuns = [...runStore.runs.values()];
+    assert.equal(storeRuns.length, 1, 'one store run persisted');
+    assert.equal(storeRuns[0].kind, 'bootstrap');
+    assert.deepEqual(storeRuns[0].stages, ['folio-bootstrapper']);
+    assert.equal(storeRuns[0].status, 'completed');
+
+    // stage-0.meta.json written so the events parser knows the format
+    const metaPath = path.join(dataDir, 'runs', storeRuns[0].runId, 'stage-0.meta.json');
+    assert.ok(fs.existsSync(metaPath), 'stage-0.meta.json should exist');
   });
 
-  it('drops the run record when the bootstrap skips (folio already exists)', async () => {
+  it('removes the store run and the panel record when the bootstrap skips', async () => {
     binding.createPage('space-1', 'setup/init', 'x', { createIfMissing: true, author: 'user' });
+    const runStore = makeRunStore();
     await triggerBackgroundBootstrap({
-      spaceId: 'space-1', workingDir: repoDir, binding, dataDir, spaceName: 'Test', _testPages: [],
+      spaceId: 'space-1', workingDir: repoDir, binding, dataDir, spaceName: 'Test', runStore, _testPages: [],
     });
-    const rec = readRunRecords().find((r) => r.phase === 'bootstrap');
-    assert.equal(rec, undefined, 'a skipped bootstrap should leave no run record');
+    assert.equal(readRunRecords().find((r) => r.phase === 'bootstrap'), undefined,
+      'a skipped bootstrap should leave no panel record');
+    assert.equal(runStore.runs.size, 0, 'a skipped bootstrap should leave no store run');
   });
 });

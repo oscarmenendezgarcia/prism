@@ -369,7 +369,10 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       if (!wd || !folioBootstrap.detectRepo(wd)) {
         return sendError(res, 400, 'NO_REPO', 'This space has no repository working directory to bootstrap from.');
       }
-      folioBootstrap.triggerBackgroundBootstrap({ spaceId, workingDir: wd, binding, dataDir, spaceName: space.name });
+      folioBootstrap.triggerBackgroundBootstrap({
+        spaceId, workingDir: wd, binding, dataDir, spaceName: space.name,
+        runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
+      });
       return sendJSON(res, 202, { started: true });
     }
 
@@ -576,6 +579,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
           if (newWd && !prevWd && binding && !binding.hasFolio(spaceId) && folioBootstrap.detectRepo(newWd)) {
             folioBootstrap.triggerBackgroundBootstrap({
               spaceId, workingDir: newWd, binding, dataDir, spaceName: result.space.name,
+              runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
             });
           }
         } catch (err) {
