@@ -449,6 +449,16 @@ describe('applyBootstrapPages — drop logic', () => {
     assert.equal(written, 0, 'Page with content exceeding maxContentLength must be dropped');
   });
 
+  it('should_write_a_2500_char_page_under_the_raised_cap', () => {
+    // Regression: real bootstrap pages are ~2.5k chars and were silently dropped
+    // under the old 2400 cap. They must now be written (cap raised to 6000).
+    const output = {
+      pages: [{ slug: 'architecture/stack', title: 'Stack', content: 'x'.repeat(2500), sources: ['package.json'], confidence: 'high' }],
+    };
+    const { written } = applyBootstrapPages('space-1', output, repoDir, binding);
+    assert.equal(written, 1, 'a ~2500-char page fits under the raised cap');
+  });
+
   it('should_drop_excess_pages_beyond_cap', () => {
     const pages = [
       { slug: 'architecture/stack',         title: 'S', content: 'A', sources: ['package.json'], confidence: 'high' },

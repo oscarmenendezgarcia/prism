@@ -65,8 +65,12 @@ let CLAUDE_BIN = 'claude';
 const BOOTSTRAP_CONFIG = {
   /** Maximum pages the agent may produce; extras are dropped. */
   maxPages: 3,
-  /** Maximum characters per page content; excess pages are dropped. */
-  maxContentLength: 2400,
+  /**
+   * Max characters per page; longer pages are dropped. 6000 (~1.5k tokens) fits
+   * real conservative architecture pages — 2400 was too tight and silently
+   * dropped legitimate ~2.5k-char pages. Total bloat stays bounded by maxPages.
+   */
+  maxContentLength: 6000,
   /** Default agent timeout in milliseconds (2 minutes). */
   defaultTimeoutMs: 120_000,
   /** Sentinel polling interval in milliseconds. */
