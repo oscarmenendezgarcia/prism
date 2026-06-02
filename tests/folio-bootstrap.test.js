@@ -397,32 +397,42 @@ describe('applyBootstrapPages — drop logic', () => {
     assert.equal(written, 0, 'Disallowed slug must be dropped');
   });
 
-  it('should_drop_page_with_no_sources', () => {
+  it('should_write_page_without_sources_and_omit_the_footer', () => {
     const output = {
-      pages: [{
-        slug:       'architecture/stack',
-        title:      'Stack',
-        content:    '## Stack',
-        sources:    [],
-        confidence: 'high',
-      }],
+      pages: [{ slug: 'architecture/stack', title: 'Stack', content: '## Stack', sources: [], confidence: 'high' }],
     };
     const { written } = applyBootstrapPages('space-1', output, repoDir, binding);
-    assert.equal(written, 0, 'Page with empty sources must be dropped');
+    assert.equal(written, 1, 'Sources are optional — the page is still written');
+    const page = binding.getPageBySlug('space-1', 'architecture', 'stack');
+    assert.ok(!page.content.includes('## Sources'), 'No ## Sources footer when there are no sources');
   });
 
-  it('should_drop_page_when_source_file_does_not_exist', () => {
+  it('should_write_page_dropping_unresolvable_sources', () => {
     const output = {
-      pages: [{
-        slug:       'architecture/stack',
-        title:      'Stack',
-        content:    '## Stack',
-        sources:    ['nonexistent-file.json'],
-        confidence: 'high',
-      }],
+      pages: [{ slug: 'architecture/stack', title: 'Stack', content: '## Stack', sources: ['nonexistent-file.json'], confidence: 'high' }],
     };
     const { written } = applyBootstrapPages('space-1', output, repoDir, binding);
-    assert.equal(written, 0, 'Page whose source files do not exist must be dropped');
+    assert.equal(written, 1, 'An unresolvable source no longer drops the page');
+    const page = binding.getPageBySlug('space-1', 'architecture', 'stack');
+    assert.ok(!page.content.includes('## Sources'), 'Unresolvable source is not listed');
+  });
+
+  it('should_accept_body_as_a_content_alias', () => {
+    const output = {
+      pages: [{ slug: 'architecture/stack', title: 'Stack', body: '# Stack\n\nFrom body.', sources: ['package.json'], confidence: 'high' }],
+    };
+    const { written } = applyBootstrapPages('space-1', output, repoDir, binding);
+    assert.equal(written, 1, 'page.body is accepted when page.content is absent');
+    const page = binding.getPageBySlug('space-1', 'architecture', 'stack');
+    assert.ok(page.content.includes('From body.'), 'body content is written');
+  });
+
+  it('should_drop_page_with_neither_content_nor_body', () => {
+    const output = {
+      pages: [{ slug: 'architecture/stack', title: 'Stack', sources: ['package.json'], confidence: 'high' }],
+    };
+    const { written } = applyBootstrapPages('space-1', output, repoDir, binding);
+    assert.equal(written, 0, 'A page with no content/body is dropped');
   });
 
   it('should_drop_page_when_content_exceeds_maxContentLength', () => {
@@ -773,7 +783,7 @@ describe('ensureBootstrapped — full happy path with PIPELINE_NO_SPAWN=1', () =
     assert.equal(result2.reason, 'already-bootstrapped');
   });
 
-  it('should_drop_page_with_unresolvable_source_and_not_write_it', async () => {
+  it('should_write_page_with_unresolvable_source_but_omit_the_footer', async () => {
     const testPages = [{
       slug:       'architecture/stack',
       title:      'Stack',
@@ -784,10 +794,12 @@ describe('ensureBootstrapped — full happy path with PIPELINE_NO_SPAWN=1', () =
     const opts = { dataDir, runId: crypto.randomUUID(), _testPages: testPages };
     fs.mkdirSync(path.join(dataDir, 'runs', opts.runId), { recursive: true });
 
+    // Sources are optional: an unresolvable source no longer drops the page.
     const result = await ensureBootstrapped('space-1', repoDir, binding, opts);
-    assert.equal(result.status, 'skipped');
-    assert.equal(result.reason, 'no-pages');
-    assert.equal(binding.hasFolio('space-1'), false, 'No folio should be created');
+    assert.equal(result.status, 'bootstrapped');
+    assert.equal(binding.hasFolio('space-1'), true, 'Folio is created from the content');
+    const page = binding.getPageBySlug('space-1', 'architecture', 'stack');
+    assert.ok(!page.content.includes('## Sources'), 'Unresolvable source is not listed in a footer');
   });
 });
 
@@ -965,5 +977,16 @@ describe('triggerBackgroundBootstrap — fire-and-forget, visible in Runs', () =
     assert.equal(readRunRecords().find((r) => r.phase === 'bootstrap'), undefined,
       'a skipped bootstrap should leave no panel record');
     assert.equal(runStore.runs.size, 0, 'a skipped bootstrap should leave no store run');
+  });
+
+  it('force re-runs even when already bootstrapped (manual button)', async () => {
+    binding.setBootstrappedAt('space-1', new Date().toISOString()); // stale one-shot mark
+    const runStore = makeRunStore();
+    await triggerBackgroundBootstrap({
+      spaceId: 'space-1', workingDir: repoDir, binding, dataDir, runStore, force: true,
+      _testPages: [{ slug: 'architecture/stack', title: 'S', content: 'x', sources: ['package.json'], confidence: 'high' }],
+    });
+    assert.equal(binding.hasFolio('space-1'), true, 'force should bootstrap despite the stale mark');
+    assert.equal([...runStore.runs.values()][0]?.status, 'completed', 'store run completed');
   });
 });

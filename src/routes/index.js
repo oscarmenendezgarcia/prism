@@ -372,6 +372,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       folioBootstrap.triggerBackgroundBootstrap({
         spaceId, workingDir: wd, binding, dataDir, spaceName: space.name,
         runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
+        force: true, // explicit button press → re-run even if a stale one-shot mark exists
       });
       return sendJSON(res, 202, { started: true });
     }

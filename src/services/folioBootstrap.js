@@ -243,57 +243,45 @@ function applyBootstrapPages(spaceId, agentOutput, workingDir, binding) {
       continue;
     }
 
-    // --- Validate sources ---
-    if (!Array.isArray(page.sources) || page.sources.length === 0) {
-      bootstrapLog('apply.drop', { spaceId, slug: page.slug, reason: 'no_sources' });
+    // --- Content (accept `content`, or the `body` alias the agent sometimes emits) ---
+    const rawContent = typeof page.content === 'string' ? page.content
+                     : typeof page.body    === 'string' ? page.body
+                     : '';
+    if (!rawContent.trim()) {
+      bootstrapLog('apply.drop', { spaceId, slug: page.slug, reason: 'empty_content' });
+      continue;
+    }
+    if (rawContent.length > BOOTSTRAP_CONFIG.maxContentLength) {
+      bootstrapLog('apply.drop', {
+        spaceId, slug: page.slug, reason: 'content_too_long',
+        length: rawContent.length, cap: BOOTSTRAP_CONFIG.maxContentLength,
+      });
       continue;
     }
 
+    // --- Sources are OPTIONAL: append a ## Sources footer for the ones that
+    //     resolve to real files. A missing or unresolvable sources list no longer
+    //     drops the page (the agent sometimes omits it / uses a different shape) —
+    //     the slug allow-list + content cap + the conservative prompt remain the
+    //     anti-hallucination guards. ---
     const resolvedSources = [];
-    for (const src of page.sources) {
+    for (const src of (Array.isArray(page.sources) ? page.sources : [])) {
       if (typeof src !== 'string') continue;
-      // Allow both relative and absolute paths — normalise to relative for display.
       const absPath = path.isAbsolute(src) ? src : path.join(workingDir, src);
       if (!fs.existsSync(absPath)) {
         bootstrapLog('apply.drop_source', { spaceId, slug: page.slug, source: src, reason: 'file_not_found' });
         continue;
       }
-      resolvedSources.push(src.startsWith(workingDir)
-        ? path.relative(workingDir, absPath)
-        : src);
+      resolvedSources.push(src.startsWith(workingDir) ? path.relative(workingDir, absPath) : src);
     }
 
-    if (resolvedSources.length === 0) {
-      bootstrapLog('apply.drop', { spaceId, slug: page.slug, reason: 'no_resolvable_sources' });
-      continue;
-    }
-
-    // --- Validate content length ---
-    const rawContent = typeof page.content === 'string' ? page.content : '';
-    if (rawContent.length > BOOTSTRAP_CONFIG.maxContentLength) {
-      bootstrapLog('apply.drop', {
-        spaceId,
-        slug:   page.slug,
-        reason: 'content_too_long',
-        length: rawContent.length,
-        cap:    BOOTSTRAP_CONFIG.maxContentLength,
-      });
-      continue;
-    }
-
-    // Append ## Sources section for human traceability (sources are not a DB column).
-    const sourcesSection = '\n\n## Sources\n\n' + resolvedSources.map((s) => `- ${s}`).join('\n');
-    // Re-check total length after appending; drop if it would blow the cap.
-    const content = rawContent + sourcesSection;
-    if (content.length > BOOTSTRAP_CONFIG.maxContentLength) {
-      bootstrapLog('apply.drop', {
-        spaceId,
-        slug:   page.slug,
-        reason: 'content_too_long_after_sources',
-        length: content.length,
-        cap:    BOOTSTRAP_CONFIG.maxContentLength,
-      });
-      continue;
+    let content = rawContent;
+    if (resolvedSources.length > 0) {
+      const sourcesSection = '\n\n## Sources\n\n' + resolvedSources.map((s) => `- ${s}`).join('\n');
+      // Append only if it still fits the cap; otherwise keep the page without it.
+      if ((content + sourcesSection).length <= BOOTSTRAP_CONFIG.maxContentLength) {
+        content += sourcesSection;
+      }
     }
 
     // --- Write page ---
@@ -405,9 +393,11 @@ async function ensureBootstrapped(spaceId, workingDir, binding, opts = {}) {
       return { status: 'skipped', reason: 'kill-switch' };
     }
 
-    // Guard 1: already bootstrapped (one-shot)
+    // Guard 1: already bootstrapped (one-shot) — bypassed when opts.force, so the
+    // manual "Bootstrap from repo" button always runs (explicit user intent),
+    // even after a prior 0-page/failed attempt left a stale mark.
     const { bootstrappedAt } = binding.getBootstrapState(spaceId);
-    if (bootstrappedAt) {
+    if (bootstrappedAt && !opts.force) {
       return { status: 'skipped', reason: 'already-bootstrapped' };
     }
 
@@ -670,7 +660,7 @@ function buildBootstrapRun(runId, spaceId, startedAt, status, stageStatus) {
  *   _testPages?: Array }} args
  * @returns {Promise<BootstrapResult>}
  */
-function triggerBackgroundBootstrap({ spaceId, workingDir, binding, dataDir, spaceName, runStore, _testPages }) {
+function triggerBackgroundBootstrap({ spaceId, workingDir, binding, dataDir, spaceName, runStore, force, _testPages }) {
   const runId     = `bootstrap-${spaceId}-${Date.now()}`;
   const entryId   = `${runId}-bootstrap`;
   const startedAt = new Date().toISOString();
@@ -724,7 +714,7 @@ function triggerBackgroundBootstrap({ spaceId, workingDir, binding, dataDir, spa
   return (async () => {
     let result;
     try {
-      result = await ensureBootstrapped(spaceId, workingDir, binding, { dataDir, runId, logFile: 'stage-0.log', _testPages });
+      result = await ensureBootstrapped(spaceId, workingDir, binding, { dataDir, runId, logFile: 'stage-0.log', force, _testPages });
     } catch (err) {
       result = { status: 'error', reason: `unexpected: ${err.message}`, durationMs: Date.now() - Date.parse(startedAt) };
     }
