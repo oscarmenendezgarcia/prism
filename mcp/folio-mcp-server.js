@@ -30,6 +30,7 @@ import path                     from 'path';
 const require = createRequire(import.meta.url);
 
 const { createFolioService, openFileBackend } = require('../src/services/folio/index.js');
+const { maxMarkdownMtime } = require('../src/services/folio/backend.js');
 
 import { registerFolioTools } from './folio-tools.js';
 
@@ -62,23 +63,41 @@ function makeResolver() {
 
   function resolve(folioRoot) {
     const key = folioRoot ? path.resolve(folioRoot) : process.cwd();
-    let service = cache.get(key);
-    if (!service) {
-      service = openAt(key); // throws if no .folio/ is found — surfaced to the caller
-      cache.set(key, service);
-      log({
-        event:       'open',
-        root:        key,
-        backendKind: service.backend && service.backend.kind,
-        folioRoot:   (service.backend && service.backend.root) || '(n/a)',
-      });
+    const entry = cache.get(key);
+
+    if (entry) {
+      // The service caches an in-memory index hydrated from the .md files. Reuse
+      // it unless the .folio/ changed on disk since we hydrated (external edit,
+      // git pull, the Prism server, or our own previous write) — otherwise we'd
+      // serve stale content. The freshness check is a cheap stat-walk; only a
+      // real change triggers a re-hydrate.
+      let currentMtime = entry.mtime;
+      try { currentMtime = maxMarkdownMtime(entry.root); } catch (_) { /* keep cached */ }
+      if (currentMtime <= entry.mtime) {
+        return entry.service;
+      }
+      try { entry.service.close(); } catch (_) { /* best-effort */ }
+      cache.delete(key);
+      log({ event: 'rehydrate', root: entry.root, reason: 'markdown changed on disk' });
     }
+
+    const service = openAt(key); // throws if no .folio/ is found — surfaced to the caller
+    const root    = (service.backend && service.backend.root) || key;
+    let mtime = 0;
+    try { mtime = maxMarkdownMtime(root); } catch (_) { /* leave 0 → next call re-checks */ }
+    cache.set(key, { service, root, mtime });
+    log({
+      event:       'open',
+      root:        key,
+      backendKind: service.backend && service.backend.kind,
+      folioRoot:   root || '(n/a)',
+    });
     return service;
   }
 
   function closeAll() {
-    for (const service of cache.values()) {
-      try { service.close(); } catch (_) { /* best-effort */ }
+    for (const entry of cache.values()) {
+      try { entry.service.close(); } catch (_) { /* best-effort */ }
     }
     cache.clear();
   }
