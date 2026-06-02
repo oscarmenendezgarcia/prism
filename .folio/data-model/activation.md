@@ -3,8 +3,7 @@ title: Activation — opt-in and createIfMissing
 author: user
 pinned: true
 created: 2026-05-31
-updated: 2026-06-01
-tags: [opt-in, activacion, store]
+updated: 2026-06-02T11:23:44.943Z
 ---
 
 ## Folio is opt-in and lazy
@@ -30,10 +29,10 @@ Agent **write-back** only touches folios that already exist (`createIfMissing:fa
 1. The "Activate Folio" toggle (UI client) — the primary mental model.
 2. Writing the first page by hand.
 3. Importing a .folio / markdown folder.
-4. **Automatic repo bootstrap** — the one path that is NOT a user gesture. The first time a pipeline runs in a space whose working dir is a git repo, the bootstrapper agent materializes the folio (`createIfMissing:true`) with a few conservative architecture pages. One-shot per space; opt out with `PRISM_FOLIO_BOOTSTRAP=off`. See [[flows/bootstrap]].
+4. **Repo bootstrap on activation** — triggered by **adding a working directory** to a repo-backed space (or the manual "Bootstrap from repo" button), NOT by the pipeline. Runs fire-and-forget in the background, materializes the folio (`createIfMissing:true`) with a few conservative architecture pages, and shows in the Runs panel. One-shot per space; opt out with `PRISM_FOLIO_BOOTSTRAP=off`. See [[flows/bootstrap]] and decision 17 in [[decisions/log]].
 
 The user-gesture clients (UI toggle, CLI, MCP) are interchangeable over the same store operation.
 
-**Net effect on opt-in:** strict for **non-repo** spaces (nothing auto-creates the folio — it accretes only if you activate it), but **relaxed for repo-backed spaces**, where the bootstrap auto-activates on the first pipeline run. The discriminator is `detectRepo(workingDir)`. This is a deliberate evolution from the original "no back-door creation" stance, kept honest here so the rule isn't re-derived wrongly.
+**Net effect on opt-in:** strict for **non-repo** spaces (nothing auto-creates the folio — it accretes only if you activate it). For **repo-backed** spaces the folio auto-activates when you **add the working directory** (the discriminator is `detectRepo(workingDir)`) — an explicit gesture, not a side effect of running a pipeline. Earlier this fired at stage 0 of the first pipeline run; that hook was removed (decision 17) because it was surprising and invisible.
 
 Folio exists = it has ≥1 page via one of those paths.

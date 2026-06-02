@@ -3,7 +3,7 @@ title: Bootstrap from the Repo
 author: user
 pinned: false
 created: 2026-05-31
-updated: 2026-06-01
+updated: 2026-06-02
 tags: [bootstrap, repo, cold-start]
 ---
 
@@ -11,7 +11,13 @@ tags: [bootstrap, repo, cold-start]
 
 Triggered by the **presence of a repo** (inferred from the space's working dir), NOT by an intent picker. No repo (ops, writing, research) → no bootstrap, and the folio accretes through use.
 
-**When it fires:** at **stage 0 of the first pipeline run** in the space, before the stage-0 prompt is built (so that same run already sees the bootstrapped pages). It is **one-shot per space** — idempotent via the `folio_bootstrap` table, so deleting the folio afterwards does NOT re-trigger it — and it writes with `createIfMissing:true`. That makes bootstrap the one pipeline path that **auto-activates** the folio with no user gesture, relaxing the strict opt-in described in [[data-model/activation]] for repo-backed spaces. Opt out globally with `PRISM_FOLIO_BOOTSTRAP=off`. Guard order: kill-switch → already-bootstrapped → folio-already-exists (respect user curation) → no-repo.
+**When it fires:** on **activation**, NOT in the pipeline (decision 17 in [[decisions/log]]). Two triggers, both via `folioBootstrap.triggerBackgroundBootstrap` and both **fire-and-forget in the background**:
+1. **Adding a working directory** to a repo-backed space with no folio (the space edit detects the wd-add and kicks it off).
+2. The manual **"Bootstrap from repo"** button in the Folio empty state (`POST /folio/bootstrap`) — the fallback for spaces that already had a repo.
+
+It is **one-shot per space** — idempotent via the `folio_bootstrap` table, so deleting the folio afterwards does NOT re-trigger it (use the button) — and it writes with `createIfMissing:true`. The background job writes a record to the **Runs panel** ('Folio Bootstrapper', running → completed; removed if it skips). Opt out globally with `PRISM_FOLIO_BOOTSTRAP=off`. Guard order: kill-switch → already-bootstrapped → folio-already-exists (respect user curation) → no-repo.
+
+The **pipeline no longer bootstraps** (the stage-0 hook was removed); it only consolidates at the end. See [[flows/write-back]].
 
 ## Separate structure from content
 
