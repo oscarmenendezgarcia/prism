@@ -37,7 +37,8 @@ export function SpaceTabs() {
   const { containerRef, setItemRef, visible, overflow, measuring } =
     useOverflowItems<Space>(spaces, {
       pinnedId: activeSpaceId ?? undefined,
-      reservedTrailingPx: 76, // +N button (~44px) + add button (~28px) + gap
+      // 112 = nav px-4 padding (32) + overflowBtn (~42) + addBtn (~28) + 2 gaps (~8) + 2px safety
+      reservedTrailingPx: 112,
       gapPx: 2,
     });
 

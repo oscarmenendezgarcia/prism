@@ -190,7 +190,7 @@ export function SpaceOverflowMenu({
         ref={triggerRef}
         type="button"
         aria-label={`Show ${spaces.length} more spaces`}
-        aria-haspopup="listbox"
+        aria-haspopup="menu"
         aria-expanded={open}
         data-testid="space-overflow-btn"
         data-overflow-count={spaces.length}
@@ -261,9 +261,9 @@ export function SpaceOverflowMenu({
               </div>
             )}
 
-            {/* Scrollable list */}
+            {/* Scrollable list — menu/menuitem is the correct pattern for navigation actions */}
             <ul
-              role="listbox"
+              role="menu"
               aria-label="Available spaces"
               onKeyDown={handleListKeyDown}
               className="overflow-y-auto max-h-[352px] p-1"
@@ -276,8 +276,8 @@ export function SpaceOverflowMenu({
                         itemRefs.current[idx] = el;
                       }}
                       type="button"
-                      role="option"
-                      aria-selected={space.id === activeSpaceId}
+                      role="menuitem"
+                      aria-checked={space.id === activeSpaceId}
                       onClick={() => selectSpace(space.id)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {

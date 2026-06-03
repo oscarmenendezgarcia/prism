@@ -111,7 +111,7 @@ describe('SpaceOverflowMenu — dropdown open/close', () => {
       />,
     );
     // The dropdown items should not be in the DOM
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
   it('opens dropdown when trigger is clicked', () => {
@@ -123,8 +123,8 @@ describe('SpaceOverflowMenu — dropdown open/close', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    // The listbox should now be in the portal (document.body)
-    expect(document.body.querySelector('[role="listbox"]')).toBeInTheDocument();
+    // The menu should now be in the portal (document.body)
+    expect(document.body.querySelector('[role="menu"]')).toBeInTheDocument();
   });
 
   it('lists all overflow spaces in the dropdown', () => {
@@ -150,10 +150,10 @@ describe('SpaceOverflowMenu — dropdown open/close', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    expect(document.body.querySelector('[role="listbox"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[role="menu"]')).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(document.body.querySelector('[role="listbox"]')).not.toBeInTheDocument();
+    expect(document.body.querySelector('[role="menu"]')).not.toBeInTheDocument();
   });
 });
 
@@ -326,10 +326,10 @@ describe('SpaceOverflowMenu — selection', () => {
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
     fireEvent.click(screen.getByText('related-tags-motive'));
-    expect(document.body.querySelector('[role="listbox"]')).not.toBeInTheDocument();
+    expect(document.body.querySelector('[role="menu"]')).not.toBeInTheDocument();
   });
 
-  it('active space item has aria-selected="true"', () => {
+  it('active space item has aria-checked="true"', () => {
     render(
       <SpaceOverflowMenu
         spaces={THREE_SPACES}
@@ -339,14 +339,14 @@ describe('SpaceOverflowMenu — selection', () => {
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
 
-    const listbox = document.body.querySelector('[role="listbox"]')!;
-    const options = listbox.querySelectorAll('[role="option"]');
-    // Find the option for s2
-    const s2Option = [...options].find((o) => o.textContent?.includes('related-tags-motive'));
-    expect(s2Option).toHaveAttribute('aria-selected', 'true');
+    const menu = document.body.querySelector('[role="menu"]')!;
+    const items = menu.querySelectorAll('[role="menuitem"]');
+    // Find the item for s2
+    const s2Item = [...items].find((o) => o.textContent?.includes('related-tags-motive'));
+    expect(s2Item).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('non-active space items have aria-selected="false"', () => {
+  it('non-active space items have aria-checked="false"', () => {
     render(
       <SpaceOverflowMenu
         spaces={THREE_SPACES}
@@ -356,10 +356,10 @@ describe('SpaceOverflowMenu — selection', () => {
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
 
-    const listbox = document.body.querySelector('[role="listbox"]')!;
-    const options = listbox.querySelectorAll('[role="option"]');
-    const nonActive = [...options].filter((o) => !o.textContent?.includes('research-archive'));
-    nonActive.forEach((o) => expect(o).toHaveAttribute('aria-selected', 'false'));
+    const menu = document.body.querySelector('[role="menu"]')!;
+    const items = menu.querySelectorAll('[role="menuitem"]');
+    const nonActive = [...items].filter((o) => !o.textContent?.includes('research-archive'));
+    nonActive.forEach((o) => expect(o).toHaveAttribute('aria-checked', 'false'));
   });
 });
 
@@ -383,8 +383,8 @@ describe('SpaceOverflowMenu — keyboard navigation', () => {
 
     // The first item button should now have focus
     await waitFor(() => {
-      const listbox = document.body.querySelector('[role="listbox"]')!;
-      const firstButton = listbox.querySelector('button') as HTMLElement;
+      const menu = document.body.querySelector('[role="menu"]')!;
+      const firstButton = menu.querySelector('button') as HTMLElement;
       expect(document.activeElement).toBe(firstButton);
     });
   });
@@ -398,10 +398,10 @@ describe('SpaceOverflowMenu — keyboard navigation', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    expect(document.body.querySelector('[role="listbox"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[role="menu"]')).toBeInTheDocument();
 
     // Escape on document
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(document.body.querySelector('[role="listbox"]')).not.toBeInTheDocument();
+    expect(document.body.querySelector('[role="menu"]')).not.toBeInTheDocument();
   });
 });

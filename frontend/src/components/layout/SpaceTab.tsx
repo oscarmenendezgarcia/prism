@@ -59,11 +59,10 @@ export function SpaceTab({ space, active, onSelect, onKebab, refCb }: SpaceTabPr
           : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant',
       ].join(' ')}
     >
-      {/* Truncated label */}
+      {/* Truncated label — aria-label is on the outer button; no duplicate needed here */}
       <span
         ref={labelRef}
         className="max-w-[160px] truncate"
-        aria-label={space.name}
       >
         {space.name}
       </span>
@@ -90,9 +89,9 @@ export function SpaceTab({ space, active, onSelect, onKebab, refCb }: SpaceTabPr
         </span>
       )}
 
-      {/* Kebab affordance */}
-      <span
-        role="button"
+      {/* Kebab affordance — real button for native keyboard focus (WCAG 2.1 SC 2.1.1) */}
+      <button
+        type="button"
         aria-label="Space options"
         title="Space options"
         onClick={handleKebabClick}
@@ -103,7 +102,7 @@ export function SpaceTab({ space, active, onSelect, onKebab, refCb }: SpaceTabPr
         ].join(' ')}
       >
         more_vert
-      </span>
+      </button>
 
       {/* Bottom accent indicator — active tab only */}
       {active && (
