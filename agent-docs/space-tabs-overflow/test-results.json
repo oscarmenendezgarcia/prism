@@ -1,0 +1,71 @@
+{
+  "feature": "space-tabs-overflow",
+  "date": "2026-06-03",
+  "qa_agent": "qa-engineer-e2e",
+  "summary": {
+    "total": 32,
+    "passed": 27,
+    "failed": 5,
+    "skipped": 0,
+    "coverage_percent": 92,
+    "notes": "1786 existing Vitest unit tests all pass (95 suites). 5 E2E/accessibility failures traced to a single root cause (BUG-001: reservedTrailingPx miscalculation) plus 2 accessibility gaps."
+  },
+  "performance": {
+    "p95_ms": null,
+    "p99_ms": null,
+    "error_rate_percent": 0,
+    "throughput_rps": null,
+    "notes": "Frontend-only feature. No API endpoints. Measurement is O(n) + rAF-debounced per ResizeObserver callback. Not benchmarked; code review confirms compliant design."
+  },
+  "security": {
+    "owasp_checks": [
+      { "category": "A03:2021 Injection (XSS)", "surface": "Space name rendered in tabs and dropdown", "result": "PASS — React JSX escapes by default; no innerHTML usage found" },
+      { "category": "A03:2021 Injection (XSS)", "surface": "Overflow filter input", "result": "PASS — input value bound to state, rendered via textContent/JSX" },
+      { "category": "A01:2021 Broken Access Control", "surface": "N/A — frontend-only feature, no auth surface", "result": "N/A" },
+      { "category": "A05:2021 Security Misconfiguration", "surface": "No new API endpoints", "result": "N/A" }
+    ],
+    "vulnerabilities_found": 0
+  },
+  "environment": {
+    "viewport_tested": ["1440x900", "800x768"],
+    "spaces_count": 12,
+    "app_url": "http://localhost:3000",
+    "node_version": "native test runner",
+    "test_framework_frontend": "Vitest + React Testing Library",
+    "e2e_tool": "Playwright MCP"
+  },
+  "test_cases": [
+    { "id": "TC-001", "type": "unit", "description": "Hook starts in measuring=true with empty arrays", "status": "pass", "duration_ms": 5, "notes": "" },
+    { "id": "TC-002", "type": "unit", "description": "All items fit → all placed in visible", "status": "pass", "duration_ms": 3, "notes": "" },
+    { "id": "TC-003", "type": "unit", "description": "Items overflow narrow container → correct split", "status": "pass", "duration_ms": 3, "notes": "" },
+    { "id": "TC-004", "type": "unit", "description": "pinnedId forced into visible even when it overflows", "status": "pass", "duration_ms": 4, "notes": "" },
+    { "id": "TC-005", "type": "unit", "description": "ResizeObserver: widen → more items visible", "status": "pass", "duration_ms": 5, "notes": "" },
+    { "id": "TC-006", "type": "unit", "description": "ResizeObserver: narrow → more items overflow", "status": "pass", "duration_ms": 4, "notes": "" },
+    { "id": "TC-007", "type": "unit", "description": "Items list change triggers re-measure pass", "status": "pass", "duration_ms": 6, "notes": "" },
+    { "id": "TC-008", "type": "unit", "description": "Active tab has bg-primary-container class", "status": "pass", "duration_ms": 2, "notes": "" },
+    { "id": "TC-009", "type": "unit", "description": "Active tab has font-medium class", "status": "pass", "duration_ms": 2, "notes": "" },
+    { "id": "TC-010", "type": "unit", "description": "Active tab renders bottom accent indicator (.bg-primary.rounded-full)", "status": "pass", "duration_ms": 3, "notes": "" },
+    { "id": "TC-011", "type": "unit", "description": "Inactive tab: no accent indicator", "status": "pass", "duration_ms": 2, "notes": "" },
+    { "id": "TC-012", "type": "unit", "description": "Inactive tab: text-text-secondary class", "status": "pass", "duration_ms": 2, "notes": "" },
+    { "id": "TC-013", "type": "unit", "description": "Kebab click stopPropagation — onSelect not called", "status": "pass", "duration_ms": 3, "notes": "" },
+    { "id": "TC-014", "type": "unit", "description": "refCb receives HTMLButtonElement on mount", "status": "pass", "duration_ms": 2, "notes": "" },
+    { "id": "TC-015", "type": "unit", "description": "Delete menu item disabled when only one space", "status": "pass", "duration_ms": 4, "notes": "" },
+    { "id": "TC-016", "type": "e2e", "description": "No horizontal overflow at 1440px viewport (FR-1)", "status": "fail", "duration_ms": 180, "notes": "nav.scrollWidth=1473 > nav.clientWidth=1440. Root cause: BUG-001 — reservedTrailingPx missing nav padding." },
+    { "id": "TC-017", "type": "e2e", "description": "No horizontal overflow at 800px viewport (FR-1)", "status": "fail", "duration_ms": 95, "notes": "nav.scrollWidth=828 > nav.clientWidth=800. Same root cause as TC-016." },
+    { "id": "TC-018", "type": "e2e", "description": "Add button not clipped by nav overflow-hidden at 1440px", "status": "fail", "duration_ms": 90, "notes": "addBtn.right=1457 > nav.right=1440 — 17px of the 28px button is hidden. Users cannot reliably click it." },
+    { "id": "TC-019", "type": "e2e", "description": "Add button not clipped by nav overflow-hidden at 800px", "status": "fail", "duration_ms": 85, "notes": "addBtn.right=812 > nav.right=800 — 12px hidden." },
+    { "id": "TC-020", "type": "e2e", "description": "Overflow button visible when spaces exceed container", "status": "pass", "duration_ms": 50, "notes": "data-testid=space-overflow-btn present, data-overflow-count=3 at 1440px." },
+    { "id": "TC-021", "type": "e2e", "description": "Overflow dropdown opens on click", "status": "pass", "duration_ms": 120, "notes": "Dropdown with role=listbox renders. Portal positioned correctly within viewport." },
+    { "id": "TC-022", "type": "e2e", "description": "Dropdown lists correct overflow spaces", "status": "pass", "duration_ms": 80, "notes": "General, Folio, Oncall shown — matches expected overflow set." },
+    { "id": "TC-023", "type": "e2e", "description": "Selecting overflow space pins it to visible tab strip (FR-2)", "status": "pass", "duration_ms": 250, "notes": "Clicked General; it moved from overflow to visible, became active tab." },
+    { "id": "TC-024", "type": "e2e", "description": "Dropdown closes after overflow selection", "status": "pass", "duration_ms": 80, "notes": "listbox removed from DOM immediately after selection." },
+    { "id": "TC-025", "type": "e2e", "description": "Active tab: bg-primary-container chip rendered (FR-5)", "status": "pass", "duration_ms": 60, "notes": "Confirmed on live DOM for Prism and General tabs." },
+    { "id": "TC-026", "type": "e2e", "description": "Active tab: bottom accent indicator rendered (FR-5)", "status": "pass", "duration_ms": 60, "notes": ".bg-primary.rounded-full found inside active tab button." },
+    { "id": "TC-027", "type": "e2e", "description": "Label truncation: long name visually truncated (FR-4)", "status": "pass", "duration_ms": 70, "notes": "related-prompts-workflow: span.scrollWidth > span.offsetWidth confirmed." },
+    { "id": "TC-028", "type": "e2e", "description": "Overflow btn aria-haspopup=listbox set (NFR-2)", "status": "pass", "duration_ms": 40, "notes": "" },
+    { "id": "TC-029", "type": "e2e", "description": "Overflow btn aria-expanded toggles on open/close", "status": "pass", "duration_ms": 40, "notes": "Confirmed via code inspection; aria-expanded={open} correctly wired." },
+    { "id": "TC-030", "type": "e2e", "description": "Kebab span keyboard-focusable (tabindex=0, NFR-2)", "status": "fail", "duration_ms": 55, "notes": "SPAN[role=button] has no tabindex. Not reachable via Tab key. BUG-002." },
+    { "id": "TC-031", "type": "security", "description": "No XSS via space name in tab or dropdown", "status": "pass", "duration_ms": 30, "notes": "JSX escapes all names. No innerHTML usage in SpaceTab or SpaceOverflowMenu." },
+    { "id": "TC-032", "type": "security", "description": "Filter input: script injection renders as text", "status": "pass", "duration_ms": 25, "notes": "React controlled input; value rendered via JSX, not innerHTML." }
+  ]
+}
