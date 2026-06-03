@@ -678,7 +678,10 @@ html.dark {
     position: fixed;
     inset: 0;
     width: 100% !important;
-    z-index: 50;
+    /* Full-screen takeover: must sit ABOVE the sticky app header (z-[100]) so the
+       panel's own header + close button aren't covered by the Prism bar / menu.
+       Matches the header dropdown tier; only one panel is open at a time. */
+    z-index: 110;
     border-left: 0;
   }
   .panel-resize-handle { display: none; }
