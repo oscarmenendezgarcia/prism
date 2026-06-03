@@ -19,17 +19,22 @@ type ROCallback = (entries: ResizeObserverEntry[]) => void;
 let roCallback: ROCallback | null = null;
 let roObservedElement: Element | null = null;
 
-const MockResizeObserver = vi.fn().mockImplementation((callback: ROCallback) => ({
-  observe: (el: Element) => {
+class MockResizeObserver {
+  private cb: ROCallback;
+  constructor(callback: ROCallback) {
+    this.cb = callback;
     roCallback = callback;
+  }
+  observe(el: Element) {
+    roCallback = this.cb;
     roObservedElement = el;
-  },
-  disconnect: () => {
+  }
+  disconnect() {
     roCallback = null;
     roObservedElement = null;
-  },
-  unobserve: vi.fn(),
-}));
+  }
+  unobserve() {}
+}
 
 // ---------------------------------------------------------------------------
 // Helpers for faking DOM measurements
@@ -59,10 +64,10 @@ function makeEl(width: number): HTMLElement {
 // Setup / teardown
 // ---------------------------------------------------------------------------
 beforeEach(() => {
-  vi.stubGlobal('ResizeObserver', MockResizeObserver);
   roCallback = null;
   roObservedElement = null;
-  // Default: rAF executes synchronously
+  vi.stubGlobal('ResizeObserver', MockResizeObserver);
+  // Default: rAF executes synchronously in tests
   vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
     cb(0);
     return 0;
@@ -76,7 +81,9 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Helper: render hook and wire up container + item refs with fake widths
+// Helper: render hook, wire up container + item refs.
+// The container is STATE in useOverflowItems, so attaching it triggers a
+// re-render automatically; the measure pass runs in that same act().
 // ---------------------------------------------------------------------------
 function renderWithWidths(
   items: { id: string }[],
@@ -93,16 +100,17 @@ function renderWithWidths(
     useOverflowItems(items, opts),
   );
 
-  // Wire containerRef
-  act(() => {
-    result.current.containerRef(containerEl);
-  });
-
-  // Wire itemRefs
+  // Wire item refs first (before containerRef so they are ready when measure runs)
   act(() => {
     items.forEach((item, i) => {
       result.current.setItemRef(item.id)(itemEls[i]);
     });
+  });
+
+  // Wire containerRef — this sets container STATE, triggering a re-render
+  // which runs the measure pass (measuring=true → captures widths → computes split)
+  act(() => {
+    result.current.containerRef(containerEl);
   });
 
   return { result, rerender, containerEl, itemEls };
@@ -275,11 +283,13 @@ describe('useOverflowItems — ResizeObserver / resize', () => {
       useOverflowItems(items, { reservedTrailingPx: 72, gapPx: 2 }),
     );
 
-    // Wire items with 80px each
+    // Wire items with 80px each, then attach container (container is STATE → triggers re-render + measure pass)
     const itemEls = items.map(() => makeEl(80));
     act(() => {
-      result.current.containerRef(containerEl);
       items.forEach((item, i) => result.current.setItemRef(item.id)(itemEls[i]));
+    });
+    act(() => {
+      result.current.containerRef(containerEl);
     });
 
     // Initially narrow: available=128, a=80, b=82>128 → visible=[a], overflow=[b,c]
@@ -312,10 +322,8 @@ describe('useOverflowItems — ResizeObserver / resize', () => {
     );
 
     const itemEls = items.map(() => makeEl(80));
-    act(() => {
-      result.current.containerRef(containerEl);
-      items.forEach((item, i) => result.current.setItemRef(item.id)(itemEls[i]));
-    });
+    act(() => { items.forEach((item, i) => result.current.setItemRef(item.id)(itemEls[i])); });
+    act(() => { result.current.containerRef(containerEl); });
 
     expect(result.current.visible).toHaveLength(3);
 
@@ -351,29 +359,38 @@ describe('useOverflowItems — ResizeObserver / resize', () => {
 // Suite 6: Items change
 // ---------------------------------------------------------------------------
 describe('useOverflowItems — items change', () => {
-  it('resets to measuring=true when items array changes', () => {
+  it('recomputes visible/overflow when a new item is added', () => {
+    // items1: two items that both fit a 400px container
     const items1 = [makeItem('a'), makeItem('b')];
-    const containerEl = makeEl(400);
+    const containerEl = makeEl(250); // narrow: 250-72=178px available
 
     const { result, rerender } = renderHook(
-      ({ items }: { items: { id: string }[] }) => useOverflowItems(items, {}),
+      ({ items }: { items: { id: string }[] }) => useOverflowItems(items, { reservedTrailingPx: 72, gapPx: 2 }),
       { initialProps: { items: items1 } },
     );
 
-    const itemEls = items1.map(() => makeEl(80));
-    act(() => {
-      result.current.containerRef(containerEl);
-      items1.forEach((item, i) => result.current.setItemRef(item.id)(itemEls[i]));
-    });
+    // Each item 80px; available=178: a=80 fits, b=82 → 162≤178 fits → both visible
+    const item1Els = items1.map(() => makeEl(80));
+    act(() => { items1.forEach((item, i) => result.current.setItemRef(item.id)(item1Els[i])); });
+    act(() => { result.current.containerRef(containerEl); });
 
+    expect(result.current.visible.map((i) => i.id)).toEqual(['a', 'b']);
+    expect(result.current.overflow).toHaveLength(0);
     expect(result.current.measuring).toBe(false);
 
-    // Change items
+    // Add a third item — items change triggers re-measure
     const items2 = [makeItem('a'), makeItem('b'), makeItem('c')];
-    rerender({ items: items2 });
+    const item2Els = items2.map(() => makeEl(80));
+    act(() => {
+      // Wire new item ref
+      result.current.setItemRef('c')(item2Els[2]);
+      rerender({ items: items2 });
+    });
 
-    // After items change, measuring resets to true
-    expect(result.current.measuring).toBe(true);
+    // After re-measure: a=80 fits (80≤178), b=82 (162≤178) fits, c=82 → 244>178 → overflow
+    expect(result.current.visible.map((i) => i.id)).toEqual(['a', 'b']);
+    expect(result.current.overflow.map((i) => i.id)).toEqual(['c']);
+    expect(result.current.measuring).toBe(false);
   });
 });
 
@@ -381,13 +398,10 @@ describe('useOverflowItems — items change', () => {
 // Suite 7: Zero-item edge case
 // ---------------------------------------------------------------------------
 describe('useOverflowItems — edge cases', () => {
-  it('handles items=[] gracefully', () => {
-    const containerEl = makeEl(400);
+  it('handles items=[] gracefully — settles measuring=false without a container', () => {
+    // Empty items settle immediately in the first layout effect pass
+    // (no container required — the hook special-cases empty arrays)
     const { result } = renderHook(() => useOverflowItems([], {}));
-
-    act(() => {
-      result.current.containerRef(containerEl);
-    });
 
     expect(result.current.visible).toEqual([]);
     expect(result.current.overflow).toEqual([]);

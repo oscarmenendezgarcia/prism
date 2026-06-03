@@ -3,7 +3,14 @@
  * ADR-1 (space-tabs-overflow): measures tab widths via DOM refs + ResizeObserver
  * and returns which items fit the container vs. which overflow.
  *
- * Algorithm:
+ * Architecture:
+ *   - The container element is held in STATE (not just a ref) so that when it
+ *     is first attached, it triggers a re-render and the measurement pass runs.
+ *   - Item elements are held in a ref (Map) — they do not need to cause renders.
+ *   - The ResizeObserver depends on [container, recompute] so it is set up
+ *     exactly when the container becomes available.
+ *
+ * Two-pass design:
  *   Pass 1 (measuring=true): render ALL items invisible, read their widths, recompute.
  *   Pass 2 (measuring=false): render only visible items + overflow button.
  *   On resize: recompute using cached widths (no re-measure).
@@ -86,7 +93,9 @@ export function useOverflowItems<T extends { id: string }>(
 ): OverflowResult<T> {
   const { pinnedId, reservedTrailingPx = 72, gapPx = 2 } = opts;
 
-  const containerEl = useRef<HTMLElement | null>(null);
+  // Container is STATE so attaching it triggers a re-render (enabling the measure pass).
+  const [container, setContainer] = useState<HTMLElement | null>(null);
+
   const itemEls = useRef<Map<string, HTMLElement>>(new Map());
   const itemWidths = useRef<Map<string, number>>(new Map());
   const rafId = useRef<number | null>(null);
@@ -124,7 +133,16 @@ export function useOverflowItems<T extends { id: string }>(
   // ---------------------------------------------------------------------------
   useLayoutEffect(() => {
     if (!measuring) return;
-    if (!containerEl.current) return;
+
+    // Special-case: empty list — settle immediately without needing the container
+    if (items.length === 0) {
+      setVisible([]);
+      setOverflow([]);
+      setMeasuring(false);
+      return;
+    }
+
+    if (!container) return;
 
     // Capture current item widths
     const currentIds = new Set(items.map((i) => i.id));
@@ -139,8 +157,7 @@ export function useOverflowItems<T extends { id: string }>(
       if (!currentIds.has(id)) itemWidths.current.delete(id);
     }
 
-    const containerWidth = containerEl.current.getBoundingClientRect().width;
-    recompute(containerWidth);
+    recompute(container.getBoundingClientRect().width);
     setMeasuring(false);
   });
 
@@ -159,27 +176,23 @@ export function useOverflowItems<T extends { id: string }>(
   // Items list is unchanged so widths are still valid — no re-measure needed.
   // ---------------------------------------------------------------------------
   useLayoutEffect(() => {
-    if (measuring || !containerEl.current) return;
-    recompute(containerEl.current.getBoundingClientRect().width);
+    if (measuring || !container) return;
+    recompute(container.getBoundingClientRect().width);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pinnedId]);
 
   // ---------------------------------------------------------------------------
-  // ResizeObserver — recompute on container width change (rAF-gated)
+  // ResizeObserver — set up when container becomes available; recompute on resize
+  // Depends on [container, recompute] so it re-registers when either changes.
   // ---------------------------------------------------------------------------
   useLayoutEffect(() => {
-    const container = containerEl.current;
     if (!container) return;
-    if (typeof ResizeObserver === 'undefined') {
-      // SSR / very old browser fallback — noop (measuring pass covers initial layout)
-      return;
-    }
+    if (typeof ResizeObserver === 'undefined') return; // SSR / very old browser
 
     const handleResize = () => {
       if (rafId.current !== null) cancelAnimationFrame(rafId.current);
       rafId.current = requestAnimationFrame(() => {
-        if (!containerEl.current) return;
-        recompute(containerEl.current.getBoundingClientRect().width);
+        recompute(container.getBoundingClientRect().width);
         rafId.current = null;
       });
     };
@@ -194,13 +207,13 @@ export function useOverflowItems<T extends { id: string }>(
         rafId.current = null;
       }
     };
-  }, [recompute]);
+  }, [container, recompute]);
 
   // ---------------------------------------------------------------------------
   // Stable ref callbacks
   // ---------------------------------------------------------------------------
   const containerRef = useCallback((el: HTMLElement | null) => {
-    containerEl.current = el;
+    setContainer(el);
   }, []);
 
   const setItemRef = useCallback(
