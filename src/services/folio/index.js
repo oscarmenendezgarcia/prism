@@ -298,9 +298,42 @@ function createFolioService(backend) {
     return store.deleteFolio(folioId);
   }
 
+  /**
+   * Create a folio.
+   *
+   * SQLite backend: a plain store insert (a new random-UUID folio).
+   *
+   * File backend: a `.folio/` directory holds EXACTLY ONE folio. Hydration
+   * already materialises that single folio (named after the directory when no
+   * manifest exists), so createFolio here means "name it and persist the
+   * manifest" — it renames the existing folio and writes folio.json (id +
+   * name). It never inserts a second folio, and is idempotent. Persisting the
+   * id is what stops the folioId from churning across re-hydrations (the
+   * "Folio not active" bug).
+   *
+   * @param {{ name: string }} opts
+   * @returns {Folio}
+   */
+  function createFolio(opts = {}) {
+    if (!isFile) return store.createFolio(opts);
+
+    const existing = store.listFolios()[0];
+    let folio;
+    if (existing) {
+      if (opts.name && opts.name !== existing.name) {
+        store.renameFolio(existing.id, opts.name);
+      }
+      folio = { ...existing, name: opts.name || existing.name };
+    } else {
+      folio = store.createFolio(opts);
+    }
+    backend.persistFolio(folio);
+    return folio;
+  }
+
   return {
     // Folios
-    createFolio:      store.createFolio.bind(store),
+    createFolio,
     getFolio:         store.getFolio.bind(store),
     listFolios,
     deleteFolio,
