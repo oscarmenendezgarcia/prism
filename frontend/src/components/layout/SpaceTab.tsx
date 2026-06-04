@@ -2,7 +2,7 @@
  * SpaceTab — renders a single space tab with:
  *   - Truncated label (max-w-[160px] + CSS truncate)
  *   - Hover tooltip with full name (only rendered when text is actually truncated)
- *   - Active state: filled chip (bg-primary-container) + 2px bottom accent indicator + font-medium
+ *   - Active state: filled chip (bg-primary-container) + font-medium
  *   - Inactive state: text-text-secondary, hover reveal of bg-surface-variant + kebab
  *   - Kebab affordance: persistent at opacity-70 on active, hover-reveal on inactive
  *   - Accessibility: role="tab", aria-selected, data-space-id, title, focus-visible ring
@@ -118,14 +118,6 @@ export function SpaceTab({ space, active, onSelect, onKebab, refCb }: SpaceTabPr
       >
         more_vert
       </button>
-
-      {/* Bottom accent indicator — active tab only */}
-      {active && (
-        <span
-          aria-hidden="true"
-          className="absolute bottom-0 left-2 right-2 h-[2px] bg-primary rounded-full pointer-events-none"
-        />
-      )}
     </div>
   );
 }

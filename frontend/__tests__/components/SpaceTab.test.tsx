@@ -235,32 +235,3 @@ describe('SpaceTab — keyboard activation', () => {
     expect(screen.getByRole('tab')).toHaveAttribute('tabindex', '0');
   });
 });
-
-describe('SpaceTab — accent indicator', () => {
-  it('renders the bottom accent indicator when active', () => {
-    const { container } = render(
-      <SpaceTab
-        space={makeSpace()}
-        active={true}
-        onSelect={vi.fn()}
-        onKebab={vi.fn()}
-      />,
-    );
-    // Accent is a span with bg-primary and rounded-full
-    const accent = container.querySelector('.bg-primary.rounded-full');
-    expect(accent).toBeInTheDocument();
-  });
-
-  it('does not render the accent indicator when inactive', () => {
-    const { container } = render(
-      <SpaceTab
-        space={makeSpace()}
-        active={false}
-        onSelect={vi.fn()}
-        onKebab={vi.fn()}
-      />,
-    );
-    const accent = container.querySelector('.bg-primary.rounded-full');
-    expect(accent).not.toBeInTheDocument();
-  });
-});
