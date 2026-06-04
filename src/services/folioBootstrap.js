@@ -31,7 +31,7 @@ const os   = require('os');
 const { spawn, execSync } = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
-const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
+const { openFolioRun, closeFolioRun } = require('./folioRunSurface');
 
 // ---------------------------------------------------------------------------
 // CLAUDE_BIN — resolved once at module load (same pattern as pipelineManager)
@@ -598,65 +598,21 @@ const NON_SPAWN_REASONS = new Set([
   'kill-switch', 'already-bootstrapped', 'folio-exists', 'no-repo', 'agent_not_found',
 ]);
 
-/**
- * Finalise the agent-runs.jsonl record for a background bootstrap: mark it
- * completed/failed when the agent ran, or remove it when the bootstrap skipped
- * (so the Runs panel isn't polluted by no-op activations). Non-fatal.
- */
-function finalizeBootstrapRunEntry(dataDir, entryId, result, startedAt) {
-  try {
-    const records = readAgentRuns(dataDir);
-    const idx = records.findIndex((r) => r.id === entryId);
-    if (idx === -1) return;
-
-    if (NON_SPAWN_REASONS.has(result.reason)) {
-      records.splice(idx, 1); // skipped → drop the row
-    } else {
-      const completedAt = new Date().toISOString();
-      records[idx] = {
-        ...records[idx],
-        status:      result.status === 'bootstrapped' ? 'completed' : 'failed',
-        completedAt,
-        durationMs:  result.durationMs ?? (Date.parse(completedAt) - Date.parse(startedAt)),
-        pagesWritten: result.pagesWritten,
-      };
-    }
-    writeAgentRuns(dataDir, records);
-  } catch (err) {
-    console.warn('[folio.bootstrap] WARN: could not finalise bootstrap run entry:', err.message);
-  }
-}
-
-/**
- * Build the single-stage run object persisted to the store so the bootstrap is
- * viewable through the normal run log viewer (getRun → stage-0.log). Marked
- * kind:'bootstrap' so it is filtered out of the pipeline run lists.
- */
-function buildBootstrapRun(runId, spaceId, startedAt, status, stageStatus) {
-  return {
-    runId,
-    spaceId,
-    taskId:        '__bootstrap__',   // store column is NOT NULL; no FK to tasks
-    kind:          'bootstrap',
-    taskTitle:     'Bootstrap folio from repo',
-    stages:        ['folio-bootstrapper'],
-    stageStatuses: [stageStatus],
-    currentStage:  0,
-    status,
-    createdAt:     startedAt,
-    updatedAt:     new Date().toISOString(),
-  };
-}
+// The labels shown for a bootstrap run in the Runs UI.
+const BOOTSTRAP_RUN = {
+  kind:             'bootstrap',
+  agentId:          'folio-bootstrapper',
+  agentDisplayName: 'Folio Bootstrapper',
+  taskTitle:        'Bootstrap folio from repo',
+  phase:            'bootstrap',
+};
 
 /**
  * Fire-and-forget bootstrap triggered by activation (adding a working dir to a
  * space, or the manual "Bootstrap from repo" button) — NOT by the pipeline.
  *
- * Registers a single-stage run two ways so it is both listed and viewable:
- *   - agent-runs.jsonl  → the Runs panel list ("Folio Bootstrapper" row), and
- *   - a kind:'bootstrap' run in the store + stage-0.log/meta → the log viewer
- *     (getRun finds it; the kind marker keeps it out of pipeline run lists).
- * Both are finalised on completion, or removed if the bootstrap skipped (a no-op
+ * Surfaced as a single-stage run via folioRunSurface (Runs list + log viewer);
+ * finalised on completion, or removed if the bootstrap skipped (a no-op
  * activation) so nothing pollutes the UI. Returns the promise for tests.
  *
  * @param {{ spaceId: string, workingDir: string, binding: object, dataDir: string,
@@ -666,54 +622,11 @@ function buildBootstrapRun(runId, spaceId, startedAt, status, stageStatus) {
  */
 function triggerBackgroundBootstrap({ spaceId, workingDir, binding, dataDir, spaceName, runStore, force, _testPages }) {
   const runId     = `bootstrap-${spaceId}-${Date.now()}`;
-  const entryId   = `${runId}-bootstrap`;
   const startedAt = new Date().toISOString();
-  const dir       = path.join(dataDir, 'runs', runId);
 
-  try { fs.mkdirSync(dir, { recursive: true }); } catch (_) { /* best-effort */ }
-
-  // stage-0.meta.json so the events parser reads the claude-code stream.
-  try {
-    fs.writeFileSync(
-      path.join(dir, 'stage-0.meta.json'),
-      JSON.stringify({ source: 'claude-code', schemaVersion: 1, agentId: 'folio-bootstrapper', startedAt }),
-      'utf8',
-    );
-  } catch (_) { /* parser falls back to first-line sniffing */ }
-
-  // Store run (running) → the log viewer finds it via getRun.
-  if (runStore) {
-    try {
-      runStore.upsert(buildBootstrapRun(runId, spaceId, startedAt, 'running',
-        { status: 'running', startedAt, finishedAt: null, exitCode: null, pid: null }));
-    } catch (err) {
-      console.warn('[folio.bootstrap] WARN: could not persist bootstrap run:', err.message);
-    }
-  }
-
-  // Runs-history entry (the panel reads agent-runs.jsonl).
-  try {
-    const entry = {
-      id:               entryId,
-      pipelineRunId:    runId,
-      stageIndex:       0,
-      taskId:           null,
-      taskTitle:        'Bootstrap folio from repo',
-      agentId:          'folio-bootstrapper',
-      agentDisplayName: 'Folio Bootstrapper',
-      spaceId,
-      spaceName:        spaceName || '',
-      phase:            'bootstrap',
-      status:           'running',
-      startedAt,
-      completedAt:      null,
-      durationMs:       null,
-    };
-    if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-    fs.appendFileSync(path.join(dataDir, 'agent-runs.jsonl'), JSON.stringify(entry) + '\n', 'utf8');
-  } catch (err) {
-    console.warn('[folio.bootstrap] WARN: could not write bootstrap run entry:', err.message);
-  }
+  const entryId = openFolioRun({
+    dataDir, runId, spaceId, spaceName, startedAt, runStore, ...BOOTSTRAP_RUN,
+  });
 
   return (async () => {
     let result;
@@ -723,25 +636,16 @@ function triggerBackgroundBootstrap({ spaceId, workingDir, binding, dataDir, spa
       result = { status: 'error', reason: `unexpected: ${err.message}`, durationMs: Date.now() - Date.parse(startedAt) };
     }
 
-    const skipped    = NON_SPAWN_REASONS.has(result.reason);
-    const finishedAt = new Date().toISOString();
-
-    // Finalise (or remove on a no-op skip) the store run.
-    if (runStore) {
-      try {
-        if (skipped) {
-          runStore.remove(runId);
-        } else {
-          const ok = result.status === 'bootstrapped';
-          runStore.upsert(buildBootstrapRun(runId, spaceId, startedAt, ok ? 'completed' : 'failed',
-            { status: ok ? 'completed' : 'failed', startedAt, finishedAt, exitCode: ok ? 0 : 1, pid: null }));
-        }
-      } catch (err) {
-        console.warn('[folio.bootstrap] WARN: could not finalise bootstrap run:', err.message);
-      }
-    }
-
-    finalizeBootstrapRunEntry(dataDir, entryId, result, startedAt);
+    closeFolioRun({
+      dataDir, runId, entryId, spaceId, startedAt, runStore,
+      kind: BOOTSTRAP_RUN.kind, taskTitle: BOOTSTRAP_RUN.taskTitle, agentId: BOOTSTRAP_RUN.agentId,
+      ok:   result.status === 'bootstrapped',
+      drop: NON_SPAWN_REASONS.has(result.reason),  // skipped no-op → leave nothing behind
+      extra: {
+        pagesWritten: result.pagesWritten,
+        ...(result.durationMs != null ? { durationMs: result.durationMs } : {}),
+      },
+    });
     return result;
   })();
 }

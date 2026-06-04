@@ -3,8 +3,7 @@ title: Export / Import
 author: user
 pinned: false
 created: 2026-05-31
-updated: 2026-05-31
-tags: [export, import, git, sync]
+updated: 2026-06-04T08:15:48.802Z
 ---
 
 ## Phase 1 — A markdown folder (the canonical form)
@@ -25,7 +24,7 @@ my-folio/
 
 ## The strategic payoff: git IS your sync
 
-If a folio is a markdown folder, you need no sync infrastructure. `git init` on the folder gives versioning, history, and team sharing, with a tool every dev already uses. Engram built custom sync with chunks; Folio gets it by leaning on git. It closes the competitive sync gap for free.
+If a folio is a markdown folder, you need no sync infrastructure. `git init` on the folder gives versioning, history, and team sharing, with a tool every dev already uses. Instead of building and running custom sync machinery, Folio gets it for free by leaning on git — closing the sync gap with zero extra infrastructure.
 
 ## Round-trip
 

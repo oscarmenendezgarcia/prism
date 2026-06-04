@@ -64,16 +64,43 @@ function openSqliteBackend({ db }) {
     kind:    'sqlite',
     root:    null,
     folioId: null,
-    persistPage() {},  // no-op: db is truth
-    removePage()  {},  // no-op: db is truth
-    flush()       {},  // no-op
-    close()       { db.close(); },
+    persistPage()  {},  // no-op: db is truth
+    removePage()   {},  // no-op: db is truth
+    persistFolio() {},  // no-op: db is truth
+    flush()        {},  // no-op
+    close()        { db.close(); },
   };
 }
 
 // ---------------------------------------------------------------------------
 // File backend helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Derive a STABLE folio UUID from the `.folio/` root path.
+ *
+ * The file backend rebuilds its in-memory index from markdown on every
+ * hydration. If the folio id were a fresh `crypto.randomUUID()` each time
+ * (the original bug), a folioId returned to an MCP client would stop matching
+ * after the very next re-hydrate (triggered by any `.md` write bumping the
+ * mtime) — surfacing as "Folio not active". Deriving the id deterministically
+ * from the canonical root path makes every hydration of the same directory
+ * yield the same id, with no disk write required. A persisted `id` in
+ * folio.json (written by the createFolio gesture) takes precedence over this.
+ *
+ * @param {string} root  — .folio/ absolute path
+ * @returns {string}  RFC-4122-shaped UUID (deterministic)
+ */
+function folioIdForRoot(root) {
+  const h = crypto.createHash('sha1').update(path.resolve(root)).digest('hex');
+  return [
+    h.slice(0, 8),
+    h.slice(8, 12),
+    '5' + h.slice(13, 16),   // version nibble → 5 (name-based)
+    '8' + h.slice(17, 20),   // variant nibble → 8 (RFC 4122)
+    h.slice(20, 32),
+  ].join('-');
+}
 
 /**
  * Walk up from `startDir` looking for a `.folio/` directory (just like
@@ -162,9 +189,11 @@ function hydrateFromMarkdown(db, root) {
   const manifestPath = path.join(root, 'folio.json');
   const manifest     = readManifest(manifestPath);
 
-  // Create the single folio for this .folio/ directory
-  const folio   = store.createFolio({ name: manifest.name });
-  const folioId = folio.id;
+  // Create the single folio for this .folio/ directory with a STABLE id:
+  // a persisted manifest.id wins; otherwise derive it deterministically from
+  // the root path so re-hydration never invents a new id.
+  const folioId = manifest.id || folioIdForRoot(root);
+  store.createFolio({ name: manifest.name, id: folioId, createdAt: manifest.createdAt });
 
   // Walk chapter directories
   let entries;
@@ -377,6 +406,27 @@ function openFileBackend({ cwd = process.cwd(), cache = false, root: explicitRoo
     },
 
     /**
+     * Materialise the folio.json manifest for this `.folio/` directory.
+     * Persists the folio's id + name so identity survives re-hydration; keeps
+     * any existing description/createdAt the manifest already carried.
+     *
+     * @param {{ id: string, name: string, createdAt?: string }} folio
+     */
+    persistFolio(folio) {
+      const manifestPath = path.join(root, 'folio.json');
+      // Merge over the RAW existing manifest (not readManifest, which narrows to
+      // known keys) so hand-authored fields like `chapters`/`updatedAt` survive.
+      let raw = {};
+      try { raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) || {}; } catch (_) { /* absent/invalid */ }
+      writeManifest(manifestPath, {
+        ...raw,
+        name:      folio.name,
+        id:        folio.id,
+        createdAt: folio.createdAt || raw.createdAt,
+      });
+    },
+
+    /**
      * Flush (only meaningful when cache: true — runs a WAL checkpoint).
      */
     flush() {
@@ -429,5 +479,6 @@ module.exports = {
   reindexFileBackend,
   // Exported for testing
   findFolioRoot,
+  folioIdForRoot,
   maxMarkdownMtime,
 };

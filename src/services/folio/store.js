@@ -181,6 +181,7 @@ function createFolioStore(db) {
     insertFolio: db.prepare(
       'INSERT INTO folios (id, name, created_at) VALUES (?, ?, ?)',
     ),
+    renameFolio: db.prepare('UPDATE folios SET name = ? WHERE id = ?'),
     getFolio:    db.prepare('SELECT * FROM folios WHERE id = ?'),
     listFolios:  db.prepare('SELECT id, name, created_at FROM folios ORDER BY created_at ASC'),
     // deleteFolio cascade: attachments → pages → chapters → folios
@@ -280,17 +281,39 @@ function createFolioStore(db) {
 
   /**
    * Create a new Folio.
-   * @param {{ name: string }} opts
+   *
+   * `id` and `createdAt` are optional. They exist so the file backend can
+   * reconstruct a folio with a STABLE identity on every hydration (otherwise a
+   * fresh random UUID per hydrate makes a previously-returned folioId go
+   * "not active" — see backend.js folioIdForRoot). The SQLite path passes
+   * neither and keeps the original random-UUID behaviour.
+   *
+   * @param {{ name: string, id?: string, createdAt?: string }} opts
    * @returns {Folio}
    */
-  function createFolio({ name }) {
+  function createFolio({ name, id, createdAt } = {}) {
     if (!name || typeof name !== 'string' || !name.trim()) {
       throw new TypeError('Folio name must be a non-empty string');
     }
-    const id        = crypto.randomUUID();
-    const createdAt = new Date().toISOString();
-    stmts.insertFolio.run(id, name.trim(), createdAt);
-    return { id, name: name.trim(), createdAt };
+    const folioId   = id || crypto.randomUUID();
+    const created   = createdAt || new Date().toISOString();
+    stmts.insertFolio.run(folioId, name.trim(), created);
+    return { id: folioId, name: name.trim(), createdAt: created };
+  }
+
+  /**
+   * Rename an existing folio. Used by the file backend's createFolio gesture to
+   * apply a user-chosen name to the single folio of a .folio/ directory.
+   *
+   * @param {string} folioId
+   * @param {string} name
+   * @returns {boolean}  true if the folio existed and was renamed
+   */
+  function renameFolio(folioId, name) {
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      throw new TypeError('Folio name must be a non-empty string');
+    }
+    return stmts.renameFolio.run(name.trim(), folioId).changes > 0;
   }
 
   /**
@@ -675,6 +698,7 @@ function createFolioStore(db) {
   return {
     // folios
     createFolio,
+    renameFolio,
     getFolio,
     listFolios,
     deleteFolio,
