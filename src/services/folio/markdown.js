@@ -212,6 +212,7 @@ function readManifest(filePath) {
     const parsed = JSON.parse(raw);
     return {
       name:          parsed.name          ?? path.basename(path.dirname(filePath)),
+      id:            typeof parsed.id === 'string' ? parsed.id : undefined,
       formatVersion: parsed.formatVersion ?? FORMAT_VERSION,
       createdAt:     parsed.createdAt     ?? new Date().toISOString(),
       description:   parsed.description  ?? undefined,
@@ -230,17 +231,26 @@ function readManifest(filePath) {
  * Write a `folio.json` manifest atomically (tmp → rename).
  *
  * @param {string} filePath  — absolute path to folio.json
- * @param {{ name: string, formatVersion?: string, createdAt: string, description?: string }} manifest
+ * @param {{ name: string, id?: string, formatVersion?: string, createdAt: string, description?: string }} manifest
  */
 function writeManifest(filePath, manifest) {
-  const toWrite = {
-    name:          manifest.name,
-    formatVersion: manifest.formatVersion ?? FORMAT_VERSION,
-    createdAt:     manifest.createdAt,
-  };
-  if (manifest.description !== undefined) {
-    toWrite.description = manifest.description;
+  // Pull out the known keys so they keep a stable, readable order at the top;
+  // anything else the caller passed (e.g. hand-authored `chapters`, `updatedAt`)
+  // is preserved verbatim so a rewrite is never destructive.
+  const { name, id, formatVersion, createdAt, description, ...rest } = manifest;
+
+  const toWrite = { name };
+  // id is persisted so the file backend keeps a stable identity across
+  // re-hydrations (and survives a directory move).
+  if (id !== undefined) {
+    toWrite.id = id;
   }
+  toWrite.formatVersion = formatVersion ?? FORMAT_VERSION;
+  toWrite.createdAt     = createdAt;
+  if (description !== undefined) {
+    toWrite.description = description;
+  }
+  Object.assign(toWrite, rest);
 
   const tmpPath = `${filePath}.tmp`;
   fs.writeFileSync(tmpPath, JSON.stringify(toWrite, null, 2) + '\n', 'utf8');

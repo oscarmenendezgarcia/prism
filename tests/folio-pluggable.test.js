@@ -34,7 +34,7 @@ const {
   parseYamlSubset, splitFrontmatter,
 } = require('../src/services/folio/markdown');
 const {
-  openSqliteBackend, openFileBackend, findFolioRoot, maxMarkdownMtime,
+  openSqliteBackend, openFileBackend, findFolioRoot, folioIdForRoot, maxMarkdownMtime,
 } = require('../src/services/folio/backend');
 const { createResolver, githubSlug, extractSection } = require('../src/services/folio/resolver');
 const { createFolioService } = require('../src/services/folio/index');
@@ -1111,5 +1111,104 @@ describe('Identical ranking — sqlite vs file backend', () => {
 
     sqliteSvc.close();
     fileSvc.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression: stable file-backend identity ("Folio not active")
+//
+// The file backend rebuilds its in-memory index from markdown on every open.
+// Previously hydrateFromMarkdown minted a fresh random UUID each time, so a
+// folioId handed to an MCP client stopped matching after the next re-hydrate
+// (any .md write bumps the mtime → the standalone server re-opens the backend)
+// — surfacing as "Folio not active". The id must now be stable, and
+// folio_create must materialise folio.json so the chosen name persists too.
+// ---------------------------------------------------------------------------
+
+describe('Folio — stable file-backend identity (regression)', () => {
+  let tmpDir;
+
+  beforeEach(() => { tmpDir = makeTempDir(); });
+  after(() => { removeTempDir(tmpDir); });
+
+  it('derives the SAME folioId across independent re-hydrations of the same .folio/', () => {
+    const root = path.join(tmpDir, 'stable', '.folio');
+    fs.mkdirSync(root, { recursive: true });
+
+    const a = createFolioService(openFileBackend({ root }));
+    const idA = a.backend.folioId;
+    a.close();
+
+    const b = createFolioService(openFileBackend({ root }));
+    const idB = b.backend.folioId;
+    b.close();
+
+    assert.equal(idA, idB, 'folioId must be identical across re-hydrations');
+    assert.equal(idA, folioIdForRoot(root), 'folioId must equal the deterministic root id');
+  });
+
+  it('keeps the folioId valid after a page write forces a re-open (the bug)', () => {
+    const root = path.join(tmpDir, 'survives', '.folio');
+    fs.mkdirSync(root, { recursive: true });
+
+    // 1st "tool call": learn the folioId
+    const open1 = createFolioService(openFileBackend({ root }));
+    const folioId = open1.backend.folioId;
+    open1.createPage(folioId, 'overview/index', '# Overview\n', { author: 'agent' });
+    open1.close();
+
+    // 2nd "tool call": fresh backend (simulates the resolver re-hydrating after
+    // the .md write). The previously-returned folioId must still be active.
+    const open2 = createFolioService(openFileBackend({ root }));
+    assert.ok(open2.getFolio(folioId), 'folioId returned earlier must still be active after re-open');
+    const page = open2.createPage(folioId, 'meetings/2026-06-01', '# 1 Jun\n', { author: 'agent' });
+    assert.equal(page.slug, '2026-06-01');
+    open2.close();
+  });
+
+  it('folio_create materialises folio.json (id + name) and is idempotent', () => {
+    const root = path.join(tmpDir, 'manifest', '.folio');
+    fs.mkdirSync(root, { recursive: true });
+
+    const svc = createFolioService(openFileBackend({ root }));
+    const created = svc.createFolio({ name: 'AI Sync Meetings' });
+
+    const manifestPath = path.join(root, 'folio.json');
+    assert.ok(fs.existsSync(manifestPath), 'folio.json must be written by createFolio');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    assert.equal(manifest.id, created.id, 'manifest persists the folio id');
+    assert.equal(manifest.name, 'AI Sync Meetings', 'manifest persists the chosen name');
+
+    // Idempotent: a second create returns the same id, no duplicate folio.
+    const again = svc.createFolio({ name: 'AI Sync Meetings' });
+    assert.equal(again.id, created.id, 'createFolio is idempotent on the file backend');
+    assert.equal(svc.listFolios().length, 1, 'file backend holds exactly one folio');
+    svc.close();
+
+    // The persisted id wins on the next hydration and the name survives.
+    const reopened = createFolioService(openFileBackend({ root }));
+    assert.equal(reopened.backend.folioId, created.id, 'persisted manifest id wins on re-hydrate');
+    assert.equal(reopened.getFolio(created.id).name, 'AI Sync Meetings', 'chosen name survives re-hydrate');
+    reopened.close();
+  });
+
+  it('createFolio does not destroy hand-authored folio.json fields', () => {
+    const root = path.join(tmpDir, 'preserve', '.folio');
+    fs.mkdirSync(root, { recursive: true });
+    // Seed a manifest with hand-authored extras (like Prism's own .folio).
+    fs.writeFileSync(path.join(root, 'folio.json'), JSON.stringify({
+      name: 'Prism', formatVersion: '1.0', createdAt: '2026-05-31',
+      description: 'KB', chapters: ['stack', 'architecture'], updatedAt: '2026-06-01',
+    }, null, 2));
+
+    const svc = createFolioService(openFileBackend({ root }));
+    svc.createFolio({ name: 'Prism' });
+    svc.close();
+
+    const after = JSON.parse(fs.readFileSync(path.join(root, 'folio.json'), 'utf8'));
+    assert.deepEqual(after.chapters, ['stack', 'architecture'], 'chapters preserved');
+    assert.equal(after.updatedAt, '2026-06-01', 'updatedAt preserved');
+    assert.equal(after.createdAt, '2026-05-31', 'createdAt preserved');
+    assert.ok(typeof after.id === 'string' && after.id.length > 0, 'id added');
   });
 });
