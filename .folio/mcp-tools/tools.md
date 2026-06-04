@@ -3,11 +3,10 @@ title: MCP Tools
 author: user
 pinned: false
 created: 2026-05-31
-updated: 2026-05-31
-tags: [mcp, tools, api]
+updated: 2026-06-04T08:12:53.543Z
 ---
 
-## Minimal surface (vs Engram's 19)
+## Minimal surface
 
 There is no session management or conflict detection in v1.
 

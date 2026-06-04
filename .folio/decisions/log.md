@@ -3,15 +3,14 @@ title: Design Decision Log
 author: user
 pinned: false
 created: 2026-05-31
-updated: 2026-06-01
-tags: [decisiones, historia]
+updated: 2026-06-04T08:16:24.415Z
 ---
 
 ## Closed decisions and why
 
 1. **Folio embedded in Prism first, extractable later.** Validates the data model and UX without infra overhead. Prism = the first consumer.
 
-2. **A separate repo in the future, not a dependency on Engram.** The stack already exists in Prism (SQLite, FTS5, MCP). Copy Engram's patterns, not the binary.
+2. **A separate repo in the future, not a dependency on a third-party memory tool.** The stack already exists in Prism (SQLite, FTS5, MCP) — build Folio on it directly rather than pulling in an external binary.
 
 3. **Backend only in v1.** No frontend of its own; Prism provides the UI. Folio = HTTP + MCP + CLI.
 
@@ -43,7 +42,7 @@ tags: [decisiones, historia]
 
 16. **`busy_timeout` + transient-aware bootstrap one-shot.** A bootstrap once wrote 0 pages because `createPage` hit `SQLITE_BUSY` (WAL serialises writers; the HTTP server and the bootstrap apply collided) — and `ensureBootstrapped` marked `bootstrapped_at` anyway, permanently blocking retry. Two fixes: (a) `PRAGMA busy_timeout = 5000` on the connection so writers wait instead of throwing (root cause, helps all writes); (b) `applyBootstrapPages` now returns `{ written, transientErrors }` and the one-shot mark is skipped only when `written===0 && transientErrors>0` — a transient failure retries next run, while a permanent error or a legitimately empty result still marks (no infinite re-bootstrap loop). Only `SQLITE_BUSY`/`SQLITE_LOCKED` count as transient. See [[flows/bootstrap]].
 
-18. **File-backend folio identity is stable, derived from the root path + persisted in `folio.json`.** The file backend rebuilds its in-memory SQLite index from markdown on every open, and `hydrateFromMarkdown` used to mint a fresh `crypto.randomUUID()` each time. The standalone MCP server (`makeResolver`) re-hydrates a cached service whenever a `.md` mtime advances — and **every `create_page` writes a `.md`**, so the next tool call re-hydrated with a *new* id. The folioId handed back to the client (from `folio_create`/`folio_list`) was therefore invalid by the next call: `folio_create_page`'s `getFolio()` guard returned null → **"Folio not active"**, and `folio_list` churned a different UUID each invocation. Standalone MCP was effectively unusable for multi-page authoring (Engram case). Fix: derive the id deterministically from the canonical `.folio/` root path (`folioIdForRoot`, a sha1-of-path UUID), with a persisted `folio.json` `id` taking precedence; `createFolio` on the file backend now materialises `folio.json` (id + chosen name), is idempotent and single-folio. SQLite path unchanged (still random UUID, identity owned by `space_folios`). Discovered while using the standalone MCP to author a meetings folio. See [[architecture/storage-backend]] and the "File backend identity" gotchas.
+18. **File-backend folio identity is stable, derived from the root path + persisted in `folio.json`.** The file backend rebuilds its in-memory SQLite index from markdown on every open, and `hydrateFromMarkdown` used to mint a fresh `crypto.randomUUID()` each time. The standalone MCP server (`makeResolver`) re-hydrates a cached service whenever a `.md` mtime advances — and **every `create_page` writes a `.md`**, so the next tool call re-hydrated with a *new* id. The folioId handed back to the client (from `folio_create`/`folio_list`) was therefore invalid by the next call: `folio_create_page`'s `getFolio()` guard returned null → **"Folio not active"**, and `folio_list` churned a different UUID each invocation. Standalone MCP was effectively unusable for multi-page authoring. Fix: derive the id deterministically from the canonical `.folio/` root path (`folioIdForRoot`, a sha1-of-path UUID), with a persisted `folio.json` `id` taking precedence; `createFolio` on the file backend now materialises `folio.json` (id + chosen name), is idempotent and single-folio. SQLite path unchanged (still random UUID, identity owned by `space_folios`). Discovered while using the standalone MCP to author a meetings folio. See [[architecture/storage-backend]] and the "File backend identity" gotchas.
 
 ## Deferrable
 

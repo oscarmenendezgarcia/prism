@@ -3,8 +3,7 @@ title: Standalone Usage (without Prism)
 author: user
 pinned: false
 created: 2026-05-31
-updated: 2026-06-01
-tags: [standalone, cli, mcp, headless]
+updated: 2026-06-04T08:15:32.655Z
 ---
 
 ## Three interfaces, without Prism
@@ -23,7 +22,7 @@ folio import ./out
 ```bash
 folio mcp                 # MCP server over stdio
 ```
-The agent has `folio_search` / `folio_get_page` / `folio_create_page` against the local DB. This is exactly the Engram case: persistent memory without Prism.
+The agent has `folio_search` / `folio_get_page` / `folio_create_page` against the local DB. This is the standalone case: persistent agent memory without Prism.
 
 #### Multi-folio — one server, any folio (no restart)
 
