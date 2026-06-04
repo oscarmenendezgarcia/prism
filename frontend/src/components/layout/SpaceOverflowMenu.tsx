@@ -239,7 +239,7 @@ export function SpaceOverflowMenu({
           >
             {/* Filter input */}
             {showFilter && (
-              <div className="px-2 pt-2 pb-1">
+              <div className="px-2 pt-2 pb-2 mb-1 border-b border-border">
                 <div className="relative flex items-center">
                   <span
                     className="material-symbols-outlined absolute left-2 text-sm leading-none text-text-secondary pointer-events-none"
