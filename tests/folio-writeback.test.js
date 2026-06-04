@@ -741,6 +741,10 @@ describe('maybeConsolidate — PIPELINE_NO_SPAWN lifecycle with folio active', (
     assert.ok(stored, 'a consolidation store run should exist');
     assert.equal(stored.kind, 'consolidation');
     assert.deepEqual(stored.stages, ['folio-consolidator']);
+    // The stage status must carry `index` (and agentId) like a real pipeline run,
+    // or the log viewer can't read the status and shows a perpetual spinner.
+    assert.equal(stored.stageStatuses[0].index, 0, 'stage status needs index for the log viewer');
+    assert.equal(stored.stageStatuses[0].agentId, 'folio-consolidator');
 
     // 3. stage-0.meta.json so the log viewer parses the claude-code stream.
     assert.ok(

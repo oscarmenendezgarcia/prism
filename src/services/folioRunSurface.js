@@ -36,7 +36,11 @@ function buildFolioRun({ runId, spaceId, kind, taskTitle, agentId, status, stage
     kind,
     taskTitle,
     stages:        [agentId],
-    stageStatuses: [stageStatus],
+    // Match the shape of a real pipeline run's stage status — crucially `index`,
+    // which the log viewer keys on (`stageStatuses.find(s => s.index === i)`).
+    // Without it the viewer can't read the real status and falls back to a
+    // perpetual "running" spinner even after the run completed.
+    stageStatuses: [{ index: 0, agentId, ...stageStatus }],
     currentStage:  0,
     status,
     createdAt:     startedAt,
