@@ -180,12 +180,17 @@ export function SpaceOverflowMenu({
   const [, forceReposition] = useState(0);
   useEffect(() => {
     if (!open) return;
-    const onReflow = () => forceReposition((n) => n + 1);
-    window.addEventListener('scroll', onReflow, true); // capture: catch nested scrollers
-    window.addEventListener('resize', onReflow);
+    // Scroll: re-anchor to the sticky tab bar (the trigger only shifts, stays valid).
+    const onScroll = () => forceReposition((n) => n + 1);
+    // Resize: the whole bar reflows (e.g. crossing into mobile, where panels go
+    // full-screen) and the trigger can move or disappear — close instead of
+    // re-anchoring, or the portal floats orphaned over other panels.
+    const onResize = () => setOpen(false);
+    window.addEventListener('scroll', onScroll, true); // capture: catch nested scrollers
+    window.addEventListener('resize', onResize);
     return () => {
-      window.removeEventListener('scroll', onReflow, true);
-      window.removeEventListener('resize', onReflow);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
     };
   }, [open]);
 
