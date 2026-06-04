@@ -219,7 +219,7 @@ export function SpaceOverflowMenu({
         onClick={openDropdown}
         className={[
           'flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium',
-          'transition-all duration-fast select-none whitespace-nowrap',
+          'flex-shrink-0 transition-all duration-fast select-none whitespace-nowrap',
           'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary',
           open
             ? 'bg-surface-variant text-text-primary'

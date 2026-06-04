@@ -103,7 +103,10 @@ export function SpaceTabs() {
       {/* Tab strip — invisible during measure pass to prevent flash */}
       <div
         className={[
-          'flex items-center flex-1 gap-0.5 py-1.5',
+          // min-w-0 lets this flex-1 strip yield width to the shrink-0 trailing
+          // buttons (+N / +) instead of pushing them past the nav's overflow-hidden
+          // edge and clipping the add button.
+          'flex items-center flex-1 min-w-0 gap-0.5 py-1.5',
           measuring ? 'invisible' : '',
         ].join(' ')}
       >
