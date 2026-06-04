@@ -30,6 +30,7 @@ const { spawn, execSync }       = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
+const { openFolioRun, closeFolioRun } = require('./folioRunSurface');
 const worktreeManager = require('./worktreeManager');
 const {
   buildKanbanBlock,
@@ -2354,13 +2355,13 @@ async function handleConsolidationClose(dataDir, runId, startedAt, reason) {
       };
       writeRun(dataDir, freshRun);
     }
-    return;
+  } else {
+    const run = readRun(dataDir, runId);
+    if (run) await applyConsolidation(dataDir, run, startedAt);
   }
 
-  const run = readRun(dataDir, runId);
-  if (!run) return;
-
-  await applyConsolidation(dataDir, run, startedAt);
+  // Finalise the Runs-surface in one place, for every outcome.
+  finalizeConsolidationSurface(dataDir, runId, startedAt);
 }
 
 /**
@@ -2402,6 +2403,60 @@ function startConsolidationPolling(dataDir, runId, doneFile, startedAt, timeoutM
 
   interval.unref();
   return interval;
+}
+
+// ---------------------------------------------------------------------------
+// Consolidation Runs-surface — show the folio-consolidator in the Runs UI as a
+// single-stage run (reusing folioRunSurface, same as the bootstrap). The
+// consolidator is a pipeline epilogue, not a stage, so without this it runs
+// invisibly. The surface run id is derived from the pipeline run id.
+// ---------------------------------------------------------------------------
+
+// Labels shown for a consolidation run in the Runs UI.
+const CONSOLIDATION_RUN = {
+  kind:             'consolidation',
+  agentId:          'folio-consolidator',
+  agentDisplayName: 'Folio Consolidator',
+  taskTitle:        'Consolidate run into folio',
+  phase:            'consolidation',
+};
+
+/** Stable surface run id for a pipeline run's consolidation. */
+function consolidationSurfaceRunId(pipelineRunId) {
+  return `consolidation-${pipelineRunId}`;
+}
+
+/** runStore adapter over the injected store (undefined if no store wired). */
+function consolidationRunStore() {
+  if (!_store || typeof _store.upsertRun !== 'function') return undefined;
+  return { upsert: (r) => _store.upsertRun(r), remove: (id) => _store.deleteRun(id) };
+}
+
+/**
+ * Finalise the consolidation Runs-surface once the consolidator has closed.
+ * Reads the run's consolidation outcome and marks the surface completed/failed.
+ * Best-effort; never throws into the close path.
+ */
+function finalizeConsolidationSurface(dataDir, pipelineRunId, startedAt) {
+  try {
+    const freshRun = readRun(dataDir, pipelineRunId);
+    const c        = freshRun && freshRun.consolidation;
+    closeFolioRun({
+      dataDir,
+      runId:     consolidationSurfaceRunId(pipelineRunId),
+      entryId:   `${consolidationSurfaceRunId(pipelineRunId)}-${CONSOLIDATION_RUN.kind}`,
+      spaceId:   freshRun ? freshRun.spaceId : undefined,
+      startedAt,
+      ok:        !!c && c.status === 'done',
+      extra:     c && typeof c.pagesWritten === 'number' ? { pagesWritten: c.pagesWritten } : {},
+      runStore:  consolidationRunStore(),
+      kind:      CONSOLIDATION_RUN.kind,
+      taskTitle: CONSOLIDATION_RUN.taskTitle,
+      agentId:   CONSOLIDATION_RUN.agentId,
+    });
+  } catch (err) {
+    console.warn(`[pipelineManager] WARN: could not finalise consolidation surface:`, err.message);
+  }
 }
 
 /**
@@ -2498,6 +2553,17 @@ async function maybeConsolidate(dataDir, run) {
       }
     }
 
+    // Surface the consolidator in the Runs UI as a single-stage run (its log is
+    // written to the surface run dir's stage-0.log below). Finalised in
+    // handleConsolidationClose, or dropped if the agent can't be resolved.
+    let spaceName = '';
+    try { spaceName = (_store.getSpace && (_store.getSpace(run.spaceId)?.name || _store.getSpace(run.spaceId)?.space?.name)) || ''; } catch (_) { /* optional */ }
+    const surfaceRunId = consolidationSurfaceRunId(run.runId);
+    openFolioRun({
+      dataDir, runId: surfaceRunId, spaceId: run.spaceId, spaceName, startedAt,
+      runStore: consolidationRunStore(), ...CONSOLIDATION_RUN,
+    });
+
     // Test mode: write sentinel immediately — no real agent spawned
     if (process.env.PIPELINE_NO_SPAWN === '1') {
       fs.writeFileSync(doneFile, '0', 'utf8');
@@ -2523,12 +2589,19 @@ async function maybeConsolidate(dataDir, run) {
           freshRun.consolidation = { status: 'skipped', reason: 'agent_not_found', startedAt, finishedAt: new Date().toISOString() };
           writeRun(dataDir, freshRun);
         }
+        // No agent ran → leave nothing behind in the Runs UI.
+        closeFolioRun({
+          dataDir, runId: surfaceRunId, entryId: `${surfaceRunId}-${CONSOLIDATION_RUN.kind}`,
+          spaceId: run.spaceId, startedAt, drop: true, runStore: consolidationRunStore(),
+          kind: CONSOLIDATION_RUN.kind, taskTitle: CONSOLIDATION_RUN.taskTitle, agentId: CONSOLIDATION_RUN.agentId,
+        });
         return;
       }
       throw err;
     }
 
-    const logPath = path.join(runDir(dataDir, run.runId), 'consolidation.log');
+    // Log → the surface run's stage-0.log so the Runs log viewer can show it.
+    const logPath = path.join(runDir(dataDir, surfaceRunId), 'stage-0.log');
 
     const hasPermissionMode = agentSpec.spawnArgs.includes('--permission-mode');
     const finalArgs = hasPermissionMode

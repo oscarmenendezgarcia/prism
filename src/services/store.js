@@ -653,17 +653,18 @@ function createStore(dataDir) {
    * @param {number} [opts.offset] - Skip this many rows (for pagination).
    * @returns {object[]}
    */
-  // Folio bootstrap runs are stored as single-stage runs so their logs are
-  // viewable through the normal run log viewer, but they are NOT pipeline runs
-  // — exclude them from the pipeline run lists / active-run indicator. getRun()
-  // still returns them (the log viewer looks one up by id).
-  const notBootstrap = (r) => r && r.kind !== 'bootstrap';
+  // Folio side-agent runs (bootstrap, consolidation) are stored as single-stage
+  // runs so their logs are viewable through the normal run log viewer, but they
+  // are NOT pipeline runs — exclude them from the pipeline run lists / active-run
+  // indicator. getRun() still returns them (the log viewer looks one up by id).
+  const FOLIO_SURFACE_KINDS = new Set(['bootstrap', 'consolidation']);
+  const notFolioSurface = (r) => r && !FOLIO_SURFACE_KINDS.has(r.kind);
 
   function listRuns({ limit, offset } = {}) {
     if (limit !== undefined) {
-      return stmts.listRunsLimitOffset.all(limit, offset ?? 0).map(rowToRun).filter(notBootstrap);
+      return stmts.listRunsLimitOffset.all(limit, offset ?? 0).map(rowToRun).filter(notFolioSurface);
     }
-    return stmts.listRuns.all().map(rowToRun).filter(notBootstrap);
+    return stmts.listRuns.all().map(rowToRun).filter(notFolioSurface);
   }
 
   /**
@@ -671,7 +672,7 @@ function createStore(dataDir) {
    * @returns {object[]}
    */
   function listActiveRuns() {
-    return stmts.listActiveRuns.all().map(rowToRun).filter(notBootstrap);
+    return stmts.listActiveRuns.all().map(rowToRun).filter(notFolioSurface);
   }
 
   /**

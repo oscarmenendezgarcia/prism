@@ -717,6 +717,38 @@ describe('maybeConsolidate — PIPELINE_NO_SPAWN lifecycle with folio active', (
     assert.ok(fs.existsSync(doneFile), 'consolidation.done must be written in test mode');
   });
 
+  it('surfaces the consolidator as a single-stage run (Runs list + store run + meta)', async () => {
+    const path = require('path');
+    const run = makeRun();
+    writeRunFile(dataDir, run);
+    await maybeConsolidate(dataDir, run);
+
+    const surfaceRunId = `consolidation-${run.runId}`;
+
+    // 1. agent-runs.jsonl row → the Runs panel LIST.
+    const entries = fs.readFileSync(path.join(dataDir, 'agent-runs.jsonl'), 'utf8')
+      .split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const entry = entries.find((r) => r.id === `${surfaceRunId}-consolidation`);
+    assert.ok(entry, 'a consolidation entry should exist in agent-runs.jsonl');
+    assert.equal(entry.phase, 'consolidation');
+    assert.equal(entry.agentId, 'folio-consolidator');
+    assert.equal(entry.agentDisplayName, 'Folio Consolidator');
+    assert.equal(entry.pipelineRunId, surfaceRunId);
+
+    // 2. Single-stage store run → the log VIEWER (getRun). kind keeps it out of
+    //    the pipeline run lists.
+    const stored = readRunFile(dataDir, surfaceRunId);
+    assert.ok(stored, 'a consolidation store run should exist');
+    assert.equal(stored.kind, 'consolidation');
+    assert.deepEqual(stored.stages, ['folio-consolidator']);
+
+    // 3. stage-0.meta.json so the log viewer parses the claude-code stream.
+    assert.ok(
+      fs.existsSync(path.join(dataDir, 'runs', surfaceRunId, 'stage-0.meta.json')),
+      'surface stage-0.meta.json should exist',
+    );
+  });
+
   it('should_persist_consolidation_prompt_file', async () => {
     const run = makeRun();
     writeRunFile(dataDir, run);
