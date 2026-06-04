@@ -153,19 +153,41 @@ export function SpaceOverflowMenu({
     [filteredSpaces.length, focusedIdx, showFilter],
   );
 
-  // Arrow-down on the filter input moves to the first list item
+  // Arrow-down on the filter input moves to the first list item.
+  // Enter selects the focused item, or — when nothing is focused yet (the user
+  // just typed) — the first match, so "filter then Enter" works as expected.
   const handleFilterKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         if (filteredSpaces.length > 0) setFocusedIdx(0);
-      } else if (e.key === 'Enter' && focusedIdx >= 0 && filteredSpaces[focusedIdx]) {
-        e.preventDefault();
-        selectSpace(filteredSpaces[focusedIdx].id);
+      } else if (e.key === 'Enter') {
+        const target =
+          focusedIdx >= 0 ? filteredSpaces[focusedIdx] : filteredSpaces[0];
+        if (target) {
+          e.preventDefault();
+          selectSpace(target.id);
+        }
       }
     },
     [filteredSpaces, focusedIdx], // eslint-disable-line react-hooks/exhaustive-deps
   );
+
+  // ---------------------------------------------------------------------------
+  // Keep the portal anchored to the trigger while open: a scroll or resize moves
+  // the trigger, so force a re-render (position is read from triggerRef below).
+  // ---------------------------------------------------------------------------
+  const [, forceReposition] = useState(0);
+  useEffect(() => {
+    if (!open) return;
+    const onReflow = () => forceReposition((n) => n + 1);
+    window.addEventListener('scroll', onReflow, true); // capture: catch nested scrollers
+    window.addEventListener('resize', onReflow);
+    return () => {
+      window.removeEventListener('scroll', onReflow, true);
+      window.removeEventListener('resize', onReflow);
+    };
+  }, [open]);
 
   // ---------------------------------------------------------------------------
   // Portal position — anchored below the trigger button
@@ -261,7 +283,7 @@ export function SpaceOverflowMenu({
               </div>
             )}
 
-            {/* Scrollable list — menu/menuitem is the correct pattern for navigation actions */}
+            {/* Scrollable list — menu + menuitemradio: single-select navigation (active space is checked) */}
             <ul
               role="menu"
               aria-label="Available spaces"
@@ -276,7 +298,7 @@ export function SpaceOverflowMenu({
                         itemRefs.current[idx] = el;
                       }}
                       type="button"
-                      role="menuitem"
+                      role="menuitemradio"
                       aria-checked={space.id === activeSpaceId}
                       onClick={() => selectSpace(space.id)}
                       onKeyDown={(e) => {

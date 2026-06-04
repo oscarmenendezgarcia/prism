@@ -340,7 +340,7 @@ describe('SpaceOverflowMenu — selection', () => {
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
 
     const menu = document.body.querySelector('[role="menu"]')!;
-    const items = menu.querySelectorAll('[role="menuitem"]');
+    const items = menu.querySelectorAll('[role="menuitemradio"]');
     // Find the item for s2
     const s2Item = [...items].find((o) => o.textContent?.includes('related-tags-motive'));
     expect(s2Item).toHaveAttribute('aria-checked', 'true');
@@ -357,7 +357,7 @@ describe('SpaceOverflowMenu — selection', () => {
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
 
     const menu = document.body.querySelector('[role="menu"]')!;
-    const items = menu.querySelectorAll('[role="menuitem"]');
+    const items = menu.querySelectorAll('[role="menuitemradio"]');
     const nonActive = [...items].filter((o) => !o.textContent?.includes('research-archive'));
     nonActive.forEach((o) => expect(o).toHaveAttribute('aria-checked', 'false'));
   });

@@ -194,7 +194,7 @@ describe('SpaceTab — click handlers', () => {
 });
 
 describe('SpaceTab — ref callback', () => {
-  it('calls refCb with the button element when mounted', () => {
+  it('calls refCb with the tab element when mounted', () => {
     const refCb = vi.fn();
     render(
       <SpaceTab
@@ -205,7 +205,34 @@ describe('SpaceTab — ref callback', () => {
         refCb={refCb}
       />,
     );
-    expect(refCb).toHaveBeenCalledWith(expect.any(HTMLButtonElement));
+    expect(refCb).toHaveBeenCalledWith(expect.any(HTMLDivElement));
+  });
+});
+
+describe('SpaceTab — keyboard activation', () => {
+  it('calls onSelect when Enter is pressed on the tab', () => {
+    const onSelect = vi.fn();
+    const space = makeSpace();
+    render(
+      <SpaceTab space={space} active={false} onSelect={onSelect} onKebab={vi.fn()} />,
+    );
+    fireEvent.keyDown(screen.getByRole('tab'), { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalledWith(space);
+  });
+
+  it('calls onSelect when Space is pressed on the tab', () => {
+    const onSelect = vi.fn();
+    const space = makeSpace();
+    render(
+      <SpaceTab space={space} active={false} onSelect={onSelect} onKebab={vi.fn()} />,
+    );
+    fireEvent.keyDown(screen.getByRole('tab'), { key: ' ' });
+    expect(onSelect).toHaveBeenCalledWith(space);
+  });
+
+  it('is focusable (tabIndex=0)', () => {
+    render(<SpaceTab space={makeSpace()} active={false} onSelect={vi.fn()} onKebab={vi.fn()} />);
+    expect(screen.getByRole('tab')).toHaveAttribute('tabindex', '0');
   });
 });
 

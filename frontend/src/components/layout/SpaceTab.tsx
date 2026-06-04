@@ -38,14 +38,29 @@ export function SpaceTab({ space, active, onSelect, onKebab, refCb }: SpaceTabPr
     onKebab(e, space.id);
   }
 
+  // The tab is a <div role="tab"> (not a <button>) because it nests an
+  // interactive kebab <button>, and nesting interactive elements is invalid
+  // HTML. role="tab" + tabIndex + key handling restore native button semantics.
+  // Guard on target === currentTarget so Enter/Space on the kebab don't also
+  // fire onSelect (the keydown bubbles up from the inner button otherwise).
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSelect(space);
+    }
+  }
+
   return (
-    <button
+    <div
       ref={refCb}
       role="tab"
+      tabIndex={0}
       aria-selected={active}
       data-space-id={space.id}
       title={space.name}
       onClick={() => onSelect(space)}
+      onKeyDown={handleKeyDown}
       aria-label={space.name}
       className={[
         // Base layout
@@ -111,6 +126,6 @@ export function SpaceTab({ space, active, onSelect, onKebab, refCb }: SpaceTabPr
           className="absolute bottom-0 left-2 right-2 h-[2px] bg-primary rounded-full pointer-events-none"
         />
       )}
-    </button>
+    </div>
   );
 }
