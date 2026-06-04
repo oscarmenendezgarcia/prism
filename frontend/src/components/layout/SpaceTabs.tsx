@@ -1,22 +1,50 @@
 /**
- * Space tab bar — renders one tab per space, active state, kebab menu, and add-space button.
- * ADR-002: replaces the #space-tabs-list DOM manipulation in legacy spaces.js.
- * ADR-003 §8.2: glass-surface background, transition-opacity on kebab icon.
+ * SpaceTabs — responsive space tab bar with overflow handling.
+ *
+ * Architecture (ADR-1, space-tabs-overflow):
+ *   - useOverflowItems measures which spaces fit the container width.
+ *   - Visible spaces render as <SpaceTab> components.
+ *   - Overflow spaces are reached via <SpaceOverflowMenu> (+N button).
+ *   - Active space is always pinned to the visible set (never hidden in overflow).
+ *   - No horizontal scroll on ≥sm; the overflow menu owns navigation.
+ *
+ * Behaviour preserved:
+ *   - Switch space → loads board.
+ *   - Kebab → Edit (rename) / Delete (disabled when last space).
+ *   - Add space button.
+ *   - ARIA role="tablist" / role="tab" / aria-selected.
  */
 
 import React, { useState } from 'react';
 import { ContextMenu } from '@/components/shared/ContextMenu';
 import { useAppStore } from '@/stores/useAppStore';
+import { useOverflowItems } from '@/hooks/useOverflowItems';
+import { SpaceTab } from './SpaceTab';
+import { SpaceOverflowMenu } from './SpaceOverflowMenu';
 import type { Space } from '@/types';
 
 export function SpaceTabs() {
-  const spaces          = useAppStore((s) => s.spaces);
-  const activeSpaceId   = useAppStore((s) => s.activeSpaceId);
-  const setActiveSpace  = useAppStore((s) => s.setActiveSpace);
-  const loadBoard       = useAppStore((s) => s.loadBoard);
-  const openSpaceModal  = useAppStore((s) => s.openSpaceModal);
+  const spaces           = useAppStore((s) => s.spaces);
+  const activeSpaceId    = useAppStore((s) => s.activeSpaceId);
+  const setActiveSpace   = useAppStore((s) => s.setActiveSpace);
+  const loadBoard        = useAppStore((s) => s.loadBoard);
+  const openSpaceModal   = useAppStore((s) => s.openSpaceModal);
   const openDeleteDialog = useAppStore((s) => s.openDeleteSpaceDialog);
 
+  // ---------------------------------------------------------------------------
+  // Overflow measurement
+  // ---------------------------------------------------------------------------
+  const { containerRef, setItemRef, visible, overflow, measuring } =
+    useOverflowItems<Space>(spaces, {
+      pinnedId: activeSpaceId ?? undefined,
+      // 112 = nav px-4 padding (32) + overflowBtn (~42) + addBtn (~28) + 2 gaps (~8) + 2px safety
+      reservedTrailingPx: 112,
+      gapPx: 2,
+    });
+
+  // ---------------------------------------------------------------------------
+  // Kebab / context menu state
+  // ---------------------------------------------------------------------------
   const [menuState, setMenuState] = useState<{
     open: boolean;
     spaceId: string;
@@ -45,56 +73,63 @@ export function SpaceTabs() {
     }
   }
 
-  const isLastSpace = spaces.length <= 1;
+  function handleOverflowSelect(spaceId: string) {
+    if (spaceId === activeSpaceId) return;
+    setActiveSpace(spaceId);
+    loadBoard();
+  }
 
+  const isLastSpace = spaces.length <= 1;
   const menuItems = [
-    { id: 'rename', label: 'Edit', icon: 'edit' },
+    { id: 'rename', label: 'Edit',   icon: 'edit' },
     { id: 'delete', label: 'Delete', icon: 'delete', danger: true, disabled: isLastSpace },
   ];
 
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
+  // During the measure pass, render all tabs invisible so the hook can read widths.
+  // After measurement, render only the visible set.
+  const tabsToRender: Space[] = measuring ? spaces : visible;
+
   return (
     <nav
-      className="flex items-center gap-1 border-b border-border bg-surface-elevated px-4 overflow-x-auto scrollbar-none"
+      ref={containerRef as React.RefCallback<HTMLElement>}
+      className="flex items-center gap-1 border-b border-border bg-surface-elevated px-4 overflow-hidden"
       role="tablist"
       aria-label="Spaces"
     >
-      {/* Tab list */}
-      <div className="flex items-center flex-1 gap-0.5 py-1.5">
-        {spaces.map((space) => {
-          const isActive = space.id === activeSpaceId;
-          return (
-            <button
-              key={space.id}
-              role="tab"
-              aria-selected={isActive}
-              data-space-id={space.id}
-              onClick={() => handleTabClick(space)}
-              className={`group relative flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md cursor-pointer transition-all duration-fast select-none whitespace-nowrap ${
-                isActive
-                  ? 'text-primary bg-primary/10 font-medium'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant'
-              }`}
-            >
-              <span className="space-tab-name">{space.name}</span>
-
-              {/* Kebab icon */}
-              <span
-                role="button"
-                aria-label="Space options"
-                title="Space options"
-                onClick={(e) => handleKebabClick(e, space.id)}
-                className={`material-symbols-outlined text-base leading-none text-text-secondary hover:text-text-primary transition-opacity duration-fast rounded ${
-                  isActive ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'
-                }`}
-              >
-                more_vert
-              </span>
-            </button>
-          );
-        })}
+      {/* Tab strip — invisible during measure pass to prevent flash */}
+      <div
+        className={[
+          'flex items-center flex-1 gap-0.5 py-1.5',
+          measuring ? 'invisible' : '',
+        ].join(' ')}
+      >
+        {tabsToRender.map((space) => (
+          <SpaceTab
+            key={space.id}
+            space={space}
+            active={space.id === activeSpaceId}
+            onSelect={handleTabClick}
+            onKebab={handleKebabClick}
+            refCb={setItemRef(space.id)}
+          />
+        ))}
       </div>
 
-      {/* Add space button — wireframe S-10: ghost icon button */}
+      {/* Overflow button (+N) — only shown after measurement and when there is overflow */}
+      {!measuring && overflow.length > 0 && (
+        <SpaceOverflowMenu
+          spaces={overflow}
+          activeSpaceId={activeSpaceId ?? ''}
+          onSelect={handleOverflowSelect}
+          filterThreshold={6}
+        />
+      )}
+
+      {/* Add space button */}
       <button
         id="space-add-btn"
         aria-label="Create new space"
@@ -107,7 +142,7 @@ export function SpaceTabs() {
         </span>
       </button>
 
-      {/* Context menu (portal) */}
+      {/* Context menu (portal) — for Edit / Delete from kebab */}
       <ContextMenu
         open={menuState.open}
         anchorRect={menuState.anchorRect}
