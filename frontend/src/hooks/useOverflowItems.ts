@@ -69,17 +69,25 @@ function computeSplit<T extends { id: string }>(
     }
   }
 
-  // Force pinned item into visible if it ended up in overflow
+  // Force pinned item into visible if it ended up in overflow.
   if (pinnedId && !visible.some((i) => i.id === pinnedId)) {
     const overflowIdx = overflow.findIndex((i) => i.id === pinnedId);
     if (overflowIdx >= 0) {
-      // Pull the pinned item out of overflow
+      // Pull the pinned item out of overflow, then bump as many trailing visible
+      // items as needed so the pinned tab actually FITS the budget — a wide pinned
+      // tab can need more than one slot, otherwise the visible set overshoots and
+      // the trailing buttons end up overlapping/clipping the last tab.
       const [pinned] = overflow.splice(overflowIdx, 1);
-      // Drop the last visible non-pinned item (bump it to overflow) to stay within budget
-      const last = visible[visible.length - 1];
-      if (last && last.id !== pinnedId) {
-        visible.pop();
-        overflow.unshift(last);
+      const pinnedW = itemWidths.get(pinned.id) ?? 0;
+      while (visible.length > 0) {
+        const pinnedAddition = visible.length > 0 ? pinnedW + gapPx : pinnedW;
+        if (used + pinnedAddition <= available) break;
+        const bumped = visible.pop()!;
+        const bw = itemWidths.get(bumped.id) ?? 0;
+        // Subtract the bumped item's contribution (it had a leading gap unless it
+        // was the first visible item, which is now decided by the new length).
+        used -= visible.length > 0 ? bw + gapPx : bw;
+        overflow.unshift(bumped);
       }
       visible.push(pinned);
     }

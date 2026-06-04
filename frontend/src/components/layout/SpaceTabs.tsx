@@ -103,10 +103,12 @@ export function SpaceTabs() {
       {/* Tab strip — invisible during measure pass to prevent flash */}
       <div
         className={[
-          // min-w-0 lets this flex-1 strip yield width to the shrink-0 trailing
-          // buttons (+N / +) instead of pushing them past the nav's overflow-hidden
-          // edge and clipping the add button.
-          'flex items-center flex-1 min-w-0 gap-0.5 py-1.5',
+          // NOT flex-1: the strip is content-width so the trailing buttons (+N / +)
+          // sit immediately after the last tab instead of being pushed to the far
+          // right edge with a gap. min-w-0 lets it still yield width to the
+          // shrink-0 buttons in the rare overshoot (force-pin) so the + is never
+          // clipped past the nav's overflow-hidden edge.
+          'flex items-center min-w-0 gap-0.5 py-1.5',
           measuring ? 'invisible' : '',
         ].join(' ')}
       >
