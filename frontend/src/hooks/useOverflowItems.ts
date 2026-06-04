@@ -7,8 +7,9 @@
  *   - The container element is held in STATE (not just a ref) so that when it
  *     is first attached, it triggers a re-render and the measurement pass runs.
  *   - Item elements are held in a ref (Map) — they do not need to cause renders.
- *   - The ResizeObserver depends on [container, recompute] so it is set up
- *     exactly when the container becomes available.
+ *   - The ResizeObserver is set up once per container (depends on [container]
+ *     only) and calls the latest recompute via a ref, so adding/removing items
+ *     or changing the pinned id never re-registers the observer.
  *
  * Two-pass design:
  *   Pass 1 (measuring=true): render ALL items invisible, read their widths, recompute.
@@ -127,9 +128,16 @@ export function useOverflowItems<T extends { id: string }>(
     [items, pinnedId, reservedTrailingPx, gapPx],
   );
 
+  // Latest recompute, kept in a ref so the ResizeObserver effect can call the
+  // current closure without listing `recompute` as a dependency (which would
+  // tear down and re-create the observer on every items/pinnedId change).
+  const recomputeRef = useRef(recompute);
+  recomputeRef.current = recompute;
+
   // ---------------------------------------------------------------------------
-  // Pass 1: measure all item widths after render when measuring=true
-  // Runs after every render; exits immediately when measuring=false.
+  // Pass 1: measure all item widths after render when measuring=true.
+  // NOTE: intentionally no dependency array — this must run after *every* render
+  // and self-gates via `measuring`. Do not add deps; it would skip measure passes.
   // ---------------------------------------------------------------------------
   useLayoutEffect(() => {
     if (!measuring) return;
@@ -182,8 +190,9 @@ export function useOverflowItems<T extends { id: string }>(
   }, [pinnedId]);
 
   // ---------------------------------------------------------------------------
-  // ResizeObserver — set up when container becomes available; recompute on resize
-  // Depends on [container, recompute] so it re-registers when either changes.
+  // ResizeObserver — set up once per container; recompute on resize.
+  // Depends on [container] only and calls recompute via recomputeRef, so adding
+  // a space / changing the active tab never tears down and re-observes.
   // ---------------------------------------------------------------------------
   useLayoutEffect(() => {
     if (!container) return;
@@ -192,7 +201,7 @@ export function useOverflowItems<T extends { id: string }>(
     const handleResize = () => {
       if (rafId.current !== null) cancelAnimationFrame(rafId.current);
       rafId.current = requestAnimationFrame(() => {
-        recompute(container.getBoundingClientRect().width);
+        recomputeRef.current(container.getBoundingClientRect().width);
         rafId.current = null;
       });
     };
@@ -207,7 +216,7 @@ export function useOverflowItems<T extends { id: string }>(
         rafId.current = null;
       }
     };
-  }, [container, recompute]);
+  }, [container]);
 
   // ---------------------------------------------------------------------------
   // Stable ref callbacks
