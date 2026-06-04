@@ -11,9 +11,85 @@
  */
 
 import React from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
+import { useAppStore } from '@/stores/useAppStore';
+import { useFolioStore } from '@/stores/useFolioStore';
+
+// ---------------------------------------------------------------------------
+// Folio reference linkification
+// ---------------------------------------------------------------------------
+
+/**
+ * A complete reference: [[chapter/page]] or [[chapter/page#section]].
+ * Slug grammar mirrors the Folio core (lowercase alphanumerics + hyphens).
+ * Incomplete/whitespace tokens (mid-typing) never match — only finished refs.
+ */
+const FOLIO_REF_RE = /\[\[([a-z0-9-]+\/[a-z0-9-]+(?:#[a-z0-9-]+)?)\]\]/g;
+
+/**
+ * Rewrite the raw markdown so each complete [[chapter/page]] becomes a real
+ * markdown link with a `folio:` destination — e.g. `[\[\[a/b\]\]](folio:a/b)`,
+ * which renders the bracketed text and an href the <a> renderer intercepts.
+ *
+ * Done on the SOURCE STRING, not the mdast: CommonMark parses `[[…]]` as
+ * bracketed link-reference syntax, so the full token never survives as a single
+ * text node a tree visitor could catch (it gets split across nodes). The link
+ * text keeps escaped brackets so the reader still sees `[[a/b]]`.
+ */
+function linkifyFolioRefs(src: string): string {
+  const replaceRefs = (segment: string) =>
+    segment.replace(FOLIO_REF_RE, (full, slug) => {
+      const text = full.replace(/\[/g, '\\[').replace(/\]/g, '\\]');
+      return `[${text}](folio:${slug})`;
+    });
+
+  // Keep code verbatim: a [[ref]] inside a fenced block or inline code is
+  // literal text, and rewriting it there would both be wrong and corrupt the
+  // code. Tokenise into code / non-code and only linkify the non-code parts.
+  const CODE = /(```[\s\S]*?```|`[^`\n]*`)/g;
+  let out = '';
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = CODE.exec(src)) !== null) {
+    out += replaceRefs(src.slice(last, m.index)) + m[0];
+    last = m.index + m[0].length;
+  }
+  out += replaceRefs(src.slice(last));
+  return out;
+}
+
+/**
+ * Renders a clicked folio reference: opens the Folio panel and navigates to the
+ * referenced page (section anchors are stripped — we open the page). The folio
+ * is space-scoped, so this resolves against the active space's folio.
+ */
+function FolioRefLink({ slug, children }: { slug: string; children: React.ReactNode }) {
+  const openFolio = useAppStore((s) => s.openFolio);
+  const openPage  = useFolioStore((s) => s.openPage);
+
+  const navigate = () => {
+    const slashIdx = slug.indexOf('/');
+    if (slashIdx === -1) return;
+    const chapterSlug = slug.slice(0, slashIdx);
+    const pageSlug    = slug.slice(slashIdx + 1).split('#')[0];
+    if (!chapterSlug || !pageSlug) return;
+    openFolio();
+    void openPage(chapterSlug, pageSlug);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={navigate}
+      className="text-primary font-medium hover:underline underline-offset-2 rounded-xs focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+      title={`Open folio page: ${slug}`}
+    >
+      {children}
+    </button>
+  );
+}
 
 interface MarkdownViewerProps {
   /** The raw markdown string to render. */
@@ -171,16 +247,23 @@ const components: Components = {
 
   // ── Inline elements ────────────────────────────────────────────────────
 
-  a: ({ href, children }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-primary underline underline-offset-2 hover:text-primary-hover transition-colors duration-150"
-    >
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) => {
+    // Folio references ([[chapter/page]]) are encoded as folio: links by the
+    // remarkFolioRefs plugin — render them as in-app navigation, not <a href>.
+    if (href && href.startsWith('folio:')) {
+      return <FolioRefLink slug={href.slice('folio:'.length)}>{children}</FolioRefLink>;
+    }
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-primary underline underline-offset-2 hover:text-primary-hover transition-colors duration-150"
+      >
+        {children}
+      </a>
+    );
+  },
 
   strong: ({ children }) => (
     <strong className="font-semibold text-text-primary">{children}</strong>
@@ -275,10 +358,17 @@ const proseComponents: Components = {
 
 export function MarkdownViewer({ content, className = '', variant = 'default' }: MarkdownViewerProps) {
   const resolvedComponents = variant === 'prose' ? proseComponents : components;
+  // Turn [[chapter/page]] into folio: links before parsing (see linkifyFolioRefs).
+  const source = React.useMemo(() => linkifyFolioRefs(content), [content]);
   return (
     <div className={`markdown-viewer ${className}`}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={resolvedComponents}>
-        {content}
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        // Preserve the folio: scheme; react-markdown's default transform would strip it.
+        urlTransform={(url) => (url.startsWith('folio:') ? url : defaultUrlTransform(url))}
+        components={resolvedComponents}
+      >
+        {source}
       </ReactMarkdown>
     </div>
   );

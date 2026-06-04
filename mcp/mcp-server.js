@@ -351,12 +351,13 @@ server.tool(
 
 server.tool(
   'kanban_create_space',
-  'Create a new space (project board) with the given name. Space names must be unique (case-insensitive) and between 1 and 100 characters.',
+  'Create a new space (project board) with the given name. Space names must be unique (case-insensitive) and between 1 and 100 characters. Optionally set folioBackend to "file" for git-versioned folio storage in the space working directory (requires workingDirectory; defaults to "sqlite").',
   {
     name: z.string().describe('Name for the new space (1-100 characters, must be unique).'),
+    folioBackend: z.enum(['sqlite', 'file']).optional().describe('Folio storage backend: "sqlite" (default, works always) or "file" (git-versioned .folio/ in working directory; requires workingDirectory).'),
   },
-  withTiming('kanban_create_space', async ({ name }) => {
-    return createSpace(name);
+  withTiming('kanban_create_space', async ({ name, folioBackend }) => {
+    return createSpace(name, { folioBackend });
   })
 );
 
@@ -366,13 +367,14 @@ server.tool(
 
 server.tool(
   'kanban_rename_space',
-  'Rename an existing space. The new name must be unique (case-insensitive) and between 1 and 100 characters.',
+  'Rename an existing space. The new name must be unique (case-insensitive) and between 1 and 100 characters. Optionally update folioBackend (cannot change after folio is activated).',
   {
     id:   z.string().describe('The space ID to rename.'),
     name: z.string().describe('New name for the space.'),
+    folioBackend: z.enum(['sqlite', 'file']).optional().describe('Folio storage backend: "sqlite" (default) or "file" (git-versioned .folio/ in working directory; requires workingDirectory). Cannot be changed after the folio is activated.'),
   },
-  withTiming('kanban_rename_space', async ({ id, name }) => {
-    return renameSpace(id, name);
+  withTiming('kanban_rename_space', async ({ id, name, folioBackend }) => {
+    return renameSpace(id, name, { folioBackend });
   })
 );
 

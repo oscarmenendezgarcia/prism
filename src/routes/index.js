@@ -55,6 +55,19 @@ const {
   handleUpdateComment,
 } = require('../handlers/comments');
 const { handleSearchTasks } = require('../handlers/search');
+const {
+  handleFolioSearchRefs,
+  handleFolioSections,
+} = require('../handlers/folioRefs');
+const {
+  handleGetFolioIndex,
+  handleGetChapterPages,
+  handleGetFolioPage,
+  handleCreateFolioPage,
+  handleUpdateFolioPage,
+  handleDeleteFolioPage,
+} = require('../handlers/folioPages');
+const folioBootstrap = require('../services/folioBootstrap');
 
 const {
   PIPELINE_RUNS_LIST_ROUTE,
@@ -89,6 +102,20 @@ const {
 
 const COMMENTS_LIST_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments$/;
 const COMMENTS_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments\/([^/]+)$/;
+
+// Folio reference autocomplete routes — MUST be before SPACES_TASKS_ROUTE.
+const FOLIO_REFS_SEARCH_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/folio\/refs\/search$/;
+const FOLIO_REFS_SECTIONS_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/folio\/refs\/sections$/;
+
+// Folio CRUD routes — MUST be before SPACES_TASKS_ROUTE.
+// Order matters: more-specific routes must appear before less-specific ones.
+const FOLIO_INDEX_ROUTE          = /^\/api\/v1\/spaces\/([^/]+)\/folio$/;
+const FOLIO_CHAPTER_PAGES_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/folio\/chapters\/([^/]+)\/pages$/;
+const FOLIO_PAGE_SINGLE_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages\/([^/]+)\/([^/]+)$/;
+const FOLIO_PAGES_LIST_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages$/;
+const FOLIO_MIGRATE_ROUTE        = /^\/api\/v1\/spaces\/([^/]+)\/folio\/migrate$/;
+const FOLIO_REVISION_ROUTE       = /^\/api\/v1\/spaces\/([^/]+)\/folio\/revision$/;
+const FOLIO_BOOTSTRAP_ROUTE      = /^\/api\/v1\/spaces\/([^/]+)\/folio\/bootstrap$/;
 
 const SYSTEM_INFO_ROUTE   = /^\/api\/v1\/system\/info$/;
 const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
@@ -204,6 +231,210 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     }
 
     // -------------------------------------------------------------------------
+    // Folio CRUD routes — BEFORE SPACES_TASKS_ROUTE (T-002: folio-index-ui).
+    // Grouped with existing folio refs routes; ordered most-specific first.
+    //
+    //   GET    /folio                                  → index (chapters + counts)
+    //   GET    /folio/chapters/:slug/pages             → page list (meta only)
+    //   GET    /folio/pages/:chapterSlug/:pageSlug     → single page (full content)
+    //   POST   /folio/pages                            → create page (activation)
+    //   PUT    /folio/pages/:chapterSlug/:pageSlug     → update page
+    //   DELETE /folio/pages/:chapterSlug/:pageSlug     → delete page
+    // -------------------------------------------------------------------------
+
+    // Single-page route (GET/PUT/DELETE) — must be before pages-list route.
+    const folioPageSingleMatch = FOLIO_PAGE_SINGLE_ROUTE.exec(urlPath);
+    if (folioPageSingleMatch) {
+      const spaceId     = folioPageSingleMatch[1];
+      const chapterSlug = folioPageSingleMatch[2];
+      const pageSlug    = folioPageSingleMatch[3];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'GET') {
+        return handleGetFolioPage(req, res, spaceId, chapterSlug, pageSlug, store);
+      }
+      if (method === 'PUT') {
+        return handleUpdateFolioPage(req, res, spaceId, chapterSlug, pageSlug, store);
+      }
+      if (method === 'DELETE') {
+        return handleDeleteFolioPage(req, res, spaceId, chapterSlug, pageSlug, store);
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // Chapter pages list route (GET).
+    const folioChapterPagesMatch = FOLIO_CHAPTER_PAGES_ROUTE.exec(urlPath);
+    if (folioChapterPagesMatch) {
+      const spaceId     = folioChapterPagesMatch[1];
+      const chapterSlug = folioChapterPagesMatch[2];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'GET') {
+        return handleGetChapterPages(req, res, spaceId, chapterSlug, store);
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // Pages list route (POST only — creation / activation gesture).
+    const folioPagesListMatch = FOLIO_PAGES_LIST_ROUTE.exec(urlPath);
+    if (folioPagesListMatch) {
+      const spaceId = folioPagesListMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'POST') {
+        return handleCreateFolioPage(req, res, spaceId, store);
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // Revision route (GET) — cheap external-change probe for the refresh affordance.
+    const folioRevisionMatch = FOLIO_REVISION_ROUTE.exec(urlPath);
+    if (folioRevisionMatch) {
+      const spaceId = folioRevisionMatch[1];
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+      if (method === 'GET') {
+        return sendJSON(res, 200, { revision: store.folio.binding.getRevision(spaceId) });
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // Migrate route (POST) — move an activated sqlite folio to the file backend
+    // (export → flip → delete). Deliberate, destructive cleanup; preserves data.
+    const folioMigrateMatch = FOLIO_MIGRATE_ROUTE.exec(urlPath);
+    if (folioMigrateMatch) {
+      const spaceId = folioMigrateMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'POST') {
+        const result = store.folio.binding.migrateSpaceToFile(spaceId);
+        if (!result.ok) {
+          const status = result.code === 'SPACE_NOT_FOUND' ? 404
+                       : result.code === 'ALREADY_FILE'    ? 409
+                       : result.code === 'NO_WORKING_DIR'  ? 400
+                       : 500;
+          return sendError(res, status, result.code, result.message);
+        }
+        return sendJSON(res, 200, result);
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // Bootstrap route (POST) — manual "Bootstrap from repo" trigger for the
+    // Folio empty state. Fire-and-forget background job; surfaces in the Runs
+    // panel. 202 Accepted when started; 409/400 when it can't run.
+    const folioBootstrapMatch = FOLIO_BOOTSTRAP_ROUTE.exec(urlPath);
+    if (folioBootstrapMatch) {
+      const spaceId = folioBootstrapMatch[1];
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+      if (method !== 'POST') {
+        return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+          `Method '${method}' is not allowed on this route`);
+      }
+      const space   = spaceResult.space;
+      const binding = store.folio && store.folio.binding;
+      const wd      = space.workingDirectory;
+      if (!binding) {
+        return sendError(res, 400, 'NO_FOLIO_BACKEND', 'Folio backend is not available.');
+      }
+      if (binding.hasFolio(spaceId)) {
+        return sendError(res, 409, 'FOLIO_EXISTS', 'This space already has a folio.');
+      }
+      if (!wd || !folioBootstrap.detectRepo(wd)) {
+        return sendError(res, 400, 'NO_REPO', 'This space has no repository working directory to bootstrap from.');
+      }
+      folioBootstrap.triggerBackgroundBootstrap({
+        spaceId, workingDir: wd, binding, dataDir, spaceName: space.name,
+        runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
+        force: true, // explicit button press → re-run even if a stale one-shot mark exists
+      });
+      return sendJSON(res, 202, { started: true });
+    }
+
+    // Folio index route (GET) — must be last among folio routes to avoid
+    // shadowing the more-specific routes registered above.
+    const folioIndexMatch = FOLIO_INDEX_ROUTE.exec(urlPath);
+    if (folioIndexMatch) {
+      const spaceId = folioIndexMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'GET') {
+        return handleGetFolioIndex(req, res, spaceId, store);
+      }
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Folio reference autocomplete routes — BEFORE SPACES_TASKS_ROUTE.
+    // GET /api/v1/spaces/:spaceId/folio/refs/search?q=&limit=
+    // GET /api/v1/spaces/:spaceId/folio/refs/sections?slug=chapter/page
+    // -------------------------------------------------------------------------
+    const folioRefsSearchMatch = FOLIO_REFS_SEARCH_ROUTE.exec(urlPath);
+    if (folioRefsSearchMatch) {
+      const spaceId = folioRefsSearchMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'GET') {
+        return handleFolioSearchRefs(req, res, spaceId, store);
+      }
+
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    const folioRefsSectionsMatch = FOLIO_REFS_SECTIONS_ROUTE.exec(urlPath);
+    if (folioRefsSectionsMatch) {
+      const spaceId = folioRefsSectionsMatch[1];
+
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+
+      if (method === 'GET') {
+        return handleFolioSections(req, res, spaceId, store);
+      }
+
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
     // Comment routes — BEFORE SPACES_TASKS_ROUTE to avoid regex swallowing.
     // POST  /api/v1/spaces/:spaceId/tasks/:taskId/comments
     // PATCH /api/v1/spaces/:spaceId/tasks/:taskId/comments/:commentId
@@ -285,7 +516,8 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         const name             = body && body.name;
         const workingDirectory = body && body.workingDirectory;
         const pipeline         = body && body.pipeline;
-        const result = spaceManager.createSpace(name, workingDirectory, pipeline);
+        const folioBackend     = body && body.folioBackend;
+        const result = spaceManager.createSpace(name, workingDirectory, pipeline, undefined, undefined, folioBackend);
 
         if (!result.ok) {
           const status = result.code === 'DUPLICATE_NAME' ? 409 : 400;
@@ -323,13 +555,52 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         const workingDirectory = body && body.workingDirectory;
         const pipeline         = body && body.pipeline;
         const agentNicknames   = body && body.agentNicknames;
-        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames);
+        const folioBackend     = body && body.folioBackend;
+
+        // Capture the prior working dir so we can detect a fresh repo activation.
+        const prevSpace = spaceManager.getSpace(spaceId);
+        const prevWd    = prevSpace.ok ? prevSpace.space.workingDirectory : undefined;
+
+        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames, folioBackend);
 
         if (!result.ok) {
           const status = result.code === 'SPACE_NOT_FOUND' ? 404
                        : result.code === 'DUPLICATE_NAME'  ? 409
                        : 400;
           return sendError(res, status, result.code, result.message);
+        }
+
+        // Activation: a working directory was just added. Invariant — a space with
+        // a repo keeps its folio in the repo's .folio/. Two symmetric cases, both
+        // fire on wd-add and never break the space-edit response (guarded):
+        //   • no folio yet  → background bootstrap from the repo (surfaces in Runs).
+        //   • sqlite folio  → migrate it into .folio/ (export → flip → delete; the
+        //                     content is copied before the DB rows drop, so it's safe).
+        try {
+          const newWd   = result.space.workingDirectory;
+          const binding = store.folio && store.folio.binding;
+          if (newWd && !prevWd && binding) {
+            if (!binding.hasFolio(spaceId)) {
+              if (folioBootstrap.detectRepo(newWd)) {
+                folioBootstrap.triggerBackgroundBootstrap({
+                  spaceId, workingDir: newWd, binding, dataDir, spaceName: result.space.name,
+                  runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
+                });
+              }
+            } else if (result.space.folioBackend !== 'file' && typeof binding.migrateSpaceToFile === 'function') {
+              const mig = binding.migrateSpaceToFile(spaceId);
+              if (mig && mig.ok) {
+                // Reflect the flipped backend in the response so the client updates.
+                const reread = spaceManager.getSpace(spaceId);
+                if (reread.ok) result.space = reread.space;
+                console.log(`[routes] op=auto-migrate spaceId=${spaceId} outcome=ok pages=${mig.pages}`);
+              } else {
+                console.warn(`[routes] op=auto-migrate spaceId=${spaceId} outcome=skip code=${mig && mig.code}`);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[routes] WARN: folio auto-bootstrap/migrate on space edit failed:', err.message);
         }
 
         return sendJSON(res, 200, result.space);

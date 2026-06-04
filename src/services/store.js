@@ -16,6 +16,11 @@
 const path = require('path');
 const Database = require('better-sqlite3');
 
+const { applySchema: applyFolioSchema }              = require('./folio/db');
+const { createFolioService, openSqliteBackend }      = require('./folio/index');
+const { applyBindingSchema, createFolioBinding }     = require('./folioBinding');
+const { createFolioRouter }                          = require('./folioRouter');
+
 // ---------------------------------------------------------------------------
 // DDL
 // ---------------------------------------------------------------------------
@@ -24,6 +29,11 @@ const SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 PRAGMA synchronous = NORMAL;
+-- Wait up to 5s for a write lock instead of throwing SQLITE_BUSY immediately.
+-- WAL serialises concurrent writers (e.g. an HTTP request + the bootstrap apply
+-- transaction); without this they collide and the loser throws. See the Folio
+-- bootstrap transient-failure post-mortem (decision 16 in .folio/decisions/log).
+PRAGMA busy_timeout = 5000;
 
 CREATE TABLE IF NOT EXISTS spaces (
   id                TEXT PRIMARY KEY,
@@ -32,6 +42,7 @@ CREATE TABLE IF NOT EXISTS spaces (
   pipeline          TEXT,
   project_claude_md TEXT,
   agent_nicknames   TEXT,
+  folio_backend     TEXT,
   created_at        TEXT NOT NULL,
   updated_at        TEXT NOT NULL
 );
@@ -134,6 +145,8 @@ function rowToSpace(row) {
   if (pcm !== undefined) space.projectClaudeMdPath = pcm;
   const an = fromJson(row.agent_nicknames);
   if (an !== undefined) space.agentNicknames = an;
+  // folio_backend is a plain TEXT column (not JSON) — treat NULL as undefined.
+  if (row.folio_backend != null) space.folioBackend = row.folio_backend;
   return space;
 }
 
@@ -203,7 +216,39 @@ function createStore(dataDir) {
   // exec() runs multi-statement SQL; also applies the PRAGMAs.
   db.exec(SCHEMA_SQL);
 
+  // Additive migration: folio_backend column (T-001 — folio backend selection).
+  // Guarded by PRAGMA table_info so it runs once and is idempotent on existing DBs.
+  {
+    const cols = db.pragma('table_info(spaces)');
+    if (!cols.some((c) => c.name === 'folio_backend')) {
+      db.exec('ALTER TABLE spaces ADD COLUMN folio_backend TEXT');
+      console.log('[store] migration: added folio_backend column to spaces');
+    }
+  }
+
+  // Apply Folio core schema (space-agnostic) and Prism binding schema.
+  applyFolioSchema(db);
+  applyBindingSchema(db);
+
   console.log(`[store] open — WAL mode confirmed, schema ready (${dbPath})`);
+
+  // Create Folio facade (SQLite backend = Prism's prism.db) and Prism-side binding.
+  // The facade is a superset of the core store surface; folioBinding consumes it unchanged.
+  const folioCore    = createFolioService(openSqliteBackend({ db }));
+  const folioBinding = createFolioBinding(db, folioCore);
+
+  // Build the backend router (T-004/T-005 — folio-backend-selection).
+  // The router becomes store.folio.binding; sqliteBinding is kept as store.folio.sqliteBinding.
+  const folioRouter = createFolioRouter({
+    db,
+    sqliteBinding: folioBinding,
+    getSpace: (spaceId) => {
+      // Inline getter that reads directly from the store (avoids circular require).
+      return rowToSpace(stmts.getSpace.get(spaceId));
+    },
+  });
+  // Inject the SQLite core so resolveRefs on the SQLite path works.
+  folioRouter.setSqliteCore(folioCore);
 
   // ---------------------------------------------------------------------------
   // Prepared statements (compiled once, reused for every call)
@@ -214,15 +259,16 @@ function createStore(dataDir) {
     getSpace:      db.prepare('SELECT * FROM spaces WHERE id = ?'),
     upsertSpace:   db.prepare(`
       INSERT INTO spaces
-        (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, created_at, updated_at)
+        (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, folio_backend, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name              = excluded.name,
         working_directory = excluded.working_directory,
         pipeline          = excluded.pipeline,
         project_claude_md = excluded.project_claude_md,
         agent_nicknames   = excluded.agent_nicknames,
+        folio_backend     = excluded.folio_backend,
         updated_at        = excluded.updated_at
     `),
     deleteSpace:   db.prepare('DELETE FROM spaces WHERE id = ?'),
@@ -339,6 +385,8 @@ function createStore(dataDir) {
       space.pipeline          !== undefined ? JSON.stringify(space.pipeline)         : null,
       space.projectClaudeMdPath !== undefined ? JSON.stringify(space.projectClaudeMdPath) : null,
       space.agentNicknames    !== undefined ? JSON.stringify(space.agentNicknames)  : null,
+      // folio_backend is a plain TEXT column — store as-is or NULL.
+      space.folioBackend !== undefined ? space.folioBackend : null,
       space.createdAt,
       space.updatedAt,
     );
@@ -605,11 +653,18 @@ function createStore(dataDir) {
    * @param {number} [opts.offset] - Skip this many rows (for pagination).
    * @returns {object[]}
    */
+  // Folio side-agent runs (bootstrap, consolidation) are stored as single-stage
+  // runs so their logs are viewable through the normal run log viewer, but they
+  // are NOT pipeline runs — exclude them from the pipeline run lists / active-run
+  // indicator. getRun() still returns them (the log viewer looks one up by id).
+  const FOLIO_SURFACE_KINDS = new Set(['bootstrap', 'consolidation']);
+  const notFolioSurface = (r) => r && !FOLIO_SURFACE_KINDS.has(r.kind);
+
   function listRuns({ limit, offset } = {}) {
     if (limit !== undefined) {
-      return stmts.listRunsLimitOffset.all(limit, offset ?? 0).map(rowToRun);
+      return stmts.listRunsLimitOffset.all(limit, offset ?? 0).map(rowToRun).filter(notFolioSurface);
     }
-    return stmts.listRuns.all().map(rowToRun);
+    return stmts.listRuns.all().map(rowToRun).filter(notFolioSurface);
   }
 
   /**
@@ -617,7 +672,7 @@ function createStore(dataDir) {
    * @returns {object[]}
    */
   function listActiveRuns() {
-    return stmts.listActiveRuns.all().map(rowToRun);
+    return stmts.listActiveRuns.all().map(rowToRun).filter(notFolioSurface);
   }
 
   /**
@@ -659,6 +714,8 @@ function createStore(dataDir) {
   // ---------------------------------------------------------------------------
 
   function close() {
+    // Close all cached file-backed FolioServices first (prevents open-handle leak).
+    try { folioRouter.close(); } catch (_) {}
     db.close();
   }
 
@@ -692,6 +749,13 @@ function createStore(dataDir) {
     deleteRun: deleteRun,
     // Lifecycle
     close,
+    // Folio — core (folio_id-keyed), backend-aware router (binding), and original SQLite binding.
+    // Downstream consumers (MCP tools, resolver, injection) use `store.folio.binding` (the router).
+    folio: {
+      core:          folioCore,     // SQLite core — kept for back-compat; use binding for space ops.
+      binding:       folioRouter,   // NEW: backend-aware router (same surface as before + resolveRefs).
+      sqliteBinding: folioBinding,  // The original SQLite binding (router delegates to it for sqlite spaces).
+    },
   };
 }
 

@@ -1,0 +1,22 @@
+{
+  "name": "Prism",
+  "formatVersion": "1.0",
+  "description": "Knowledge base for the Prism repo. Project chapters (stack, structure, conventions, commands, lessons) so an agent doesn't have to re-analyze the repo from scratch, plus the complete design of the Folio feature (concept, data-model, architecture, injection, mcp-tools, flows, decisions, state).",
+  "createdAt": "2026-05-31",
+  "updatedAt": "2026-06-01",
+  "chapters": [
+    "stack",
+    "structure",
+    "conventions",
+    "commands",
+    "lessons",
+    "concept",
+    "data-model",
+    "architecture",
+    "injection",
+    "mcp-tools",
+    "flows",
+    "decisions",
+    "state"
+  ]
+}

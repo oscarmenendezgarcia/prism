@@ -95,7 +95,7 @@ export function TerminalPanel() {
   return (
     <aside
       ref={asideRef}
-      className={`relative flex flex-col bg-terminal-bg border-l border-border h-full shrink-0 w-[var(--panel-w)]${panelOpen ? '' : ' hidden'}`}
+      className={`panel-shell relative flex flex-col bg-terminal-bg border-l border-border h-full shrink-0 w-[var(--panel-w)]${panelOpen ? '' : ' hidden'}`}
       aria-label="Embedded terminal"
     >
       {/* Left-edge drag handle */}
@@ -107,7 +107,7 @@ export function TerminalPanel() {
         aria-valuemin={minWidth}
         aria-valuemax={maxWidth}
         onMouseDown={handleMouseDown}
-        className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
+        className="panel-resize-handle absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/40 transition-colors duration-150 z-10"
       />
 
       {/* Terminal header */}

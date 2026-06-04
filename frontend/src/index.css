@@ -637,3 +637,52 @@ html.dark {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   FOLIO — shared-element morph for the "New Page" button
+   The same button lives in the panel header (chapter index) and in the page-list
+   sub-header. Giving both instances the same view-transition-name lets the View
+   Transitions API glide it between the two positions instead of pop in/out. The
+   JS side (FolioScreen) only starts a transition when motion is allowed.
+───────────────────────────────────────────────────────────────────────────── */
+.folio-newpage-shared { view-transition-name: folio-new-page; }
+
+/* Only the New Page button glides; the rest of the panel content swaps instantly
+   (no full-page cross-fade). */
+::view-transition-group(root) { animation: none; }
+
+::view-transition-group(folio-new-page) {
+  animation-duration: 260ms;
+  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SIDE PANELS — responsive shell (terminal, runs, config, agent-settings, folio)
+   Desktop: fixed-width resizable asides in a flex row next to the board.
+   Mobile (<640px): a fixed-width aside would be pushed off-screen by the board,
+   so each becomes a full-screen overlay. The app store enforces one-open-at-a-time
+   on mobile so overlays never stack. The resize grip is meaningless full-screen,
+   so it is hidden. `!important` on width overrides the per-panel w-[var(--panel-w)].
+───────────────────────────────────────────────────────────────────────────── */
+/* When the board + open side panels would overflow a medium viewport, let the
+   panels shrink to fit (their content reflows) instead of the rightmost panel
+   being clipped off the edge — the panel row is overflow-hidden, and the panels
+   are otherwise shrink-0. min-width:0 lets a flex item shrink below its content;
+   flex-shrink:1 overrides the per-panel `shrink-0`. The flex board (flex-1,
+   basis 0) still absorbs/releases space first, so panels only shrink once the
+   board is squeezed to nothing. (Below 640px the overlay rule above takes over.) */
+.panel-shell { min-width: 20rem; flex-shrink: 1; }
+
+@media (max-width: 639px) {
+  .panel-shell {
+    position: fixed;
+    inset: 0;
+    width: 100% !important;
+    /* Full-screen takeover: must sit ABOVE the sticky app header (z-[100]) so the
+       panel's own header + close button aren't covered by the Prism bar / menu.
+       Matches the header dropdown tier; only one panel is open at a time. */
+    z-index: 110;
+    border-left: 0;
+  }
+  .panel-resize-handle { display: none; }
+}

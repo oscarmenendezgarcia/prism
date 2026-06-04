@@ -13,6 +13,8 @@ export interface Space {
   workingDirectory?: string;
   pipeline?: string[]; // ordered agent IDs for this space's default pipeline
   agentNicknames?: Record<string, string>; // custom display names per agent, keyed by agent ID
+  /** Folio storage backend. Omitted by the API for the default ('sqlite'); 'file' means a repo-backed .folio/. */
+  folioBackend?: 'sqlite' | 'file';
   createdAt: string;
   updatedAt: string;
 }

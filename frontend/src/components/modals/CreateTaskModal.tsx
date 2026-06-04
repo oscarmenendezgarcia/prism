@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
+import { ReferenceAutocomplete } from '@/components/folio/ReferenceAutocomplete';
 import { useAppStore } from '@/stores/useAppStore';
 import type { CreateTaskPayload } from '@/types';
 
@@ -223,14 +224,19 @@ export function CreateTaskModal() {
             <label htmlFor="input-description" className={labelClass}>
               Description
             </label>
-            <textarea
-              id="input-description"
-              className={`${baseInputClass} min-h-[100px] resize-none`}
-              rows={3}
-              placeholder="Add a description..."
+            <ReferenceAutocomplete
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={setDescription}
+              textareaProps={{
+                id: 'input-description',
+                className: `${baseInputClass} min-h-[100px] resize-none`,
+                rows: 3,
+                placeholder: 'Add a description… type [[ to insert a folio reference',
+              }}
             />
+            <p className="mt-1 text-xs text-text-secondary">
+              Type <code className="text-primary">[[</code> to autocomplete a folio reference.
+            </p>
           </div>
 
           {/* Pipeline (optional) */}

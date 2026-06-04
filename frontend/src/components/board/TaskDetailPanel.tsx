@@ -22,6 +22,7 @@ import React, {
 } from 'react';
 import { useAppStore, useActiveRun, useAvailableAgents, usePipelineStates } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
+import { ReferenceAutocomplete } from '@/components/folio/ReferenceAutocomplete';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
@@ -712,12 +713,12 @@ export function TaskDetailPanel(): React.ReactElement | null {
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-[105] bg-black/72 backdrop-blur-[10px]" aria-hidden="true" onClick={closeDetailPanel} />
+      <div className="fixed inset-0 z-[105] bg-black/30 dark:bg-black/72 backdrop-blur-[10px]" aria-hidden="true" onClick={closeDetailPanel} />
 
       {/* Centering wrapper */}
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 pointer-events-none">
         {/* ── Outer bezel shell — gradient ring creates the machined-hardware frame ── */}
-        <div className="pointer-events-auto w-full max-w-[1200px] h-[min(90vh,840px)] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-white/[0.10] to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-modal-dialog-in">
+        <div className="pointer-events-auto w-full max-w-[1200px] h-[min(90vh,840px)] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-black/[0.07] to-transparent dark:from-white/[0.10] dark:to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.22)] dark:shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-modal-dialog-in">
           {/* ── Inner content card ─────────────────────────────────────────────────── */}
           <div
             ref={panelRef}
@@ -803,17 +804,19 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
                   Description
                 </label>
-                <textarea
-                  id="detail-description"
-                  ref={descTextareaRef}
+                <ReferenceAutocomplete
                   value={localDescription}
-                  onChange={(e) => setLocalDescription(e.target.value)}
-                  onBlur={handleSaveDescription}
-                  disabled={fieldDisabled}
-                  aria-disabled={fieldDisabled}
-                  rows={1}
-                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-[border-color] duration-[220ms] ease-spring"
-                  placeholder="Add a description..."
+                  onChange={setLocalDescription}
+                  inputRef={descTextareaRef}
+                  textareaProps={{
+                    id: 'detail-description',
+                    onBlur: handleSaveDescription,
+                    disabled: fieldDisabled,
+                    'aria-disabled': fieldDisabled,
+                    rows: 1,
+                    className: "w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-[border-color] duration-[220ms] ease-spring",
+                    placeholder: "Add a description… type [[ for a folio reference",
+                  }}
                 />
               </div>
 

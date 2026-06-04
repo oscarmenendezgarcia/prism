@@ -30,6 +30,7 @@ const { spawn, execSync }       = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
+const { openFolioRun, closeFolioRun } = require('./folioRunSurface');
 const worktreeManager = require('./worktreeManager');
 const {
   buildKanbanBlock,
@@ -95,6 +96,89 @@ const DEFAULT_STAGES = [
   'code-reviewer',
   'qa-engineer-e2e',
 ];
+
+/**
+ * Short role descriptors for each default pipeline stage.
+ * The injection engine never sees agent IDs — it only receives this query fragment.
+ * That keeps the extractable folio/injection.js free of Prism's stage vocabulary (FR2/NFR1).
+ * Unknown agentIds fall back to the agentId string itself (graceful default).
+ */
+const STAGE_DESCRIPTORS = {
+  'senior-architect': 'software architecture system design decisions trade-offs components',
+  'ux-api-designer':  'user experience UI design wireframes API contracts user stories',
+  'developer-agent':  'implementation code modules tests conventions',
+  'code-reviewer':    'code review quality design fidelity standards',
+  'qa-engineer-e2e':  'testing QA end-to-end test plan bugs',
+};
+
+/**
+ * Resolve Folio injection configuration.
+ * Layered: hard-coded defaults ← environment overrides.
+ * Per-space persistence is deferred to a future task (opts shape is identical,
+ * only the source changes — no engine changes required).
+ *
+ * Environment variables (all optional):
+ *   PRISM_FOLIO_INJECTION         - Set to 'off' to disable injection entirely (kill switch).
+ *   PRISM_FOLIO_SCORE_THRESHOLD   - Normalised rel score ≥ this → inline (float, default 2.0).
+ *   PRISM_FOLIO_MAX_INLINE_PAGES  - Max inline pages (int, default 3).
+ *   PRISM_FOLIO_MAX_INLINE_TOKENS - Max inline token budget (int, default 1500).
+ *   PRISM_FOLIO_CONSTRAINT_CHAPTERS - Comma-separated chapter slugs (default 'restricciones,constraints').
+ *   PRISM_FOLIO_PINNED_BOOST      - Rel boost for pinned pages (float, default 1.0).
+ *
+ * @param {string} _spaceId - Reserved for future per-space config (unused in v1).
+ * @returns {object} opts suitable for folio/injection.buildContext
+ */
+function resolveInjectionConfig(_spaceId) {
+  const opts = {};
+
+  const threshold = parseFloat(process.env.PRISM_FOLIO_SCORE_THRESHOLD);
+  if (!isNaN(threshold)) opts.scoreThreshold = threshold;
+
+  const maxPages = parseInt(process.env.PRISM_FOLIO_MAX_INLINE_PAGES, 10);
+  if (!isNaN(maxPages) && maxPages > 0) opts.maxInlinePages = maxPages;
+
+  const maxTokens = parseInt(process.env.PRISM_FOLIO_MAX_INLINE_TOKENS, 10);
+  if (!isNaN(maxTokens) && maxTokens > 0) opts.maxInlineTokens = maxTokens;
+
+  const constraintEnv = process.env.PRISM_FOLIO_CONSTRAINT_CHAPTERS;
+  if (constraintEnv && constraintEnv.trim()) {
+    opts.constraintChapters = constraintEnv.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+
+  const pinnedBoost = parseFloat(process.env.PRISM_FOLIO_PINNED_BOOST);
+  if (!isNaN(pinnedBoost)) opts.pinnedBoost = pinnedBoost;
+
+  return opts;
+}
+
+/**
+ * Resolve Folio write-back configuration.
+ * Layered: hard-coded defaults ← environment overrides.
+ *
+ * Environment variables (all optional):
+ *   PRISM_FOLIO_WRITEBACK           - Set to 'off' to disable write-back globally (kill switch).
+ *   PRISM_FOLIO_WRITEBACK_MAX_PAGES - Hard cap on pages applied per consolidation (default 3).
+ *   PRISM_FOLIO_WRITEBACK_MAX_BYTES - Per-page content byte cap (default 8192).
+ *   PIPELINE_RESOLVER_TIMEOUT_MS    - Consolidator agent timeout (reused, default 300000 = 5min).
+ *
+ * @returns {{ enabled: boolean, maxPages: number, maxBytes: number, timeoutMs: number }}
+ */
+function resolveWritebackConfig() {
+  const enabled = process.env.PRISM_FOLIO_WRITEBACK !== 'off';
+
+  const maxPagesEnv = parseInt(process.env.PRISM_FOLIO_WRITEBACK_MAX_PAGES, 10);
+  const maxPages = (Number.isFinite(maxPagesEnv) && maxPagesEnv > 0) ? maxPagesEnv : 3;
+
+  const maxBytesEnv = parseInt(process.env.PRISM_FOLIO_WRITEBACK_MAX_BYTES, 10);
+  const maxBytes = (Number.isFinite(maxBytesEnv) && maxBytesEnv > 0) ? maxBytesEnv : 8192;
+
+  const timeoutMs = parseInt(
+    process.env.PIPELINE_RESOLVER_TIMEOUT_MS || String(DEFAULT_RESOLVER_TIMEOUT_MS),
+    10,
+  );
+
+  return { enabled, maxPages, maxBytes, timeoutMs };
+}
 
 const DEFAULT_STAGE_TIMEOUT_MS    = 3_600_000; // 1 hour
 const DEFAULT_MAX_CONCURRENT      = 5;
@@ -211,6 +295,39 @@ function stageDonePath(dataDir, runId, stageIndex) {
  */
 function resolverDonePath(dataDir, runId, commentId) {
   return path.join(runDir(dataDir, runId), `resolver-${commentId}.done`);
+}
+
+/**
+ * Path to the done-sentinel for the folio-consolidator agent process.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @returns {string}
+ */
+function consolidationDonePath(dataDir, runId) {
+  return path.join(runDir(dataDir, runId), 'consolidation.done');
+}
+
+/**
+ * Path to the consolidation.json signal file written by the consolidator agent.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @returns {string}
+ */
+function consolidationSignalPath(dataDir, runId) {
+  return path.join(runDir(dataDir, runId), 'consolidation.json');
+}
+
+/**
+ * Path to the consolidation prompt file persisted before spawning the agent.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @returns {string}
+ */
+function consolidationPromptPath(dataDir, runId) {
+  return path.join(runDir(dataDir, runId), 'consolidation-prompt.md');
 }
 
 /**
@@ -1028,6 +1145,47 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
 
   const isLastStage = stageIndex === stages.length - 1;
 
+  // Resolve [[folio references]] in task title + description before interpolation.
+  // No-op when: no folio bound, legacy path (_store absent), or no [[...]] in text.
+  // Uses binding.resolveRefs(spaceId, text) — backend-aware (SQLite or file).
+  if (task && _store?.folio?.binding?.resolveRefs) {
+    const resolve = (s) => (typeof s === 'string' ? _store.folio.binding.resolveRefs(spaceId, s) : s);
+    task = { ...task, title: resolve(task.title), description: resolve(task.description) };
+  }
+
+  // Stage-aware Folio context injection.
+  // Kill switch: PRISM_FOLIO_INJECTION=off disables the block entirely without code changes.
+  // Zero cost when no folio is bound (binding.buildInjectionContext returns null).
+  let injectionResult = null;
+  if (
+    process.env.PRISM_FOLIO_INJECTION !== 'off' &&
+    _store?.folio?.binding &&
+    task
+  ) {
+    try {
+      const descriptor  = STAGE_DESCRIPTORS[agentId] ?? agentId;
+      const query       = `${task.title ?? ''} ${task.description ?? ''} ${descriptor}`.trim();
+      const injectionOpts = resolveInjectionConfig(spaceId);
+      injectionResult   = _store.folio.binding.buildInjectionContext(spaceId, query, injectionOpts);
+    } catch (injErr) {
+      // Injection is best-effort: a failure must never break prompt building.
+      console.warn('[pipelineManager] folio injection error (ignored):', injErr.message);
+    }
+  }
+
+  // Emit observability metric regardless of result (folioBound:false is the zero-cost path).
+  pipelineLog('folio.injection', {
+    runId:           runId ?? null,
+    stageIndex,
+    agentId,
+    folioBound:      injectionResult !== null,
+    inlineCount:     injectionResult?.inline?.length    ?? 0,
+    referencedCount: injectionResult?.referenced?.length ?? 0,
+    truncatedCount:  injectionResult?.truncated?.length  ?? 0,
+    tokens:          injectionResult?.tokens             ?? 0,
+    queryLen:        injectionResult !== null ? (task?.title?.length ?? 0) + (task?.description?.length ?? 0) : 0,
+  });
+
   let promptText = task
     ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
     : `TaskId: ${taskId}\nSpaceId: ${spaceId}\n`;
@@ -1085,6 +1243,12 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     promptText += '\n' + buildCompileGateBlock() + '\n';
   }
 
+  // Append Folio injection block when the engine returned content.
+  // Placed last so it does not displace the Kanban/compile instructions agents rely on.
+  if (injectionResult && injectionResult.text) {
+    promptText += '\n## FOLIO — KNOWLEDGE BASE (stage-relevant)\n' + injectionResult.text + '\n';
+  }
+
   const estimatedTokens = Math.ceil(promptText.length / 4);
   return { promptText, estimatedTokens };
 }
@@ -1118,6 +1282,9 @@ async function executeNextStage(dataDir, runId) {
     await moveKanbanTask(run.spaceId, run.taskId, 'done');
     // Teardown worktree now that the run is complete (parallel-worktrees).
     await finalizeRun(dataDir, run);
+    // Folio write-back epilogue: best-effort, never affects run.status or latency.
+    // Wrapped in try/catch inside maybeConsolidate — this await is safe.
+    await maybeConsolidate(dataDir, run);
     return;
   }
 
@@ -1162,6 +1329,11 @@ async function spawnStage(dataDir, run, stageIndex) {
       console.warn(`[pipelineManager] WARN: could not write meta.json for stage ${stageIndex}:`, metaErr.message);
     }
   }
+
+  // NOTE: Folio bootstrap is NOT a pipeline concern. It is triggered by activation
+  // (adding a working directory to a space, or the manual "Bootstrap from repo"
+  // button) via folioBootstrap.triggerBackgroundBootstrap — see src/routes/index.js.
+  // The pipeline only consolidates at the end (maybeConsolidate).
 
   // Build the task prompt to pass via stdin.
   // Use effectiveCwd so isolated runs see the worktree path, not the parent repo.
@@ -1901,6 +2073,570 @@ function startResolverPolling(dataDir, runId, comment, doneFile, startedAt, time
   return interval;
 }
 
+// ---------------------------------------------------------------------------
+// Folio write-back consolidation epilogue (T-001..T-006: folio-write-back)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the prompt text for the folio-consolidator agent.
+ *
+ * Assembles:
+ *   - Task title + description
+ *   - All type='note' comments (the curated high-signal trail: assumptions, deviations, etc.)
+ *   - Per-stage status summary (agentId + status)
+ *   - Index of existing Folio chapters/pages (so the agent can update rather than duplicate)
+ *   - Output file path and MAX_PAGES / MAX_BYTES caps
+ *
+ * Never throws — returns a best-effort string even if some sources are unavailable.
+ *
+ * @param {object} run      - Current run state.
+ * @param {object|null} task - The task object (may be null).
+ * @param {string} dataDir
+ * @returns {string}
+ */
+function buildConsolidationPrompt(run, task, dataDir) {
+  const cfg           = resolveWritebackConfig();
+  const signalPath    = consolidationSignalPath(dataDir, run.runId);
+  const donePath      = consolidationDonePath(dataDir, run.runId);
+
+  let prompt = `You are the folio-consolidator agent. Your job is to review what happened in this pipeline run and write AT MOST ${cfg.maxPages} high-signal pages to the Folio knowledge base.
+
+Be CONSERVATIVE. Only record durable, actionable knowledge that future agents would benefit from. Skip everything ephemeral or obvious.
+
+Write all page slugs, titles, and content in English, regardless of the language used in the task or its notes. Folios are English by default.
+
+## Task Context
+Title: ${task ? task.title : run.taskId}
+${task && task.description ? `Description: ${task.description}\n` : ''}SpaceId: ${run.spaceId}
+RunId: ${run.runId}
+
+`;
+
+  // Per-stage outcome summary
+  if (Array.isArray(run.stages) && Array.isArray(run.stageStatuses)) {
+    prompt += `## Stage Outcomes\n`;
+    for (let i = 0; i < run.stages.length; i++) {
+      const agentId = run.stages[i];
+      const status  = run.stageStatuses[i] ? run.stageStatuses[i].status : 'unknown';
+      const exit    = run.stageStatuses[i] && run.stageStatuses[i].exitCode != null
+        ? ` (exit ${run.stageStatuses[i].exitCode})`
+        : '';
+      prompt += `- Stage ${i}: ${agentId} — ${status}${exit}\n`;
+    }
+    prompt += '\n';
+  }
+
+  // type='note' comments from the task (the curated high-signal trail)
+  const notes = task && Array.isArray(task.comments)
+    ? task.comments.filter((c) => c.type === 'note')
+    : [];
+
+  if (notes.length > 0) {
+    prompt += `## Agent Notes (assumptions, deviations, trade-offs, handoffs)\n`;
+    for (const note of notes) {
+      prompt += `### ${note.author} — ${note.createdAt || ''}\n${note.text}\n\n`;
+    }
+  } else {
+    prompt += `## Agent Notes\n(none)\n\n`;
+  }
+
+  // Existing Folio page index (so the agent can update rather than duplicate)
+  if (_store && _store.folio && _store.folio.binding) {
+    try {
+      const chapters = _store.folio.binding.listChapters(run.spaceId);
+      if (chapters.length === 0) {
+        prompt += `## Existing Folio Index\n(empty — no pages yet)\n\n`;
+      } else {
+        prompt += `## Existing Folio Index (chapters and pages already present)\n`;
+        for (const chapter of chapters) {
+          prompt += `### Chapter: ${chapter.slug}\n`;
+          const pages = _store.folio.binding.listPages(run.spaceId, chapter.slug);
+          for (const pg of pages) {
+            prompt += `- ${chapter.slug}/${pg.slug}${pg.author === 'user' ? ' [user-owned — do NOT update]' : ''}\n`;
+          }
+        }
+        prompt += '\n';
+      }
+    } catch (err) {
+      prompt += `## Existing Folio Index\n(unavailable: ${err.message})\n\n`;
+    }
+  } else {
+    prompt += `## Existing Folio Index\n(unavailable — no binding)\n\n`;
+  }
+
+  prompt += `## Your Task
+
+Decide what (if anything) is worth recording permanently. The bar is HIGH:
+- A non-obvious architectural decision that was taken during this run.
+- A bug lesson: what went wrong, what the root cause was, how it was fixed.
+- A state update to an agent-owned page (e.g. estado/pipeline — NOT estado/actual which is user-owned).
+
+If there is nothing high-signal to record, write { "pages": [] } — that is the correct answer.
+
+## Output Format
+
+Write your result as JSON to this exact path: ${signalPath}
+
+Schema:
+{
+  "pages": [
+    {
+      "slug": "chapter/page",        // must match ^[a-z0-9-]+/[a-z0-9-]+$
+      "title": "Human-readable title",
+      "content": "Markdown content (max ${cfg.maxBytes} bytes)",
+      "reason": "decision" | "bug-lesson" | "state-update"
+    }
+  ]
+}
+
+Rules:
+- At most ${cfg.maxPages} pages total.
+- Each content field must be <= ${cfg.maxBytes} bytes.
+- Slugs: lowercase letters, digits, hyphens only, exactly one slash (chapter/page).
+- Do NOT write to estado/actual or any slug marked [user-owned] above.
+- Do NOT call any folio MCP tool — write ONLY the JSON file.
+
+After writing the JSON, signal completion by running:
+  echo 0 > ${donePath}
+
+If you decide to write nothing, still write { "pages": [] } and signal done.
+`;
+
+  return prompt;
+}
+
+/**
+ * Read, validate, and apply the consolidation.json signal produced by the consolidator agent.
+ *
+ * Validation (server-side, authoritative — never trusts the agent):
+ *   - Missing / unparseable → run.consolidation.status = 'failed'.
+ *   - Truncate pages to maxPages.
+ *   - Reject individual pages with a bad slug, empty content, or > maxBytes.
+ *   - Apply valid pages via upsertPageFromAgent; null / { skipped } → counted in skipped[].
+ *
+ * Never throws into the caller — all errors are caught and recorded.
+ *
+ * @param {string} dataDir
+ * @param {object} run     - Run state (mutated via writeRun).
+ * @param {string} startedAt - ISO timestamp when consolidation started.
+ */
+async function applyConsolidation(dataDir, run, startedAt) {
+  const cfg        = resolveWritebackConfig();
+  const signalPath = consolidationSignalPath(dataDir, run.runId);
+  const finishedAt = new Date().toISOString();
+
+  // Read and parse consolidation.json
+  let signal;
+  try {
+    const raw = fs.readFileSync(signalPath, 'utf8');
+    signal = JSON.parse(raw);
+  } catch (err) {
+    pipelineLog('consolidation.failed', {
+      runId: run.runId,
+      reason: 'signal_parse_error',
+      error:  err.message,
+    });
+    const freshRun = readRun(dataDir, run.runId);
+    if (freshRun) {
+      freshRun.consolidation = {
+        status:     'failed',
+        reason:     'signal_parse_error',
+        startedAt,
+        finishedAt,
+        pagesWritten: 0,
+        skipped:    [],
+      };
+      writeRun(dataDir, freshRun);
+    }
+    return;
+  }
+
+  const SLUG_RE   = /^[a-z0-9-]+\/[a-z0-9-]+$/;
+  const rawPages  = Array.isArray(signal && signal.pages) ? signal.pages : [];
+  const pages     = rawPages.slice(0, cfg.maxPages); // server-side cap
+
+  let pagesWritten = 0;
+  const skipped    = [];
+
+  for (const page of pages) {
+    // Validate slug
+    if (typeof page.slug !== 'string' || !SLUG_RE.test(page.slug)) {
+      skipped.push({ slug: page.slug, reason: 'invalid_slug' });
+      pipelineLog('consolidation.page_skipped', { runId: run.runId, slug: page.slug, reason: 'invalid_slug' });
+      continue;
+    }
+    // Validate content
+    if (!page.content || typeof page.content !== 'string') {
+      skipped.push({ slug: page.slug, reason: 'empty_content' });
+      pipelineLog('consolidation.page_skipped', { runId: run.runId, slug: page.slug, reason: 'empty_content' });
+      continue;
+    }
+    if (Buffer.byteLength(page.content, 'utf8') > cfg.maxBytes) {
+      skipped.push({ slug: page.slug, reason: 'content_too_large' });
+      pipelineLog('consolidation.page_skipped', { runId: run.runId, slug: page.slug, reason: 'content_too_large' });
+      continue;
+    }
+
+    // Apply via the guarded binding method
+    try {
+      if (!_store || !_store.folio || !_store.folio.binding) {
+        skipped.push({ slug: page.slug, reason: 'no_binding' });
+        continue;
+      }
+      const result = _store.folio.binding.upsertPageFromAgent(
+        run.spaceId,
+        page.slug,
+        page.content,
+        { title: page.title },
+      );
+      if (result === null || (result && result.skipped)) {
+        skipped.push({ slug: page.slug, reason: result === null ? 'no_folio' : result.skipped });
+        pipelineLog('consolidation.page_skipped', {
+          runId: run.runId, slug: page.slug,
+          reason: result === null ? 'no_folio' : result.skipped,
+        });
+      } else {
+        pagesWritten++;
+        pipelineLog('consolidation.page_written', { runId: run.runId, slug: page.slug, reason: page.reason });
+      }
+    } catch (err) {
+      skipped.push({ slug: page.slug, reason: 'write_error', error: err.message });
+      pipelineLog('consolidation.page_error', { runId: run.runId, slug: page.slug, error: err.message });
+    }
+  }
+
+  const freshRun = readRun(dataDir, run.runId);
+  if (freshRun) {
+    freshRun.consolidation = {
+      status:   'done',
+      startedAt,
+      finishedAt,
+      pagesWritten,
+      skipped,
+    };
+    writeRun(dataDir, freshRun);
+  }
+
+  pipelineLog('consolidation.done', {
+    runId: run.runId,
+    pagesWritten,
+    skipped:     skipped.length,
+    durationMs:  Date.now() - new Date(startedAt).getTime(),
+  });
+}
+
+/**
+ * Handle consolidator agent exit.
+ * Called when the done-sentinel is detected or the timeout fires.
+ *
+ * On any outcome: applies the consolidation.json signal (or records failure).
+ * Never re-enters the run completion path.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {string} startedAt   - ISO timestamp when consolidation started.
+ * @param {string} [reason]    - 'timeout' if killed by watchdog.
+ */
+async function handleConsolidationClose(dataDir, runId, startedAt, reason) {
+  if (reason === 'timeout') {
+    pipelineLog('consolidation.timeout', {
+      runId,
+      timeoutMs: resolveWritebackConfig().timeoutMs,
+    });
+    const freshRun = readRun(dataDir, runId);
+    if (freshRun) {
+      freshRun.consolidation = {
+        status:     'timeout',
+        reason:     'consolidator_timeout',
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        pagesWritten: 0,
+        skipped:    [],
+      };
+      writeRun(dataDir, freshRun);
+    }
+  } else {
+    const run = readRun(dataDir, runId);
+    if (run) await applyConsolidation(dataDir, run, startedAt);
+  }
+
+  // Finalise the Runs-surface in one place, for every outcome.
+  finalizeConsolidationSurface(dataDir, runId, startedAt);
+}
+
+/**
+ * Start polling for consolidator agent completion using the done-sentinel pattern.
+ * Modelled on startResolverPolling — stripped of stall watchdog.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {string} doneFile    - Path to consolidation.done sentinel.
+ * @param {string} startedAt  - ISO timestamp when consolidation started.
+ * @param {number} timeoutMs  - Maximum duration before kill.
+ * @param {number|null} pid   - Consolidator process PID (for killing on timeout).
+ */
+function startConsolidationPolling(dataDir, runId, doneFile, startedAt, timeoutMs, pid) {
+  const interval = setInterval(() => {
+    if (fs.existsSync(doneFile)) {
+      clearInterval(interval);
+      pipelineLog('consolidation.sentinel_detected', { runId });
+      handleConsolidationClose(dataDir, runId, startedAt).catch((err) => {
+        console.warn(`[pipelineManager] consolidation close error:`, err.message);
+      });
+      return;
+    }
+
+    const elapsed = Date.now() - new Date(startedAt).getTime();
+    if (elapsed >= timeoutMs) {
+      clearInterval(interval);
+
+      if (pid && pid !== process.pid) {
+        pipelineLog('consolidation.kill', { runId, pid, reason: 'timeout' });
+        try { process.kill(-pid, 'SIGTERM'); } catch { /* already gone */ }
+      }
+
+      handleConsolidationClose(dataDir, runId, startedAt, 'timeout').catch((err) => {
+        console.warn(`[pipelineManager] consolidation timeout close error:`, err.message);
+      });
+    }
+  }, Number(process.env.PIPELINE_POLL_INTERVAL_MS) || 2000);
+
+  interval.unref();
+  return interval;
+}
+
+// ---------------------------------------------------------------------------
+// Consolidation Runs-surface — show the folio-consolidator in the Runs UI as a
+// single-stage run (reusing folioRunSurface, same as the bootstrap). The
+// consolidator is a pipeline epilogue, not a stage, so without this it runs
+// invisibly. The surface run id is derived from the pipeline run id.
+// ---------------------------------------------------------------------------
+
+// Labels shown for a consolidation run in the Runs UI.
+const CONSOLIDATION_RUN = {
+  kind:             'consolidation',
+  agentId:          'folio-consolidator',
+  agentDisplayName: 'Folio Consolidator',
+  taskTitle:        'Consolidate run into folio',
+  phase:            'consolidation',
+};
+
+/** Stable surface run id for a pipeline run's consolidation. */
+function consolidationSurfaceRunId(pipelineRunId) {
+  return `consolidation-${pipelineRunId}`;
+}
+
+/** runStore adapter over the injected store (undefined if no store wired). */
+function consolidationRunStore() {
+  if (!_store || typeof _store.upsertRun !== 'function') return undefined;
+  return { upsert: (r) => _store.upsertRun(r), remove: (id) => _store.deleteRun(id) };
+}
+
+/**
+ * Finalise the consolidation Runs-surface once the consolidator has closed.
+ * Reads the run's consolidation outcome and marks the surface completed/failed.
+ * Best-effort; never throws into the close path.
+ */
+function finalizeConsolidationSurface(dataDir, pipelineRunId, startedAt) {
+  try {
+    const freshRun = readRun(dataDir, pipelineRunId);
+    const c        = freshRun && freshRun.consolidation;
+    closeFolioRun({
+      dataDir,
+      runId:     consolidationSurfaceRunId(pipelineRunId),
+      entryId:   `${consolidationSurfaceRunId(pipelineRunId)}-${CONSOLIDATION_RUN.kind}`,
+      spaceId:   freshRun ? freshRun.spaceId : undefined,
+      startedAt,
+      ok:        !!c && c.status === 'done',
+      extra:     c && typeof c.pagesWritten === 'number' ? { pagesWritten: c.pagesWritten } : {},
+      runStore:  consolidationRunStore(),
+      kind:      CONSOLIDATION_RUN.kind,
+      taskTitle: CONSOLIDATION_RUN.taskTitle,
+      agentId:   CONSOLIDATION_RUN.agentId,
+    });
+  } catch (err) {
+    console.warn(`[pipelineManager] WARN: could not finalise consolidation surface:`, err.message);
+  }
+}
+
+/**
+ * Best-effort epilogue: consolidate pipeline run output into the Folio.
+ *
+ * Called AFTER the run is 'completed' and the Kanban card is 'done'.
+ * A failure here must NEVER affect run.status or the user-visible outcome.
+ *
+ * Guards (all short-circuit silently):
+ *   1. Kill switch: PRISM_FOLIO_WRITEBACK=off → skip.
+ *   2. Idempotency: run.consolidation already set → skip.
+ *   3. No folio bound: hasFolio(spaceId) → false → skip.
+ *
+ * Under PIPELINE_NO_SPAWN=1: writes the done-sentinel immediately (test mode).
+ *
+ * @param {string} dataDir
+ * @param {object} run     - Completed run state.
+ */
+async function maybeConsolidate(dataDir, run) {
+  try {
+    const cfg = resolveWritebackConfig();
+
+    // 1. Kill switch
+    if (!cfg.enabled) {
+      pipelineLog('consolidation.skipped', { runId: run.runId, reason: 'kill-switch' });
+      const freshRun = readRun(dataDir, run.runId);
+      if (freshRun && !freshRun.consolidation) {
+        freshRun.consolidation = { status: 'skipped', reason: 'kill-switch' };
+        writeRun(dataDir, freshRun);
+      }
+      return;
+    }
+
+    // 2. Idempotency guard
+    {
+      const freshRun = readRun(dataDir, run.runId);
+      if (freshRun && freshRun.consolidation) {
+        pipelineLog('consolidation.skipped', { runId: run.runId, reason: 'already-set' });
+        return;
+      }
+    }
+
+    // 3. Opt-in guard: only if the space has a folio bound
+    if (!_store || !_store.folio || !_store.folio.binding) {
+      pipelineLog('consolidation.skipped', { runId: run.runId, reason: 'no-binding-store' });
+      const freshRun = readRun(dataDir, run.runId);
+      if (freshRun && !freshRun.consolidation) {
+        freshRun.consolidation = { status: 'skipped', reason: 'no-binding-store' };
+        writeRun(dataDir, freshRun);
+      }
+      return;
+    }
+
+    if (!_store.folio.binding.hasFolio(run.spaceId)) {
+      pipelineLog('consolidation.skipped', { runId: run.runId, reason: 'no-folio' });
+      const freshRun = readRun(dataDir, run.runId);
+      if (freshRun && !freshRun.consolidation) {
+        freshRun.consolidation = { status: 'skipped', reason: 'no-folio' };
+        writeRun(dataDir, freshRun);
+      }
+      return;
+    }
+
+    // Build consolidation prompt
+    let task = null;
+    if (_store) {
+      task = _store.getTask(run.spaceId, run.taskId);
+    }
+    if (!task) {
+      const spacesDir = path.join(dataDir, 'spaces');
+      task = readTaskFromSpace(spacesDir, run.spaceId, run.taskId);
+    }
+
+    const promptText   = buildConsolidationPrompt(run, task, dataDir);
+    const promptFile   = consolidationPromptPath(dataDir, run.runId);
+    const doneFile     = consolidationDonePath(dataDir, run.runId);
+    const startedAt    = new Date().toISOString();
+
+    // Persist prompt
+    try {
+      const tmpPath = promptFile + '.tmp';
+      fs.writeFileSync(tmpPath, promptText, 'utf8');
+      fs.renameSync(tmpPath, promptFile);
+    } catch (err) {
+      console.warn(`[pipelineManager] WARN: could not persist consolidation prompt:`, err.message);
+    }
+
+    // Mark consolidation running
+    {
+      const freshRun = readRun(dataDir, run.runId);
+      if (freshRun) {
+        freshRun.consolidation = { status: 'running', startedAt };
+        writeRun(dataDir, freshRun);
+      }
+    }
+
+    // Surface the consolidator in the Runs UI as a single-stage run (its log is
+    // written to the surface run dir's stage-0.log below). Finalised in
+    // handleConsolidationClose, or dropped if the agent can't be resolved.
+    let spaceName = '';
+    try { spaceName = (_store.getSpace && (_store.getSpace(run.spaceId)?.name || _store.getSpace(run.spaceId)?.space?.name)) || ''; } catch (_) { /* optional */ }
+    const surfaceRunId = consolidationSurfaceRunId(run.runId);
+    openFolioRun({
+      dataDir, runId: surfaceRunId, spaceId: run.spaceId, spaceName, startedAt,
+      runStore: consolidationRunStore(), ...CONSOLIDATION_RUN,
+    });
+
+    // Test mode: write sentinel immediately — no real agent spawned
+    if (process.env.PIPELINE_NO_SPAWN === '1') {
+      fs.writeFileSync(doneFile, '0', 'utf8');
+      pipelineLog('consolidation.started', { runId: run.runId, pid: null, mock: true });
+      startConsolidationPolling(dataDir, run.runId, doneFile, startedAt, cfg.timeoutMs, null);
+      return;
+    }
+
+    // Resolve agent spec for folio-consolidator
+    const agentsDir = process.env.PIPELINE_AGENTS_DIR;
+    let agentSpec;
+    try {
+      agentSpec = resolveAgent('folio-consolidator', agentsDir);
+    } catch (err) {
+      if (err instanceof AgentNotFoundError) {
+        pipelineLog('consolidation.skipped', {
+          runId:  run.runId,
+          reason: 'agent_not_found',
+          agent:  'folio-consolidator',
+        });
+        const freshRun = readRun(dataDir, run.runId);
+        if (freshRun) {
+          freshRun.consolidation = { status: 'skipped', reason: 'agent_not_found', startedAt, finishedAt: new Date().toISOString() };
+          writeRun(dataDir, freshRun);
+        }
+        // No agent ran → leave nothing behind in the Runs UI.
+        closeFolioRun({
+          dataDir, runId: surfaceRunId, entryId: `${surfaceRunId}-${CONSOLIDATION_RUN.kind}`,
+          spaceId: run.spaceId, startedAt, drop: true, runStore: consolidationRunStore(),
+          kind: CONSOLIDATION_RUN.kind, taskTitle: CONSOLIDATION_RUN.taskTitle, agentId: CONSOLIDATION_RUN.agentId,
+        });
+        return;
+      }
+      throw err;
+    }
+
+    // Log → the surface run's stage-0.log so the Runs log viewer can show it.
+    const logPath = path.join(runDir(dataDir, surfaceRunId), 'stage-0.log');
+
+    const hasPermissionMode = agentSpec.spawnArgs.includes('--permission-mode');
+    const finalArgs = hasPermissionMode
+      ? agentSpec.spawnArgs
+      : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
+
+    const escapedArgs = finalArgs.map(shellEscape).join(' ');
+    const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFile)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+
+    const child = spawn('sh', ['-c', shellCmd], {
+      stdio:    'ignore',
+      detached: true,
+      env:      { ...process.env },
+    });
+    child.unref();
+
+    if (process.platform === 'darwin' && child.pid) {
+      const caff = spawn('caffeinate', ['-w', String(child.pid)], { stdio: 'ignore' });
+      caff.unref();
+    }
+
+    pipelineLog('consolidation.started', { runId: run.runId, pid: child.pid });
+    startConsolidationPolling(dataDir, run.runId, doneFile, startedAt, cfg.timeoutMs, child.pid);
+
+    child.on('error', (err) => {
+      pipelineLog('consolidation.spawn_error', { runId: run.runId, error: err.message });
+      handleConsolidationClose(dataDir, run.runId, startedAt).catch(() => {});
+    });
+  } catch (outerErr) {
+    // Safety net: maybeConsolidate must never propagate errors into the completion path.
+    console.warn(`[pipelineManager] WARN: maybeConsolidate threw unexpectedly:`, outerErr.message);
+    pipelineLog('consolidation.failed', { runId: run.runId, reason: 'unexpected_error', error: outerErr.message });
+  }
+}
+
 /**
  * Attempt to resolve a question comment by spawning a target agent.
  * Called from blockRunByComment after the run transitions to 'blocked'.
@@ -2552,5 +3288,16 @@ module.exports = {
   buildResolverPrompt,
   shellEscape,
   DEFAULT_STAGES,
+  STAGE_DESCRIPTORS,
+  resolveInjectionConfig,
+  // Folio write-back (folio-write-back feature):
+  resolveWritebackConfig,
+  buildConsolidationPrompt,
+  applyConsolidation,
+  maybeConsolidate,
+  handleConsolidationClose,
+  consolidationDonePath,
+  consolidationSignalPath,
+  consolidationPromptPath,
   getStore: () => _store,
 };

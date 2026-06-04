@@ -18,6 +18,10 @@ frontend/coverage/
 # Playwright MCP browser session cache
 .playwright-mcp/
 
+# Folio file-backend: derived FTS5 index (regenerable from the .md source of truth)
+.folio/cache.db
+**/.folio/cache.db
+
 # Git worktrees created by parallel pipeline runs (ADR-1: parallel-worktrees)
 .worktrees/
 /.worktrees

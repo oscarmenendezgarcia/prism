@@ -8,7 +8,7 @@
  *   Portals: modals + Toast
  */
 
-import React, { useEffect } from 'react'; // useEffect kept for loadSpaces/loadSettings/loadSystemInfo
+import React, { useEffect, useRef } from 'react'; // useEffect kept for loadSpaces/loadSettings/loadSystemInfo
 import { Header } from '@/components/layout/Header';
 import { SpaceTabs } from '@/components/layout/SpaceTabs';
 import { Board } from '@/components/board/Board';
@@ -28,12 +28,14 @@ import { TaggerReviewModal } from '@/components/modals/TaggerReviewModal';
 import { GlobalSearchModal } from '@/components/modals/GlobalSearchModal';
 import { AutoTaskFAB } from '@/components/AutoTaskFAB';
 import { AutoTaskModal } from '@/components/AutoTaskModal';
+import { FolioScreen } from '@/components/folio/FolioScreen';
 import { Toast } from '@/components/shared/Toast';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
 import { useAgentCompletion } from '@/hooks/useAgentCompletion';
 import { useRunHistoryPolling } from '@/hooks/useRunHistoryPolling';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
+import { useTerminalSessionStore } from '@/stores/useTerminalSessionStore';
 
 /** React Error Boundary to prevent white-screen crashes. */
 class ErrorBoundary extends React.Component<
@@ -77,12 +79,55 @@ class ErrorBoundary extends React.Component<
   }
 }
 
+/**
+ * On mobile (<640px) the side panels render as full-screen overlays (see the
+ * `.panel-shell` rule in index.css), so two open at once would stack and
+ * obscure each other. This enforces one-open-at-a-time: when a panel opens on
+ * a narrow screen, the others close. On desktop panels coexist side by side, so
+ * this is a no-op. Coordinating here (vs in each store action) keeps the three
+ * panel stores decoupled — no cross-store imports / circular deps.
+ */
+function useMobilePanelExclusivity() {
+  const folioOpen  = useAppStore((s) => s.folioOpen);
+  const configOpen = useAppStore((s) => s.configPanelOpen);
+  const agentOpen  = useAppStore((s) => s.agentSettingsPanelOpen);
+  const runsOpen   = usePipelineLogStore((s) => s.runsPanelOpen);
+  const termOpen   = useTerminalSessionStore((s) => s.panelOpen);
+  const prev = useRef({ folioOpen, configOpen, agentOpen, runsOpen, termOpen });
+
+  useEffect(() => {
+    const p = prev.current;
+    if (window.matchMedia('(max-width: 639px)').matches) {
+      // Identify the panel that just transitioned closed → open, then close the rest.
+      const opened =
+        folioOpen  && !p.folioOpen  ? 'folio'  :
+        configOpen && !p.configOpen ? 'config' :
+        agentOpen  && !p.agentOpen  ? 'agent'  :
+        runsOpen   && !p.runsOpen   ? 'runs'   :
+        termOpen   && !p.termOpen   ? 'term'   : null;
+      if (opened) {
+        const app  = useAppStore.getState();
+        const plog = usePipelineLogStore.getState();
+        const term = useTerminalSessionStore.getState();
+        if (opened !== 'folio'  && app.folioOpen)              app.closeFolio();
+        if (opened !== 'config' && app.configPanelOpen)        app.setConfigPanelOpen(false);
+        if (opened !== 'agent'  && app.agentSettingsPanelOpen) app.setAgentSettingsPanelOpen(false);
+        if (opened !== 'runs'   && plog.runsPanelOpen)         plog.setRunsPanelOpen(false);
+        if (opened !== 'term'   && term.panelOpen)             term.closePanel();
+      }
+    }
+    prev.current = { folioOpen, configOpen, agentOpen, runsOpen, termOpen };
+  }, [folioOpen, configOpen, agentOpen, runsOpen, termOpen]);
+}
+
 function AppContent() {
   const loadSpaces           = useAppStore((s) => s.loadSpaces);
   const loadSettings         = useAppStore((s) => s.loadSettings);
   const loadSystemInfo       = useAppStore((s) => s.loadSystemInfo);
   const configPanelOpen        = useAppStore((s) => s.configPanelOpen);
   const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
+  const folioOpen              = useAppStore((s) => s.folioOpen);
+  const closeFolio             = useAppStore((s) => s.closeFolio);
   const runsPanelOpen          = usePipelineLogStore((s) => s.runsPanelOpen);
   const isGlobalSearchOpen     = useAppStore((s) => s.isGlobalSearchOpen);
   const openGlobalSearch       = useAppStore((s) => s.openGlobalSearch);
@@ -127,6 +172,7 @@ function AppContent() {
   usePolling(); // includes external-run detection on each idle tick
   useAgentCompletion();
   useRunHistoryPolling(); // polls /api/v1/agent-runs for the Runs panel
+  useMobilePanelExclusivity(); // mobile: one side panel open at a time
 
   return (
     <div className="flex flex-col h-full">
@@ -146,6 +192,7 @@ function AppContent() {
           {runsPanelOpen && <RunsPanel />}
           {configPanelOpen && <ConfigPanel />}
           {agentSettingsPanelOpen && <AgentSettingsPanel />}
+          {folioOpen && <FolioScreen onClose={closeFolio} />}
         </div>
       </div>
 
