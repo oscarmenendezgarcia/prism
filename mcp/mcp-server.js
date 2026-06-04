@@ -112,16 +112,65 @@ function withTiming(toolName, fn) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared optional spaceId parameter schema
+// Shared parameter schemas — produce JSON Schema $ref via .meta({ id })
 // ---------------------------------------------------------------------------
 
-/** Reusable Zod schema fragment for the optional spaceId. */
+/**
+ * Reusable Zod schema for the optional spaceId.
+ * The .meta({ id: 'SpaceId' }) annotation causes Zod v4 to emit a $defs entry
+ * and a $ref in every tool that uses this schema, satisfying the JSON Schema
+ * 2020-12 $ref reuse requirement.
+ */
 const spaceIdSchema = z
   .string()
   .optional()
+  .meta({ id: 'SpaceId' })
   .describe(
     'Optional space ID. When provided, the operation targets that space. ' +
     "When omitted, the legacy default space ('default') is used."
+  );
+
+/**
+ * Reusable Zod schema for task IDs used across pipeline and comment tools.
+ * Produces $ref: '#/definitions/TaskId' wherever it is referenced.
+ */
+const taskIdSchema = z
+  .string()
+  .meta({ id: 'TaskId' })
+  .describe('Task ID (UUID).');
+
+/**
+ * Required space ID for pipeline and comment tools (spaceId is mandatory there).
+ * Distinct from spaceIdSchema (which is optional) so each $defs entry is correct.
+ */
+const requiredSpaceIdSchema = z
+  .string()
+  .meta({ id: 'RequiredSpaceId' })
+  .describe('Space ID containing the task.');
+
+/**
+ * anyOf filter schema for kanban_list_tasks.
+ * Expresses the three valid filter combinations: column only, assigned only,
+ * or both column and assigned. The most-specific variant (both) is listed
+ * first so Zod picks the right branch when both fields are present.
+ */
+const listTasksFiltersSchema = z
+  .union([
+    z.object({
+      column:   z.enum(['todo', 'in-progress', 'done']).describe('Column to filter to.'),
+      assigned: z.string().describe('Agent name to filter by.'),
+    }).describe('Filter by both column and assigned agent.'),
+    z.object({
+      column: z.enum(['todo', 'in-progress', 'done']).describe('Column to filter to.'),
+    }).describe('Filter by column only.'),
+    z.object({
+      assigned: z.string().describe('Agent name to filter by.'),
+    }).describe('Filter by assigned agent only.'),
+  ])
+  .meta({ id: 'ListTasksFilters' })
+  .describe(
+    'Filter tasks by column, by assigned agent, or by both. ' +
+    'Omit the field entirely to return tasks from all columns / all agents.'
   );
 
 // ---------------------------------------------------------------------------
@@ -141,14 +190,20 @@ server.tool(
   'kanban_list_tasks',
   'List tasks on the Kanban board with optional filtering and cursor-based pagination. Returns tasks grouped by column plus total count and nextCursor. Pass spaceId to target a specific space.',
   {
+    // Legacy flat filter params — kept for backward compatibility.
+    // Prefer the structured `filters` field for new callers.
     column: z
       .enum(['todo', 'in-progress', 'done'])
       .optional()
-      .describe('Filter to a specific column. Omit to get all columns.'),
+      .describe('Filter to a specific column. Prefer the `filters` field for new callers.'),
     assigned: z
       .string()
       .optional()
-      .describe('Filter to tasks assigned to this agent name.'),
+      .describe('Filter to tasks assigned to this agent name. Prefer the `filters` field for new callers.'),
+    // Structured filter — anyOf(column | assigned | both).
+    // When both `filters` and the legacy flat params are provided,
+    // the legacy flat params take precedence.
+    filters: listTasksFiltersSchema.optional(),
     limit: z
       .number()
       .int()
@@ -162,8 +217,11 @@ server.tool(
       .describe('Pagination cursor from a previous nextCursor response value.'),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_list_tasks', async ({ column, assigned, limit, cursor, spaceId }) => {
-    return listTasks({ column, assigned, limit, cursor, spaceId });
+  withTiming('kanban_list_tasks', async ({ column, assigned, filters, limit, cursor, spaceId }) => {
+    // Legacy flat params take precedence; fall back to structured `filters`.
+    const effectiveColumn   = column   ?? filters?.column;
+    const effectiveAssigned = assigned ?? filters?.assigned;
+    return listTasks({ column: effectiveColumn, assigned: effectiveAssigned, limit, cursor, spaceId });
   })
 );
 
@@ -238,11 +296,24 @@ server.tool(
       ),
     attachments: z
       .array(
-        z.object({
-          name:    z.string().describe('Attachment file name (e.g. "ADR-1.md").'),
-          type:    z.enum(['text', 'file', 'link']).describe('"text" for inline content, "file" for an absolute path on disk, "link" for an external URL (https://...).'),
-          content: z.string().optional().describe('Inline text content (type="text"), absolute file path (type="file"), or https:// URL (type="link").'),
-        })
+        // oneOf — exactly one attachment type applies.
+        z.discriminatedUnion('type', [
+          z.object({
+            name:    z.string().describe('Attachment file name (e.g. "ADR-1.md").'),
+            type:    z.literal('text').describe('Inline text content stored directly in the attachment.'),
+            content: z.string().optional().describe('The inline text content.'),
+          }).describe('Inline text attachment.'),
+          z.object({
+            name:    z.string().describe('Attachment file name (e.g. "blueprint.md").'),
+            type:    z.literal('file').describe('Reference to an absolute file path on disk.'),
+            content: z.string().optional().describe('Absolute path to the file on disk (e.g. "/home/user/docs/ADR.md").'),
+          }).describe('File-path attachment (points to a file on disk).'),
+          z.object({
+            name:    z.string().describe('Attachment display name (e.g. "PR #42").'),
+            type:    z.literal('link').describe('External URL (https://...).'),
+            content: z.string().optional().describe('The https:// URL.'),
+          }).describe('External URL attachment.'),
+        ])
       )
       .optional()
       .describe(
@@ -477,8 +548,8 @@ server.tool(
   'the pipeline executes asynchronously. Poll kanban_get_run_status for progress. ' +
   'Default pipeline: senior-architect → ux-api-designer → developer-agent → qa-engineer-e2e.',
   {
-    spaceId: z.string().describe('Space ID containing the task.'),
-    taskId:  z.string().describe('ID of a task in the "todo" column.'),
+    spaceId: requiredSpaceIdSchema,
+    taskId:  taskIdSchema,
     stages:  z.array(z.string()).optional()
               .describe('Ordered agent IDs to run. Defaults to the standard 4-stage pipeline.'),
   },
@@ -555,8 +626,8 @@ server.tool(
   "(e.g. 'ux-api-designer' for wireframe questions, 'senior-architect' for ADR questions). " +
   "The agent must be in the task's pipeline; otherwise the question is escalated to a human.",
   {
-    spaceId: z.string().describe('Space ID containing the task.'),
-    taskId:  z.string().describe('Task ID to comment on.'),
+    spaceId: requiredSpaceIdSchema,
+    taskId:  taskIdSchema.describe('Task ID to comment on.'),
     text:    z.string().describe('Comment body (max 5000 characters).'),
     type:    z
       .enum(['note', 'question', 'answer'])
@@ -610,8 +681,8 @@ server.tool(
   'Creates a new answer comment (parentId = commentId), marks the question as resolved=true, ' +
   'and unblocks the active pipeline run when no open questions remain.',
   {
-    spaceId:   z.string().describe('Space ID containing the task.'),
-    taskId:    z.string().describe('Task ID that owns the question comment.'),
+    spaceId:   requiredSpaceIdSchema,
+    taskId:    taskIdSchema.describe('Task ID that owns the question comment.'),
     commentId: z.string().describe('ID of the question comment to answer.'),
     answer:    z.string().describe('Answer text (max 5000 characters).'),
     author:    z
