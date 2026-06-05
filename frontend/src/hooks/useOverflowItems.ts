@@ -227,6 +227,24 @@ export function useOverflowItems<T extends { id: string }>(
   }, [container]);
 
   // ---------------------------------------------------------------------------
+  // Re-measure once web fonts have loaded. The first measure pass can run with a
+  // fallback font (e.g. a cold / incognito load before Inter is ready), so the
+  // captured tab widths don't match the final render — leaving tabs needlessly in
+  // overflow (or clipped) with empty space beside them. `document.fonts.ready`
+  // resolves when fonts are ready (immediately on a warm cache) → re-measure once.
+  // ---------------------------------------------------------------------------
+  useLayoutEffect(() => {
+    if (!container) return;
+    const fonts = typeof document !== 'undefined' ? document.fonts : undefined;
+    if (!fonts || !fonts.ready) return;
+    let cancelled = false;
+    fonts.ready.then(() => {
+      if (!cancelled) setMeasuring(true);
+    });
+    return () => { cancelled = true; };
+  }, [container]);
+
+  // ---------------------------------------------------------------------------
   // Stable ref callbacks
   // ---------------------------------------------------------------------------
   const containerRef = useCallback((el: HTMLElement | null) => {
