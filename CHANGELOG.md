@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.1.0] — 2026-06-07
+
+Headline: **Folio** — a navigable, augmentable knowledge base shared between you and your agents.
+
+### Added
+- **Folio v1** — a per-space knowledge base so agents stop starting every task from zero.
+  - **Folio → Chapter → Page** structure stored as human-readable markdown with YAML
+    frontmatter; the index is browsable and editable in the UI.
+  - **Co-authored** — both you and agents write pages; every agent write is tagged
+    `author='agent'` so it can be filtered and pruned.
+  - **`[[chapter/page]]` and `[[chapter/page#section]]` references** between pages.
+  - **FTS5/BM25 full-text search** over all pages.
+  - **Stage-aware injection** — relevant pages are pulled into each pipeline stage by
+    keying the BM25 query on the task description + the stage's role (no `stage→chapters`
+    table to maintain).
+  - **Agent write-back** — a single conservative consolidation step at the end of a run
+    records a decision, a lesson, and/or a state update — only high-signal knowledge.
+  - **Bootstrap from repo** — on the first pipeline run in a git-backed space, the folio is
+    materialized automatically from the repo; opt-in and lazy everywhere else.
+  - **Folio MCP server** (`mcp/folio-mcp-server.js`) exposing `folio_search`,
+    `folio_get_page`, `folio_list_chapters`, `folio_create_page`, `folio_update_page`,
+    `folio_list`, `folio_create`, attachments, and export/import.
+  - **Pluggable storage backend** — file backend (markdown on disk) or SQLite, sharing the
+    same FTS5 index.
+- **Responsive space tab bar** — tabs collapse into an overflow dropdown when they no longer
+  fit, with clearer active-tab emphasis.
+- **Ko-fi support button** in the README.
+
 ## [1.0.0] — 2026-05-29
 
 First stable release.
