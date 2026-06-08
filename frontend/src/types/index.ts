@@ -682,6 +682,37 @@ export type PublicEvent =
   | RateLimitEvent
   | FinalResultEvent;
 
+// ---------------------------------------------------------------------------
+// Filesystem browser types (space-settings-file-browser)
+// ---------------------------------------------------------------------------
+
+/** A single directory entry returned by POST /api/v1/fs/browse. */
+export interface DirectoryItem {
+  name: string;
+  type: 'dir' | 'file' | 'symlink';
+  isReadable: boolean;
+  isAccessible: boolean;
+}
+
+/** Response from POST /api/v1/fs/browse. */
+export interface DirectoryListing {
+  path: string;
+  items: DirectoryItem[];
+  hasMore: boolean;
+}
+
+/** Response from POST /api/v1/fs/validate. */
+export interface ValidationResult {
+  path: string;
+  isValid: boolean;
+  message?: string;
+}
+
+/** Response from GET /api/v1/fs/home. */
+export interface HomeDirectoryResponse {
+  homePath: string;
+}
+
 /** Response from GET /api/v1/runs/:runId/stages/:stageIndex/events */
 export interface EventsResponse {
   schemaVersion: number;
