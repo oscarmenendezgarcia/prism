@@ -11,8 +11,16 @@ RUN apk add --no-cache python3 make g++
 WORKDIR /app
 
 # Install backend dependencies (including node-pty, compiled from source).
+# The package's own lifecycle hooks cannot run at this point: `prepare` builds
+# the frontend (not copied yet) and `postinstall` fixes the node-pty exec bit
+# (needs bin/). So: install with scripts disabled, compile the native deps via
+# `npm rebuild`, then run postinstall.js explicitly. The frontend is built in
+# its own step below.
 COPY package.json package-lock.json* ./
-RUN npm install --build-from-source
+COPY bin/ ./bin/
+RUN npm install --ignore-scripts \
+ && npm rebuild --build-from-source better-sqlite3 node-pty \
+ && node bin/postinstall.js
 
 # Install frontend dependencies and build the Vite/React app.
 COPY frontend/package.json frontend/package-lock.json* ./frontend/
