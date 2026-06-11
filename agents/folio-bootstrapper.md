@@ -4,6 +4,7 @@ description: "Reads a repository and writes a few high-confidence, factual Folio
 model: sonnet
 effort: medium
 color: violet
+tools: Read, Glob, Grep, Bash, Write
 ---
 
 # folio-bootstrapper
