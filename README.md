@@ -1,31 +1,43 @@
-# Prism
+<div align="center">
+
+![Prism](docs/banner.png)
+
+### The operating environment for AI agent pipelines
+
+Agents create tasks, move them across a Kanban board, run multi-stage pipelines,<br>
+and build up a shared knowledge base — all from a single interface you run locally or in Docker.
 
 [![CI](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml/badge.svg)](https://github.com/oscarmenendezgarcia/prism/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/prism-kanban)](https://www.npmjs.com/package/prism-kanban)
 [![version](https://img.shields.io/github/v/release/oscarmenendezgarcia/prism)](https://github.com/oscarmenendezgarcia/prism/releases/latest)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-buy_me_a_coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white)](https://ko-fi.com/oscarmdzgarcia)
 
-![Prism](docs/banner.png)
+**[Getting started](#getting-started)** · **[Folio](#folio--knowledge-that-grows-with-use)** · **[CLI](#cli)** · **[MCP](#mcp--let-claude-drive-prism)** · **[Docs](docs/)**
 
-Prism is the operating environment for AI agent pipelines. Agents create tasks, move them across a Kanban board, run multi-stage pipelines, and build up a shared knowledge base — all from a single interface you run locally or in Docker.
+<br>
 
 ![Prism demo](docs/prism-demo.gif)
+
+</div>
 
 ---
 
 ## What it does
 
-Most Kanban tools are built for humans tracking human work. Prism is built for agents.
+Most Kanban tools are built for humans tracking human work. **Prism is built for agents.**
 
-- **Agents manage the board** — via MCP tools, agents create tasks, update status, and attach artifacts as they work.
-- **Run pipelines from any task** — one click launches a multi-stage pipeline (architect → UX → developer → QA) against a task card, with live stage-by-stage logs.
-- **Folio — a shared knowledge base** — agents stop starting every task from zero; see below.
-- **Global search** — ⌘K / Ctrl+K across all spaces, powered by SQLite FTS5.
-- **Embedded terminal** — a full PTY shell inside the UI.
-- **Multiple spaces** — organise work per project, each with its own board and pipeline config.
-- **Durable, local persistence** — all state lives in a single `prism.db` SQLite file. No external database.
+| | |
+|---|---|
+| 🤖 &nbsp;**Agents manage the board** | Via MCP tools, agents create tasks, update status, and attach artifacts as they work. |
+| 🔁 &nbsp;**Pipelines from any task** | One click launches a multi-stage pipeline (architect → UX → developer → QA) against a task card, with live stage-by-stage logs. |
+| 📖 &nbsp;**Folio — shared knowledge** | Agents stop starting every task from zero — [see below](#folio--knowledge-that-grows-with-use). |
+| 🔍 &nbsp;**Global search** | <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> across all spaces, powered by SQLite FTS5. |
+| 💻 &nbsp;**Embedded terminal** | A full PTY shell inside the UI. |
+| 🗂️ &nbsp;**Multiple spaces** | Organise work per project, each with its own board and pipeline config. |
+| 💾 &nbsp;**Durable, local persistence** | All state lives in a single `prism.db` SQLite file. No external database. |
 
-It runs on your machine against your own API key — not a SaaS, single operator, and not a replacement for Jira or Linear.
+> It runs on your machine against your own API key — not a SaaS, single operator, and not a replacement for Jira or Linear.
 
 ---
 
@@ -46,7 +58,7 @@ Agents reach Folio through its own MCP server (`folio_search`, `folio_get_page`,
 
 ---
 
-## Installation
+## Getting started
 
 ### One-liner (recommended)
 
@@ -56,11 +68,50 @@ curl -fsSL https://raw.githubusercontent.com/oscarmenendezgarcia/prism/main/inst
 
 This installs Node.js ≥ 20 if needed (via [nvm](https://github.com/nvm-sh/nvm)), runs `npm install -g prism-kanban`, and runs `prism init` to create the data directory and a default `settings.json`.
 
-Pass extra flags to `prism init` after `--`:
+<details>
+<summary>Pass extra flags to <code>prism init</code></summary>
+
+<br>
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/oscarmenendezgarcia/prism/main/install.sh | sh -s -- --data-dir /custom/path
 ```
+
+</details>
+
+### Docker
+
+```bash
+docker compose up -d
+# → http://localhost:3000
+```
+
+No Node.js or build tools required locally. Board data persists in `./data/prism.db`. The image ships with **Claude Code** (`claude`) pre-installed for running pipelines.
+
+The board works without an API key. To enable agent pipelines and auto-task generation, set `ANTHROPIC_API_KEY`:
+
+```bash
+ANTHROPIC_API_KEY=sk-... docker compose up -d
+```
+
+<details>
+<summary><b>Giving agents access to your repos</b> — mount each project as a volume</summary>
+
+<br>
+
+Agents that write code need files on disk. Mount each project as a volume in `docker-compose.yml` and point the Space's *Working Directory* at it:
+
+```yaml
+services:
+  prism:
+    volumes:
+      - ./data:/app/data                            # board state (already present)
+      - /home/user/myproject:/workspace/myproject   # ← your repo
+```
+
+Or [run Prism locally](#running-locally-without-docker) for native host filesystem access with no volume mapping.
+
+</details>
 
 ### npm (manual)
 
@@ -90,43 +141,14 @@ prism --help         # list all commands and flags
 
 ---
 
-## Quick start (Docker)
-
-```bash
-docker compose up -d
-# → http://localhost:3000
-```
-
-No Node.js or build tools required locally. Board data persists in `./data/prism.db`. The image ships with **Claude Code** (`claude`) pre-installed for running pipelines.
-
-The board works without an API key. To enable agent pipelines and auto-task generation, set `ANTHROPIC_API_KEY`:
-
-```bash
-ANTHROPIC_API_KEY=sk-... docker compose up -d
-```
-
-### Giving agents access to your repos
-
-Agents that write code need files on disk. Mount each project as a volume in `docker-compose.yml` and point the Space's *Working Directory* at it:
-
-```yaml
-services:
-  prism:
-    volumes:
-      - ./data:/app/data                            # board state (already present)
-      - /home/user/myproject:/workspace/myproject   # ← your repo
-```
-
-Or [run Prism locally](#running-locally-without-docker) for native host filesystem access with no volume mapping.
-
----
-
 ## MCP — let Claude drive Prism
 
 Prism ships two MCP servers:
 
-- **`mcp/mcp-server.js`** — the full Kanban API as tools (`kanban_list_tasks`, `kanban_create_task`, `kanban_update_task`, `kanban_move_task`, `kanban_start_pipeline`, `kanban_get_run_status`, and more).
-- **`mcp/folio-mcp-server.js`** — Folio read/write (`folio_search`, `folio_get_page`, `folio_create_page`, `folio_update_page`, `folio_list_chapters`, …).
+| Server | Tools |
+|--------|-------|
+| `mcp/mcp-server.js` | The full Kanban API — `kanban_list_tasks`, `kanban_create_task`, `kanban_update_task`, `kanban_move_task`, `kanban_start_pipeline`, `kanban_get_run_status`, and more. |
+| `mcp/folio-mcp-server.js` | Folio read/write — `folio_search`, `folio_get_page`, `folio_create_page`, `folio_update_page`, `folio_list_chapters`, … |
 
 > **Prerequisite:** the server (`prism start` or `docker compose up`) must be running before starting any Claude session.
 
@@ -136,7 +158,12 @@ Prism ships two MCP servers:
 claude mcp add prism node ./mcp/mcp-server.js -e KANBAN_API_URL=http://localhost:3000/api/v1
 ```
 
-**Claude Code / Claude Desktop** — add manually to `.claude/settings.json` (or `claude_desktop_config.json`, using an absolute path):
+<details>
+<summary><b>Claude Code / Claude Desktop</b> — manual JSON config</summary>
+
+<br>
+
+Add to `.claude/settings.json` (or `claude_desktop_config.json`, using an absolute path):
 
 ```json
 {
@@ -149,6 +176,8 @@ claude mcp add prism node ./mcp/mcp-server.js -e KANBAN_API_URL=http://localhost
   }
 }
 ```
+
+</details>
 
 ---
 
@@ -172,7 +201,9 @@ cd frontend && npm run dev     # → http://localhost:5173
 
 ---
 
-## Parallel pipeline runs — git worktree isolation
+## Advanced
+
+### Parallel pipeline runs — git worktree isolation
 
 When two runs target the **same working directory**, Prism provisions an isolated git worktree per conflicting run so they never interfere.
 
@@ -188,9 +219,7 @@ The worktree path and branch are git-ignored and never committed.
 | `PIPELINE_WORKTREE_DIR` | `.worktrees` | Subdirectory under the space working directory |
 | `PIPELINE_DELETE_BRANCH_ON_FAILURE` | `0` | Set `1` to delete the branch on failure or abort |
 
----
-
-## Environment variables
+### Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -199,9 +228,7 @@ The worktree path and branch are git-ignored and never committed.
 | `ALLOWED_ORIGINS` | `http://localhost:3000,...` | Allowed WebSocket origins — set to your public URL behind a reverse proxy |
 | `ANTHROPIC_API_KEY` | — | Required for agent pipelines and auto-task generation |
 
----
-
-## Tests
+### Tests
 
 ```bash
 npm test                        # Backend (Node.js test runner)
@@ -210,10 +237,10 @@ cd frontend && npm test         # Frontend (Vitest + React Testing Library)
 
 ---
 
-## Stack
+<div align="center">
 
-Node.js (no framework) · React 19 · TypeScript · Tailwind CSS v4 · Vite · Zustand · SQLite (better-sqlite3) · node-pty
+**Stack** — Node.js (no framework) · React 19 · TypeScript · Tailwind CSS v4 · Vite · Zustand · SQLite (better-sqlite3) · node-pty
 
-## License
+MIT © [Oscar Menendez](https://github.com/oscarmenendezgarcia) · Support the project on [Ko-fi](https://ko-fi.com/oscarmdzgarcia)
 
-MIT
+</div>
