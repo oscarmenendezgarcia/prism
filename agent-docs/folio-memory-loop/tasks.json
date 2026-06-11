@@ -1,0 +1,226 @@
+{
+  "version": "1.0",
+  "project": "folio-memory-loop",
+  "date": "2026-06-08",
+  "tasks": [
+    {
+      "id": "FML-001",
+      "title": "Schema migration: add topic_key and superseded_by to pages",
+      "description": "Extend applySchema(db) in src/services/folio/db.js with an idempotent migration block that adds topic_key TEXT and superseded_by TEXT columns to the pages table, and creates idx_pages_topic on (folio_id, topic_key). Migration guards against re-running via PRAGMA table_info(pages) column check. Also extend rowToPage in store.js to include topicKey and supersededBy fields.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "applySchema(db) runs without error on a fresh DB and on an existing DB that already has the pages table without the new columns",
+        "Running applySchema twice on the same DB is a no-op (idempotent)",
+        "PRAGMA table_info('pages') on a migrated DB shows topic_key and superseded_by columns",
+        "CREATE INDEX IF NOT EXISTS idx_pages_topic ON pages(folio_id, topic_key) is present after migration",
+        "rowToPage returns topicKey: null and supersededBy: null for pages created before migration",
+        "All existing folio tests (folio.test.js, folio-pages-crud.test.js) continue to pass"
+      ],
+      "files_affected": [
+        "src/services/folio/db.js",
+        "src/services/folio/store.js"
+      ]
+    },
+    {
+      "id": "FML-002",
+      "title": "Store: listPagesByTopics and listDistinctTopicKeys methods",
+      "description": "Add two new methods to the FolioStore returned by createFolioStore(db). listPagesByTopics(folioId, topicKeys[]) returns all live pages (superseded_by IS NULL) in the folio whose topic_key is in the provided array, ordered by created_at ASC. Returns [] for empty topicKeys array without hitting SQLite. listDistinctTopicKeys(folioId) returns all distinct non-null topic_key values in the folio, ordered alphabetically. Also extend the updatePage prepared statement to accept topic_key as a nullable update field.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": ["FML-001"],
+      "acceptance_criteria": [
+        "listPagesByTopics(folioId, []) returns [] without executing any SQL",
+        "listPagesByTopics(folioId, ['mcp-zod-schema']) returns only live pages (superseded_by IS NULL) with that topic_key for the given folio",
+        "listPagesByTopics does not return pages from other folios",
+        "listDistinctTopicKeys returns sorted distinct topic_key values, excluding nulls",
+        "updatePage accepts topic_key in the updates object and persists the value",
+        "updatePage with topic_key: undefined preserves the existing value (COALESCE pattern)",
+        "New methods are exported in the store's public interface object",
+        "Unit tests cover: empty array, single key with 2 results, multiple keys, cross-folio isolation, superseded_by filter"
+      ],
+      "files_affected": [
+        "src/services/folio/store.js"
+      ]
+    },
+    {
+      "id": "FML-003",
+      "title": "Injection: cluster expansion in buildContext",
+      "description": "Modify buildContext in src/services/folio/injection.js to perform cluster expansion after BM25 threshold hit computation. After thresholdHits is populated: (1) collect unique non-null topicKey values from threshold hits into clusterKeys, (2) if clusterKeys is non-empty call store.listPagesByTopics(folioId, clusterKeys) to retrieve siblings, (3) add siblings to hitMap with rel = cfg.clusterInheritedRel (default: scoreThreshold - 0.01) only when not already present. Add clusterInheritedRel to DEFAULTS and to the opts parameter documentation. Update the function JSDoc. The inline assembly and reference tier code are unchanged.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["FML-002"],
+      "acceptance_criteria": [
+        "When a BM25 threshold hit has a non-null topic_key, sibling pages sharing that key are added to hitMap at clusterInheritedRel",
+        "Siblings already present in hitMap from BM25 keep their original (higher) rel score",
+        "Pages with topic_key: null in threshold hits do not trigger a listPagesByTopics call",
+        "clusterInheritedRel defaults to scoreThreshold - 0.01 (1.99 with default threshold)",
+        "opts.clusterInheritedRel overrides the default",
+        "Cluster expansion siblings with rel below scoreThreshold appear in the referenced list, not inline",
+        "The injection integration test (folio-injection-integration.test.js) still passes against the frozen fixture",
+        "New unit tests in folio-injection.test.js cover: no topic_key on hits (no expansion), topic_key present (siblings appear in referenced), clusterInheritedRel override, dedup when sibling also matches BM25"
+      ],
+      "files_affected": [
+        "src/services/folio/injection.js"
+      ]
+    },
+    {
+      "id": "FML-004",
+      "title": "Core: reconcilePage in src/services/folio/reconcile.js",
+      "description": "Create src/services/folio/reconcile.js with the exported async function reconcilePage(store, folioId, draft, judgeFn). Implement the two-phase gate: Phase 1 (cheap FTS pre-filter via listPagesByTopics on draft.topicKey) and Phase 2 (await judgeFn(draft, candidates) when candidates is non-empty). Apply the verdict policy: DUPLICATE → touch updated_at only; REFINE/SUPERSEDE → updatePage + set superseded_by; CONTRADICT → createPage (write new, keep old); UNRELATED → createPage. The function must gracefully degrade to a plain createPage when FOLIO_RECONCILE env var is not '1' or draft.topicKey is absent (verdict = 'SKIPPED'). No import outside src/services/folio/. No LLM call in the core.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["FML-002"],
+      "acceptance_criteria": [
+        "reconcilePage with FOLIO_RECONCILE unset calls store.createPage directly and returns { verdict: 'SKIPPED', page }",
+        "reconcilePage with FOLIO_RECONCILE=1 but no draft.topicKey also returns { verdict: 'SKIPPED', page }",
+        "DUPLICATE: judgeFn returns 'DUPLICATE' → only updated_at is changed; content is NOT overwritten; { verdict: 'DUPLICATE', page: existing }",
+        "REFINE: judgeFn returns 'REFINE' → existing page content replaced with draft.content; { verdict: 'REFINE', page: updated }",
+        "SUPERSEDE: judgeFn returns 'SUPERSEDE' → existing page content replaced; existing.superseded_by is set to new page id; { verdict: 'SUPERSEDE', page: newPage }",
+        "CONTRADICT: judgeFn returns 'CONTRADICT' → new page created; existing page unchanged; result includes conflict.draftSlug, conflict.conflictingIds, conflict.topicKey",
+        "UNRELATED: judgeFn returns 'UNRELATED' → store.createPage called; { verdict: 'UNRELATED', page: newPage }",
+        "judgeFn is never called when candidates list is empty (Phase 1 short-circuits to createPage with verdict UNRELATED)",
+        "All tests use a stub judgeFn (deterministic) — no real LLM call in the test suite",
+        "Module exports only reconcilePage and the Verdict type (no internal helpers)"
+      ],
+      "files_affected": [
+        "src/services/folio/reconcile.js"
+      ]
+    },
+    {
+      "id": "FML-005",
+      "title": "MCP: folio_suggest_topic_key tool + update create/update page schemas",
+      "description": "Register a new MCP tool folio_suggest_topic_key in mcp/folio-tools.js. The tool takes folioId and draftText, calls store.listDistinctTopicKeys(folioId) to get existing keys, runs store.searchPages on draftText (up to 5 results), and returns { existing: string[], suggestion: string | null } — suggestion is the topic_key of the top matching page if present in existing, else a derived kebab key. Also update folio_create_page and folio_update_page Zod schemas to accept an optional topic_key field (validated against the grammar regex). Pass topic_key through to store.createPage opts and store.updatePage updates respectively.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["FML-002"],
+      "acceptance_criteria": [
+        "folio_suggest_topic_key is listed in the 14 registered tools (up from 13)",
+        "Calling folio_suggest_topic_key on a folio with no topic_key pages returns { existing: [], suggestion: <derived-from-draftText> }",
+        "Calling folio_suggest_topic_key when an existing page matches draftText terms returns that page's topic_key as suggestion",
+        "folio_create_page with topic_key persists the value (readable via folio_get_page)",
+        "folio_update_page with topic_key updates the value on the page",
+        "folio_create_page with an invalid topic_key (violates regex) returns a Zod validation error",
+        "folio_suggest_topic_key does not call an LLM — only FTS + string manipulation",
+        "Existing folio MCP tool tests continue to pass (no schema regression)"
+      ],
+      "files_affected": [
+        "mcp/folio-tools.js",
+        "src/services/folio/store.js"
+      ]
+    },
+    {
+      "id": "FML-006",
+      "title": "Binding: wire reconcilePage into upsertPageFromAgent under FOLIO_RECONCILE flag",
+      "description": "Modify upsertPageFromAgent in src/services/folioBinding.js to route through reconcilePage when process.env.FOLIO_RECONCILE === '1'. The method becomes async. When reconcile is off, the existing synchronous path is preserved byte-for-byte. When reconcile is on: import reconcilePage from the core, pass the Prism judgeFn (initially a no-op stub that always returns UNRELATED — the real Claude-backed judge is wired in FML-007). Handle the CONTRADICT result by calling the new createConflictTask helper. Add createConflictTask private helper that inserts a todo task in the space, with dedup guard (check for existing open 'Folio conflict: {topicKey}' task before inserting; add a comment if found). The upsertPageFromAgent signature gains an optional topicKey field in opts.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["FML-004"],
+      "acceptance_criteria": [
+        "With FOLIO_RECONCILE unset: upsertPageFromAgent behaviour is identical to v1.1 (synchronous, all 77 write-back tests pass)",
+        "With FOLIO_RECONCILE=1: upsertPageFromAgent is async and routes through reconcilePage",
+        "CONTRADICT verdict creates a 'Folio conflict: {topicKey}' task in the space's todo column",
+        "Calling upsertPageFromAgent twice for the same CONTRADICT topicKey does NOT create two board tasks (dedup guard adds a comment to the existing task)",
+        "upsertPageFromAgent opts.topicKey is passed as draft.topicKey to reconcilePage",
+        "A stub judgeFn returning UNRELATED is used in this task; the real judge is wired in FML-007",
+        "New integration tests cover: FOLIO_RECONCILE=1 happy path, CONTRADICT card creation, dedup guard"
+      ],
+      "files_affected": [
+        "src/services/folioBinding.js"
+      ]
+    },
+    {
+      "id": "FML-007",
+      "title": "Prism: wire the Claude-backed judgeFn into folioBinding",
+      "description": "Replace the stub judgeFn in folioBinding.js with a real implementation that calls the Anthropic API (Claude Haiku or configured model) to evaluate draft vs candidates. The judgeFn takes a PageDraft and Page[] candidates and returns a Verdict. System prompt: present both page contents and ask for one of DUPLICATE/REFINE/SUPERSEDE/CONTRADICT/UNRELATED with brief rationale. Parse the response to extract the verdict token. Model is configurable via FOLIO_JUDGE_MODEL env var (default: claude-haiku-4-5 or equivalent cheap model). The judgeFn is injected from store.js (the Prism entry point), not imported directly in folioBinding.js, to preserve the binding layer's testability. Add FOLIO_JUDGE_MODEL to resolveWritebackConfig in pipelineManager.js or a new resolveFolioJudgeConfig helper.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "2",
+      "dependencies": ["FML-006"],
+      "acceptance_criteria": [
+        "When FOLIO_RECONCILE=1, a real conflict scenario (two pages with same topic_key and contradictory content) triggers a Claude API call and returns a verdict",
+        "FOLIO_JUDGE_MODEL env var controls the model used; defaults to a cheap fast model",
+        "If the Claude API call fails (timeout, quota), judgeFn returns UNRELATED (fail-open, never throws into the write path)",
+        "The judgeFn is injected at wiring time (store.js or pipelineManager.js), not hardcoded in folioBinding.js",
+        "Unit tests for the judgeFn mock the Anthropic client; no real API calls in CI",
+        "Total latency for a conflict detection cycle (FTS pre-filter + judge) is logged at debug level"
+      ],
+      "files_affected": [
+        "src/services/folioBinding.js",
+        "src/services/store.js"
+      ]
+    },
+    {
+      "id": "FML-008",
+      "title": "pipelineManager: pass topicKey from consolidation.json through applyConsolidation",
+      "description": "Extend applyConsolidation in src/services/pipelineManager.js to read an optional topicKey field from each page entry in consolidation.json and pass it to upsertPageFromAgent as opts.topicKey. The consolidation.json validation schema is extended: topicKey is an optional string, validated against the topic_key grammar regex (same as the MCP tool). Invalid topicKey values (fail regex) are treated as absent (set to undefined) with a warning log, not as page rejection. Since upsertPageFromAgent is now async under FOLIO_RECONCILE=1, ensure the await is present in the loop.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "1",
+      "dependencies": ["FML-006"],
+      "acceptance_criteria": [
+        "consolidation.json pages with a valid topicKey field have it forwarded to upsertPageFromAgent",
+        "consolidation.json pages with topicKey absent or null behave exactly as in v1.1",
+        "topicKey values that fail the grammar regex are dropped with a warn log; the page is still written (topicKey = null)",
+        "applyConsolidation awaits upsertPageFromAgent correctly (no unhandled promise)",
+        "Existing consolidation tests (folio-writeback.test.js) continue to pass"
+      ],
+      "files_affected": [
+        "src/services/pipelineManager.js"
+      ]
+    },
+    {
+      "id": "FML-009",
+      "title": "markdown.js: round-trip topic_key and superseded_by through YAML frontmatter",
+      "description": "Update src/services/folio/markdown.js to include topic_key and superseded_by in the YAML frontmatter written by renderPage and read by parsePage. renderPage: emit topic_key if non-null; emit superseded_by if non-null. parsePage: read both fields from frontmatter and pass to the returned page record (topicKey: fm.topic_key ?? null, supersededBy: fm.superseded_by ?? null). Update loadPage call in the file backend (backend.js) to pass topicKey and supersededBy from the parsed record. Extend folio-archive.test.js baseline to cover round-trip of both fields.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "1",
+      "dependencies": ["FML-001"],
+      "acceptance_criteria": [
+        "A page created with topic_key='mcp-zod-schema' exported to a markdown folder has topic_key: mcp-zod-schema in its YAML frontmatter",
+        "Re-importing that markdown folder produces a page with topicKey='mcp-zod-schema'",
+        "A page with topic_key=null exports without a topic_key line in frontmatter (or with topic_key: null); reimport yields topicKey=null",
+        "superseded_by round-trips correctly (non-null UUID preserved; null tolerated absent or explicit)",
+        "folio-archive.test.js round-trip tests extended to cover both new fields",
+        "No regression in existing markdown round-trip tests"
+      ],
+      "files_affected": [
+        "src/services/folio/markdown.js",
+        "src/services/folio/backend.js"
+      ]
+    },
+    {
+      "id": "FML-010",
+      "title": "Tests: comprehensive coverage for FML-001 through FML-009",
+      "description": "Write or extend test files to cover all new functionality. Create tests/folio-topic-key.test.js for: schema migration idempotency (FML-001), listPagesByTopics / listDistinctTopicKeys (FML-002), cluster expansion in buildContext (FML-003), reconcilePage all verdicts with stub judgeFn (FML-004). Extend tests/folio-writeback.test.js for the FOLIO_RECONCILE flag integration (FML-006). Extend mcp/tests for folio_suggest_topic_key (FML-005). Extend tests/folio-archive.test.js for markdown round-trip (FML-009). All test files must use the node:test runner consistent with the existing suite.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["FML-001", "FML-002", "FML-003", "FML-004", "FML-005", "FML-006", "FML-008", "FML-009"],
+      "acceptance_criteria": [
+        "npm run test:report reports all folio-* test files green",
+        "No test calls a real Claude API (all judgeFn tests use stubs)",
+        "Schema migration idempotency test verifies both ADD COLUMN guards independently",
+        "reconcilePage tests cover all 5 verdicts + SKIPPED path (flag off) + SKIPPED path (no topicKey)",
+        "Cluster expansion test demonstrates sibling retrieval with a fixture folio containing pages with topic_key set",
+        "FOLIO_RECONCILE=1 integration test verifies the CONTRADICT board card is created",
+        "FOLIO_RECONCILE=1 dedup test verifies a second CONTRADICT for the same topicKey adds a comment, not a new task",
+        "markdown round-trip test covers topic_key and superseded_by end-to-end through export/import"
+      ],
+      "files_affected": [
+        "tests/folio-topic-key.test.js",
+        "tests/folio-writeback.test.js",
+        "tests/folio-archive.test.js",
+        "mcp/tests/folio-tools.test.js"
+      ]
+    }
+  ]
+}

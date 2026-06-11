@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
+import { DirectoryPicker } from '@/components/shared/DirectoryPicker';
 import { useAppStore } from '@/stores/useAppStore';
 
 const SPACE_NAME_MAX    = 100;
@@ -149,18 +150,26 @@ export function SpaceModal() {
           <label htmlFor="space-wd-input" className="block text-sm font-medium text-text-primary mb-1.5">
             Working Directory <span className="text-text-disabled font-normal">(optional)</span>
           </label>
-          <input
-            id="space-wd-input"
-            className={inputClass}
-            type="text"
-            placeholder="e.g. /Users/me/projects/my-app"
-            value={workingDirectory}
-            onChange={(e) => setWorkingDirectory(e.target.value)}
-            autoComplete="off"
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } }}
-          />
-          <span className="text-xs text-text-disabled mt-1 block">
-            Used as the working directory when agents run tasks in this space.
+          <div className="relative flex gap-2 items-start">
+            <input
+              id="space-wd-input"
+              className={`${inputClass} flex-1 min-w-0`}
+              type="text"
+              placeholder="e.g. /Users/me/projects/my-app"
+              value={workingDirectory}
+              onChange={(e) => setWorkingDirectory(e.target.value)}
+              autoComplete="off"
+              aria-describedby="space-wd-hint"
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } }}
+            />
+            <DirectoryPicker
+              value={workingDirectory}
+              onChange={(path) => setWorkingDirectory(path)}
+              buttonLabel="Browse for working directory"
+            />
+          </div>
+          <span id="space-wd-hint" className="text-xs text-text-disabled mt-1 block">
+            Select a directory or type a path. Used when agents run tasks in this space.
           </span>
         </div>
 

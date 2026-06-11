@@ -29,6 +29,9 @@ import type {
   SearchResponse,
   StageMetrics,
   EventsResponse,
+  DirectoryListing,
+  ValidationResult,
+  HomeDirectoryResponse,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -957,3 +960,25 @@ export const deleteFolioPage = (
     `/spaces/${encodeURIComponent(spaceId)}/folio/pages/${encodeURIComponent(chapterSlug)}/${encodeURIComponent(pageSlug)}`,
     { method: 'DELETE' },
   );
+
+// ---------------------------------------------------------------------------
+// Filesystem browser API (space-settings-file-browser)
+// ---------------------------------------------------------------------------
+
+/** Get the current user's home directory path. */
+export const getFsHome = (): Promise<HomeDirectoryResponse> =>
+  apiFetch<HomeDirectoryResponse>('/fs/home');
+
+/** List subdirectories of the given path. */
+export const browseDirectory = (dirPath: string, includeHidden = false): Promise<DirectoryListing> =>
+  apiFetch<DirectoryListing>('/fs/browse', {
+    method: 'POST',
+    body: JSON.stringify({ path: dirPath, includeHidden }),
+  });
+
+/** Validate that a path is an accessible directory. */
+export const validateDirectory = (dirPath: string): Promise<ValidationResult> =>
+  apiFetch<ValidationResult>('/fs/validate', {
+    method: 'POST',
+    body: JSON.stringify({ path: dirPath }),
+  });

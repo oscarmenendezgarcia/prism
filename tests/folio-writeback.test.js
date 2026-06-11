@@ -519,6 +519,82 @@ describe('applyConsolidation — page validation and caps', () => {
     assert.ok(updated.consolidation.skipped.some((s) => s.slug === 'estado/actual'));
   });
 
+  it('should_delete_agent_owned_page_on_delete_entry', async () => {
+    // Seed an agent-owned page via the write-back path (author='agent')
+    binding.upsertPageFromAgent('space-1', 'lessons/stale', '# Old lesson', { title: 'Stale' });
+    const folioId = db.prepare('SELECT folio_id FROM space_folios WHERE space_id = ?').get('space-1').folio_id;
+    assert.ok(core.getPageBySlug(folioId, 'lessons', 'stale'), 'precondition: page exists');
+
+    const run = makeRun();
+    writeRunFile(dataDir, run);
+    writeSignal(dataDir, run.runId, {
+      pages: [
+        { slug: 'lessons/stale', delete: true, reason: 'compaction' },
+      ],
+    });
+    await applyConsolidation(dataDir, run, new Date().toISOString());
+    const updated = readRunFile(dataDir, run.runId);
+    assert.equal(updated.consolidation.pagesDeleted, 1);
+    assert.equal(updated.consolidation.pagesWritten, 0);
+    assert.equal(updated.consolidation.skipped.length, 0);
+    assert.equal(core.getPageBySlug(folioId, 'lessons', 'stale'), null, 'page must be gone');
+  });
+
+  it('should_refuse_delete_of_user_owned_page', async () => {
+    const folioId = db.prepare('SELECT folio_id FROM space_folios WHERE space_id = ?').get('space-1').folio_id;
+    core.createPage(folioId, 'state/current', '# Current state', { author: 'user' });
+
+    const run = makeRun();
+    writeRunFile(dataDir, run);
+    writeSignal(dataDir, run.runId, {
+      pages: [
+        { slug: 'state/current', delete: true, reason: 'compaction' },
+      ],
+    });
+    await applyConsolidation(dataDir, run, new Date().toISOString());
+    const updated = readRunFile(dataDir, run.runId);
+    assert.equal(updated.consolidation.pagesDeleted, 0);
+    assert.ok(updated.consolidation.skipped.some((s) => s.reason === 'delete_user_owned'));
+    assert.ok(core.getPageBySlug(folioId, 'state', 'current'), 'user-owned page must survive');
+  });
+
+  it('should_skip_delete_of_nonexistent_page', async () => {
+    const run = makeRun();
+    writeRunFile(dataDir, run);
+    writeSignal(dataDir, run.runId, {
+      pages: [
+        { slug: 'lessons/ghost', delete: true, reason: 'compaction' },
+      ],
+    });
+    await applyConsolidation(dataDir, run, new Date().toISOString());
+    const updated = readRunFile(dataDir, run.runId);
+    assert.equal(updated.consolidation.pagesDeleted, 0);
+    assert.ok(updated.consolidation.skipped.some((s) => s.reason === 'delete_page_not_found'));
+  });
+
+  it('should_apply_merge_then_delete_in_one_signal', async () => {
+    // The canonical compaction shape: rewrite page A absorbing B, delete B.
+    binding.upsertPageFromAgent('space-1', 'lessons/gotchas', '# Gotchas\n- one', { title: 'Gotchas' });
+    binding.upsertPageFromAgent('space-1', 'lessons/duplicate', '# Dup\n- two', { title: 'Dup' });
+    const folioId = db.prepare('SELECT folio_id FROM space_folios WHERE space_id = ?').get('space-1').folio_id;
+
+    const run = makeRun();
+    writeRunFile(dataDir, run);
+    writeSignal(dataDir, run.runId, {
+      pages: [
+        { slug: 'lessons/gotchas', title: 'Gotchas', content: '# Gotchas\n- one\n- two', reason: 'compaction' },
+        { slug: 'lessons/duplicate', delete: true, reason: 'compaction' },
+      ],
+    });
+    await applyConsolidation(dataDir, run, new Date().toISOString());
+    const updated = readRunFile(dataDir, run.runId);
+    assert.equal(updated.consolidation.pagesWritten, 1);
+    assert.equal(updated.consolidation.pagesDeleted, 1);
+    const merged = core.getPageBySlug(folioId, 'lessons', 'gotchas');
+    assert.ok(merged.content.includes('- two'), 'merged content must be applied');
+    assert.equal(core.getPageBySlug(folioId, 'lessons', 'duplicate'), null, 'absorbed page must be gone');
+  });
+
   it('should_write_valid_pages_and_record_pagesWritten', async () => {
     const run = makeRun();
     writeRunFile(dataDir, run);
