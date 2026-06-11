@@ -33,6 +33,8 @@ It runs on your machine against your own API key — not a SaaS, single operator
 
 On every new task, agents normally start from zero: they re-discover the stack, re-read the same files, and ignore past decisions. **Folio** is a navigable, augmentable knowledge base shared between you and your agents that fixes this. The value is asymmetric over time — by the hundredth task the folio beats any static doc.
 
+![Folio demo — browsing chapters, lessons, and cross-referenced pages](docs/folio-demo.gif)
+
 - **Folio → Chapter → Page**, stored as human-readable markdown you can browse and edit in the UI (and diff in git).
 - **Co-authored** — both you and agents write pages; agent writes are tagged so you can filter and prune them.
 - **Stage-aware injection** — relevant pages are pulled into each pipeline stage automatically, keyed on the task and the stage's role.
