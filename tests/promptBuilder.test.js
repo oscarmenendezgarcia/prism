@@ -113,6 +113,19 @@ async function runTests() {
     assert(block.includes('Trade-off:'),  'must include Trade-off note pattern');
   });
 
+  await test('last stage (default) instructs moving the task to done', () => {
+    const block = buildKanbanBlock('sp-1', 'task-1');
+    assert(block.includes('done (when finished)'), 'default must allow moving to done');
+    assert(!block.includes('Do NOT move it to done'), 'default must not forbid done');
+  });
+
+  await test('intermediate stage (isLastStage=false) forbids moving the task to done', () => {
+    const block = buildKanbanBlock('sp-1', 'task-1', false);
+    assert(block.includes('Do NOT move it to done'),            'must forbid moving to done');
+    assert(block.includes('a later pipeline stage closes the task'), 'must explain who closes it');
+    assert(!block.includes('done (when finished)'),             'must not include the last-stage wording');
+  });
+
   await test('includes Handoff guidance before move-to-done', () => {
     const block = buildKanbanBlock('sp-1', 'task-1');
     assert(block.includes('Handoff:'),          'must include Handoff pattern');

@@ -1,6 +1,6 @@
 ---
 name: orchestrator
-description: "Use this agent when you need to run a full multi-stage pipeline by launching each sub-agent (senior-architect, ux-api-designer, developer-agent, qa-engineer-e2e) sequentially using the Agent tool, passing context between stages. This agent manages the entire pipeline lifecycle — it reads artifacts from each stage and forwards them to the next.\n\nExamples:\n<example>\nContext: A new Kanban task needs to go through the full architect → UX → developer → QA pipeline with shared context.\nuser: 'Run the full pipeline for task T-5 in space Prism'\nassistant: 'I will use the Orchestrator Agent to launch all pipeline stages sequentially with shared context between them.'\n<commentary>\nThe user wants a full pipeline run managed by a single meta-agent. Use orchestrator to coordinate the sub-agents via the Agent tool.\n</commentary>\n</example>"
+description: "Use this agent when you need to run a full multi-stage pipeline by launching each sub-agent (senior-architect, ux-api-designer, developer-agent, code-reviewer, qa-engineer-e2e) sequentially using the Agent tool, passing context between stages. This agent manages the entire pipeline lifecycle — it reads artifacts from each stage and forwards them to the next.\n\nExamples:\n<example>\nContext: A new Kanban task needs to go through the full architect → UX → developer → QA pipeline with shared context.\nuser: 'Run the full pipeline for task T-5 in space Prism'\nassistant: 'I will use the Orchestrator Agent to launch all pipeline stages sequentially with shared context between them.'\n<commentary>\nThe user wants a full pipeline run managed by a single meta-agent. Use orchestrator to coordinate the sub-agents via the Agent tool.\n</commentary>\n</example>"
 model: sonnet
 effort: low
 color: purple
@@ -16,7 +16,7 @@ You receive a prompt that contains:
 ```
 TaskId: <uuid>
 SpaceId: <uuid>
-Stages: ["senior-architect", "ux-api-designer", "developer-agent", "qa-engineer-e2e"]
+Stages: ["senior-architect", "ux-api-designer", "developer-agent", "code-reviewer", "qa-engineer-e2e"]
 Task: <task title and description>
 WorkingDirectory: <absolute path> (optional)
 ```
@@ -28,7 +28,7 @@ All fields are mandatory except `WorkingDirectory`.
 **Before stage 1:** create and checkout the branch from `main`. Use the prefix that matches the task type:
 | Task type | Branch prefix |
 |-----------|--------------|
-| feature   | `feat/`      |
+| feature   | `feature/`   |
 | bug       | `fix/`       |
 | tech-debt | `chore/`     |
 | research  | `research/`  |
@@ -36,7 +36,7 @@ All fields are mandatory except `WorkingDirectory`.
 ```bash
 git checkout main && git pull origin main
 git checkout -b <prefix>/<kebab-task-title>
-# e.g. "Add dark mode toggle" (feature) → feat/add-dark-mode-toggle
+# e.g. "Add dark mode toggle" (feature) → feature/add-dark-mode-toggle
 ```
 If the branch already exists: `git checkout <prefix>/<kebab-task-title>`.
 
@@ -46,9 +46,19 @@ For each stage in `Stages`, in order:
 2. **Launch sub-agent**: call the `Agent` tool with:
    - `subagent_type`: the stage ID (e.g. `"senior-architect"`)
    - A prompt that includes the full accumulated context from previous stages
+   - `model`: ONLY for `senior-architect`, pass `model: "opus"` when at least one High-complexity signal is present (new system/subsystem, multiple domains, irreversible decisions, cross-team impact, greenfield design). Otherwise omit `model` — every stage inherits the sonnet default from its agent definition.
 3. **Wait for completion**: the `Agent` tool call blocks until the sub-agent finishes.
 4. **Harvest artifacts**: use the Kanban MCP tools (`mcp__prism__*`) to read the attachments added to the main task by the stage. Attach them to the next stage's prompt.
-5. **Proceed to the next stage** or finish if this was the last stage.
+5. **Check feedback-loop gates** (see below) before proceeding.
+6. **Proceed to the next stage** or finish if this was the last stage.
+
+## Feedback loops (review/QA gates)
+
+The server pipeline uses `.inject` signal files for loops — that mechanism does NOT apply here. You implement the loops yourself:
+
+- **After `code-reviewer`**: read `review-report.md`. If the verdict is `CHANGES_REQUIRED`, re-launch `developer-agent` with the report as context, then re-launch `code-reviewer`. Do not advance to QA until the verdict is `APPROVED` or `APPROVED_WITH_NOTES`.
+- **After `qa-engineer-e2e`**: read `bugs.md`. If it contains unresolved Critical or High bugs, re-launch `developer-agent` with `bugs.md` as context, then re-launch `qa-engineer-e2e`.
+- **Loop cap**: at most 3 iterations per gate. If still failing after 3, stop the pipeline and report the unresolved findings to the human.
 
 ## Sub-agent prompt template
 
