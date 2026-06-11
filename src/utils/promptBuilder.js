@@ -31,13 +31,19 @@ const { execSync } = require('child_process');
  *
  * @param {string} spaceId
  * @param {string} taskId
+ * @param {boolean} [isLastStage=true] - When false (intermediate pipeline
+ *   stage), the agent is told NOT to move the task to done — a later stage
+ *   closes it. Defaults to true for manual prompts and single-stage runs.
  * @returns {string}
  */
-function buildKanbanBlock(spaceId, taskId) {
+function buildKanbanBlock(spaceId, taskId, isLastStage = true) {
+  const moveLine = isLastStage
+    ? 'Move this task: todo → in-progress (immediately) → done (when finished).'
+    : 'Move this task: todo → in-progress (immediately). Do NOT move it to done — a later pipeline stage closes the task.';
   return [
     '## KANBAN INSTRUCTIONS',
     'Space ID: ' + spaceId + '  |  Task ID: ' + taskId,
-    'Move this task: todo → in-progress (immediately) → done (when finished).',
+    moveLine,
     'Tools: kanban_move_task · kanban_update_task · kanban_add_comment · kanban_answer_comment',
     '',
     '⚠️ CRITICAL — DO NOT kill, restart, or spawn `node server.js`. The pipeline runs inside that process; touching it interrupts your own run. The server is already running — assume so without checking.',
@@ -58,9 +64,11 @@ function buildKanbanBlock(spaceId, taskId) {
     '    mcp__prism__kanban_add_comment({ spaceId: "' + spaceId + '", taskId: "' + taskId + '", author: "<your-agent-id>", type: "note", text: "Deviation: <what changed + why>" })',
     '  • Non-trivial trade-off: you chose approach A over B and the reason is not obvious',
     '    mcp__prism__kanban_add_comment({ spaceId: "' + spaceId + '", taskId: "' + taskId + '", author: "<your-agent-id>", type: "note", text: "Trade-off: chose <A> over <B> because <reason>" })',
+    '  • Hard-won lesson: you hit a non-obvious failure and solved it (these notes feed the Folio knowledge base)',
+    '    mcp__prism__kanban_add_comment({ spaceId: "' + spaceId + '", taskId: "' + taskId + '", author: "<your-agent-id>", type: "note", text: "Lesson: <what failed> — root cause: <cause>. Fix: <fix>" })',
     '',
     'HANDOFF SUMMARY — post BEFORE moving to done (always, even if no deviations):',
-    '  mcp__prism__kanban_add_comment({ spaceId: "' + spaceId + '", taskId: "' + taskId + '", author: "<your-agent-id>", type: "note", text: "Handoff: produced <artifacts>. Next agent should read <key files>." })',
+    '  mcp__prism__kanban_add_comment({ spaceId: "' + spaceId + '", taskId: "' + taskId + '", author: "<your-agent-id>", type: "note", text: "Handoff: produced <artifacts>. Next agent should read <key files>. Folio pages used: <slugs, or none>." })',
   ].join('\n');
 }
 
@@ -100,18 +108,32 @@ function buildGitContextBlock(workingDirectory) {
 }
 
 /**
+ * Per-stage commit message formats. Keep in sync with the Git table in the
+ * user-level CLAUDE.md (architect/ux/dev/review/qa/fix-loop formats).
+ */
+const COMMIT_FORMATS = {
+  'senior-architect': '[architect] <feature>: ADR + blueprint + tasks',
+  'ux-api-designer':  '[ux] <feature>: wireframes + api-spec + user-stories',
+  'developer-agent':  '[dev] T-XXX: <task title>  (fix loop: [fix] BUG-XXX: <description>)',
+  'code-reviewer':    '[review] <feature>: review-report',
+  'qa-engineer-e2e':  '[qa] <feature>: test-plan + results + bugs',
+};
+
+/**
  * Build the ## GIT INSTRUCTIONS block with static workflow guidance.
  *
  * Used by manually-generated prompts (POST /api/v1/agent/prompt) to tell
  * agents how to handle branching and commits, rather than showing live state.
  *
+ * @param {string} [agentId] - Stage agent id; selects the commit format line.
  * @returns {string}
  */
-function buildGitInstructionsBlock() {
+function buildGitInstructionsBlock(agentId) {
+  const commitFormat = COMMIT_FORMATS[agentId] || '[dev] T-XXX: <task title>';
   return [
     '## GIT INSTRUCTIONS',
-    '- Before any commit, ensure you are on a branch named `<prefix>/<kebab-task-title>` where prefix matches the task type: feature→feat, bug→fix, tech-debt→chore, research→research. If the current branch is `main` or unrelated to this task, create it: `git checkout -b <prefix>/<kebab-task-title>`',
-    '- Commit format: [dev] T-XXX: <task title>',
+    '- Before any commit, ensure you are on a branch named `<prefix>/<kebab-task-title>` where prefix matches the task type: feature→feature, bug→fix, tech-debt→chore, research→research. If the current branch is `main` or unrelated to this task, create it: `git checkout -b <prefix>/<kebab-task-title>`',
+    '- Commit format: ' + commitFormat,
     '- Stage only task-relevant files (never git add -A or git add .)',
     '- Never commit to main directly',
   ].join('\n');
