@@ -29,13 +29,13 @@ Most Kanban tools are built for humans tracking human work. **Prism is built for
 
 | | |
 |---|---|
-| 🤖 &nbsp;**Agents manage the board** | Via MCP tools, agents create tasks, update status, and attach artifacts as they work. |
-| 🔁 &nbsp;**Pipelines from any task** | One click launches a multi-stage pipeline (architect → UX → developer → QA) against a task card, with live stage-by-stage logs. |
-| 📖 &nbsp;**Folio — shared knowledge** | Agents stop starting every task from zero — [see below](#folio--knowledge-that-grows-with-use). |
-| 🔍 &nbsp;**Global search** | <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> across all spaces, powered by SQLite FTS5. |
-| 💻 &nbsp;**Embedded terminal** | A full PTY shell inside the UI. |
-| 🗂️ &nbsp;**Multiple spaces** | Organise work per project, each with its own board and pipeline config. |
-| 💾 &nbsp;**Durable, local persistence** | All state lives in a single `prism.db` SQLite file. No external database. |
+| **Agents manage the board** | Via MCP tools, agents create tasks, update status, and attach artifacts as they work. |
+| **Pipelines from any task** | One click launches a multi-stage pipeline (architect → UX → developer → QA) against a task card, with live stage-by-stage logs. |
+| **Folio — shared knowledge** | Agents stop starting every task from zero — [see below](#folio--knowledge-that-grows-with-use). |
+| **Global search** | <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> across all spaces, powered by SQLite FTS5. |
+| **Embedded terminal** | A full PTY shell inside the UI. |
+| **Multiple spaces** | Organise work per project, each with its own board and pipeline config. |
+| **Durable, local persistence** | All state lives in a single `prism.db` SQLite file. No external database. |
 
 > It runs on your machine against your own API key — not a SaaS, single operator, and not a replacement for Jira or Linear.
 
