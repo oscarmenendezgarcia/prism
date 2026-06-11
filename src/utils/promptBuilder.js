@@ -64,9 +64,11 @@ function buildKanbanBlock(spaceId, taskId, isLastStage = true) {
     '    mcp__prism__kanban_add_comment({ spaceId: "' + spaceId + '", taskId: "' + taskId + '", author: "<your-agent-id>", type: "note", text: "Deviation: <what changed + why>" })',
     '  • Non-trivial trade-off: you chose approach A over B and the reason is not obvious',
     '    mcp__prism__kanban_add_comment({ spaceId: "' + spaceId + '", taskId: "' + taskId + '", author: "<your-agent-id>", type: "note", text: "Trade-off: chose <A> over <B> because <reason>" })',
+    '  • Hard-won lesson: you hit a non-obvious failure and solved it (these notes feed the Folio knowledge base)',
+    '    mcp__prism__kanban_add_comment({ spaceId: "' + spaceId + '", taskId: "' + taskId + '", author: "<your-agent-id>", type: "note", text: "Lesson: <what failed> — root cause: <cause>. Fix: <fix>" })',
     '',
     'HANDOFF SUMMARY — post BEFORE moving to done (always, even if no deviations):',
-    '  mcp__prism__kanban_add_comment({ spaceId: "' + spaceId + '", taskId: "' + taskId + '", author: "<your-agent-id>", type: "note", text: "Handoff: produced <artifacts>. Next agent should read <key files>." })',
+    '  mcp__prism__kanban_add_comment({ spaceId: "' + spaceId + '", taskId: "' + taskId + '", author: "<your-agent-id>", type: "note", text: "Handoff: produced <artifacts>. Next agent should read <key files>. Folio pages used: <slugs, or none>." })',
   ].join('\n');
 }
 
