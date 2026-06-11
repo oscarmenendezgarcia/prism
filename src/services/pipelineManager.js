@@ -1234,8 +1234,9 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
 
   // Kanban instructions — always included so agents can move tasks and post questions.
   // buildKanbanBlock includes: stop conditions, note/handoff guidance, and MCP examples.
+  // isLastStage gates the "move to done" instruction — intermediate stages must not close the task.
   // Do NOT also call buildCommentGuidanceLines — its content is already inside buildKanbanBlock.
-  promptText += '\n' + buildKanbanBlock(spaceId, taskId) + '\n';
+  promptText += '\n' + buildKanbanBlock(spaceId, taskId, isLastStage) + '\n';
 
   // For the developer stage: require compilation gate before closing.
   // Prevents QA from launching against code that does not compile.
@@ -2169,7 +2170,7 @@ RunId: ${run.runId}
 Decide what (if anything) is worth recording permanently. The bar is HIGH:
 - A non-obvious architectural decision that was taken during this run.
 - A bug lesson: what went wrong, what the root cause was, how it was fixed.
-- A state update to an agent-owned page (e.g. estado/pipeline — NOT estado/actual which is user-owned).
+- A state update to an agent-owned page (e.g. state/pipeline — NOT state/current which is user-owned).
 
 If there is nothing high-signal to record, write { "pages": [] } — that is the correct answer.
 
@@ -2193,7 +2194,7 @@ Rules:
 - At most ${cfg.maxPages} pages total.
 - Each content field must be <= ${cfg.maxBytes} bytes.
 - Slugs: lowercase letters, digits, hyphens only, exactly one slash (chapter/page).
-- Do NOT write to estado/actual or any slug marked [user-owned] above.
+- Do NOT write to state/current or any slug marked [user-owned] above.
 - Do NOT call any folio MCP tool — write ONLY the JSON file.
 
 After writing the JSON, signal completion by running:

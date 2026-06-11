@@ -66,7 +66,7 @@ function buildCliCommand(settings, promptPath, dangerouslySkipPermissions = fals
  * Assembles: TASK CONTEXT, AGENT INSTRUCTIONS, KANBAN INSTRUCTIONS, GIT INSTRUCTIONS, PROJECT CONTEXT.
  */
 function buildPromptText(options) {
-  const { task, taskColumn, space, agentContent, settings, customInstructions, workingDirectory } = options;
+  const { task, taskColumn, space, agentId, agentContent, settings, customInstructions, workingDirectory } = options;
 
   const lines = [];
 
@@ -99,7 +99,7 @@ function buildPromptText(options) {
   // ── GIT INSTRUCTIONS ──────────────────────────────────────────────────────
   // buildGitInstructionsBlock provides static workflow guidance for agents.
   if (settings.prompts.includeGitBlock) {
-    lines.push('\n' + buildGitInstructionsBlock());
+    lines.push('\n' + buildGitInstructionsBlock(agentId));
   }
 
   // ── PROJECT CONTEXT ───────────────────────────────────────────────────────
@@ -211,6 +211,7 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager, store) {
     task:             taskResult.task,
     taskColumn:       taskResult.column,
     space:            spaceResult.space,
+    agentId,
     agentContent,
     settings,
     customInstructions,
