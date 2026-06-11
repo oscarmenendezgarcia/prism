@@ -8,14 +8,18 @@ design lives in the **`.folio/` directory at the repo root** — a working examp
 format itself (chapter = folder, page = `.md` with YAML frontmatter).
 
 **Before implementing ANY Folio task, read `.folio/` and treat it as the spec.** Key pages:
-- `.folio/arquitectura/modulo.md` — module layout, isolation rules, extraction plan
-- `.folio/arquitectura/storage-backend.md` — pluggable SQLite vs file backend
-- `.folio/arquitectura/indexacion-fts5.md` — FTS5 in the core, in-memory vs cache
-- `.folio/modelo-datos/schema.md` — schema (core keys on `folio_id`, NOT `space_id`)
-- `.folio/modelo-datos/referencias.md` — `[[chapter/page]]` / `[[chapter/page#section]]`
-- `.folio/inyeccion/` — stage-aware injection by confidence tier
-- `.folio/decisiones/log.md` — every closed decision and why
-- `.folio/estado/actual.md` — current state + task order
+- `.folio/architecture/module.md` — module layout, isolation rules, extraction plan
+- `.folio/architecture/storage-backend.md` — pluggable SQLite vs file backend
+- `.folio/architecture/fts5-indexing.md` — FTS5 in the core, in-memory vs cache
+- `.folio/data-model/schema.md` — schema (core keys on `folio_id`, NOT `space_id`)
+- `.folio/data-model/references.md` — `[[chapter/page]]` / `[[chapter/page#section]]`
+- `.folio/injection/` — stage-aware injection by confidence tier
+- `.folio/decisions/log.md` — every closed decision and why
+- `.folio/state/current.md` — current state + task order
+- `.folio/lessons/` — hard-won bug lessons and gotchas; search here before debugging a weird error
+- `.folio/conventions/` — code and UI conventions the implementation must follow
+
+Prefer reading the folio via MCP (`mcp__folio__folio_search` / `folio_get_page`) over raw file reads — the paths above are slugs too (e.g. `architecture/module`).
 
 Do not re-derive these decisions; honour them. Document any deviation in the task notes.
 

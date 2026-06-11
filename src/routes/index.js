@@ -56,6 +56,11 @@ const {
 } = require('../handlers/comments');
 const { handleSearchTasks } = require('../handlers/search');
 const {
+  handleGetHome,
+  handleBrowse,
+  handleValidate,
+} = require('../handlers/fs');
+const {
   handleFolioSearchRefs,
   handleFolioSections,
 } = require('../handlers/folioRefs');
@@ -118,6 +123,9 @@ const FOLIO_REVISION_ROUTE       = /^\/api\/v1\/spaces\/([^/]+)\/folio\/revision
 const FOLIO_BOOTSTRAP_ROUTE      = /^\/api\/v1\/spaces\/([^/]+)\/folio\/bootstrap$/;
 
 const SYSTEM_INFO_ROUTE   = /^\/api\/v1\/system\/info$/;
+const FS_HOME_ROUTE       = /^\/api\/v1\/fs\/home$/;
+const FS_BROWSE_ROUTE     = /^\/api\/v1\/fs\/browse$/;
+const FS_VALIDATE_ROUTE   = /^\/api\/v1\/fs\/validate$/;
 const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
 const SPACES_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)$/;
 // Matches /api/v1/spaces/:spaceId/tasks and everything under it.
@@ -795,6 +803,28 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       if (method === 'GET')    return handleGetTemplate(req, res, templateId, dataDir);
       if (method === 'PUT')    return handleUpdateTemplate(req, res, templateId, dataDir);
       if (method === 'DELETE') return handleDeleteTemplate(req, res, templateId, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Filesystem browser routes — directory picker (space-settings-file-browser)
+    //   GET  /api/v1/fs/home
+    //   POST /api/v1/fs/browse
+    //   POST /api/v1/fs/validate
+    // MUST be before LEGACY_TASKS_ROUTE to avoid being swallowed by the shim.
+    // -------------------------------------------------------------------------
+    if (FS_HOME_ROUTE.test(urlPath)) {
+      if (method === 'GET') return handleGetHome(req, res);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    if (FS_BROWSE_ROUTE.test(urlPath)) {
+      if (method === 'POST') return handleBrowse(req, res);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    if (FS_VALIDATE_ROUTE.test(urlPath)) {
+      if (method === 'POST') return handleValidate(req, res);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

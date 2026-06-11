@@ -8,6 +8,10 @@ vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(), getTasks: vi.fn(), createTask: vi.fn(), moveTask: vi.fn(),
   deleteTask: vi.fn(), createSpace: vi.fn(), renameSpace: vi.fn(), deleteSpace: vi.fn(),
   getAttachmentContent: vi.fn(),
+  // DirectoryPicker API calls
+  getFsHome: vi.fn().mockResolvedValue({ homePath: '/Users/test' }),
+  browseDirectory: vi.fn().mockResolvedValue({ path: '/Users/test', items: [], hasMore: false }),
+  validateDirectory: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -39,6 +43,20 @@ describe('SpaceModal', () => {
     useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
     render(<SpaceModal />);
     expect(screen.getByDisplayValue('Existing Space')).toBeInTheDocument();
+  });
+
+  it('renders the browse folder button next to the working directory input', () => {
+    useAppStore.setState({ spaceModal: { open: true, mode: 'create' } });
+    render(<SpaceModal />);
+    const btn = document.body.querySelector('[aria-label="Browse for working directory"]');
+    expect(btn).not.toBeNull();
+  });
+
+  it('pre-fills workingDirectory input in rename mode', () => {
+    const space = { id: 's1', name: 'Space', workingDirectory: '/my/project', createdAt: '', updatedAt: '' };
+    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
+    render(<SpaceModal />);
+    expect(screen.getByDisplayValue('/my/project')).toBeInTheDocument();
   });
 
   it('shows validation error when submitting empty name', async () => {
