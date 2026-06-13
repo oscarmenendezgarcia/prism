@@ -227,6 +227,38 @@ export interface BlockedReason {
   blockedAt: string; // ISO8601
 }
 
+// ---------------------------------------------------------------------------
+// Feedback gate types (LOOP-1: feedback-gate)
+// ---------------------------------------------------------------------------
+
+/**
+ * Structured result of a quality-gate artifact parse.
+ * Stored in run.feedbackGates[stageIndex] by pipelineManager after a
+ * code-reviewer or qa-engineer-e2e stage completes.
+ */
+export interface FeedbackGateResult {
+  /** Agent that produced this gate result. */
+  agentId: 'code-reviewer' | 'qa-engineer-e2e';
+  /** ISO timestamp when the artifact was parsed. */
+  parsedAt: string;
+  /** true when a back-edge was triggered (CHANGES_REQUIRED or Critical/High bugs). */
+  triggered: boolean;
+  // code-reviewer fields:
+  /** code-reviewer verdict (present when agentId === 'code-reviewer'). */
+  verdict?: 'APPROVED' | 'APPROVED_WITH_NOTES' | 'CHANGES_REQUIRED';
+  /** Bullet summary of issues found (present when agentId === 'code-reviewer'). */
+  summary?: string;
+  // qa-engineer-e2e fields:
+  /** true when at least one Critical bug was found. */
+  hasCritical?: boolean;
+  /** true when at least one High bug was found. */
+  hasHigh?: boolean;
+  /** Total count of Critical + High bugs. */
+  bugCount?: number;
+  /** Bug list with severity and title. */
+  bugs?: Array<{ id: string | null; severity: string; title: string }>;
+}
+
 /** Run object returned by the backend pipeline API. */
 export interface BackendRun {
   runId: string;
@@ -244,6 +276,16 @@ export interface BackendRun {
   pausedBeforeStage?: number;
   /** Set when status === 'blocked' — which comment is blocking the run. */
   blockedReason?: BlockedReason;
+  /**
+   * LOOP-1: Structured parse results keyed by stageIndex (as string).
+   * Set for code-reviewer and qa-engineer-e2e stages only.
+   */
+  feedbackGates?: Record<string, FeedbackGateResult>;
+  /**
+   * LOOP-1: Number of quality-gate back-edges triggered in this run.
+   * Starts at 0; increments each time CHANGES_REQUIRED or Critical/High bugs fire.
+   */
+  feedbackIterations?: number;
 }
 
 /** The four canonical pipeline stage agent IDs. */
