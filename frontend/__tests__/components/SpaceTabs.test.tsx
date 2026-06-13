@@ -1,10 +1,12 @@
 /**
- * Component tests for the refactored SpaceTabs.
+ * Component tests for the redesigned SpaceTabs (QOL-2: pin model).
  *
- * Strategy: mock useOverflowItems so all spaces are always "visible"
- * (no DOM measurement required), then test the orchestration logic —
- * tab rendering, active state, click handlers, overflow button, and
- * context menu (kebab → Edit / Delete).
+ * Strategy:
+ *   - Test pinned zone rendering: pinned spaces render as tabs with drag props.
+ *   - Test transient active tab: non-pinned active space renders after pinned zone.
+ *   - Test overflow: non-pinned, non-active spaces go to overflow menu.
+ *   - Test context menu: Edit / Pin-Unpin / Delete items.
+ *   - useOverflowItems is no longer used; mock removed.
  *
  * Individual SpaceTab and SpaceOverflowMenu behaviours are tested in
  * their own test files.
@@ -16,7 +18,7 @@ import { SpaceTabs } from '../../src/components/layout/SpaceTabs';
 import { useAppStore } from '../../src/stores/useAppStore';
 
 // ---------------------------------------------------------------------------
-// Mock API and hook dependencies
+// Mock API dependencies
 // ---------------------------------------------------------------------------
 vi.mock('../../src/api/client', () => ({
   getSpaces:            vi.fn(),
@@ -27,30 +29,30 @@ vi.mock('../../src/api/client', () => ({
   createSpace:          vi.fn(),
   renameSpace:          vi.fn(),
   deleteSpace:          vi.fn(),
+  updateSpace:          vi.fn(),
   getAttachmentContent: vi.fn(),
-}));
-
-/**
- * Mock useOverflowItems to pass all items through as visible.
- * This removes the ResizeObserver / DOM-measurement dependency from
- * these orchestration tests.
- */
-vi.mock('../../src/hooks/useOverflowItems', () => ({
-  useOverflowItems: (items: { id: string }[]) => ({
-    containerRef: vi.fn(),
-    setItemRef:   () => () => {},
-    visible:      items,
-    overflow:     [],
-    measuring:    false,
-  }),
 }));
 
 // ---------------------------------------------------------------------------
 // Test data
 // ---------------------------------------------------------------------------
-const MOCK_SPACES = [
-  { id: 'default', name: 'General',  createdAt: '', updatedAt: '' },
-  { id: 'space-2', name: 'Work',     createdAt: '', updatedAt: '' },
+
+/** Both spaces pinned → both render as tabs in the pinned zone. */
+const PINNED_SPACES = [
+  { id: 'default', name: 'General', pinned: true,  pinnedRank: 0, createdAt: '', updatedAt: '' },
+  { id: 'space-2', name: 'Work',    pinned: true,  pinnedRank: 1, createdAt: '', updatedAt: '' },
+];
+
+/** General pinned, Work non-pinned → Work in overflow. */
+const MIXED_SPACES = [
+  { id: 'default', name: 'General', pinned: true,  pinnedRank: 0, createdAt: '', updatedAt: '' },
+  { id: 'space-2', name: 'Work',    pinned: false,                createdAt: '', updatedAt: '' },
+];
+
+/** No spaces pinned → active space is transient; others in overflow. */
+const UNPINNED_SPACES = [
+  { id: 'default', name: 'General', pinned: false, createdAt: '', updatedAt: '' },
+  { id: 'space-2', name: 'Work',    pinned: false, createdAt: '', updatedAt: '' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -58,17 +60,20 @@ const MOCK_SPACES = [
 // ---------------------------------------------------------------------------
 beforeEach(() => {
   useAppStore.setState({
-    spaces:       MOCK_SPACES,
+    spaces:       PINNED_SPACES,
     activeSpaceId: 'default',
-  });
+    pinSpace:     vi.fn(),
+    unpinSpace:   vi.fn(),
+    reorderPinnedSpaces: vi.fn(),
+  } as any);
   vi.clearAllMocks();
 });
 
 // ---------------------------------------------------------------------------
-// Tab rendering
+// Tab rendering — pinned zone
 // ---------------------------------------------------------------------------
-describe('SpaceTabs — tab rendering', () => {
-  it('renders a tab for each space', () => {
+describe('SpaceTabs — tab rendering (pinned zone)', () => {
+  it('renders a tab for each pinned space', () => {
     render(<SpaceTabs />);
     expect(screen.getByText('General')).toBeInTheDocument();
     expect(screen.getByText('Work')).toBeInTheDocument();
@@ -84,7 +89,7 @@ describe('SpaceTabs — tab rendering', () => {
     expect(screen.getByRole('tablist')).toBeInTheDocument();
   });
 
-  it('does NOT render the overflow button when all spaces are visible', () => {
+  it('does NOT render the overflow button when all spaces are pinned', () => {
     render(<SpaceTabs />);
     expect(screen.queryByTestId('space-overflow-btn')).not.toBeInTheDocument();
   });
@@ -100,7 +105,7 @@ describe('SpaceTabs — ARIA state', () => {
     expect(generalTab).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('inactive tab has aria-selected="false"', () => {
+  it('inactive pinned tab has aria-selected="false"', () => {
     render(<SpaceTabs />);
     const workTab = screen.getByRole('tab', { name: /work/i });
     expect(workTab).toHaveAttribute('aria-selected', 'false');
@@ -114,10 +119,10 @@ describe('SpaceTabs — ARIA state', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Switching spaces
+// Switching spaces (pinned tabs)
 // ---------------------------------------------------------------------------
 describe('SpaceTabs — switching spaces', () => {
-  it('calls setActiveSpace and loadBoard when a non-active tab is clicked', () => {
+  it('calls setActiveSpace and loadBoard when a non-active pinned tab is clicked', () => {
     const mockSetActive = vi.fn();
     const mockLoadBoard = vi.fn().mockResolvedValue(undefined);
     useAppStore.setState({
@@ -159,39 +164,85 @@ describe('SpaceTabs — add space', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Overflow button (when some spaces overflow)
+// Overflow — non-pinned spaces go to overflow menu
 // ---------------------------------------------------------------------------
-describe('SpaceTabs — overflow menu integration', () => {
-  it('does NOT render overflow button when all spaces are visible (overflow=[]) ', () => {
-    // The module-level mock returns overflow=[], so no overflow button is shown.
+describe('SpaceTabs — overflow (non-pinned spaces)', () => {
+  it('shows overflow button when there are non-pinned, non-active spaces', () => {
+    useAppStore.setState({ spaces: MIXED_SPACES, activeSpaceId: 'default' });
     render(<SpaceTabs />);
-    expect(screen.queryByTestId('space-overflow-btn')).not.toBeInTheDocument();
+    expect(screen.getByTestId('space-overflow-btn')).toBeInTheDocument();
   });
 
-  it('overflow menu integration: selecting a space calls setActiveSpace + loadBoard', () => {
-    /**
-     * We update the mock to return one space in overflow for this single test.
-     * vi.mock hoisting: we can reach into the mock via the factory's return value
-     * by using a module-variable trick. The simplest approach here is to configure
-     * the mock factory to be overrideable per-call.
-     *
-     * Since the top-level vi.mock always returns all spaces as visible (overflow=[]),
-     * and we cannot easily change a hoisted mock per-test, we instead test this
-     * integration path by invoking handleOverflowSelect directly via SpaceOverflowMenu.
-     *
-     * In practice, SpaceOverflowMenu's onSelect is SpaceTabs.handleOverflowSelect,
-     * which calls setActiveSpace + loadBoard. The contract is fully exercised by
-     * the unit test "SpaceOverflowMenu — selection — calls onSelect with the space id".
-     * We verify here that the mock returns 0 overflow spaces and the button is absent.
-     */
+  it('overflow button shows "Más spaces (N)" with correct count', () => {
+    useAppStore.setState({ spaces: MIXED_SPACES, activeSpaceId: 'default' });
     render(<SpaceTabs />);
-    // No overflow button when all spaces are in visible[]
+    expect(screen.getByText('Más spaces (1)')).toBeInTheDocument();
+  });
+
+  it('pinned space still renders as a tab even when non-pinned space is in overflow', () => {
+    useAppStore.setState({ spaces: MIXED_SPACES, activeSpaceId: 'default' });
+    render(<SpaceTabs />);
+    expect(screen.getByRole('tab', { name: /general/i })).toBeInTheDocument();
+    // Work is in overflow, not a visible tab
+    expect(screen.queryByRole('tab', { name: /work/i })).not.toBeInTheDocument();
+  });
+
+  it('no overflow button when all spaces are pinned', () => {
+    render(<SpaceTabs />); // PINNED_SPACES in beforeEach
     expect(screen.queryByTestId('space-overflow-btn')).not.toBeInTheDocument();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Context menu (kebab → Edit / Delete)
+// Transient active tab (non-pinned active space)
+// ---------------------------------------------------------------------------
+describe('SpaceTabs — transient active tab', () => {
+  it('renders a transient tab for the active non-pinned space', () => {
+    useAppStore.setState({ spaces: UNPINNED_SPACES, activeSpaceId: 'default' });
+    render(<SpaceTabs />);
+    // General is active and not pinned → rendered as transient tab
+    expect(screen.getByRole('tab', { name: /general/i })).toBeInTheDocument();
+  });
+
+  it('transient tab is NOT in the overflow', () => {
+    useAppStore.setState({ spaces: UNPINNED_SPACES, activeSpaceId: 'default' });
+    render(<SpaceTabs />);
+    // Work is non-pinned and non-active → in overflow
+    expect(screen.getByTestId('space-overflow-btn')).toBeInTheDocument();
+    // General (active) should NOT be in overflow — it's the transient tab
+    const overflowBtn = screen.getByTestId('space-overflow-btn');
+    expect(overflowBtn).toHaveAttribute('data-overflow-count', '1');
+  });
+
+  it('no transient tab when active space is pinned', () => {
+    render(<SpaceTabs />); // PINNED_SPACES — General is pinned and active
+    // Only 2 tabs total (both pinned), no transient duplicate
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Divider
+// ---------------------------------------------------------------------------
+describe('SpaceTabs — divider', () => {
+  it('shows a divider between pinned zone and overflow when both exist', () => {
+    useAppStore.setState({ spaces: MIXED_SPACES, activeSpaceId: 'default' });
+    const { container } = render(<SpaceTabs />);
+    // The divider is a w-px h-5 bg-border element
+    const divider = container.querySelector('.w-px.h-5.bg-border');
+    expect(divider).toBeInTheDocument();
+  });
+
+  it('no divider when only pinned spaces (no overflow)', () => {
+    const { container } = render(<SpaceTabs />); // PINNED_SPACES
+    const divider = container.querySelector('.w-px.h-5.bg-border');
+    expect(divider).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Context menu (kebab → Edit / Pin / Delete)
 // ---------------------------------------------------------------------------
 describe('SpaceTabs — context menu (kebab)', () => {
   it('opens context menu when kebab is clicked', () => {
@@ -210,7 +261,7 @@ describe('SpaceTabs — context menu (kebab)', () => {
     fireEvent.click(kebab);
     fireEvent.click(screen.getByText('Edit'));
 
-    expect(mockOpenModal).toHaveBeenCalledWith('rename', MOCK_SPACES[0]);
+    expect(mockOpenModal).toHaveBeenCalledWith('rename', PINNED_SPACES[0]);
   });
 
   it('calls openDeleteSpaceDialog when Delete is selected from context menu', () => {
@@ -226,19 +277,7 @@ describe('SpaceTabs — context menu (kebab)', () => {
   });
 
   it('Delete is disabled when there is only one space', () => {
-    useAppStore.setState({ spaces: [MOCK_SPACES[0]] });
-
-    // Re-mock overflow items for single space
-    vi.doMock('../../src/hooks/useOverflowItems', () => ({
-      useOverflowItems: (items: { id: string }[]) => ({
-        containerRef: vi.fn(),
-        setItemRef:   () => () => {},
-        visible:      items,
-        overflow:     [],
-        measuring:    false,
-      }),
-    }));
-
+    useAppStore.setState({ spaces: [PINNED_SPACES[0]] });
     render(<SpaceTabs />);
 
     const kebab = screen.getByTitle('Space options');
@@ -246,5 +285,50 @@ describe('SpaceTabs — context menu (kebab)', () => {
 
     const deleteBtn = screen.getByRole('menuitem', { name: /delete/i });
     expect(deleteBtn).toBeDisabled();
+  });
+
+  it('shows Unpin in context menu for a pinned space', () => {
+    render(<SpaceTabs />); // PINNED_SPACES — both are pinned
+    const kebab = screen.getAllByTitle('Space options')[0];
+    fireEvent.click(kebab);
+    expect(screen.getByText('Unpin')).toBeInTheDocument();
+  });
+
+  it('shows Pin in context menu for a non-pinned space (via transient tab)', () => {
+    useAppStore.setState({ spaces: UNPINNED_SPACES, activeSpaceId: 'default' });
+    render(<SpaceTabs />);
+
+    // General is the transient active tab; its kebab opens the context menu
+    const kebab = screen.getByTitle('Space options');
+    fireEvent.click(kebab);
+    expect(screen.getByText('Pin')).toBeInTheDocument();
+  });
+
+  it('calls pinSpace when Pin is selected from context menu', () => {
+    const mockPinSpace = vi.fn();
+    useAppStore.setState({
+      spaces:   UNPINNED_SPACES,
+      activeSpaceId: 'default',
+      pinSpace: mockPinSpace,
+    } as any);
+    render(<SpaceTabs />);
+
+    const kebab = screen.getByTitle('Space options');
+    fireEvent.click(kebab);
+    fireEvent.click(screen.getByText('Pin'));
+
+    expect(mockPinSpace).toHaveBeenCalledWith('default');
+  });
+
+  it('calls unpinSpace when Unpin is selected from context menu', () => {
+    const mockUnpinSpace = vi.fn();
+    useAppStore.setState({ unpinSpace: mockUnpinSpace } as any);
+    render(<SpaceTabs />); // PINNED_SPACES
+
+    const kebab = screen.getAllByTitle('Space options')[0];
+    fireEvent.click(kebab);
+    fireEvent.click(screen.getByText('Unpin'));
+
+    expect(mockUnpinSpace).toHaveBeenCalledWith('default');
   });
 });
