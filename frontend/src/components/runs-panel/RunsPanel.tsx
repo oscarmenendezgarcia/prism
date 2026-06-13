@@ -191,7 +191,7 @@ function RunRow({
             <>
               <span className="text-[11px] text-text-disabled" aria-hidden="true">·</span>
               <span
-                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium text-warning bg-warning/10"
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium text-warning bg-warning/10"
                 aria-label={`${feedbackIterations} feedback loop${feedbackIterations > 1 ? 's' : ''}`}
               >
                 ↩ {feedbackIterations}
@@ -321,12 +321,21 @@ export function RunsPanel() {
     const { taskTitle, agentLabel, status, startedAt, durationMs, stageCount } =
       deriveGroupDisplay(selectedGroup);
 
-    const meta = [
+    // LOOP-1: Resolve feedback iterations for the detail view header (Wireframe 3).
+    const detailFeedbackIterations: number | undefined = (() => {
+      const backendRunId = ps?.runId ?? null;
+      if (backendRunId && feedbackIterationsByRunId[backendRunId] !== undefined) {
+        return feedbackIterationsByRunId[backendRunId];
+      }
+      return undefined;
+    })();
+
+    const metaParts = [
       agentLabel,
       relativeTime(startedAt),
       durationMs != null ? formatDuration(durationMs) : null,
       stageCount != null && stageCount > 1 ? `${stageCount} stages` : null,
-    ].filter(Boolean).join(' · ');
+    ].filter(Boolean) as string[];
 
     return (
       <aside
@@ -359,7 +368,12 @@ export function RunsPanel() {
               <p className="text-sm font-semibold text-text-primary truncate leading-snug">
                 {taskTitle}
               </p>
-              <p className="text-[11px] text-text-disabled truncate">{meta}</p>
+              <p className="text-[11px] text-text-disabled truncate">
+                {metaParts.join(' · ')}
+                {detailFeedbackIterations != null && detailFeedbackIterations > 0 && (
+                  <><span aria-hidden="true"> · </span><span className="text-warning" aria-label={`${detailFeedbackIterations} feedback loop${detailFeedbackIterations > 1 ? 's' : ''}`}>↩ {detailFeedbackIterations}</span></>
+                )}
+              </p>
             </div>
 
             <button

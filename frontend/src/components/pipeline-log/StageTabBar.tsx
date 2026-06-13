@@ -169,7 +169,7 @@ export function StageTabBar({
             {label}
             {loopTriggered && (
               <span
-                className={`material-symbols-outlined text-[10px] leading-none ${isActive ? agentColor.split(' ')[0] : 'text-warning'}`}
+                className={`material-symbols-outlined text-[10px] leading-none ${agentColor.split(' ')[0]}`}
                 aria-label="feedback loop triggered"
               >
                 replay
