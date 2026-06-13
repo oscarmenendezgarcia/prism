@@ -10,6 +10,7 @@ import React, { useState, useCallback } from 'react';
 import { useRunHistoryStore, useFilteredRuns } from '@/stores/useRunHistoryStore';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
 import { useAppStore } from '@/stores/useAppStore';
+
 import { usePanelResize } from '@/hooks/usePanelResize';
 import { RunLogViewer } from '@/components/pipeline-log/RunLogViewer';
 import { groupRuns } from '@/components/agent-run-history/groupRuns';
@@ -122,14 +123,15 @@ const statusLabel: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 interface RunRowProps {
-  taskTitle:  string;
-  agentLabel: string;
-  status:     RunStatus;
-  startedAt:  string;
-  durationMs: number | null;
-  stageCount?: number;
-  isPending:  boolean;
-  onSelect:   () => void;
+  taskTitle:        string;
+  agentLabel:       string;
+  status:           RunStatus;
+  startedAt:        string;
+  durationMs:       number | null;
+  stageCount?:      number;
+  feedbackIterations?: number;
+  isPending:        boolean;
+  onSelect:         () => void;
 }
 
 function RunRow({
@@ -139,6 +141,7 @@ function RunRow({
   startedAt,
   durationMs,
   stageCount,
+  feedbackIterations,
   isPending,
   onSelect,
 }: RunRowProps) {
@@ -181,6 +184,17 @@ function RunRow({
               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface-variant text-text-secondary">
                 <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">linear_scale</span>
                 {stageCount} stages
+              </span>
+            </>
+          )}
+          {feedbackIterations != null && feedbackIterations > 0 && (
+            <>
+              <span className="text-[11px] text-text-disabled" aria-hidden="true">·</span>
+              <span
+                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium text-warning bg-warning/10"
+                aria-label={`${feedbackIterations} feedback loop${feedbackIterations > 1 ? 's' : ''}`}
+              >
+                ↩ {feedbackIterations}
               </span>
             </>
           )}
@@ -230,10 +244,11 @@ export function RunsPanel() {
   const clearTaskIdFilter = useRunHistoryStore((s) => s.clearTaskIdFilter);
   const filteredRuns      = useFilteredRuns();
 
-  const setRunsPanelOpen   = usePipelineLogStore((s) => s.setRunsPanelOpen);
-  const openLogPanelForRun = useAppStore((s) => s.openLogPanelForRun);
-  const pipelineStates     = useAppStore((s) => s.pipelineStates);
-  const historicalStates   = useAppStore((s) => s.historicalPipelineStates);
+  const setRunsPanelOpen          = usePipelineLogStore((s) => s.setRunsPanelOpen);
+  const feedbackIterationsByRunId = usePipelineLogStore((s) => s.feedbackIterationsByRunId);
+  const openLogPanelForRun        = useAppStore((s) => s.openLogPanelForRun);
+  const pipelineStates            = useAppStore((s) => s.pipelineStates);
+  const historicalStates          = useAppStore((s) => s.historicalPipelineStates);
 
   // Navigation state: null = list view, non-null = detail view.
   const [selectedGroup, setSelectedGroup] = useState<RunGroup | null>(null);
@@ -377,6 +392,18 @@ export function RunsPanel() {
     const { taskTitle, agentLabel, status, startedAt, durationMs, stageCount } =
       deriveGroupDisplay(group);
 
+    // LOOP-1: Resolve feedbackIterations for this run group.
+    // For pipeline groups, look up via PipelineState.runId; for solo runs, use pipelineRunId.
+    let feedbackIterations: number | undefined;
+    {
+      const storeKey = getStoreKey(group);
+      const ps = getPipelineState(storeKey);
+      const backendRunId = ps?.runId ?? null;
+      if (backendRunId && feedbackIterationsByRunId[backendRunId] !== undefined) {
+        feedbackIterations = feedbackIterationsByRunId[backendRunId];
+      }
+    }
+
     return (
       <li key={key} className="border-b border-border last:border-b-0">
         <RunRow
@@ -386,6 +413,7 @@ export function RunsPanel() {
           startedAt={startedAt}
           durationMs={durationMs}
           stageCount={stageCount}
+          feedbackIterations={feedbackIterations}
           isPending={isPending}
           onSelect={() => handleSelectRun(group)}
         />
