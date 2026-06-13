@@ -1767,12 +1767,18 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
   // --- Generate run ID upfront so it can be used in worktree path/branch names. ---
   const runId = crypto.randomUUID();
 
-  // --- Provision a worktree if another active run uses the same workingDirectory. ---
-  // This is done BEFORE building the run object so that failures here do not
-  // leave a partial run.json on disk. The task stays in 'todo'.
+  // --- Provision an isolated worktree for EVERY run (WORKTREE-1). ---
+  // A run must never mutate the user's main checkout. Running in-place lets a
+  // solo run switch the current branch, commit to the wrong branch, or clobber
+  // in-flight work — observed corrupting an unrelated feature branch. Always
+  // isolating each run in its own worktree prevents that and makes concurrent
+  // runs uniformly safe. (Previously a worktree was created only when another
+  // active run already targeted the same workingDirectory.)
+  // Done BEFORE building the run object so a provisioning failure leaves no
+  // partial run.json on disk. The task stays in 'todo'.
   let worktreeMeta = null;
   const worktreeEnabled = process.env.PIPELINE_WORKTREE_ENABLED !== '0';
-  if (worktreeEnabled && workingDirectory && hasActiveRunInDir(dataDir, workingDirectory)) {
+  if (worktreeEnabled && workingDirectory) {
     try {
       worktreeMeta = await worktreeManager.provision(workingDirectory, runId);
     } catch (err) {
