@@ -176,13 +176,20 @@ function createSpaceManager(storeOrDataDir) {
 
   /**
    * Rename a space (also updates optional fields).
+   *
+   * @param {string}  id                - Space ID.
+   * @param {string|null|undefined} newName - New display name. When null/undefined/'',
+   *   falls back to the existing name so callers can do pin-only updates without
+   *   providing a name. (QOL-2: partial PUT support.)
+   * @param {string}  [workingDirectory]
+   * @param {string[]} [pipeline]
+   * @param {string}  [projectClaudeMdPath]
+   * @param {object}  [agentNicknames]
+   * @param {string}  [folioBackend]
+   * @param {boolean} [pinned]           - Pin/unpin the space.
+   * @param {number|null} [pinnedRank]   - Rank within the pinned zone.
    */
-  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames, folioBackend) {
-    const validation = validateName(newName);
-    if (!validation.valid) {
-      return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
-    }
-
+  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames, folioBackend, pinned, pinnedRank) {
     const existing = store.getSpace(id);
     if (!existing) {
       return {
@@ -190,6 +197,16 @@ function createSpaceManager(storeOrDataDir) {
         code:    'SPACE_NOT_FOUND',
         message: `No space with ID "${id}" was found.`,
       };
+    }
+
+    // `name` is optional: fall back to the existing name when not supplied (null/undefined).
+    // An explicit empty string is still a validation error — callers who want a pin-only
+    // update should omit the name field entirely (the route passes undefined in that case).
+    const nameToUse = (newName != null) ? newName : existing.name;
+
+    const validation = validateName(nameToUse);
+    if (!validation.valid) {
+      return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
     }
 
     const normalised = validation.name.toLowerCase();
@@ -277,6 +294,9 @@ function createSpaceManager(storeOrDataDir) {
       ...(resolvedFolioBackend !== undefined
         ? { folioBackend: resolvedFolioBackend !== 'sqlite' ? resolvedFolioBackend : undefined }
         : {}),
+      // QOL-2: pin/rank fields — only update when explicitly provided.
+      ...(pinned !== undefined ? { pinned } : {}),
+      ...(pinnedRank !== undefined ? { pinnedRank: pinnedRank ?? undefined } : {}),
     };
 
     // Remove undefined keys to keep DB storage clean.
