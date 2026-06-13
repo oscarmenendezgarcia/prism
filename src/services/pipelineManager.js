@@ -38,6 +38,7 @@ const {
   buildCompileGateBlock,
   buildResolvedQuestionsBlock,
 } = require('../utils/promptBuilder');
+const { parseReviewReport, parseBugsReport } = require('./feedbackParser');
 
 // Resolve the claude binary path once at startup so caffeinate (and sh) can
 // find it even when the server was launched from a shell with a different PATH.
@@ -414,6 +415,170 @@ function readInjectSignal(dataDir, runId, stageIndex, agentId, run) {
   return stages;
 }
 
+// ---------------------------------------------------------------------------
+// Feedback gate helpers (LOOP-1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Evaluate whether a quality-gate back-edge should be triggered after a
+ * code-reviewer or qa-engineer-e2e stage completes.
+ *
+ * Steps:
+ *  1. Early-return for agents that are not feedback-gate agents.
+ *  2. Look up task from _store or legacy path.
+ *  3. Find the canonical artifact attachment (review-report.md / bugs.md).
+ *  4. Read the file and parse it with feedbackParser.
+ *  5. Decide whether a back-edge is needed.
+ *  6. Return { triggered, gateResult }.
+ *
+ * Never throws — all errors are caught and logged.
+ *
+ * @param {string}   dataDir
+ * @param {object}   run
+ * @param {number}   stageIndex
+ * @param {string}   agentId
+ * @param {string[]} stagesToInjectAlreadyQueued - Result from readInjectSignal (may be empty).
+ * @returns {{ triggered: boolean, gateResult: object|null }}
+ */
+function evaluateFeedbackGate(dataDir, run, stageIndex, agentId, stagesToInjectAlreadyQueued) {
+  const GATE_AGENTS = { 'code-reviewer': 'review-report.md', 'qa-engineer-e2e': 'bugs.md' };
+  if (!GATE_AGENTS[agentId]) return { triggered: false, gateResult: null };
+
+  const runId = run.runId;
+
+  // Look up task.
+  let task = null;
+  try {
+    if (_store) {
+      task = _store.getTask(run.spaceId, run.taskId);
+    } else {
+      const spacesDir = path.join(dataDir, 'spaces');
+      task = readTaskFromSpace(spacesDir, run.spaceId, run.taskId);
+    }
+  } catch (err) {
+    pipelineLog('run.feedback_gate_no_artifact', { runId, stageIndex, agentId, reason: `task_lookup_error: ${err.message}` });
+    return { triggered: false, gateResult: null };
+  }
+
+  if (!task) {
+    pipelineLog('run.feedback_gate_no_artifact', { runId, stageIndex, agentId, reason: 'task_not_found' });
+    return { triggered: false, gateResult: null };
+  }
+
+  // Find attachment.
+  const attachmentName = GATE_AGENTS[agentId];
+  const attachments = Array.isArray(task.attachments) ? task.attachments : [];
+  const att = attachments.find((a) => a.name === attachmentName && a.type === 'file' && a.content);
+  if (!att) {
+    pipelineLog('run.feedback_gate_no_artifact', { runId, stageIndex, agentId, reason: `attachment_missing: ${attachmentName}` });
+    return { triggered: false, gateResult: null };
+  }
+
+  // Read file.
+  let fileContent;
+  try {
+    fileContent = fs.readFileSync(att.content, 'utf8');
+  } catch (err) {
+    pipelineLog('run.feedback_gate_no_artifact', { runId, stageIndex, agentId, reason: `file_unreadable: ${err.message}` });
+    return { triggered: false, gateResult: null };
+  }
+
+  // Parse.
+  let parsed;
+  let needsLoop;
+  let gateResult;
+
+  if (agentId === 'code-reviewer') {
+    parsed = parseReviewReport(fileContent);
+    needsLoop = parsed.verdict === 'CHANGES_REQUIRED';
+    gateResult = {
+      agentId,
+      parsedAt: new Date().toISOString(),
+      triggered: needsLoop,
+      verdict: parsed.verdict,
+      summary: parsed.summary,
+    };
+  } else {
+    // qa-engineer-e2e
+    parsed = parseBugsReport(fileContent);
+    needsLoop = parsed.hasCritical || parsed.hasHigh;
+    gateResult = {
+      agentId,
+      parsedAt: new Date().toISOString(),
+      triggered: needsLoop,
+      hasCritical: parsed.hasCritical,
+      hasHigh: parsed.hasHigh,
+      bugCount: parsed.bugCount,
+      bugs: parsed.bugs,
+    };
+  }
+
+  pipelineLog('run.feedback_gate_parsed', { runId, stageIndex, agentId, triggered: needsLoop, ...(agentId === 'code-reviewer' ? { verdict: parsed.verdict } : { hasCritical: parsed.hasCritical, hasHigh: parsed.hasHigh }) });
+
+  return { triggered: needsLoop, gateResult };
+}
+
+/**
+ * Build the ## FEEDBACK FROM REVIEW/QA block injected into the developer-agent prompt
+ * when the pipeline is executing a feedback loop iteration.
+ *
+ * Returns null when:
+ *  - run.feedbackIterations < 1 (first iteration — no feedback yet)
+ *  - no triggered gate exists before the current stageIndex
+ *
+ * @param {object} run
+ * @param {number} stageIndex
+ * @returns {string|null}
+ */
+function buildFeedbackContextBlock(run, stageIndex) {
+  if (!run || !run.feedbackGates || (run.feedbackIterations || 0) < 1) return null;
+
+  // Find the most recent triggered gate with key < current stageIndex.
+  const triggeredGates = Object.entries(run.feedbackGates)
+    .filter(([k, g]) => g && g.triggered && parseInt(k, 10) < stageIndex)
+    .sort(([a], [b]) => parseInt(b, 10) - parseInt(a, 10)); // descending by index
+
+  if (triggeredGates.length === 0) return null;
+
+  const [, gate] = triggeredGates[0];
+  const maxLoops = parseInt(process.env.PIPELINE_MAX_LOOPS || String(DEFAULT_MAX_LOOPS), 10);
+  const iteration = run.feedbackIterations || 1;
+
+  let block = `## FEEDBACK FROM REVIEW — Iteration ${iteration} of ${maxLoops}\n\n`;
+  block += `The pipeline returned you to this stage because a quality gate failed.\n`;
+  block += `Address ALL findings listed below before considering your work complete.\n\n`;
+
+  if (gate.agentId === 'code-reviewer') {
+    block += `### Code Review Verdict: ${gate.verdict || 'CHANGES_REQUIRED'}\n`;
+    if (gate.summary) {
+      const items = gate.summary.split('; ').filter(Boolean);
+      if (items.length > 0) {
+        for (const item of items) {
+          block += `- ${item}\n`;
+        }
+      }
+    } else {
+      block += `See review-report.md for detailed findings.\n`;
+    }
+  } else {
+    block += `### QA: Unresolved Critical / High Bugs\n`;
+    const bugsToShow = Array.isArray(gate.bugs) ? gate.bugs : [];
+    if (bugsToShow.length > 0) {
+      for (const bug of bugsToShow) {
+        const idPart = bug.id ? `${bug.id} ` : '';
+        block += `- **${bug.severity}**: ${idPart}${bug.title}\n`;
+      }
+    } else {
+      block += `See bugs.md for the full bug list.\n`;
+    }
+  }
+
+  block += `\nDO NOT re-read all prior artifacts to discover issues — the findings above are `;
+  block += `the delta from the last iteration. Fix them and re-run tests before committing.\n`;
+
+  return block;
+}
+
 /**
  * Return true if a process with the given PID is alive.
  * Uses kill(pid, 0) — signal 0 does not kill but checks existence.
@@ -563,6 +728,50 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
     run.loopCounts = run.loopCounts || {};
     run.loopCounts[agentId] = (run.loopCounts[agentId] || 0) + 1;
     pipelineLog('run.loop_injected', { runId, agentId, stagesToInject, loopCount: run.loopCounts[agentId] });
+  }
+
+  // Part 2b: Feedback gate evaluation (LOOP-1).
+  // Parses canonical artifacts (review-report.md / bugs.md) and:
+  //   - Stores the structured parse result in run.feedbackGates[stageIndex].
+  //   - If a back-edge is needed AND the agent didn't write an inject file,
+  //     performs the fallback splice itself (manager fallback mode).
+  //   - Increments run.feedbackIterations whenever any back-edge fires.
+  {
+    const feedbackEval = evaluateFeedbackGate(dataDir, run, stageIndex, agentId, stagesToInject);
+
+    if (feedbackEval.gateResult) {
+      run.feedbackGates = run.feedbackGates || {};
+      run.feedbackGates[String(stageIndex)] = feedbackEval.gateResult;
+    }
+
+    if (feedbackEval.triggered && stagesToInject.length === 0) {
+      // Manager fallback: agent omitted the inject file — we inject directly.
+      const maxLoops   = parseInt(process.env.PIPELINE_MAX_LOOPS || String(DEFAULT_MAX_LOOPS), 10);
+      const loopCounts = run.loopCounts || {};
+      if ((loopCounts[agentId] || 0) < maxLoops) {
+        const insertAt      = run.currentStage;
+        const fallbackStages = ['developer-agent', agentId];
+        run.stages.splice(insertAt, 0, ...fallbackStages);
+        run.stageStatuses.splice(insertAt, 0, ...fallbackStages.map((id) => ({
+          agentId:    id,
+          status:     'pending',
+          exitCode:   null,
+          startedAt:  null,
+          finishedAt: null,
+        })));
+        run.stageStatuses.forEach((s, i) => { s.index = i; });
+        run.loopCounts = loopCounts;
+        run.loopCounts[agentId] = (run.loopCounts[agentId] || 0) + 1;
+        pipelineLog('run.feedback_gate_fallback_inject', { runId, stageIndex, agentId });
+      } else {
+        pipelineLog('run.loop_cap_reached', { runId, stageIndex, agentId, loopCounts });
+      }
+    }
+
+    if (feedbackEval.triggered) {
+      run.feedbackIterations = (run.feedbackIterations || 0) + 1;
+      pipelineLog('run.feedback_iteration', { runId, stageIndex, agentId, feedbackIterations: run.feedbackIterations });
+    }
   }
 
   writeRun(dataDir, run);
@@ -1238,6 +1447,15 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     if (resolvedBlock) promptText += '\n' + resolvedBlock + '\n';
   }
 
+  // Feedback context block (LOOP-1) — injected when developer-agent runs in a
+  // loop iteration. Reads from run.feedbackGates / run.feedbackIterations.
+  // The run object is read fresh here (runId was provided by spawnStage).
+  if (agentId === 'developer-agent' && runId) {
+    const runForFeedback = readRun(dataDir, runId);
+    const feedbackBlock = buildFeedbackContextBlock(runForFeedback, stageIndex);
+    if (feedbackBlock) promptText += '\n' + feedbackBlock + '\n';
+  }
+
   // Include git context so agents can evaluate what work has already been done.
   // IMPORTANT: Only included when workingDirectory is explicitly set — falling back
   // to process.cwd() would expose Prism's own git history to agents that have no
@@ -1804,6 +2022,10 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
     updatedAt: now,
     dangerouslySkipPermissions,
     checkpoints: Array.isArray(checkpoints) ? checkpoints : [],
+    // LOOP-1: feedback gate state (keyed by stageIndex string → FeedbackGateResult).
+    feedbackGates: {},
+    // LOOP-1: counter of quality-gate back-edges triggered in this run.
+    feedbackIterations: 0,
     ...(workingDirectory ? { workingDirectory } : {}),
     ...(worktreeMeta    ? { worktree: worktreeMeta } : {}),
   };
@@ -3392,4 +3614,7 @@ module.exports = {
   consolidationSignalPath,
   consolidationPromptPath,
   getStore: () => _store,
+  // LOOP-1: feedback gate (exported for testing):
+  evaluateFeedbackGate,
+  buildFeedbackContextBlock,
 };
