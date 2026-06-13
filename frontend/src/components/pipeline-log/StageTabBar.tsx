@@ -12,7 +12,7 @@
 
 import React from 'react';
 import { resolveAgentShortLabel } from '@/utils/agentName';
-import type { Space } from '@/types';
+import type { Space, FeedbackGateResult } from '@/types';
 
 /** Shape matching one entry in GET /api/v1/runs/:runId stageStatuses[]. */
 export interface StageStatus {
@@ -35,6 +35,11 @@ export interface StageTabBarProps {
   onSelect: (index: number) => void;
   /** Active space — used to resolve per-space agent nicknames. */
   activeSpace?: Space | null;
+  /**
+   * LOOP-1: Feedback gate results keyed by stageIndex string.
+   * When feedbackGates[index]?.triggered is true, a loop icon is rendered on the tab.
+   */
+  feedbackGates?: Record<string, FeedbackGateResult>;
 }
 
 /** Agent-specific active text color for tabs. */
@@ -129,6 +134,7 @@ export function StageTabBar({
   selectedIndex,
   onSelect,
   activeSpace,
+  feedbackGates,
 }: StageTabBarProps) {
   return (
     <div
@@ -137,11 +143,13 @@ export function StageTabBar({
       className="flex items-stretch border-b border-border bg-surface shrink-0 overflow-x-auto"
     >
       {stages.map((agentId, index) => {
-        const statusObj  = stageStatuses[index];
-        const status     = statusObj?.status ?? 'pending';
-        const isActive   = index === selectedIndex;
-        const label      = resolveAgentShortLabel(agentId, activeSpace ?? null);
-        const agentColor = getAgentActiveColor(agentId);
+        const statusObj   = stageStatuses[index];
+        const status      = statusObj?.status ?? 'pending';
+        const isActive    = index === selectedIndex;
+        const label       = resolveAgentShortLabel(agentId, activeSpace ?? null);
+        const agentColor  = getAgentActiveColor(agentId);
+        const gateResult  = feedbackGates?.[String(index)];
+        const loopTriggered = gateResult?.triggered === true;
 
         return (
           <button
@@ -159,6 +167,14 @@ export function StageTabBar({
           >
             <StatusIcon status={status} />
             {label}
+            {loopTriggered && (
+              <span
+                className={`material-symbols-outlined text-[10px] leading-none ${isActive ? agentColor.split(' ')[0] : 'text-warning'}`}
+                aria-label="feedback loop triggered"
+              >
+                replay
+              </span>
+            )}
           </button>
         );
       })}

@@ -22,7 +22,7 @@ import { MarkdownViewer } from '@/components/shared/MarkdownViewer';
 import { StageMetricsPanel } from './StageMetricsPanel';
 import { StructuredLogView } from './StructuredLogView';
 import { RunSelector } from './RunSelector';
-import type { BackendStageStatus } from '@/types';
+import type { BackendStageStatus, FeedbackGateResult } from '@/types';
 import type { RunSelectorEntry } from './RunSelector';
 
 /** How often (ms) to refresh the run status (for stageStatuses icons). */
@@ -68,6 +68,9 @@ export function PipelineLogPanel() {
   const logPanelRunId         = usePipelineLogStore((s) => s.logPanelRunId);
   const setLogPanelRunId      = usePipelineLogStore((s) => s.setLogPanelRunId);
   const clearStageLogs        = usePipelineLogStore((s) => s.clearStageLogs);
+
+  const setRunFeedback          = usePipelineLogStore((s) => s.setRunFeedback);
+  const feedbackGatesByRunId    = usePipelineLogStore((s) => s.feedbackGatesByRunId);
 
   const [backendStatuses, setBackendStatuses] = useState<BackendStageStatus[]>([]);
 
@@ -128,15 +131,25 @@ export function PipelineLogPanel() {
   });
 
   // Fetch backend run status for stageStatuses (icon accuracy).
+  // Also caches feedbackGates and feedbackIterations in the pipeline log store
+  // so RunsPanel and StageTabBar can read them without extra fetches.
   const fetchRunStatus = useCallback(async () => {
     if (!runId) return;
     try {
       const run = await getBackendRun(runId);
       setBackendStatuses(run.stageStatuses ?? []);
+      // LOOP-1: populate feedback gate cache for RunsPanel and StageTabBar.
+      if (run.feedbackGates !== undefined || run.feedbackIterations !== undefined) {
+        setRunFeedback(
+          runId,
+          run.feedbackIterations ?? 0,
+          (run.feedbackGates ?? {}) as Record<string, FeedbackGateResult>,
+        );
+      }
     } catch {
       // Non-fatal — fallback statuses are derived from pipelineState.
     }
-  }, [runId]);
+  }, [runId, setRunFeedback]);
 
   useEffect(() => {
     fetchRunStatus();
@@ -279,6 +292,7 @@ export function PipelineLogPanel() {
           selectedIndex={selectedStageIndex}
           onSelect={setSelectedStageIndex}
           activeSpace={activeSpace}
+          feedbackGates={runId ? feedbackGatesByRunId[runId] : undefined}
         />
       )}
 

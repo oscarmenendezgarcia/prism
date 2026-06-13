@@ -12,7 +12,7 @@
  */
 
 import { create } from 'zustand';
-import type { StageMetrics, PublicEvent } from '@/types';
+import type { StageMetrics, PublicEvent, FeedbackGateResult } from '@/types';
 
 /** localStorage key for unified Runs panel open state. */
 const RUNS_PANEL_OPEN_KEY = 'prism:runs-panel:open';
@@ -162,6 +162,29 @@ interface PipelineLogState {
   /** Per-stage "events not available yet" flag (server returned 425). */
   stageEventsNotAvailable: Record<number, boolean>;
   setStageEventsNotAvailable: (stageIndex: number, notAvailable: boolean) => void;
+
+  // ── LOOP-1: Feedback gate cache ────────────────────────────────────────────
+
+  /**
+   * feedbackIterations per backend runId.
+   * Populated by PipelineLogPanel when it fetches the BackendRun every 3s.
+   * Consumed by RunsPanel to show the ↩ N badge on run rows.
+   */
+  feedbackIterationsByRunId: Record<string, number>;
+
+  /**
+   * feedbackGates per backend runId (keyed by stageIndex string → FeedbackGateResult).
+   * Populated by PipelineLogPanel when it fetches the BackendRun every 3s.
+   * Consumed by StageTabBar to show the replay icon on triggered stages.
+   */
+  feedbackGatesByRunId: Record<string, Record<string, FeedbackGateResult>>;
+
+  /** Update feedback gate data for a run. Called by PipelineLogPanel after fetchRunStatus. */
+  setRunFeedback: (
+    runId: string,
+    feedbackIterations: number,
+    feedbackGates: Record<string, FeedbackGateResult>,
+  ) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,27 +192,30 @@ interface PipelineLogState {
 // ---------------------------------------------------------------------------
 
 export const usePipelineLogStore = create<PipelineLogState>((set) => ({
-  runsPanelOpen:           localStorage.getItem(RUNS_PANEL_OPEN_KEY) === '1',
+  runsPanelOpen:              localStorage.getItem(RUNS_PANEL_OPEN_KEY) === '1',
   // logPanelOpen mirrors runsPanelOpen (deprecated alias).
-  logPanelOpen:            localStorage.getItem(RUNS_PANEL_OPEN_KEY) === '1',
-  logPanelRunId:           null,
-  unseenCount:             0,
-  selectedStageIndex:      0,
-  stageLogs:               {},
-  stageLoading:            {},
-  stageErrors:             {},
-  stageView:               {},
-  stagePrompts:            {},
-  stagePromptLoading:      {},
-  stageMetrics:            {},
-  stageMetricsLoading:     {},
-  stageMetricsError:       {},
-  stageEvents:             {},
-  stageEventsNextSince:    {},
-  stageEventsLoading:      {},
-  stageEventsError:        {},
-  stageEventsNotAvailable: {},
-  fetchEpoch:              0,
+  logPanelOpen:               localStorage.getItem(RUNS_PANEL_OPEN_KEY) === '1',
+  logPanelRunId:              null,
+  unseenCount:                0,
+  selectedStageIndex:         0,
+  stageLogs:                  {},
+  stageLoading:               {},
+  stageErrors:                {},
+  stageView:                  {},
+  stagePrompts:               {},
+  stagePromptLoading:         {},
+  stageMetrics:               {},
+  stageMetricsLoading:        {},
+  stageMetricsError:          {},
+  stageEvents:                {},
+  stageEventsNextSince:       {},
+  stageEventsLoading:         {},
+  stageEventsError:           {},
+  stageEventsNotAvailable:    {},
+  fetchEpoch:                 0,
+  // LOOP-1: feedback gate cache
+  feedbackIterationsByRunId:  {},
+  feedbackGatesByRunId:       {},
 
   setRunsPanelOpen: (open) => {
     if (open) {
@@ -323,5 +349,18 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   setStageEventsNotAvailable: (stageIndex, notAvailable) =>
     set((state) => ({
       stageEventsNotAvailable: { ...state.stageEventsNotAvailable, [stageIndex]: notAvailable },
+    })),
+
+  // LOOP-1: feedback gate cache actions
+  setRunFeedback: (runId, feedbackIterations, feedbackGates) =>
+    set((state) => ({
+      feedbackIterationsByRunId: {
+        ...state.feedbackIterationsByRunId,
+        [runId]: feedbackIterations,
+      },
+      feedbackGatesByRunId: {
+        ...state.feedbackGatesByRunId,
+        [runId]: feedbackGates,
+      },
     })),
 }));
