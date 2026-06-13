@@ -156,12 +156,14 @@ function resolveInjectionConfig(_spaceId) {
  * Layered: hard-coded defaults ← environment overrides.
  *
  * Environment variables (all optional):
- *   PRISM_FOLIO_WRITEBACK           - Set to 'off' to disable write-back globally (kill switch).
- *   PRISM_FOLIO_WRITEBACK_MAX_PAGES - Hard cap on pages applied per consolidation (default 3).
- *   PRISM_FOLIO_WRITEBACK_MAX_BYTES - Per-page content byte cap (default 8192).
- *   PIPELINE_RESOLVER_TIMEOUT_MS    - Consolidator agent timeout (reused, default 300000 = 5min).
+ *   PRISM_FOLIO_WRITEBACK            - Set to 'off' to disable write-back globally (kill switch).
+ *   PRISM_FOLIO_WRITEBACK_MAX_PAGES  - Hard cap on pages applied per consolidation (default 3).
+ *   PRISM_FOLIO_WRITEBACK_MAX_BYTES  - Per-page content byte cap (default 8192).
+ *   PRISM_FOLIO_COMPACT_PAGES        - Agent-owned page count that triggers a compaction pass (default 25).
+ *   PRISM_FOLIO_COMPACT_BYTES        - Agent-owned total bytes that trigger a compaction pass (default 100000).
+ *   PIPELINE_RESOLVER_TIMEOUT_MS     - Consolidator agent timeout (reused, default 300000 = 5min).
  *
- * @returns {{ enabled: boolean, maxPages: number, maxBytes: number, timeoutMs: number }}
+ * @returns {{ enabled: boolean, maxPages: number, maxBytes: number, compactPages: number, compactBytes: number, timeoutMs: number }}
  */
 function resolveWritebackConfig() {
   const enabled = process.env.PRISM_FOLIO_WRITEBACK !== 'off';
@@ -172,12 +174,18 @@ function resolveWritebackConfig() {
   const maxBytesEnv = parseInt(process.env.PRISM_FOLIO_WRITEBACK_MAX_BYTES, 10);
   const maxBytes = (Number.isFinite(maxBytesEnv) && maxBytesEnv > 0) ? maxBytesEnv : 8192;
 
+  const compactPagesEnv = parseInt(process.env.PRISM_FOLIO_COMPACT_PAGES, 10);
+  const compactPages = (Number.isFinite(compactPagesEnv) && compactPagesEnv > 0) ? compactPagesEnv : 25;
+
+  const compactBytesEnv = parseInt(process.env.PRISM_FOLIO_COMPACT_BYTES, 10);
+  const compactBytes = (Number.isFinite(compactBytesEnv) && compactBytesEnv > 0) ? compactBytesEnv : 100_000;
+
   const timeoutMs = parseInt(
     process.env.PIPELINE_RESOLVER_TIMEOUT_MS || String(DEFAULT_RESOLVER_TIMEOUT_MS),
     10,
   );
 
-  return { enabled, maxPages, maxBytes, timeoutMs };
+  return { enabled, maxPages, maxBytes, compactPages, compactBytes, timeoutMs };
 }
 
 const DEFAULT_STAGE_TIMEOUT_MS    = 3_600_000; // 1 hour
@@ -1164,7 +1172,13 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   ) {
     try {
       const descriptor  = STAGE_DESCRIPTORS[agentId] ?? agentId;
-      const query       = `${task.title ?? ''} ${task.description ?? ''} ${descriptor}`.trim();
+      // Attachment names from earlier stages (ADR-1.md, api-spec.json, …) carry
+      // feature-specific terms the title/description often lack — they sharpen
+      // the BM25 match for mid-pipeline stages at zero extra cost.
+      const artifactTerms = Array.isArray(task.attachments)
+        ? task.attachments.map((a) => a.name).filter(Boolean).join(' ')
+        : '';
+      const query       = `${task.title ?? ''} ${task.description ?? ''} ${descriptor} ${artifactTerms}`.trim();
       const injectionOpts = resolveInjectionConfig(spaceId);
       injectionResult   = _store.folio.binding.buildInjectionContext(spaceId, query, injectionOpts);
     } catch (injErr) {
@@ -1234,8 +1248,9 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
 
   // Kanban instructions — always included so agents can move tasks and post questions.
   // buildKanbanBlock includes: stop conditions, note/handoff guidance, and MCP examples.
+  // isLastStage gates the "move to done" instruction — intermediate stages must not close the task.
   // Do NOT also call buildCommentGuidanceLines — its content is already inside buildKanbanBlock.
-  promptText += '\n' + buildKanbanBlock(spaceId, taskId) + '\n';
+  promptText += '\n' + buildKanbanBlock(spaceId, taskId, isLastStage) + '\n';
 
   // For the developer stage: require compilation gate before closing.
   // Prevents QA from launching against code that does not compile.
@@ -2132,7 +2147,8 @@ RunId: ${run.runId}
     : [];
 
   if (notes.length > 0) {
-    prompt += `## Agent Notes (assumptions, deviations, trade-offs, handoffs)\n`;
+    prompt += `## Agent Notes (assumptions, deviations, trade-offs, lessons, handoffs)\n`;
+    prompt += `Notes starting with "Lesson:" are prime bug-lesson candidates — they already contain failure, root cause, and fix.\n\n`;
     for (const note of notes) {
       prompt += `### ${note.author} — ${note.createdAt || ''}\n${note.text}\n\n`;
     }
@@ -2140,7 +2156,10 @@ RunId: ${run.runId}
     prompt += `## Agent Notes\n(none)\n\n`;
   }
 
-  // Existing Folio page index (so the agent can update rather than duplicate)
+  // Existing Folio page index (so the agent can update rather than duplicate).
+  // Sizes and dates let the agent spot compaction candidates (bloated or stale pages).
+  let agentPageCount = 0;
+  let agentBytes     = 0;
   if (_store && _store.folio && _store.folio.binding) {
     try {
       const chapters = _store.folio.binding.listChapters(run.spaceId);
@@ -2152,7 +2171,14 @@ RunId: ${run.runId}
           prompt += `### Chapter: ${chapter.slug}\n`;
           const pages = _store.folio.binding.listPages(run.spaceId, chapter.slug);
           for (const pg of pages) {
-            prompt += `- ${chapter.slug}/${pg.slug}${pg.author === 'user' ? ' [user-owned — do NOT update]' : ''}\n`;
+            const bytes   = Buffer.byteLength(pg.content || '', 'utf8');
+            const updated = (pg.updatedAt || pg.createdAt || '').slice(0, 10);
+            const meta    = `(${bytes} B${updated ? `, updated ${updated}` : ''})`;
+            if (pg.author !== 'user') {
+              agentPageCount++;
+              agentBytes += bytes;
+            }
+            prompt += `- ${chapter.slug}/${pg.slug} — "${pg.title}" ${meta}${pg.author === 'user' ? ' [user-owned — do NOT update]' : ''}\n`;
           }
         }
         prompt += '\n';
@@ -2164,12 +2190,31 @@ RunId: ${run.runId}
     prompt += `## Existing Folio Index\n(unavailable — no binding)\n\n`;
   }
 
+  // Compaction pressure: when the agent-owned portion of the folio grows past the
+  // thresholds, every consolidation also becomes a chance to shrink it. The agent
+  // may merge overlapping pages, rewrite bloated ones tighter, and delete pages
+  // whose content it folded elsewhere. Server-side guards still apply.
+  const compactionDue = agentPageCount > cfg.compactPages || agentBytes > cfg.compactBytes;
+  if (compactionDue) {
+    prompt += `## Compaction Pass (folio over budget: ${agentPageCount} agent pages, ${agentBytes} bytes)
+
+The agent-owned part of this folio exceeds its budget (${cfg.compactPages} pages / ${cfg.compactBytes} bytes). Folio pages are injected into agent prompts — every byte costs tokens on every future run. In ADDITION to (or instead of) recording new knowledge, propose compactions within the same ${cfg.maxPages}-entry cap:
+- MERGE: rewrite one agent-owned page to absorb the content of overlapping ones, then delete the absorbed pages ("delete": true entries).
+- TRIM: rewrite a bloated agent-owned page keeping only what is still true and actionable.
+- PRUNE: delete an agent-owned page that is stale, superseded, or derivable from code/git ("delete": true).
+Prioritise the largest and oldest pages. Never touch [user-owned] pages.
+
+`;
+  }
+
   prompt += `## Your Task
 
 Decide what (if anything) is worth recording permanently. The bar is HIGH:
 - A non-obvious architectural decision that was taken during this run.
 - A bug lesson: what went wrong, what the root cause was, how it was fixed.
-- A state update to an agent-owned page (e.g. estado/pipeline — NOT estado/actual which is user-owned).
+- A state update to an agent-owned page (e.g. state/pipeline — NOT state/current which is user-owned).
+
+PREFER UPDATE OVER CREATE: if an existing agent-owned page already covers the topic (check the index above), rewrite THAT page folding the new knowledge in — net folio growth should be ~0 for recurring topics. When updating, also compact: drop anything outdated, duplicated, or derivable from the code.
 
 If there is nothing high-signal to record, write { "pages": [] } — that is the correct answer.
 
@@ -2184,16 +2229,22 @@ Schema:
       "slug": "chapter/page",        // must match ^[a-z0-9-]+/[a-z0-9-]+$
       "title": "Human-readable title",
       "content": "Markdown content (max ${cfg.maxBytes} bytes)",
-      "reason": "decision" | "bug-lesson" | "state-update"
+      "reason": "decision" | "bug-lesson" | "state-update" | "compaction"
+    },
+    {
+      "slug": "chapter/stale-page",  // deletion entry: removes an agent-owned page
+      "delete": true,
+      "reason": "compaction"
     }
   ]
 }
 
 Rules:
-- At most ${cfg.maxPages} pages total.
+- At most ${cfg.maxPages} entries total (updates, creates, and deletes all count).
 - Each content field must be <= ${cfg.maxBytes} bytes.
 - Slugs: lowercase letters, digits, hyphens only, exactly one slash (chapter/page).
-- Do NOT write to estado/actual or any slug marked [user-owned] above.
+- Do NOT write to state/current or any slug marked [user-owned] above.
+- "delete": true is ONLY for agent-owned pages that are stale, superseded, or whose content you folded into another page in this same signal. The server refuses to delete user-owned pages.
 - Do NOT call any folio MCP tool — write ONLY the JSON file.
 
 After writing the JSON, signal completion by running:
@@ -2256,6 +2307,7 @@ async function applyConsolidation(dataDir, run, startedAt) {
   const pages     = rawPages.slice(0, cfg.maxPages); // server-side cap
 
   let pagesWritten = 0;
+  let pagesDeleted = 0;
   const skipped    = [];
 
   for (const page of pages) {
@@ -2265,6 +2317,44 @@ async function applyConsolidation(dataDir, run, startedAt) {
       pipelineLog('consolidation.page_skipped', { runId: run.runId, slug: page.slug, reason: 'invalid_slug' });
       continue;
     }
+
+    // Deletion entry (compaction): remove an agent-owned page.
+    // Guarded server-side — user-owned pages are never deleted, regardless of
+    // what the agent proposes. No content validation applies to deletions.
+    if (page.delete === true) {
+      try {
+        if (!_store || !_store.folio || !_store.folio.binding) {
+          skipped.push({ slug: page.slug, reason: 'no_binding' });
+          continue;
+        }
+        const [chapterSlug, pageSlug] = page.slug.split('/');
+        const existing = (_store.folio.binding.listPages(run.spaceId, chapterSlug) || [])
+          .find((p) => p.slug === pageSlug);
+        if (!existing) {
+          skipped.push({ slug: page.slug, reason: 'delete_page_not_found' });
+          pipelineLog('consolidation.page_skipped', { runId: run.runId, slug: page.slug, reason: 'delete_page_not_found' });
+          continue;
+        }
+        if (existing.author === 'user') {
+          skipped.push({ slug: page.slug, reason: 'delete_user_owned' });
+          pipelineLog('consolidation.page_skipped', { runId: run.runId, slug: page.slug, reason: 'delete_user_owned' });
+          continue;
+        }
+        const deleted = _store.folio.binding.deletePage(run.spaceId, chapterSlug, pageSlug);
+        if (deleted) {
+          pagesDeleted++;
+          pipelineLog('consolidation.page_deleted', { runId: run.runId, slug: page.slug, reason: page.reason });
+        } else {
+          skipped.push({ slug: page.slug, reason: 'delete_failed' });
+          pipelineLog('consolidation.page_skipped', { runId: run.runId, slug: page.slug, reason: 'delete_failed' });
+        }
+      } catch (err) {
+        skipped.push({ slug: page.slug, reason: 'delete_error', error: err.message });
+        pipelineLog('consolidation.page_error', { runId: run.runId, slug: page.slug, error: err.message });
+      }
+      continue;
+    }
+
     // Validate content
     if (!page.content || typeof page.content !== 'string') {
       skipped.push({ slug: page.slug, reason: 'empty_content' });
@@ -2312,6 +2402,7 @@ async function applyConsolidation(dataDir, run, startedAt) {
       startedAt,
       finishedAt,
       pagesWritten,
+      pagesDeleted,
       skipped,
     };
     writeRun(dataDir, freshRun);
@@ -2320,6 +2411,7 @@ async function applyConsolidation(dataDir, run, startedAt) {
   pipelineLog('consolidation.done', {
     runId: run.runId,
     pagesWritten,
+    pagesDeleted,
     skipped:     skipped.length,
     durationMs:  Date.now() - new Date(startedAt).getTime(),
   });
