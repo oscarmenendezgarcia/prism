@@ -154,9 +154,10 @@ gh pr view --json url,state 2>/dev/null
 ```
 If an open PR exists: do NOT run `gh pr create` (it fails). The push above already updated it — just add a comment summarising the fixes (`gh pr comment --body "..."`) and report the existing PR URL.
 
-Otherwise, create the PR:
+Otherwise, create the PR. **If your prompt context includes a `PR Base Branch:` line** (isolated worktree runs always do), you MUST target it with `--base` so the PR contains only this run's commits and merges back where the run came from — NOT the repo default. Omit `--base` only when no `PR Base Branch` was provided.
 ```bash
-gh pr create --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
+# With a provided base branch:
+gh pr create --base "<PR Base Branch from context>" --title "<type>(<scope>): <summary>" --body "$(cat <<'EOF'
 ## Summary
 - bullet-point list of what was implemented
 
@@ -236,7 +237,7 @@ A task is only `done` when every item is checked.
 
 **PR**
 - [ ] Branch pushed: `git push -u origin <branch>`
-- [ ] PR created with `gh pr create` (or existing PR updated + commented, in a fix loop) and URL reported
+- [ ] PR created with `gh pr create` — targeting `--base <PR Base Branch>` when the prompt provided one (or existing PR updated + commented, in a fix loop) and URL reported
 - [ ] PR URL attached to Kanban task
 
 ---
