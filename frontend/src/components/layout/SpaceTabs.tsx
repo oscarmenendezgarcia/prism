@@ -1,22 +1,24 @@
 /**
- * SpaceTabs — space tab bar with explicit pin model.
+ * SpaceTabs — space tab bar with explicit pin model + responsive overflow.
  *
  * Architecture (ADR-1, QOL-2 space-pins):
- *   - Pinned spaces occupy a fixed visible zone on the left (always rendered).
- *   - Non-pinned spaces collapse into a single overflow menu ("More spaces (N)").
- *   - If the active space is not pinned, it renders as a transient tab after the
- *     pinned zone so the user always has a visual anchor for the current space.
+ *   - Pinned spaces occupy a fixed visible zone on the left (always rendered,
+ *     drag-reorderable).
+ *   - Non-pinned spaces fill the remaining window width as tabs; only the ones
+ *     that do NOT fit collapse into the "More spaces (N)" overflow menu. With few
+ *     spaces they are all visible — the menu appears only on real overflow, and
+ *     the split re-computes as the window resizes (useOverflowItems).
+ *   - The active space is forced visible (useOverflowItems `pinnedId`) so the
+ *     current space is always anchored even when it would otherwise overflow.
  *   - Drag-to-reorder within the pinned zone uses local state (dragSourceIdx /
  *     dragOverIdx) — not useDragStore (which models task card semantics).
  *   - Pin / Unpin exposed from the kebab context menu on each tab.
- *
- * useOverflowItems is no longer used here (preserved in the codebase for other
- * potential consumers). See ADR-1 §T1 for the trade-off rationale.
  */
 
 import React, { useState } from 'react';
 import { ContextMenu } from '@/components/shared/ContextMenu';
 import { useAppStore } from '@/stores/useAppStore';
+import { useOverflowItems } from '@/hooks/useOverflowItems';
 import { SpaceTab } from './SpaceTab';
 import { SpaceOverflowMenu } from './SpaceOverflowMenu';
 import type { Space } from '@/types';
@@ -42,17 +44,10 @@ export function SpaceTabs() {
 
   const nonPinned = spaces.filter((s) => !s.pinned);
 
-  // The active space rendered as a transient tab after the pinned zone (only
-  // when it is not already in the pinned zone).
-  const activeNotPinned: Space | null =
-    activeSpaceId && !pinnedSpaces.some((s) => s.id === activeSpaceId)
-      ? spaces.find((s) => s.id === activeSpaceId) ?? null
-      : null;
-
-  // Overflow: all non-pinned spaces except the transient active tab.
-  const overflowSpaces = activeNotPinned
-    ? nonPinned.filter((s) => s.id !== activeSpaceId)
-    : nonPinned;
+  // Responsive split of the non-pinned spaces by available width. The active
+  // space is forced visible so it is never hidden in the overflow menu.
+  const { containerRef, setItemRef, visible, overflow, measuring } =
+    useOverflowItems(nonPinned, { pinnedId: activeSpaceId ?? undefined, reservedTrailingPx: 150 });
 
   // ---------------------------------------------------------------------------
   // Drag reorder (local state — QOL-2, local component state, not useDragStore)
@@ -125,6 +120,17 @@ export function SpaceTabs() {
     { id: 'delete', label: 'Delete', icon: 'delete', danger: true, disabled: isLastSpace },
   ];
 
+  // A non-pinned tab — shared by the measuring pass and the real render.
+  const renderTab = (space: Space) => (
+    <SpaceTab
+      key={space.id}
+      space={space}
+      active={space.id === activeSpaceId}
+      onSelect={handleTabClick}
+      onKebab={handleKebabClick}
+    />
+  );
+
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
@@ -156,33 +162,38 @@ export function SpaceTabs() {
         </div>
       )}
 
-      {/* Divider — only shown when both zones have content */}
-      {pinnedSpaces.length > 0 && (overflowSpaces.length > 0 || activeNotPinned) && (
+      {/* Divider — only when the pinned zone and at least one non-pinned tab coexist */}
+      {pinnedSpaces.length > 0 && nonPinned.length > 0 && (
         <div className="w-px h-5 bg-border mx-1 flex-shrink-0" aria-hidden="true" />
       )}
 
-      {/* Transient active tab — shown when the active space is not pinned */}
-      {activeNotPinned && (
-        <div className="flex items-center gap-0.5 py-1.5 flex-shrink-0">
-          <SpaceTab
-            key={activeNotPinned.id}
-            space={activeNotPinned}
-            active
-            onSelect={handleTabClick}
-            onKebab={handleKebabClick}
-          />
-        </div>
-      )}
-
-      {/* Overflow: all non-pinned spaces (minus the transient active) */}
-      {overflowSpaces.length > 0 && (
-        <SpaceOverflowMenu
-          spaces={overflowSpaces}
-          activeSpaceId={activeSpaceId ?? ''}
-          onSelect={handleOverflowSelect}
-          filterThreshold={6}
-        />
-      )}
+      {/* Non-pinned zone — fills remaining width; overflow collapses into the menu */}
+      <div
+        ref={containerRef}
+        className="flex items-center gap-0.5 py-1.5 min-w-0 flex-1 overflow-hidden"
+      >
+        {measuring ? (
+          // Measuring pass: render all candidates (hidden) so the hook can read
+          // their widths. Settles before paint (useLayoutEffect) — no flicker.
+          nonPinned.map((space) => (
+            <div key={space.id} ref={setItemRef(space.id)} className="invisible" aria-hidden="true">
+              {renderTab(space)}
+            </div>
+          ))
+        ) : (
+          <>
+            {visible.map(renderTab)}
+            {overflow.length > 0 && (
+              <SpaceOverflowMenu
+                spaces={overflow}
+                activeSpaceId={activeSpaceId ?? ''}
+                onSelect={handleOverflowSelect}
+                filterThreshold={6}
+              />
+            )}
+          </>
+        )}
+      </div>
 
       {/* Add space button */}
       <button
