@@ -1,0 +1,195 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "qol-1-rank-drag-reorder",
+  "date": "2026-06-14",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "SQLite migration: add rank REAL column + seed from created_at order",
+      "description": "Add additive migration block in src/services/store.js. Guard with PRAGMA table_info. Add ALTER TABLE tasks ADD COLUMN rank REAL DEFAULT 0. Seed existing rows with rank = (row_number * 1000.0) ordered by created_at ASC within each (space_id, column) group. Update rowToTask to include rank field. Update SCHEMA_SQL comments.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Running createStore on an existing DB adds rank column exactly once (idempotent migration)",
+        "Existing tasks get rank = 1000, 2000, 3000... based on created_at order within each space+column group",
+        "New DBs (from SCHEMA_SQL) get rank column via ALTER TABLE in migration block (IF NOT EXISTS guard on the table itself, migration block handles the column)",
+        "rowToTask returns rank as a number field",
+        "All existing store.test.js tests still pass"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Store: new reorderTask method, update getTasksByColumn, insertTask, moveTask",
+      "description": "Add reorderTask(spaceId, taskId, rank) method and maxRankInColumn + reorderTask prepared statements. Change getTasksByColumn ORDER BY to rank ASC, created_at ASC. Extend insertTask to assign rank = MAX(column_rank) + 1000 when not provided. Extend moveTask (rename old stmts.moveTask to stmts.moveTaskWithRank) to assign tail rank atomically in a transaction. Add the new store method to the returned factory object.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "store.reorderTask(spaceId, taskId, newRank) updates rank column and returns updated task",
+        "store.reorderTask returns null when task not found (no changes)",
+        "store.getTasksByColumn returns tasks ordered by rank ASC (ties broken by created_at ASC)",
+        "store.insertTask assigns rank = MAX(todo) + 1000 when task.rank is not provided",
+        "store.moveTask returns task with rank = MAX(destination) + 1000 (in a single transaction)",
+        "FTS triggers do NOT fire on reorderTask updates (the UPDATE statement only touches rank + updated_at, not title/description)",
+        "All existing store tests pass"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Backend: PATCH /spaces/:spaceId/tasks/:taskId/rank endpoint",
+      "description": "Add TASK_RANK_ROUTE regex, handleRankTask handler, and register PATCH route in src/handlers/tasks.js. Validation: rank required, must be finite number. Returns updated task with rank. Register the route BEFORE the TASK_SINGLE_ROUTE match to avoid regex shadowing. Add stderr event log on success (event: task.rank_updated).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "PATCH /spaces/:spaceId/tasks/:taskId/rank with { rank: 1500 } returns 200 + updated task",
+        "Returns 400 VALIDATION_ERROR when rank is missing",
+        "Returns 400 VALIDATION_ERROR when rank is not a finite number (Infinity, NaN, string)",
+        "Returns 404 TASK_NOT_FOUND when task does not exist in the space",
+        "Returns 500 on DB error",
+        "Emits event JSON to stderr on success",
+        "Route does NOT conflict with GET/PUT/DELETE /tasks/:taskId (regex is /tasks/:id/rank, matched before /tasks/:id)"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Backend tests: rank.test.js covering store + endpoint",
+      "description": "Create test/rank.test.js using the existing test patterns (see test/store.test.js and test/attachments.test.js for patterns). Test: migration seeding, reorderTask method, getTasksByColumn ordering, insertTask rank assignment, moveTask tail rank, PATCH /rank endpoint (happy path + errors).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "Migration test: existing tasks with rank=0 get correctly seeded ranks after migration",
+        "store.reorderTask test: returns updated task with correct rank",
+        "store.getTasksByColumn test: 3 tasks reordered via reorderTask come back in new rank order",
+        "store.insertTask test: new task gets rank = MAX(existing) + 1000",
+        "store.moveTask test: moved task gets rank = MAX(destination) + 1000",
+        "PATCH /rank test: 200 happy path",
+        "PATCH /rank test: 400 missing rank",
+        "PATCH /rank test: 400 NaN rank",
+        "PATCH /rank test: 404 unknown taskId",
+        "All tests pass with npm run test:report"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Frontend: Task type + API client",
+      "description": "Add rank?: number to Task interface in frontend/src/types/index.ts. Add reorderTask(spaceId, taskId, rank): Promise<Task> to frontend/src/api/client.ts using PATCH method.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "Task interface has rank?: number field",
+        "api.reorderTask sends PATCH /spaces/:spaceId/tasks/:taskId/rank with body { rank }",
+        "TypeScript compiles without errors (cd frontend && npx tsc --noEmit)"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Frontend: extend useDragStore with card-level drag-over state",
+      "description": "Add dragOverTaskId: string | null, insertBefore: boolean to DragState. Add setDragOverTask(taskId, insertBefore) action. Extend resetDrag to clear new fields. Initial values: dragOverTaskId=null, insertBefore=true.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": ["T-005"],
+      "acceptance_criteria": [
+        "DragState interface includes dragOverTaskId and insertBefore",
+        "setDragOverTask updates both fields atomically",
+        "resetDrag clears dragOverTaskId to null",
+        "TypeScript compiles without errors"
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Frontend: useAppStore — reorderTask action with optimistic update",
+      "description": "Add reorderTask(taskId: string, column: Column, newRank: number): Promise<void> to useAppStore. Snapshot tasks[column] before update. Optimistically reorder by setting task.rank=newRank and re-sorting by rank ASC, createdAt ASC. Call api.reorderTask. On error: restore snapshot, showToast. No loadBoard() on success.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-006"],
+      "acceptance_criteria": [
+        "reorderTask immediately updates tasks[column] in Zustand store (no await before set)",
+        "Re-sorted array is ordered by rank ASC (ties by createdAt ASC)",
+        "On API error: tasks[column] reverts to pre-reorder state",
+        "On API error: showToast called with error message",
+        "No call to loadBoard() on success path",
+        "isMutating flag is NOT set (reorder is non-blocking / optimistic only)"
+      ]
+    },
+    {
+      "id": "T-008",
+      "title": "Frontend: Board.tsx — computeDropRank utility + handleDrop same-column reorder",
+      "description": "Add computeDropRank(tasks, draggedId, overTaskId, insertBefore) utility function in Board.tsx. Extend handleDrop: when dragSourceColumn === targetColumn, compute new rank and call reorderTask (or trigger batch rebalance if gap < 0.001). Add handleDragOverTask callback that calls useDragStore.getState().setDragOverTask(...). Read reorderTask from useAppStore. Pass onDragOverTask={handleDragOverTask} to each Column.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-007"],
+      "acceptance_criteria": [
+        "computeDropRank returns midpoint rank for standard insertion",
+        "computeDropRank returns needsRebalance=true when gap < 0.001, with rebalancedTasks array assigning [1000, 2000, ...]",
+        "handleDrop with same column calls reorderTask (single call) or batch reorderTask for all tasks in rebalancedTasks",
+        "handleDrop with different column still calls existing moveTask logic",
+        "handleDragOverTask calls setDragOverTask with correct taskId and insertBefore",
+        "Column receives onDragOverTask prop and passes it to TaskCard"
+      ]
+    },
+    {
+      "id": "T-009",
+      "title": "Frontend: TaskCard.tsx — drag handle icon + drop indicator + card-level onDragOver",
+      "description": "Add onDragOverTask?: (taskId: string, insertBefore: boolean) => void prop. Add handleDragOver: compute insertBefore from mouse Y vs. card bounding box, call onDragOverTask. Skip if draggedTaskId === task.id (no self-drop indicator). Add drag_indicator icon (Material Symbol) in top-left, opacity-0 group-hover:opacity-100. Add conditional border-t-2 / border-b-2 border-primary classes when isDragOverThis. Subscribe to useDragStore for isDragOverThis + insertBeforeThis with per-card boolean selectors.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-008"],
+      "acceptance_criteria": [
+        "Drag handle icon (drag_indicator) appears on card hover (CSS group-hover)",
+        "Dragging over top half of a card shows border-t-2 border-primary on that card",
+        "Dragging over bottom half of a card shows border-b-2 border-primary on that card",
+        "No indicator shown when hovering over the dragged card itself",
+        "handleDragOver calls e.preventDefault() and e.stopPropagation()",
+        "Subscribes with per-card boolean selectors (no full-store re-render)",
+        "Drop indicator clears when drag ends (resetDrag clears dragOverTaskId)"
+      ]
+    },
+    {
+      "id": "T-010",
+      "title": "Frontend: Column.tsx — add onDragOverTask prop, forward to TaskCard",
+      "description": "Add onDragOverTask?: (taskId: string, insertBefore: boolean) => void to ColumnProps. Pass onDragOverTask prop through to each TaskCard. No other logic changes.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5",
+      "dependencies": ["T-009"],
+      "acceptance_criteria": [
+        "ColumnProps includes onDragOverTask",
+        "Each TaskCard receives onDragOverTask",
+        "TypeScript compiles without errors",
+        "Existing drag-over-column behavior unchanged (column-level isDragOver selector still works)"
+      ]
+    },
+    {
+      "id": "T-011",
+      "title": "E2E + integration tests: drag-to-reorder",
+      "description": "QA stage: Playwright E2E tests covering the full reorder flow. Backend integration tests for rank ordering. Tests must use mcp__playwright__* tools. Run against the built app on localhost:3000.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-010"],
+      "acceptance_criteria": [
+        "E2E: drag card A above card B in todo column → after reload, A appears before B",
+        "E2E: drag card A to bottom of todo → after reload, A is last",
+        "E2E: drag card from todo to in-progress → card appears at bottom of in-progress, persists after reload",
+        "E2E: drag handle icon is visible on card hover (Playwright hover + screenshot)",
+        "E2E: drop indicator top border appears when hovering top half of a card during drag",
+        "Backend: GET /tasks returns todo tasks in rank order (not creation order) after reorder",
+        "Backend: PATCH /rank returns 200 and updated rank value"
+      ]
+    }
+  ]
+}
