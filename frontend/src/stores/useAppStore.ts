@@ -322,6 +322,15 @@ interface AppState {
     patch: { resolved?: boolean; text?: string },
   ) => Promise<void>;
 
+  // ── Arc filter / grouping (arc field feature) ─────────────────────────────
+
+  /** Active arc filter (null = show all). */
+  arcFilter: string | null;
+  /** Whether to group tasks by arc in columns. */
+  arcGrouping: boolean;
+  setArcFilter: (arc: string | null) => void;
+  toggleArcGrouping: () => void;
+
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 
   /** Whether the GlobalSearchModal is currently open. */
@@ -706,6 +715,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const { activeSpaceId, closeCreateModal, loadBoard, showToast } = get();
     set({ isMutating: true });
     try {
+      // arc is already included in the payload when provided by the caller
       await api.createTask(activeSpaceId, payload);
       closeCreateModal();
       await loadBoard();
@@ -1598,6 +1608,13 @@ export const useAppStore = create<AppState>((set, get) => {
       throw err;
     }
   },
+
+  // ── Arc filter / grouping (arc field feature) ─────────────────────────────
+
+  arcFilter:   null,
+  arcGrouping: false,
+  setArcFilter:     (arc) => set({ arcFilter: arc }),
+  toggleArcGrouping: () => set((s) => ({ arcGrouping: !s.arcGrouping })),
 
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 

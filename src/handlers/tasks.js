@@ -25,6 +25,7 @@ const ASSIGNED_MAX_LEN     = 50;
 const PIPELINE_MAX_STAGES  = 20;
 const PIPELINE_STAGE_MAX_LEN = 50;
 const PIPELINE_STAGE_ID_RE = /^[a-z0-9-]+$/;
+const ARC_MAX_LEN          = 60;
 
 const ATTACHMENT_MAX_COUNT         = 20;
 const ATTACHMENT_NAME_MAX_LEN      = 100;
@@ -215,6 +216,12 @@ function createApp(spaceId, store) {
       errors.push(`assigned must not exceed ${ASSIGNED_MAX_LEN} characters`);
     }
 
+    if (body.arc !== undefined && typeof body.arc !== 'string') {
+      errors.push('arc must be a string when provided');
+    } else if (typeof body.arc === 'string' && body.arc.trim().length > ARC_MAX_LEN) {
+      errors.push(`arc must not exceed ${ARC_MAX_LEN} characters`);
+    }
+
     const pipelineResult = validatePipelineField(body.pipeline);
     if (!pipelineResult.valid) {
       errors.push(pipelineResult.error);
@@ -223,6 +230,8 @@ function createApp(spaceId, store) {
     if (errors.length > 0) {
       return { valid: false, errors, data: null };
     }
+
+    const arcTrimmed = typeof body.arc === 'string' ? body.arc.trim() : undefined;
 
     return {
       valid:  true,
@@ -235,6 +244,7 @@ function createApp(spaceId, store) {
                        ? assigned.trim()
                        : undefined,
         pipeline:    pipelineResult.data,
+        arc:         arcTrimmed && arcTrimmed.length > 0 ? arcTrimmed : undefined,
       },
     };
   }
@@ -358,6 +368,7 @@ function createApp(spaceId, store) {
       ...(data.description !== undefined && { description: data.description }),
       ...(data.assigned    !== undefined && { assigned:    data.assigned }),
       ...(data.pipeline    !== undefined && { pipeline:    data.pipeline }),
+      ...(data.arc         !== undefined && { arc:         data.arc }),
       ...(attachmentResult.data.length > 0 && { attachments: attachmentResult.data }),
       createdAt: now,
       updatedAt: now,
@@ -447,7 +458,7 @@ function createApp(spaceId, store) {
       return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
     }
 
-    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline'];
+    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline', 'arc'];
     const provided         = UPDATABLE_FIELDS.filter((f) => f in body);
 
     if (provided.length === 0) {
@@ -495,6 +506,14 @@ function createApp(spaceId, store) {
       }
     }
 
+    if ('arc' in body) {
+      if (typeof body.arc !== 'string') {
+        errors.push('arc must be a string when provided');
+      } else if (body.arc.trim().length > ARC_MAX_LEN) {
+        errors.push(`arc must not exceed ${ARC_MAX_LEN} characters`);
+      }
+    }
+
     if (errors.length > 0) {
       return sendError(res, 400, 'VALIDATION_ERROR', errors.join('; '));
     }
@@ -528,6 +547,11 @@ function createApp(spaceId, store) {
             stages: pipelineUpdateResult.data, source: 'api',
           }) + '\n');
         }
+      }
+
+      if ('arc' in body) {
+        const trimmed = body.arc.trim();
+        patch.arc = trimmed.length > 0 ? trimmed : undefined;
       }
 
       const updatedTask = store.updateTask(spaceId, taskId, patch);
@@ -879,4 +903,28 @@ function createApp(spaceId, store) {
   return { router, ensureDataFiles };
 }
 
-module.exports = { createApp, validatePipelineField };
+/**
+ * GET /api/v1/spaces/:spaceId/arcs
+ * Returns all distinct arc values for a space, sorted alphabetically.
+ *
+ * @param {import('http').IncomingMessage} req
+ * @param {import('http').ServerResponse}  res
+ * @param {string}                         spaceId
+ * @param {import('../services/store').Store} store
+ * @param {object}                         spaceManager
+ */
+function handleGetArcs(req, res, spaceId, store, spaceManager) {
+  const spaceResult = spaceManager.getSpace(spaceId);
+  if (!spaceResult.ok) {
+    return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+  }
+  try {
+    const arcs = store.getDistinctArcs(spaceId);
+    sendJSON(res, 200, { arcs });
+  } catch (err) {
+    console.error(`GET spaces/${spaceId}/arcs error:`, err);
+    sendError(res, 500, 'INTERNAL_ERROR', 'Failed to fetch arcs');
+  }
+}
+
+module.exports = { createApp, validatePipelineField, handleGetArcs };

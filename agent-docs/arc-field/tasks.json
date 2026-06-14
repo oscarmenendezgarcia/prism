@@ -1,0 +1,215 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "arc-field",
+  "date": "2026-06-14",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "SQLite migration + store.js arc persistence",
+      "description": "Add `arc TEXT` column to tasks table. Additive migration guard (PRAGMA table_info, same pattern as folio_backend). Add idx_tasks_space_arc index. Update rowToTask (arc = row.arc != null ? row.arc : undefined). Update insertTask / upsertTask prepared stmts (12→13 positional params, arc as 13th; no JSON.stringify — plain TEXT). Update updateTask prepared stmt (SET arc = ? in UPDATE) and updateTask() function (pass merged.arc ?? null). Add getDistinctArcs prepared stmt (SELECT DISTINCT arc FROM tasks WHERE space_id = ? AND arc IS NOT NULL ORDER BY arc ASC) and expose as store.getDistinctArcs(spaceId).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 story points",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Fresh DB gets arc column in CREATE TABLE",
+        "Existing DB gets arc column via ALTER TABLE migration (run migration test against a pre-migration DB)",
+        "insertTask with arc='QOL' persists 'QOL' in DB; insertTask without arc persists NULL",
+        "rowToTask returns task.arc='QOL' when set, omits arc field when NULL",
+        "updateTask with patch {arc:'AUTH'} updates the column; patch {arc:null} clears it",
+        "store.getDistinctArcs returns sorted distinct arc strings for a space",
+        "All existing store tests still pass (no regressions)"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "API: arc in create/update + GET /arcs endpoint",
+      "description": "Backend API changes. (1) Read arc from body in POST /spaces/:spaceId/tasks handler: validate (string, ≤60 chars; reject non-string with 400 VALIDATION_ERROR); normalize empty string to null; pass to insertTask. (2) Read arc from body in PUT /spaces/:spaceId/tasks/:taskId handler: only if 'arc' in body; normalize empty string to null; include in patch. (3) New endpoint: GET /api/v1/spaces/:spaceId/arcs — space existence check, call store.getDistinctArcs(spaceId), return { arcs: [...] }. Register route ARCS_ROUTE = /^\\/api\\/v1\\/spaces\\/([^/]+)\\/arcs$/ BEFORE SPACES_TASKS_ROUTE in src/routes/index.js to avoid capture by the greedy tasks route. Response 200: { arcs: string[] }; 404: { code: 'SPACE_NOT_FOUND', message: '...' }.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 story points",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "POST /tasks with arc='QOL' returns 201 task with arc='QOL'",
+        "POST /tasks without arc returns 201 task with no arc field",
+        "PUT /tasks/:id with arc='AUTH' updates arc; response includes arc='AUTH'",
+        "PUT /tasks/:id with arc='' sets arc to null (clears it)",
+        "PUT /tasks/:id body without arc key leaves arc unchanged",
+        "POST /tasks with arc=123 (non-string) returns 400 VALIDATION_ERROR",
+        "POST /tasks with arc='A'.repeat(61) returns 400 VALIDATION_ERROR",
+        "GET /spaces/:spaceId/arcs returns { arcs: ['AUTH','QOL'] } sorted alphabetically",
+        "GET /spaces/:spaceId/arcs returns { arcs: [] } when no arc values set",
+        "GET /spaces/nonexistent/arcs returns 404 SPACE_NOT_FOUND",
+        "ARCS_ROUTE does not conflict with existing tasks routes",
+        "Existing task API tests still pass"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "MCP: arc in kanban_create_task + kanban_update_task",
+      "description": "Add arc to MCP tool schemas and forwarding in mcp/mcp-server.js. kanban_create_task: add arc: z.string().max(60).optional().describe('Narrative grouping label (e.g. \"QOL\", \"AUTH\"). Omit to leave unset.'). Forward arc in createTask call. kanban_update_task: add arc: z.string().max(60).optional().describe('Set or clear the arc. Pass \"\" (empty string) to clear the arc.'). Forward arc in fields object (if arc !== undefined: fields.arc = arc). The empty-string-to-null normalization is handled by the API handler (T-002), not in the MCP layer.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 story point",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "kanban_create_task with arc='QOL' creates task with arc='QOL' in DB",
+        "kanban_update_task with arc='AUTH' updates task arc to 'AUTH'",
+        "kanban_update_task with arc='' clears the arc field",
+        "kanban_create_task and kanban_update_task without arc param leave arc unchanged",
+        "No breaking change to existing MCP tool behaviour"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Frontend types + store actions + api/client",
+      "description": "TypeScript types and store wiring. (1) frontend/src/types/index.ts: add arc?: string to Task interface; add arc?: string to CreateTaskPayload; add arc?: string to UpdateTaskPayload; add arc?: string to TaggerSuggestion interface. (2) frontend/src/api/client.ts: add getArcs(spaceId: string): Promise<{arcs: string[]}> — GET /spaces/:spaceId/arcs. (3) frontend/src/stores/useAppStore.ts: in createTask action, include arc in POST body if defined; in updateTask action, include arc in PUT body if defined (use 'arc' in payload check). Add state: arcFilter: string | null (initial null), arcGrouping: boolean (initial false). Add actions: setArcFilter(arc: string | null), toggleArcGrouping().",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 story points",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "Task interface compiles with arc?: string field",
+        "CreateTaskPayload and UpdateTaskPayload compile with arc?: string",
+        "TaggerSuggestion compiles with arc?: string",
+        "api.getArcs('spaceId') returns { arcs: string[] } from the server",
+        "store.createTask({ ..., arc: 'QOL' }) posts arc to the API",
+        "store.updateTask(id, { arc: 'AUTH' }) patches arc in the API",
+        "arcFilter and arcGrouping initial state are null and false respectively",
+        "setArcFilter('QOL') sets arcFilter; setArcFilter(null) clears it",
+        "toggleArcGrouping() toggles arcGrouping boolean",
+        "No TypeScript errors (tsc --noEmit passes)"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "TaskCard: arc chip in Zone B",
+      "description": "Add arc chip to TaskCard (frontend/src/components/board/TaskCard.tsx) in Zone B (meta row). Render after the type badge, before the divider dot, when task.arc is set. Style: small monospace chip using design system tokens. Exact classes: inline-flex items-center text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded border border-border bg-surface-elevated text-text-secondary. Content: task.arc (e.g. 'QOL'). Do NOT add a click handler on the chip — the whole card opens the detail panel. Add data-testid='arc-chip'.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "1 story point",
+      "dependencies": ["T-004"],
+      "acceptance_criteria": [
+        "Task with arc='QOL' shows an arc chip with text 'QOL' in Zone B",
+        "Task without arc shows no arc chip",
+        "Arc chip has data-testid='arc-chip'",
+        "Arc chip uses only design system Tailwind tokens (no inline styles)",
+        "Chip does not appear when arc is undefined/null"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "ArcAutocomplete shared component",
+      "description": "Create frontend/src/components/shared/ArcAutocomplete.tsx. A controlled combobox: props { value: string; onChange: (v: string) => void; spaceId: string; placeholder?: string; className?: string }. Behaviour: on mount, fetch api.getArcs(spaceId) → options list. Render a text <input> with a dropdown of matching options (filtered by typed value, case-insensitive). User can type a new arc (free text). Clear button (×) when value non-empty. Keyboard: ArrowDown/Up to navigate, Enter to select, Escape to close dropdown. Dropdown: absolute positioned, bg-surface-elevated border border-border rounded-md shadow-md z-50, max-h-48 overflow-y-auto. Each option row: px-3 py-2 text-sm cursor-pointer hover:bg-primary/10. No external combobox library. Input styling: use same inputClass as CreateTaskModal (px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled focus:outline-hidden focus:border-primary focus:ring-2 focus:ring-primary/40).",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "3 story points",
+      "dependencies": ["T-004"],
+      "acceptance_criteria": [
+        "Component renders an input field",
+        "On mount, fetches /spaces/:spaceId/arcs and populates suggestion list",
+        "Typing filters suggestions (case-insensitive substring match)",
+        "ArrowDown/Up selects items in list; Enter confirms; Escape closes dropdown",
+        "Clear (×) button appears when value is non-empty and clears on click",
+        "Free-text value (not in list) is accepted as valid arc",
+        "Dropdown closes on outside click",
+        "No inline styles — Tailwind tokens only"
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "CreateTaskModal + TaskDetailPanel: arc field",
+      "description": "Add arc input to CreateTaskModal and TaskDetailPanel using the ArcAutocomplete component (T-006). CreateTaskModal (frontend/src/components/modals/CreateTaskModal.tsx): add arc state (useState<string>('')), render <ArcAutocomplete> after the description textarea, label 'Arc (optional)'. On submit, include arc in CreateTaskPayload if non-empty (never send empty string). Reset arc state on modal close/open. TaskDetailPanel (frontend/src/components/board/TaskDetailPanel.tsx): add arc edit field in the metadata section (same position as assigned). Show current task.arc or placeholder 'No arc'. On change (blur or Enter), call store.updateTask(task.id, { arc: newValue }) or store.updateTask(task.id, { arc: '' }) to clear. Reuse ArcAutocomplete with the activeSpaceId.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "3 story points",
+      "dependencies": ["T-006"],
+      "acceptance_criteria": [
+        "CreateTaskModal shows an Arc field with ArcAutocomplete",
+        "Submitting with arc='QOL' sends arc in payload; board shows card with arc chip",
+        "Submitting without arc sends no arc field (not empty string)",
+        "TaskDetailPanel shows current arc value (or placeholder when unset)",
+        "Editing arc in TaskDetailPanel and confirming calls PUT /tasks/:id with new arc",
+        "Clearing arc in TaskDetailPanel sends arc='' which clears it on the server",
+        "ArcAutocomplete in both modals is pre-populated with space's existing arcs"
+      ]
+    },
+    {
+      "id": "T-008",
+      "title": "ArcBar + Board grouping/filtering",
+      "description": "New component ArcBar (frontend/src/components/board/ArcBar.tsx) and board arc grouping logic. ArcBar: reads distinct arc values from current board tasks (from store tasks state — no extra API call needed for the chip bar, the board already has all tasks). Renders a horizontal scrollable row of arc filter chips (one per distinct arc, sorted). Clicking a chip sets arcFilter to that arc (or clears if already selected = toggle). Also renders a 'Group' toggle button (icon: format_list_grouped or view_agenda) that calls toggleArcGrouping(). When no tasks have arc, ArcBar renders nothing (null). Position: in Board.tsx, between ColumnTabBar and the columns grid. Column.tsx changes: (1) When arcFilter is non-null, filter task list to only tasks where task.arc === arcFilter. (2) When arcGrouping is true, sort/group tasks by arc (distinct arcs alphabetically; tasks without arc at end under '—' header). Render ArcGroupHeader before each group. ArcGroupHeader inline component: div with font-mono text-[10px] text-text-secondary uppercase tracking-widest, count badge, flex-1 border-b.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "4 story points",
+      "dependencies": ["T-004", "T-005"],
+      "acceptance_criteria": [
+        "ArcBar renders nothing when no tasks have an arc set",
+        "ArcBar renders one chip per distinct arc value in the current board tasks",
+        "Clicking an arc chip sets arcFilter; clicking again clears it",
+        "Active filter chip is visually highlighted (bg-primary/10 text-primary or equivalent)",
+        "With arcFilter='QOL', columns only show tasks with arc='QOL'",
+        "Group toggle button toggles arcGrouping boolean",
+        "With arcGrouping=true, each column shows ArcGroupHeader dividers per arc group",
+        "Tasks without arc appear under '—' section at the bottom of each column when grouping",
+        "Filter and grouping can be active simultaneously",
+        "Board does not regress (drag/drop, column counts, existing tests pass)"
+      ]
+    },
+    {
+      "id": "T-009",
+      "title": "Tagger: arc suggestion in AI Actions",
+      "description": "Extend tagger to propose arc labels. (1) src/handlers/tagger.js: update FORMAT_SYSTEM_PROMPT to include 'arc' in the suggestion schema: add rule 'Set arc to a short uppercase label (e.g. \"QOL\", \"AUTH\") if you can infer the narrative grouping from the title prefix or pattern. Omit arc entirely if you cannot confidently infer it.' (2) Include current task.arc (if set) in the cards JSON sent to Claude so it can see existing arcs for consistency. (3) Parse arc from response suggestions (it's optional — undefined if model omitted it). (4) TaggerSuggestion type already updated in T-004. (5) TaggerReviewModal (frontend/src/components/modals/TaggerReviewModal.tsx): when suggestion.arc is present, render a small arc chip in the suggestion row (same style as TaskCard chip). (6) When applying accepted suggestions in the modal, include arc in the PUT body if suggestion.arc is defined.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "3 story points",
+      "dependencies": ["T-003", "T-004"],
+      "acceptance_criteria": [
+        "FORMAT_SYSTEM_PROMPT includes arc in the suggestion JSON schema with clear inference rule",
+        "Claude returns arc field on suggestions where the title implies a grouping (e.g. 'QOL-5' → arc='QOL')",
+        "Claude omits arc when it cannot infer (no hallucination of arbitrary labels)",
+        "Existing task.arc value is sent to Claude so it can be consistent with already-set arcs",
+        "TaggerReviewModal shows arc chip on suggestions that have an arc",
+        "Applying a suggestion with arc='QOL' updates the task's arc to 'QOL' in the DB",
+        "Applying a suggestion without arc does NOT clear an existing task arc (only update type/description)",
+        "Tagger API response still includes skipped[] and model/token metadata"
+      ]
+    },
+    {
+      "id": "T-010",
+      "title": "Backend tests — arc migration, API, MCP",
+      "description": "Write backend tests (tests/store.test.js, tests/tasks.test.js or equivalent). Test coverage: (1) Store: arc column exists after createStore(':memory:'); insertTask with arc persists; rowToTask with arc col; getDistinctArcs returns sorted values; updateTask patches arc. (2) API: POST /tasks arc=string → 201 with arc; PUT arc='' → null; PUT no-arc-key → unchanged; POST arc=123 → 400; GET /arcs → sorted array; GET /arcs on fresh space → []. (3) MCP: kanban_create_task with arc; kanban_update_task with arc.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "3 story points",
+      "dependencies": ["T-001", "T-002", "T-003"],
+      "acceptance_criteria": [
+        "npm run test:report reports OK for all arc-related tests",
+        "Migration test: open a DB without arc column, call createStore, verify arc column exists",
+        "POST /tasks arc='QOL' → arc persists and is returned",
+        "POST /tasks arc=123 → 400 VALIDATION_ERROR",
+        "GET /arcs returns sorted distinct arcs",
+        "MCP create_task with arc creates task with arc",
+        "No existing tests broken"
+      ]
+    },
+    {
+      "id": "T-011",
+      "title": "Frontend tests — TaskCard chip, ArcAutocomplete, store",
+      "description": "Write frontend unit tests. (1) TaskCard: renders arc chip when task.arc is set; no chip when undefined. (2) ArcAutocomplete: mocks getArcs response; filtering works; keyboard navigation; clear button; free-text accepted. (3) Store: createTask includes arc in API call; updateTask includes arc; setArcFilter sets state; toggleArcGrouping toggles state. Run with: cd frontend && npm test.",
+      "role": "QA",
+      "priority": "Medium",
+      "estimate": "2 story points",
+      "dependencies": ["T-005", "T-006", "T-004"],
+      "acceptance_criteria": [
+        "cd frontend && npm test passes with no new failures",
+        "TaskCard test: arc chip renders for task with arc='QOL'",
+        "TaskCard test: no arc chip for task without arc",
+        "ArcAutocomplete test: renders options from mocked /arcs response",
+        "ArcAutocomplete test: filters by typed text",
+        "Store test: createTask with arc calls POST with arc in body",
+        "Store test: setArcFilter sets arcFilter state"
+      ]
+    }
+  ]
+}

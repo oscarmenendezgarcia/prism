@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #13121b;
+      color: #e5e0ed;
+      margin: 0;
+      overflow: hidden;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      vertical-align: middle;
+    }
+    .glass-panel {
+      background: rgba(17, 17, 24, 0.8);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+    }
+  </style>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "background": "#13121b",
+            "on-secondary-fixed-variant": "#454078",
+            "surface-bright": "#3a3841",
+            "primary-fixed-dim": "#c6bfff",
+            "on-secondary": "#2e295f",
+            "tertiary-fixed": "#ffdcbd",
+            "outline-variant": "#474554",
+            "secondary-fixed-dim": "#c6bfff",
+            "surface-variant": "#35343d",
+            "surface": "#13121b",
+            "on-tertiary": "#492900",
+            "error-container": "#93000a",
+            "tertiary": "#ffb86e",
+            "on-primary-container": "#22008d",
+            "on-tertiary-fixed-variant": "#693c00",
+            "tertiary-fixed-dim": "#ffb86e",
+            "on-primary-fixed-variant": "#3f29bc",
+            "primary-fixed": "#e4dfff",
+            "surface-dim": "#13121b",
+            "outline": "#928ea0",
+            "secondary-container": "#454078",
+            "on-primary-fixed": "#160066",
+            "on-surface": "#e5e0ed",
+            "surface-tint": "#c6bfff",
+            "secondary-fixed": "#e4dfff",
+            "surface-container-low": "#1c1b23",
+            "on-error-container": "#ffdad6",
+            "surface-container-lowest": "#0e0d15",
+            "inverse-surface": "#e5e0ed",
+            "on-background": "#e5e0ed",
+            "surface-container-high": "#2a2932",
+            "inverse-primary": "#5846d4",
+            "secondary": "#c6bfff",
+            "surface-container-highest": "#35343d",
+            "primary": "#c6bfff",
+            "error": "#ffb4ab",
+            "on-surface-variant": "#c8c4d7",
+            "on-secondary-container": "#b4aeee",
+            "on-error": "#690005",
+            "on-tertiary-fixed": "#2c1600",
+            "tertiary-container": "#ce7e17",
+            "primary-container": "#8c80ff",
+            "on-primary": "#2800a0",
+            "inverse-on-surface": "#312f38",
+            "on-tertiary-container": "#402300",
+            "on-secondary-fixed": "#19124a",
+            "surface-container": "#201f27"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "md": "16px",
+            "gutter": "16px",
+            "margin": "24px",
+            "sm": "8px",
+            "lg": "24px",
+            "base": "4px",
+            "xl": "40px",
+            "xs": "4px"
+          },
+          "fontFamily": {
+            "headline-sm": ["Inter"],
+            "body-md": ["Inter"],
+            "label-md": ["Inter"],
+            "headline-lg-mobile": ["Inter"],
+            "label-sm": ["Inter"],
+            "headline-lg": ["Inter"],
+            "body-lg": ["Inter"],
+            "headline-md": ["Inter"]
+          },
+          "fontSize": {
+            "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "500"}],
+            "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+            "label-md": ["12px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+            "headline-lg-mobile": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+            "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+            "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+            "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+            "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}]
+          }
+        },
+      },
+    }
+  </script>
+</head>
+<body class="bg-background">
+<!-- Side Navigation Shell -->
+<aside class="fixed left-0 top-0 h-full flex flex-col p-md z-40 bg-surface-container-low border-r border-outline-variant w-[280px] hidden md:flex">
+<div class="flex items-center gap-sm mb-lg">
+<div class="w-8 h-8 bg-primary rounded flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined">diamond</span>
+</div>
+<div>
+<h1 class="font-headline-sm text-headline-sm font-black text-primary">Prism</h1>
+<p class="font-label-md text-label-md text-on-surface-variant">Developer Edition</p>
+</div>
+</div>
+<button class="mb-lg w-full py-sm bg-primary-container text-on-primary-container font-label-md text-label-md rounded-lg flex items-center justify-center gap-2 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[18px]">add</span>
+      New Task
+    </button>
+<nav class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 bg-secondary-container text-on-secondary-container rounded-lg font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+        Dashboard
+      </a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant/30 transition-all rounded-lg font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined">task_alt</span>
+        My Tasks
+      </a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant/30 transition-all rounded-lg font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined">folder</span>
+        Projects
+      </a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant/30 transition-all rounded-lg font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined">insights</span>
+        Activity
+      </a>
+<a class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant/30 transition-all rounded-lg font-label-md text-label-md" href="#">
+<span class="material-symbols-outlined">settings</span>
+        Settings
+      </a>
+</nav>
+</aside>
+<!-- Top App Bar -->
+<header class="fixed top-0 right-0 left-0 md:left-[280px] h-16 bg-surface border-b border-outline-variant flex justify-between items-center px-margin z-50">
+<div class="flex items-center gap-lg">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="bg-surface-container h-10 pl-10 pr-4 rounded-full border-none focus:ring-1 focus:ring-primary w-64 text-body-md font-body-md" placeholder="Search tasks..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-md">
+<button class="p-2 text-on-surface-variant hover:bg-surface-variant/50 rounded-full transition-colors active:scale-95">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:bg-surface-variant/50 rounded-full transition-colors active:scale-95">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-container-highest overflow-hidden border border-outline-variant">
+<img alt="User profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBgJ8w2OXiqzNqngloyuTMbue-C8XXwpbfm1RmXNBFwC5F547_8OgLQBSWAttxMVYGHeJ0DSOhgVvUCFEzhLGJMhsw5h-JAzi6uurlL4YZQjguvwEdNVItD1NasXUyhYaVCcSUW5vxOdKHvbkJ27kmOhR2yvahpy39vUKM4DEAhXqvopOGuJKhh8NSf3GjT6vsqKenTtyvKTjEt4W6EELM6B4qg_S7BnrdtJmKfrEirqGANTyEkARnPvL7TsqLHEF_gyM0tMY362ju2"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas (Kanban Board) -->
+<main class="pt-24 pb-12 px-margin md:ml-[280px] min-h-screen blur-sm pointer-events-none select-none overflow-hidden">
+<div class="flex gap-lg h-[calc(100vh-140px)]">
+<!-- Todo Column -->
+<div class="flex-1 min-w-[300px] flex flex-col bg-surface-container-lowest rounded-xl p-md border border-outline-variant/30">
+<div class="flex items-center justify-between mb-lg">
+<div class="flex items-center gap-sm">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Todo</h3>
+<span class="bg-surface-container px-2 py-0.5 rounded text-label-sm font-label-sm text-on-surface-variant">12</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant">more_horiz</span>
+</div>
+<div class="space-y-md overflow-y-auto custom-scrollbar">
+<!-- Task Card 1 -->
+<div class="p-md bg-surface-container-high rounded-lg border border-outline-variant/50 shadow-sm">
+<div class="flex items-center justify-between mb-sm">
+<span class="px-2 py-0.5 bg-secondary-container/20 text-primary text-[10px] font-bold rounded uppercase tracking-wider">feature</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant">PR-102</span>
+</div>
+<h4 class="font-body-lg text-body-lg text-on-surface mb-xs">Refactor Auth Middleware</h4>
+<p class="text-label-md font-label-md text-on-surface-variant line-clamp-2">Migrate existing session logic to JWT-based approach for the new mobile client edge cases.</p>
+</div>
+<!-- Task Card 2 -->
+<div class="p-md bg-surface-container-high rounded-lg border border-outline-variant/50 shadow-sm">
+<div class="flex items-center justify-between mb-sm">
+<span class="px-2 py-0.5 bg-error-container/20 text-error text-[10px] font-bold rounded uppercase tracking-wider">bug</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant">PR-89</span>
+</div>
+<h4 class="font-body-lg text-body-lg text-on-surface mb-xs">Fix Layout Shift on Load</h4>
+<p class="text-label-md font-label-md text-on-surface-variant line-clamp-2">LCP issues identified on high-latency connections due to font-face swap behavior.</p>
+</div>
+</div>
+</div>
+<!-- In Progress Column -->
+<div class="flex-1 min-w-[300px] flex flex-col bg-surface-container-lowest rounded-xl p-md border border-outline-variant/30">
+<div class="flex items-center justify-between mb-lg">
+<div class="flex items-center gap-sm">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">In Progress</h3>
+<span class="bg-surface-container px-2 py-0.5 rounded text-label-sm font-label-sm text-on-surface-variant">4</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant">more_horiz</span>
+</div>
+<div class="space-y-md overflow-y-auto custom-scrollbar">
+<div class="p-md bg-surface-container-high rounded-lg border border-outline-variant/50 shadow-sm">
+<div class="flex items-center justify-between mb-sm">
+<span class="px-2 py-0.5 bg-tertiary-container/20 text-tertiary text-[10px] font-bold rounded uppercase tracking-wider">tech-debt</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant">PR-24</span>
+</div>
+<h4 class="font-body-lg text-body-lg text-on-surface mb-xs">Cleanup Tailwind Config</h4>
+<div class="flex -space-x-2 overflow-hidden mt-sm">
+<img alt="Assignee" class="inline-block h-6 w-6 rounded-full ring-2 ring-surface-container-high" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBxZ1MgTME08N2g5uRyGrkBXYINbjl2le6Az12uLMs-qt1e29n_N_zrF13E1plzJFovEZjtezmvDeXH4iQt0EiuBYN8vL4tzEqiAoq8yGzl51BpA2Gi_2Cw0kVJWOK-rTzTCD5czg7NWM_I6Xu23kv8T3e1aW9vY7TfHonKR7gfzn9nfG4x1cHxhZU0RTzjuPZuCB6mPNmOr21f5Hmu42AS0jIL38QXI98H4H8fOCY5ETnBaXJj2-IAH1CFydqVcmMaOKAg13kz4wUr"/>
+</div>
+</div>
+</div>
+</div>
+<!-- Done Column -->
+<div class="flex-1 min-w-[300px] flex flex-col bg-surface-container-lowest rounded-xl p-md border border-outline-variant/30">
+<div class="flex items-center justify-between mb-lg">
+<div class="flex items-center gap-sm">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Done</h3>
+<span class="bg-surface-container px-2 py-0.5 rounded text-label-sm font-label-sm text-on-surface-variant">48</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant">more_horiz</span>
+</div>
+</div>
+</div>
+</main>
+<!-- Modal Overlay -->
+<div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
+<!-- Create Task Modal -->
+<div class="w-[480px] bg-[#111118] border border-white/10 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-300">
+<!-- Header -->
+<div class="px-lg py-md flex items-center justify-between">
+<h2 class="font-headline-sm text-headline-sm font-semibold text-primary">Create Task</h2>
+<button class="p-1 hover:bg-white/5 rounded-md transition-colors text-on-surface-variant active:scale-90">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="h-[1px] w-full bg-white/5"></div>
+<!-- Form Content -->
+<div class="p-lg space-y-lg">
+<!-- Title Field -->
+<div class="space-y-sm">
+<label class="font-label-md text-label-md text-on-surface-variant">Title</label>
+<input class="w-full h-11 px-4 bg-[#1A1A24] border border-white/10 rounded-lg text-body-md font-body-md focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-on-surface-variant/40 transition-all" placeholder="Task title..." type="text"/>
+</div>
+<!-- Type Segmented Control -->
+<div class="space-y-sm">
+<label class="font-label-md text-label-md text-on-surface-variant">Type</label>
+<div class="flex flex-wrap gap-2">
+<!-- Feature (Selected) -->
+<button class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-primary bg-[#7C6DFA]/15 text-primary transition-all active:scale-95">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<span class="font-label-md text-label-md">feature</span>
+</button>
+<!-- Bug -->
+<button class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-transparent bg-error-container/20 text-error hover:border-error/30 transition-all active:scale-95">
+<span class="w-2 h-2 rounded-full bg-error"></span>
+<span class="font-label-md text-label-md">bug</span>
+</button>
+<!-- Tech-Debt -->
+<button class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-transparent bg-tertiary-container/20 text-tertiary hover:border-tertiary/30 transition-all active:scale-95">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="font-label-md text-label-md">tech-debt</span>
+</button>
+<!-- Chore -->
+<button class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-transparent bg-white/5 text-on-surface-variant hover:border-white/10 transition-all active:scale-95">
+<span class="w-2 h-2 rounded-full bg-on-surface-variant"></span>
+<span class="font-label-md text-label-md">chore</span>
+</button>
+</div>
+</div>
+<!-- Description -->
+<div class="space-y-sm">
+<label class="font-label-md text-label-md text-on-surface-variant">Description</label>
+<textarea class="w-full p-4 bg-[#1A1A24] border border-white/10 rounded-lg text-body-md font-body-md focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary placeholder:text-on-surface-variant/40 resize-none transition-all" placeholder="Optional description..." rows="3"></textarea>
+</div>
+<!-- Arc (Autocomplete) -->
+<div class="space-y-sm relative">
+<div class="flex flex-col">
+<label class="font-label-md text-label-md text-on-surface-variant">Arc (optional)</label>
+<span class="font-label-sm text-label-sm text-on-surface-variant/60">Narrative grouping label (e.g. QOL, AUTH, LOOP)</span>
+</div>
+<div class="relative group">
+<input class="w-full h-11 pl-4 pr-10 bg-[#1A1A24] border border-white/10 rounded-lg text-body-md font-body-md focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all" type="text" value="QOL"/>
+<button class="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant/60 hover:text-on-surface">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+<!-- Floating Dropdown -->
+<div class="absolute left-0 right-0 top-full mt-2 bg-[#1A1A24] border border-white/10 rounded-lg shadow-xl py-2 z-10 overflow-hidden">
+<button class="w-full text-left px-4 py-2 text-label-md font-label-md bg-[#7C6DFA]/10 text-primary">QOL</button>
+<button class="w-full text-left px-4 py-2 text-label-md font-label-md text-on-surface-variant hover:bg-white/5">AUTH</button>
+<button class="w-full text-left px-4 py-2 text-label-md font-label-md text-on-surface-variant hover:bg-white/5">LOOP</button>
+<button class="w-full text-left px-4 py-2 text-label-md font-label-md text-on-surface-variant hover:bg-white/5">FOLIO</button>
+</div>
+</div>
+</div>
+<!-- Footer -->
+<div class="px-lg py-lg flex items-center justify-end gap-md mt-4">
+<button class="px-4 py-2 font-label-md text-label-md text-on-surface-variant hover:bg-white/5 rounded-lg transition-all active:scale-95">
+          Cancel
+        </button>
+<button class="px-6 py-2 font-label-md text-label-md text-white bg-[#7C6DFA] hover:bg-[#6b5ce5] rounded-lg shadow-[0_0_20px_rgba(124,109,250,0.3)] transition-all active:scale-95">
+          Create Task
+        </button>
+</div>
+</div>
+</div>
+<script>
+    // Subtle interaction script
+    document.addEventListener('DOMContentLoaded', () => {
+      // Logic for type selection toggles could go here
+      const typeButtons = document.querySelectorAll('.flex-wrap button');
+      typeButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+          typeButtons.forEach(b => {
+            b.classList.remove('border-primary', 'bg-[#7C6DFA]/15', 'text-primary');
+            b.classList.add('border-transparent');
+          });
+          btn.classList.add('border-primary', 'bg-[#7C6DFA]/15', 'text-primary');
+          btn.classList.remove('border-transparent');
+        });
+      });
+    });
+  </script>
+</body></html>

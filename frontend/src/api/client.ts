@@ -131,6 +131,14 @@ export const deleteSpace = (id: string): Promise<{ deleted: true; id: string }> 
 export const getTasks = (spaceId: string): Promise<BoardTasks> =>
   apiFetch<BoardTasks>(`/spaces/${spaceId}/tasks`);
 
+/**
+ * Fetch all distinct arc values for a space.
+ * Used by ArcAutocomplete to populate the dropdown.
+ */
+export async function getArcs(spaceId: string): Promise<{ arcs: string[] }> {
+  return apiFetch<{ arcs: string[] }>(`/spaces/${encodeURIComponent(spaceId)}/arcs`);
+}
+
 /** Create a new task in the todo column of a space. */
 export const createTask = (spaceId: string, payload: CreateTaskPayload): Promise<Task> =>
   apiFetch<Task>(`/spaces/${spaceId}/tasks`, {

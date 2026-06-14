@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Prism | AI Tag Review</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #0A0A0F;
+            color: rgba(245, 245, 250, 0.96);
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "tertiary-container": "#ce7e17",
+                        "error-container": "#93000a",
+                        "inverse-surface": "#e5e0ed",
+                        "on-secondary-fixed-variant": "#454078",
+                        "outline-variant": "#474554",
+                        "surface-tint": "#c6bfff",
+                        "on-background": "#e5e0ed",
+                        "on-secondary-container": "#b4aeee",
+                        "on-secondary-fixed": "#19124a",
+                        "on-primary": "#2800a0",
+                        "primary-fixed": "#e4dfff",
+                        "on-tertiary-container": "#402300",
+                        "inverse-on-surface": "#312f38",
+                        "on-surface-variant": "#c8c4d7",
+                        "surface-variant": "#35343d",
+                        "on-tertiary": "#492900",
+                        "on-error": "#690005",
+                        "tertiary-fixed": "#ffdcbd",
+                        "on-surface": "#e5e0ed",
+                        "primary": "#c6bfff",
+                        "surface-container-lowest": "#0e0d15",
+                        "on-tertiary-fixed": "#2c1600",
+                        "surface-container-low": "#1c1b23",
+                        "surface-container": "#201f27",
+                        "background": "#13121b",
+                        "on-secondary": "#2e295f",
+                        "error": "#ffb4ab",
+                        "outline": "#928ea0",
+                        "on-primary-fixed": "#160066",
+                        "surface-bright": "#3a3841",
+                        "tertiary-fixed-dim": "#ffb86e",
+                        "on-primary-fixed-variant": "#3f29bc",
+                        "secondary-container": "#454078",
+                        "primary-container": "#8c80ff",
+                        "on-error-container": "#ffdad6",
+                        "surface": "#13121b",
+                        "secondary-fixed-dim": "#c6bfff",
+                        "on-tertiary-fixed-variant": "#693c00",
+                        "secondary": "#c6bfff",
+                        "tertiary": "#ffb86e",
+                        "surface-container-highest": "#35343d",
+                        "inverse-primary": "#5846d4",
+                        "surface-container-high": "#2a2932",
+                        "primary-fixed-dim": "#c6bfff",
+                        "secondary-fixed": "#e4dfff",
+                        "on-primary-container": "#22008d",
+                        "surface-dim": "#13121b"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    spacing: {
+                        "container-margin": "24px",
+                        "gutter": "16px",
+                        "element-gap": "8px",
+                        "tight-gap": "4px",
+                        "unit": "4px",
+                        "panel-padding": "12px"
+                    },
+                    fontFamily: {
+                        "mono-allcaps": ["JetBrains Mono"],
+                        "title-sm": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "code-label": ["JetBrains Mono"],
+                        "body-md": ["Inter"]
+                    },
+                    fontSize: {
+                        "mono-allcaps": ["10px", { "lineHeight": "12px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                        "title-sm": ["18px", { "lineHeight": "24px", "fontWeight": "500" }],
+                        "display-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-sm": ["12px", { "lineHeight": "18px", "fontWeight": "400" }],
+                        "code-label": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="overflow-hidden">
+<!-- Top Navigation Anchor -->
+<header class="bg-surface w-full h-14 border-b border-outline-variant flex items-center justify-between px-container-margin z-30 relative">
+<div class="flex items-center gap-6">
+<span class="font-display-lg text-display-lg font-bold text-primary">Prism</span>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="font-body-md text-body-md text-primary font-bold border-b-2 border-primary pb-1" href="#">Dashboard</a>
+<a class="font-body-md text-body-md text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="#">Sprint Board</a>
+<a class="font-body-md text-body-md text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="#">Backlog</a>
+<a class="font-body-md text-body-md text-on-surface-variant font-medium hover:text-primary transition-colors duration-200" href="#">Analytics</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-on-surface-variant cursor-pointer active:opacity-80">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant cursor-pointer active:opacity-80">settings</button>
+<div class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center overflow-hidden border border-outline-variant">
+<img alt="User profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDAFbSWK4M6k5EeGVbXGxmvMa4iBklK2ow4M6udXNWn9A0YUNqy2ML8kpY7oFcj-cs8B01mAJFJJ64jkLZa9fB52_uR4qMge5NjFw7yPlLhTJLHC7PfwV_kLSM1fptqV7TRCtCO6e_W1wfeVCUTqQTeFZlxm6hGTH3fYiGD7W9F5e3Vd-9001gah7tHZpQBYcXa8SDEc20nabFcWsG6Jhlgr9JTT0_2MsSH1xODTMi2y6vEbSF0NO_qWLYynxLwnrvXceWqbTPpnU9d"/>
+</div>
+</div>
+</header>
+<div class="flex h-[calc(100vh-56px)]">
+<!-- Side Navigation Anchor -->
+<aside class="w-[240px] h-full bg-surface-container-low border-r border-outline-variant flex flex-col py-panel-padding gap-element-gap z-20">
+<div class="px-4 mb-4">
+<div class="font-mono-allcaps text-mono-allcaps text-on-surface">PROJECT PRISM</div>
+<div class="text-[10px] text-on-surface-variant/60 font-mono tracking-wider">V-2.4.0-Alpha</div>
+</div>
+<div class="flex flex-col gap-1 px-2">
+<button class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-all active:scale-95 duration-100 font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-sm">folder_open</span>
+                    Projects
+                </button>
+<button class="flex items-center gap-3 px-3 py-2 bg-secondary-container text-on-secondary-container rounded-lg transition-all active:scale-95 duration-100 font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-sm">account_tree</span>
+                    Task Tree
+                </button>
+<button class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-all active:scale-95 duration-100 font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-sm">group</span>
+                    Team
+                </button>
+<button class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-all active:scale-95 duration-100 font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-sm">history</span>
+                    History
+                </button>
+<button class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-all active:scale-95 duration-100 font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-sm">archive</span>
+                    Archived
+                </button>
+</div>
+<div class="mt-auto flex flex-col gap-1 px-2 border-t border-outline-variant pt-4">
+<button class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-all font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-sm">help_outline</span>
+                    Support
+                </button>
+<button class="flex items-center gap-3 px-3 py-2 text-on-surface-variant hover:bg-surface-variant rounded-lg transition-all font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-sm">code</span>
+                    API Docs
+                </button>
+</div>
+</aside>
+<!-- Kanban Board (Blurred/Dimmed Background) -->
+<main class="flex-1 overflow-hidden relative">
+<!-- Background Content Grid -->
+<div class="p-container-margin opacity-20 blur-[2px] transition-all pointer-events-none">
+<div class="flex gap-gutter h-full">
+<!-- Column 1 -->
+<div class="w-80 flex flex-col gap-4">
+<div class="flex items-center justify-between mb-2">
+<h3 class="font-bold text-on-surface uppercase tracking-widest text-[10px]">To Do</h3>
+<span class="bg-surface-container rounded-full px-2 text-[10px] text-on-surface-variant">4</span>
+</div>
+<div class="bg-surface-container-high border border-outline-variant p-4 rounded-lg h-32"></div>
+<div class="bg-surface-container-high border border-outline-variant p-4 rounded-lg h-40"></div>
+<div class="bg-surface-container-high border border-outline-variant p-4 rounded-lg h-24"></div>
+</div>
+<!-- Column 2 -->
+<div class="w-80 flex flex-col gap-4">
+<div class="flex items-center justify-between mb-2">
+<h3 class="font-bold text-on-surface uppercase tracking-widest text-[10px]">In Progress</h3>
+<span class="bg-surface-container rounded-full px-2 text-[10px] text-on-surface-variant">2</span>
+</div>
+<div class="bg-surface-container-high border border-outline-variant p-4 rounded-lg h-48"></div>
+<div class="bg-surface-container-high border border-outline-variant p-4 rounded-lg h-32"></div>
+</div>
+<!-- Column 3 -->
+<div class="w-80 flex flex-col gap-4">
+<div class="flex items-center justify-between mb-2">
+<h3 class="font-bold text-on-surface uppercase tracking-widest text-[10px]">Review</h3>
+<span class="bg-surface-container rounded-full px-2 text-[10px] text-on-surface-variant">3</span>
+</div>
+<div class="bg-surface-container-high border border-outline-variant p-4 rounded-lg h-36"></div>
+</div>
+</div>
+</div>
+<!-- TaggerReviewModal Overlay -->
+<div class="absolute inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+<div class="w-[640px] bg-[#111118] border border-white/10 rounded-[16px] shadow-2xl flex flex-col max-h-[921px]">
+<!-- Modal Header -->
+<div class="px-6 py-5 flex items-start justify-between border-b border-white/5">
+<div class="flex flex-col gap-1">
+<h2 class="text-[#7C6DFA] font-semibold text-title-sm font-title-sm">AI Tag Review</h2>
+<p class="text-on-surface-variant/80 text-body-sm font-body-sm">Review suggested types and arc labels. Accept or reject each suggestion.</p>
+</div>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-on-surface transition-colors">close</button>
+</div>
+<!-- Modal Content (List of Rows) -->
+<div class="flex-1 overflow-y-auto custom-scrollbar">
+<!-- Row 1 -->
+<div class="flex items-center gap-4 px-4 py-3 border-b border-white/5 hover:bg-[#1A1A24] transition-colors group">
+<div class="flex-shrink-0">
+<input checked="" class="w-4 h-4 rounded border-outline-variant bg-surface-container text-[#7C6DFA] focus:ring-[#7C6DFA] focus:ring-offset-0 focus:ring-opacity-40" type="checkbox"/>
+</div>
+<div class="flex-1 min-w-0">
+<h4 class="text-on-surface font-medium truncate text-body-md font-body-md">QOL-5: Add arc field</h4>
+<div class="flex items-center gap-2 mt-1">
+<span class="text-[10px] text-on-surface-variant font-mono bg-surface-variant px-1.5 py-0.5 rounded">feature</span>
+<span class="material-symbols-outlined text-[12px] text-on-surface-variant">trending_flat</span>
+<span class="text-[10px] text-[#7C6DFA] font-mono bg-[#7C6DFA]/10 px-1.5 py-0.5 rounded font-bold">refactor</span>
+</div>
+</div>
+<div class="flex-shrink-0">
+<span class="font-mono text-[10px] px-2 py-0.5 rounded-[6px] bg-[#7C6DFA]/12 border border-[#7C6DFA]/30 text-[#9B8BFF]">arc: QOL</span>
+</div>
+</div>
+<!-- Row 2 -->
+<div class="flex items-center gap-4 px-4 py-3 border-b border-white/5 hover:bg-[#1A1A24] transition-colors group">
+<div class="flex-shrink-0">
+<input checked="" class="w-4 h-4 rounded border-outline-variant bg-surface-container text-[#7C6DFA] focus:ring-[#7C6DFA] focus:ring-offset-0 focus:ring-opacity-40" type="checkbox"/>
+</div>
+<div class="flex-1 min-w-0">
+<h4 class="text-on-surface font-medium truncate text-body-md font-body-md">AUTH-1: JWT refresh flow</h4>
+<div class="flex items-center gap-2 mt-1">
+<span class="text-[10px] text-on-surface-variant font-mono bg-surface-variant px-1.5 py-0.5 rounded">feature</span>
+<span class="material-symbols-outlined text-[12px] text-on-surface-variant">trending_flat</span>
+<span class="text-[10px] text-[#7C6DFA] font-mono bg-[#7C6DFA]/10 px-1.5 py-0.5 rounded font-bold">chore</span>
+</div>
+</div>
+<div class="flex-shrink-0">
+<span class="font-mono text-[10px] px-2 py-0.5 rounded-[6px] bg-[#7C6DFA]/12 border border-[#7C6DFA]/30 text-[#9B8BFF]">arc: AUTH</span>
+</div>
+</div>
+<!-- Row 3 -->
+<div class="flex items-center gap-4 px-4 py-3 border-b border-white/5 hover:bg-[#1A1A24] transition-colors group">
+<div class="flex-shrink-0">
+<input checked="" class="w-4 h-4 rounded border-outline-variant bg-surface-container text-[#7C6DFA] focus:ring-[#7C6DFA] focus:ring-offset-0 focus:ring-opacity-40" type="checkbox"/>
+</div>
+<div class="flex-1 min-w-0">
+<h4 class="text-on-surface font-medium truncate text-body-md font-body-md">CI-2: Fix build script</h4>
+<div class="flex items-center gap-2 mt-1">
+<span class="text-[10px] text-on-surface-variant font-mono bg-surface-variant px-1.5 py-0.5 rounded">bug</span>
+<span class="material-symbols-outlined text-[12px] text-on-surface-variant">trending_flat</span>
+<span class="text-[10px] text-[#7C6DFA] font-mono bg-[#7C6DFA]/10 px-1.5 py-0.5 rounded font-bold">chore</span>
+</div>
+</div>
+</div>
+<!-- Row 4 -->
+<div class="flex items-center gap-4 px-4 py-3 border-b border-white/5 hover:bg-[#1A1A24] transition-colors group">
+<div class="flex-shrink-0">
+<input class="w-4 h-4 rounded border-outline-variant bg-surface-container text-[#7C6DFA] focus:ring-[#7C6DFA] focus:ring-offset-0 focus:ring-opacity-40" type="checkbox"/>
+</div>
+<div class="flex-1 min-w-0">
+<h4 class="text-on-surface font-medium truncate text-body-md font-body-md opacity-60 group-hover:opacity-100 transition-opacity">QOL-6: Export to CSV</h4>
+<div class="flex items-center gap-2 mt-1">
+<span class="text-[10px] text-on-surface-variant font-mono bg-surface-variant px-1.5 py-0.5 rounded">feature</span>
+<span class="material-symbols-outlined text-[12px] text-on-surface-variant">trending_flat</span>
+<span class="text-[10px] text-on-surface-variant font-mono bg-surface-variant px-1.5 py-0.5 rounded">feature</span>
+</div>
+</div>
+<div class="flex-shrink-0">
+<span class="font-mono text-[10px] px-2 py-0.5 rounded-[6px] bg-[#7C6DFA]/12 border border-[#7C6DFA]/30 text-[#9B8BFF]">arc: QOL</span>
+</div>
+</div>
+</div>
+<!-- Modal Footer -->
+<div class="px-6 py-4 flex items-center justify-between border-t border-white/5 bg-[#111118] rounded-b-[16px]">
+<span class="text-on-surface-variant text-body-sm font-body-sm">3 of 4 selected</span>
+<div class="flex items-center gap-3">
+<button class="px-4 py-2 text-on-surface-variant hover:text-on-surface font-medium text-body-md transition-colors active:scale-95 duration-100">Skip All</button>
+<button class="px-4 py-2 bg-[#7C6DFA] hover:bg-[#6B5CE5] text-white font-semibold text-body-md rounded-[6px] shadow-lg shadow-[#7C6DFA]/20 transition-all active:scale-95 duration-100">Apply Selected</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Background Atmospheric Glow -->
+<div class="fixed bottom-0 right-0 w-[500px] h-[500px] bg-[#7C6DFA]/5 blur-[120px] rounded-full -z-10 pointer-events-none"></div>
+<div class="fixed top-0 left-0 w-[300px] h-[300px] bg-[#7C6DFA]/5 blur-[100px] rounded-full -z-10 pointer-events-none"></div>
+<script>
+        // Simple micro-interaction for checkbox selection count
+        const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+        const countDisplay = document.querySelector('.text-on-surface-variant.text-body-sm');
+        
+        checkboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', () => {
+                const checkedCount = Array.from(checkboxes).filter(c => c.checked).length;
+                countDisplay.textContent = `${checkedCount} of ${checkboxes.length} selected`;
+            });
+        });
+    </script>
+</body></html>
