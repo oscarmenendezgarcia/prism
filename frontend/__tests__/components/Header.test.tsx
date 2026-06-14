@@ -30,7 +30,7 @@ beforeEach(() => {
   localStorage.clear();
   document.documentElement.classList.remove('dark');
   setupMatchMedia();
-  useAppStore.setState({ createModalOpen: false, agentSettingsPanelOpen: false });
+  useAppStore.setState({ createModalOpen: false, agentSettingsPanelOpen: false, isGlobalSearchOpen: false });
 });
 
 afterEach(() => {
@@ -96,5 +96,62 @@ describe('Header', () => {
     expect(terminalIdx).toBeGreaterThanOrEqual(0);
     expect(agentIdx).toBeGreaterThanOrEqual(0);
     expect(terminalIdx).toBeLessThan(agentIdx);
+  });
+
+  describe('Search pill (QOL-4)', () => {
+    it('renders search pill with aria-label', () => {
+      renderHeader();
+      // There are two buttons with this label (desktop pill + mobile hamburger row — both in DOM)
+      const pills = screen.getAllByLabelText(/buscar tareas/i);
+      expect(pills.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('search pill displays the ⌘K hint text', () => {
+      renderHeader();
+      expect(screen.getAllByText('⌘K').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('clicking the desktop search pill calls openGlobalSearch', () => {
+      const mockOpenGlobalSearch = vi.fn();
+      useAppStore.setState({ openGlobalSearch: mockOpenGlobalSearch } as any);
+      renderHeader();
+      // The desktop pill is the first match
+      const pills = screen.getAllByLabelText(/buscar tareas/i);
+      fireEvent.click(pills[0]);
+      expect(mockOpenGlobalSearch).toHaveBeenCalledTimes(1);
+    });
+
+    it('clicking the mobile search row calls openGlobalSearch', () => {
+      const mockOpenGlobalSearch = vi.fn();
+      useAppStore.setState({ openGlobalSearch: mockOpenGlobalSearch } as any);
+      renderHeader();
+      // Open hamburger menu first
+      const hamburger = screen.getByLabelText('Open menu');
+      fireEvent.click(hamburger);
+      // Click the mobile search row (last button with the search label)
+      const pills = screen.getAllByLabelText(/buscar tareas/i);
+      const mobileRow = pills[pills.length - 1];
+      fireEvent.click(mobileRow);
+      expect(mockOpenGlobalSearch).toHaveBeenCalledTimes(1);
+    });
+
+    it('mobile search row closes the hamburger menu after click', () => {
+      const mockOpenGlobalSearch = vi.fn();
+      useAppStore.setState({ openGlobalSearch: mockOpenGlobalSearch } as any);
+      renderHeader();
+      const hamburger = screen.getByLabelText('Open menu');
+      fireEvent.click(hamburger);
+      // Menu is open — "close" icon visible means the menu is open
+      expect(hamburger).toHaveAttribute('aria-expanded', 'true');
+      const pills = screen.getAllByLabelText(/buscar tareas/i);
+      fireEvent.click(pills[pills.length - 1]);
+      expect(hamburger).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('search pill is keyboard-accessible (has accessible role button)', () => {
+      renderHeader();
+      const pills = screen.getAllByRole('button', { name: /buscar tareas/i });
+      expect(pills.length).toBeGreaterThanOrEqual(1);
+    });
   });
 });

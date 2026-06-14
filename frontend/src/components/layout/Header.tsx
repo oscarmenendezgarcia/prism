@@ -19,6 +19,7 @@ import { useAppStore } from '@/stores/useAppStore';
 
 export function Header() {
   const openCreateModal = useAppStore((s) => s.openCreateModal);
+  const openGlobalSearch = useAppStore((s) => s.openGlobalSearch);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -50,8 +51,39 @@ export function Header() {
         <h1 className="text-lg font-semibold text-text-primary tracking-tight">Prism</h1>
       </div>
 
-      {/* Centre: unified run indicator (ADR-1 run-indicator) — only takes space when active */}
+      {/* Centre: search pill + run indicator */}
       <div className="flex items-center gap-3 justify-center px-4">
+        {/* Search pill — visible on sm+, hidden on mobile (hamburger menu has the entry point) */}
+        <button
+          type="button"
+          onClick={openGlobalSearch}
+          aria-label="Buscar tareas (⌘K)"
+          className="hidden sm:flex items-center gap-2 px-3 h-9 min-w-[200px] max-w-[260px] flex-shrink-0
+            bg-surface border border-border rounded-lg
+            hover:border-primary/40 hover:bg-surface-elevated
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
+            transition-colors duration-fast cursor-pointer group"
+        >
+          <span
+            className="material-symbols-outlined text-[20px] leading-none text-text-secondary shrink-0"
+            aria-hidden="true"
+          >
+            search
+          </span>
+          <span className="flex-1 text-[13px] text-text-disabled text-left select-none">
+            Buscar…
+          </span>
+          <kbd
+            className="hidden sm:inline-flex items-center px-1.5 py-0.5
+              text-[10px] font-mono text-text-disabled
+              border border-border rounded
+              bg-surface-variant shrink-0"
+            aria-hidden="true"
+          >
+            ⌘K
+          </kbd>
+        </button>
+
         <RunIndicator />
       </div>
 
@@ -127,6 +159,18 @@ export function Header() {
               >
                 <span className="material-symbols-outlined text-[18px] leading-none text-primary" aria-hidden="true">add_circle</span>
                 New Task
+              </button>
+
+              {/* Search */}
+              <button
+                type="button"
+                onClick={() => { openGlobalSearch(); setMenuOpen(false); }}
+                aria-label="Buscar tareas (⌘K)"
+                className="w-full flex items-center gap-3 px-4 min-h-[44px] text-sm text-text-primary hover:bg-surface-variant transition-colors duration-fast"
+              >
+                <span className="material-symbols-outlined text-[18px] leading-none text-text-secondary" aria-hidden="true">search</span>
+                <span className="flex-1 text-left">Buscar</span>
+                <span className="text-xs font-mono text-text-disabled" aria-hidden="true">⌘K</span>
               </button>
 
               <div className="h-px bg-border mx-3 my-1" aria-hidden="true" />
