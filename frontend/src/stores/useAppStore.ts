@@ -101,6 +101,7 @@ interface AppState {
   createTask: (payload: CreateTaskPayload) => Promise<void>;
   moveTask: (taskId: string, direction: 'left' | 'right', currentColumn: Column) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
+  reorderTask: (taskId: string, column: Column, newRank: number) => Promise<void>;
 
   // Create task modal
   createModalOpen: boolean;
@@ -746,6 +747,26 @@ export const useAppStore = create<AppState>((set, get) => {
       showToast((err as Error).message, 'error');
     } finally {
       set({ isMutating: false });
+    }
+  },
+
+
+  reorderTask: async (taskId: string, column: Column, newRank: number) => {
+    const { activeSpaceId, tasks, showToast } = get();
+    // Snapshot for rollback
+    const prevColumnTasks = [...tasks[column]];
+    // Optimistic update: set new rank and re-sort
+    const updated = tasks[column].map((t) =>
+      t.id === taskId ? { ...t, rank: newRank } : t
+    );
+    updated.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt));
+    set({ tasks: { ...tasks, [column]: updated } });
+    try {
+      await api.reorderTask(activeSpaceId, taskId, newRank);
+    } catch (err) {
+      // Rollback on failure
+      set({ tasks: { ...get().tasks, [column]: prevColumnTasks } });
+      showToast((err as Error).message, 'error');
     }
   },
 
