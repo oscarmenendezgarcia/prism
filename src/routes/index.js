@@ -12,7 +12,7 @@
 'use strict';
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
-const { createApp }                      = require('../handlers/tasks');
+const { createApp, handleGetArcs }       = require('../handlers/tasks');
 const { handleStatic }                   = require('../handlers/static');
 const { handleGetSettings, handlePutSettings } = require('../handlers/settings');
 const {
@@ -105,6 +105,7 @@ const {
 // Route patterns
 // ---------------------------------------------------------------------------
 
+const ARCS_ROUTE            = /^\/api\/v1\/spaces\/([^/]+)\/arcs$/;
 const COMMENTS_LIST_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments$/;
 const COMMENTS_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments\/([^/]+)$/;
 
@@ -480,6 +481,20 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         return handleCreateComment(req, res, store, spaceId, taskId, dataDir);
       }
 
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
+        `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Arc listing route: GET /api/v1/spaces/:spaceId/arcs
+    // Must be before SPACES_TASKS_ROUTE to avoid regex swallowing.
+    // -------------------------------------------------------------------------
+    const arcsMatch = ARCS_ROUTE.exec(urlPath);
+    if (arcsMatch) {
+      const spaceId = arcsMatch[1];
+      if (method === 'GET') {
+        return handleGetArcs(req, res, spaceId, store, spaceManager);
+      }
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
         `Method '${method}' is not allowed on this route`);
     }

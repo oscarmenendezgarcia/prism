@@ -58,12 +58,14 @@ CREATE TABLE IF NOT EXISTS tasks (
   pipeline    TEXT,
   attachments TEXT,
   comments    TEXT,
+  arc         TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_space_column   ON tasks(space_id, column);
 CREATE INDEX IF NOT EXISTS idx_tasks_space_assigned ON tasks(space_id, assigned);
+CREATE INDEX IF NOT EXISTS idx_tasks_space_arc      ON tasks(space_id, arc);
 CREATE INDEX IF NOT EXISTS idx_tasks_updated        ON tasks(updated_at);
 
 CREATE TABLE IF NOT EXISTS pipeline_runs (
@@ -192,6 +194,7 @@ function rowToTask(row) {
   if (att !== undefined) task.attachments = att;
   const cmt = fromJson(row.comments);
   if (cmt !== undefined) task.comments = cmt;
+  if (row.arc != null) task.arc = row.arc;  // plain TEXT, no JSON.parse
   return task;
 }
 
@@ -223,6 +226,15 @@ function createStore(dataDir) {
     if (!cols.some((c) => c.name === 'folio_backend')) {
       db.exec('ALTER TABLE spaces ADD COLUMN folio_backend TEXT');
       console.log('[store] migration: added folio_backend column to spaces');
+    }
+  }
+
+  // Additive migration: arc column (QOL-5 — arc field on tasks).
+  {
+    const cols = db.pragma('table_info(tasks)');
+    if (!cols.some((c) => c.name === 'arc')) {
+      db.exec('ALTER TABLE tasks ADD COLUMN arc TEXT');
+      console.log('[store] migration: added arc column to tasks');
     }
   }
 
@@ -287,22 +299,25 @@ function createStore(dataDir) {
     ),
     insertTask: db.prepare(`
       INSERT INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     upsertTask: db.prepare(`
       INSERT OR IGNORE INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     updateTask: db.prepare(`
       UPDATE tasks
          SET title = ?, type = ?, description = ?, assigned = ?,
-             pipeline = ?, attachments = ?, comments = ?, updated_at = ?
+             pipeline = ?, attachments = ?, comments = ?, arc = ?, updated_at = ?
        WHERE space_id = ? AND id = ?
     `),
+    getDistinctArcs: db.prepare(
+      'SELECT DISTINCT arc FROM tasks WHERE space_id = ? AND arc IS NOT NULL ORDER BY arc ASC'
+    ),
     moveTask: db.prepare(`
       UPDATE tasks
          SET column = ?, updated_at = ?
@@ -448,6 +463,7 @@ function createStore(dataDir) {
       task.pipeline    !== undefined ? JSON.stringify(task.pipeline)    : null,
       task.attachments !== undefined ? JSON.stringify(task.attachments) : null,
       task.comments    !== undefined ? JSON.stringify(task.comments)    : null,
+      task.arc ?? null,
       task.createdAt,
       task.updatedAt,
     ));
@@ -468,6 +484,7 @@ function createStore(dataDir) {
       task.pipeline    !== undefined ? JSON.stringify(task.pipeline)    : null,
       task.attachments !== undefined ? JSON.stringify(task.attachments) : null,
       task.comments    !== undefined ? JSON.stringify(task.comments)    : null,
+      task.arc ?? null,
       task.createdAt,
       task.updatedAt,
     );
@@ -496,6 +513,7 @@ function createStore(dataDir) {
       merged.pipeline    !== undefined ? JSON.stringify(merged.pipeline)    : null,
       merged.attachments !== undefined ? JSON.stringify(merged.attachments) : null,
       merged.comments    !== undefined ? JSON.stringify(merged.comments)    : null,
+      merged.arc ?? null,
       merged.updatedAt,
       spaceId,
       taskId,
@@ -548,6 +566,17 @@ function createStore(dataDir) {
   function clearSpace(spaceId) {
     const info = withFtsRecovery(() => stmts.clearSpace.run(spaceId));
     return info.changes;
+  }
+
+  /**
+   * Return all distinct arc values for a space, sorted alphabetically.
+   * Used by GET /spaces/:spaceId/arcs to populate the ArcAutocomplete.
+   *
+   * @param {string} spaceId
+   * @returns {string[]}
+   */
+  function getDistinctArcs(spaceId) {
+    return stmts.getDistinctArcs.all(spaceId).map((r) => r.arc);
   }
 
   /**
@@ -739,6 +768,7 @@ function createStore(dataDir) {
     clearSpace,
     searchTasks,
     searchAllTasks,
+    getDistinctArcs,
     rebuildFts,
     // Pipeline runs
     getRun,
