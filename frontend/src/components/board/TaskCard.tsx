@@ -98,7 +98,8 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
     !!task.assigned ||
     (task.attachments && task.attachments.length > 0) ||
     !!task.description ||
-    pendingQuestions > 0;
+    pendingQuestions > 0 ||
+    (task.isBlocked && column !== 'done');
 
   // Badge style per type (wireframe S-02, S-03)
   const badgeClass = task.type === 'feature'
@@ -191,6 +192,18 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
           >
             <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">help</span>
             {pendingQuestions}
+          </span>
+        )}
+
+        {/* Blocked badge */}
+        {task.isBlocked && column !== 'done' && (
+          <span
+            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-error/[0.12] text-error leading-none"
+            data-testid="blocked-badge"
+            aria-label={`Blocked by ${task.blockedByCount} task${task.blockedByCount !== 1 ? 's' : ''}`}
+          >
+            <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">lock</span>
+            blocked by {task.blockedByCount}
           </span>
         )}
 

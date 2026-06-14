@@ -78,6 +78,12 @@ export interface Task {
   attachments?: Attachment[];
   /** Thread of comments (notes, questions, answers). Aditively returned by GET task. */
   comments?: Comment[];
+  /** IDs of dependency tasks in the same space. Absent when empty. */
+  dependsOn?: string[];
+  /** Derived: true when at least one dep is not in 'done'. Only present when dependsOn is non-empty. */
+  isBlocked?: boolean;
+  /** Derived: count of non-done deps. Only present when dependsOn is non-empty. */
+  blockedByCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -94,6 +100,8 @@ export interface CreateTaskPayload {
   description?: string;
   /** Optional ordered list of agent IDs. Omit to inherit the space default. */
   pipeline?: string[];
+  /** Optional dependency task IDs. Server validates existence + no cycles. */
+  dependsOn?: string[];
 }
 
 /**
@@ -114,6 +122,11 @@ export interface UpdateTaskPayload {
    * (reverts to space default). Omit to leave the field unchanged.
    */
   pipeline?: string[];
+  /**
+   * Dependency task IDs. [] clears all deps; omit to leave unchanged.
+   * Server validates existence (422) and no cycles (409).
+   */
+  dependsOn?: string[];
 }
 
 /** Response from PUT /spaces/:spaceId/tasks/:id/move */
