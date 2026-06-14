@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback, KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { getFsHome, browseDirectory } from '@/api/client';
 import type { DirectoryItem } from '@/types';
 
@@ -81,9 +82,66 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [loadError, setLoadError]     = useState<string | null>(null);
   const [rootLoading, setRootLoading] = useState(false);
+  const [coords, setCoords]           = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null);
 
   const panelRef   = useRef<HTMLDivElement>(null);
   const buttonRef  = useRef<HTMLButtonElement>(null);
+
+  // ---------------------------------------------------------------------------
+  // Positioning — the panel is portalled to <body> so it is never clipped by
+  // the modal's overflow container. It is anchored to the input row so it lines
+  // up with the field (full row width) rather than the narrow folder button.
+  // ---------------------------------------------------------------------------
+
+  const updatePosition = useCallback(() => {
+    const btn = buttonRef.current;
+    if (!btn) return;
+    // Align to the field row (input + button) when present; fall back to the button.
+    const anchor = (btn.closest('[data-dir-picker-anchor]') as HTMLElement | null) ?? btn;
+    const r = anchor.getBoundingClientRect();
+
+    const GAP = 4;
+    const MARGIN = 8;          // keep clear of the viewport edge
+    const DESIRED = 420;       // preferred panel height
+    const vh = window.innerHeight;
+    const spaceBelow = vh - r.bottom - GAP - MARGIN;
+    const spaceAbove = r.top - GAP - MARGIN;
+
+    // Open downward unless there is meaningfully more room above.
+    if (spaceBelow >= Math.min(DESIRED, 220) || spaceBelow >= spaceAbove) {
+      setCoords({ left: r.left, top: r.bottom + GAP, width: r.width, maxHeight: Math.min(DESIRED, spaceBelow) });
+    } else {
+      const maxHeight = Math.min(DESIRED, spaceAbove);
+      setCoords({ left: r.left, top: r.top - GAP - maxHeight, width: r.width, maxHeight });
+    }
+  }, []);
+
+  // Reposition while open: on mount, scroll (capture catches the modal body),
+  // and resize.
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    const handler = () => updatePosition();
+    window.addEventListener('resize', handler);
+    window.addEventListener('scroll', handler, true);
+    return () => {
+      window.removeEventListener('resize', handler);
+      window.removeEventListener('scroll', handler, true);
+    };
+  }, [open, updatePosition]);
+
+  // Close on outside click (pointer down outside both the panel and the trigger).
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
 
   // ---------------------------------------------------------------------------
   // Open / close
@@ -277,7 +335,7 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
   const selectDisabled = !selectedPath;
 
   return (
-    <div className="relative w-full">
+    <div className="relative shrink-0">
       {/* Folder icon button — placed by the parent input row */}
       <button
         ref={buttonRef}
@@ -288,7 +346,7 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
         disabled={disabled}
         onClick={() => (open ? closePicker() : openPicker())}
         className={[
-          'flex items-center justify-center w-10 h-10 rounded-lg border transition-colors duration-fast',
+          'flex items-center justify-center w-11 h-[46px] rounded-lg border transition-colors duration-fast',
           'border-border bg-surface hover:bg-surface-elevated',
           'focus:outline-none focus:ring-2 focus:ring-primary/50',
           open ? 'border-primary text-primary' : 'text-text-secondary hover:text-text-primary',
@@ -300,15 +358,17 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
         </span>
       </button>
 
-      {/* Inline tree panel */}
-      {open && (
+      {/* Inline tree panel — portalled to <body> so the modal's overflow never
+          clips it, positioned (fixed) under the field row. */}
+      {open && coords && createPortal(
         <div
           ref={panelRef}
-          className="absolute top-full z-50 left-0 right-0 mt-1 bg-surface border border-border rounded-lg shadow-lg overflow-hidden"
+          style={{ position: 'fixed', left: coords.left, top: coords.top, width: coords.width, maxHeight: coords.maxHeight }} // lint-ok: runtime anchor coordinates cannot be expressed as static Tailwind tokens
+          className="z-[200] flex flex-col bg-surface border border-border rounded-lg shadow-lg overflow-hidden"
           onKeyDown={handleKeyDown}
         >
           {/* Panel header */}
-          <div className="px-3 py-2 border-b border-border flex items-center justify-between">
+          <div className="shrink-0 px-3 py-2 border-b border-border flex items-center justify-between">
             <span className="text-xs font-medium text-text-secondary">Select a directory</span>
             <button
               type="button"
@@ -322,7 +382,7 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
 
           {/* Tree body */}
           <div
-            className="overflow-y-auto max-h-[280px]"
+            className="flex-1 min-h-0 overflow-y-auto"
             role="tree"
             aria-label="Directory browser"
             tabIndex={0}
@@ -354,7 +414,7 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
 
           {/* Breadcrumb + actions */}
           {!rootLoading && !loadError && (
-            <>
+            <div className="shrink-0">
               {breadcrumb && (
                 <div className="px-3 py-1.5 border-t border-border text-xs text-text-secondary truncate">
                   {breadcrumb}
@@ -386,9 +446,10 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
                   Select
                 </button>
               </div>
-            </>
+            </div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

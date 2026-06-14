@@ -958,6 +958,47 @@ async function finalizeRun(dataDir, run) {
   });
 }
 
+/**
+ * Resolve the isolated worktree for a new run (best-effort, WORKTREE-1).
+ *
+ * Every run should be isolated so it never mutates the user's main checkout.
+ * But a directory that is not a git repo (or has a detached HEAD) genuinely
+ * cannot become a worktree, so those runs fall back to running in-place — the
+ * same behaviour as before WORKTREE-1.
+ *
+ * Returns:
+ *  - the worktree meta when the directory is a git repo;
+ *  - `null` (run in-place) when isolation is disabled, no working directory is
+ *    set, or the directory simply cannot be isolated (NOT_A_GIT_REPO /
+ *    DETACHED_HEAD) AND no other run is active there.
+ *
+ * Throws `WORKTREE_PROVISION_FAILED` when isolation fails but another run is
+ * already active in the directory (running in-place would race it), or on any
+ * unexpected git error (which we must not silently swallow).
+ *
+ * @param {string} dataDir
+ * @param {string|undefined} workingDirectory
+ * @param {string} runId
+ * @returns {Promise<object|null>}
+ */
+async function resolveRunWorktree(dataDir, workingDirectory, runId) {
+  if (process.env.PIPELINE_WORKTREE_ENABLED === '0' || !workingDirectory) return null;
+
+  try {
+    return await worktreeManager.provision(workingDirectory, runId);
+  } catch (err) {
+    const cannotIsolate = err.code === 'NOT_A_GIT_REPO' || err.code === 'DETACHED_HEAD';
+    if (!cannotIsolate || hasActiveRunInDir(dataDir, workingDirectory)) {
+      const provErr = new Error(`Worktree provisioning failed: ${err.message}`);
+      provErr.code = 'WORKTREE_PROVISION_FAILED';
+      provErr.original = err;
+      throw provErr;
+    }
+    pipelineLog('worktree.fallback_inplace', { runId, workingDirectory, reason: err.code });
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Agent-runs bridge helpers (ADR-1: pipeline-run-history-bridge)
 // ---------------------------------------------------------------------------
@@ -1781,21 +1822,19 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
   // --- Generate run ID upfront so it can be used in worktree path/branch names. ---
   const runId = crypto.randomUUID();
 
-  // --- Provision a worktree if another active run uses the same workingDirectory. ---
-  // This is done BEFORE building the run object so that failures here do not
-  // leave a partial run.json on disk. The task stays in 'todo'.
-  let worktreeMeta = null;
-  const worktreeEnabled = process.env.PIPELINE_WORKTREE_ENABLED !== '0';
-  if (worktreeEnabled && workingDirectory && hasActiveRunInDir(dataDir, workingDirectory)) {
-    try {
-      worktreeMeta = await worktreeManager.provision(workingDirectory, runId);
-    } catch (err) {
-      const provErr = new Error(`Worktree provisioning failed: ${err.message}`);
-      provErr.code = 'WORKTREE_PROVISION_FAILED';
-      provErr.original = err;
-      throw provErr;
-    }
-  }
+  // --- Provision an isolated worktree for EVERY run (WORKTREE-1). ---
+  // A run must never mutate the user's main checkout. Running in-place lets a
+  // solo run switch the current branch, commit to the wrong branch, or clobber
+  // in-flight work — observed corrupting an unrelated feature branch. Always
+  // isolating each run in its own worktree prevents that and makes concurrent
+  // runs uniformly safe. (Previously a worktree was created only when another
+  // active run already targeted the same workingDirectory.)
+  // Done BEFORE building the run object so a provisioning failure leaves no
+  // partial run.json on disk. The task stays in 'todo'.
+  // Isolate the run in its own worktree (best-effort). Done BEFORE building the
+  // run object so a provisioning failure leaves no partial run.json on disk;
+  // the task stays in 'todo'. See resolveRunWorktree for the fallback policy.
+  const worktreeMeta = await resolveRunWorktree(dataDir, workingDirectory, runId);
 
   // --- Build initial run state. ---
   const now       = new Date().toISOString();
