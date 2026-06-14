@@ -1776,16 +1776,26 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
   // active run already targeted the same workingDirectory.)
   // Done BEFORE building the run object so a provisioning failure leaves no
   // partial run.json on disk. The task stays in 'todo'.
+  // Best-effort isolation: a directory that is not a git repo (or has a detached
+  // HEAD) simply cannot be turned into a worktree — those runs fall back to
+  // running in-place, exactly as before. We only HARD-FAIL when provisioning
+  // fails AND another run is already active in the same directory, because there
+  // running in-place would race the concurrent run on git operations.
   let worktreeMeta = null;
   const worktreeEnabled = process.env.PIPELINE_WORKTREE_ENABLED !== '0';
   if (worktreeEnabled && workingDirectory) {
     try {
       worktreeMeta = await worktreeManager.provision(workingDirectory, runId);
     } catch (err) {
-      const provErr = new Error(`Worktree provisioning failed: ${err.message}`);
-      provErr.code = 'WORKTREE_PROVISION_FAILED';
-      provErr.original = err;
-      throw provErr;
+      if (hasActiveRunInDir(dataDir, workingDirectory)) {
+        const provErr = new Error(`Worktree provisioning failed (cannot safely isolate a concurrent run): ${err.message}`);
+        provErr.code = 'WORKTREE_PROVISION_FAILED';
+        provErr.original = err;
+        throw provErr;
+      }
+      // No conflict — run in-place (non-git dir, detached HEAD, etc.).
+      pipelineLog('worktree.fallback_inplace', { runId, workingDirectory, reason: err.code || err.message });
+      worktreeMeta = null;
     }
   }
 
