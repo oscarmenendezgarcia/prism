@@ -1,18 +1,18 @@
 /**
- * SpaceTabs — space tab bar with explicit pin model + responsive overflow.
+ * SpaceTabs — responsive space tab bar with overflow handling.
  *
- * Architecture (ADR-1, QOL-2 space-pins):
- *   - Pinned spaces occupy a fixed visible zone on the left (always rendered,
- *     drag-reorderable).
- *   - Non-pinned spaces fill the remaining window width as tabs; only the ones
- *     that do NOT fit collapse into the "More spaces (N)" overflow menu. With few
- *     spaces they are all visible — the menu appears only on real overflow, and
- *     the split re-computes as the window resizes (useOverflowItems).
- *   - The active space is forced visible (useOverflowItems `pinnedId`) so the
- *     current space is always anchored even when it would otherwise overflow.
- *   - Drag-to-reorder within the pinned zone uses local state (dragSourceIdx /
- *     dragOverIdx) — not useDragStore (which models task card semantics).
- *   - Pin / Unpin exposed from the kebab context menu on each tab.
+ * Architecture (ADR-1, space-tabs-overflow):
+ *   - useOverflowItems measures which spaces fit the container width.
+ *   - Visible spaces render as <SpaceTab> components.
+ *   - Overflow spaces are reached via <SpaceOverflowMenu> (+N button).
+ *   - Active space is always pinned to the visible set (never hidden in overflow).
+ *   - No horizontal scroll on ≥sm; the overflow menu owns navigation.
+ *
+ * Behaviour preserved:
+ *   - Switch space → loads board.
+ *   - Kebab → Edit (rename) / Delete (disabled when last space).
+ *   - Add space button.
+ *   - ARIA role="tablist" / role="tab" / aria-selected.
  */
 
 import React, { useState } from 'react';
@@ -24,46 +24,38 @@ import { SpaceOverflowMenu } from './SpaceOverflowMenu';
 import type { Space } from '@/types';
 
 export function SpaceTabs() {
-  const spaces             = useAppStore((s) => s.spaces);
-  const activeSpaceId      = useAppStore((s) => s.activeSpaceId);
-  const setActiveSpace     = useAppStore((s) => s.setActiveSpace);
-  const loadBoard          = useAppStore((s) => s.loadBoard);
-  const openSpaceModal     = useAppStore((s) => s.openSpaceModal);
-  const openDeleteDialog   = useAppStore((s) => s.openDeleteSpaceDialog);
-  const pinSpace           = useAppStore((s) => s.pinSpace);
-  const unpinSpace         = useAppStore((s) => s.unpinSpace);
-  const reorderPinnedSpaces = useAppStore((s) => s.reorderPinnedSpaces);
+  const spaces           = useAppStore((s) => s.spaces);
+  const activeSpaceId    = useAppStore((s) => s.activeSpaceId);
+  const setActiveSpace   = useAppStore((s) => s.setActiveSpace);
+  const loadBoard        = useAppStore((s) => s.loadBoard);
+  const openSpaceModal   = useAppStore((s) => s.openSpaceModal);
+  const openDeleteDialog = useAppStore((s) => s.openDeleteSpaceDialog);
+  const pinSpace         = useAppStore((s) => s.pinSpace);
+  const unpinSpace       = useAppStore((s) => s.unpinSpace);
 
   // ---------------------------------------------------------------------------
-  // Derived data
+  // Ordering: pinned spaces always come first, in the order they were pinned
+  // (pinnedRank). Non-pinned keep their existing relative order (stable sort).
+  // The width-based overflow then naturally keeps the pinned ones as visible tabs.
   // ---------------------------------------------------------------------------
+  const orderedSpaces = [...spaces].sort((a, b) => {
+    const ap = a.pinned ? 0 : 1;
+    const bp = b.pinned ? 0 : 1;
+    if (ap !== bp) return ap - bp;
+    if (a.pinned && b.pinned) return (a.pinnedRank ?? 0) - (b.pinnedRank ?? 0);
+    return 0;
+  });
 
-  const pinnedSpaces = spaces
-    .filter((s) => s.pinned)
-    .sort((a, b) => (a.pinnedRank ?? 0) - (b.pinnedRank ?? 0));
-
-  const nonPinned = spaces.filter((s) => !s.pinned);
-
-  // Responsive split of the non-pinned spaces by available width. The active
-  // space is forced visible so it is never hidden in the overflow menu.
+  // ---------------------------------------------------------------------------
+  // Overflow measurement
+  // ---------------------------------------------------------------------------
   const { containerRef, setItemRef, visible, overflow, measuring } =
-    useOverflowItems(nonPinned, { pinnedId: activeSpaceId ?? undefined, reservedTrailingPx: 150 });
-
-  // ---------------------------------------------------------------------------
-  // Drag reorder (local state — QOL-2, local component state, not useDragStore)
-  // ---------------------------------------------------------------------------
-  const [dragSourceIdx, setDragSourceIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx]     = useState<number | null>(null);
-
-  function handleDrop(targetIdx: number) {
-    if (dragSourceIdx === null || dragSourceIdx === targetIdx) return;
-    const reordered = [...pinnedSpaces];
-    const [moved] = reordered.splice(dragSourceIdx, 1);
-    reordered.splice(targetIdx, 0, moved);
-    reorderPinnedSpaces(reordered.map((s) => s.id));
-    setDragSourceIdx(null);
-    setDragOverIdx(null);
-  }
+    useOverflowItems<Space>(orderedSpaces, {
+      pinnedId: activeSpaceId ?? undefined,
+      // 112 = nav px-4 padding (32) + overflowBtn (~42) + addBtn (~28) + 2 gaps (~8) + 2px safety
+      reservedTrailingPx: 112,
+      gapPx: 2,
+    });
 
   // ---------------------------------------------------------------------------
   // Kebab / context menu state
@@ -107,85 +99,53 @@ export function SpaceTabs() {
   }
 
   const isLastSpace = spaces.length <= 1;
-
-  // Build context menu items dynamically based on the target space's pin state.
-  const menuTargetSpace = spaces.find((s) => s.id === menuState.spaceId);
-  const isMenuTargetPinned = menuTargetSpace?.pinned ?? false;
-
+  const isTargetPinned = (spaces.find((s) => s.id === menuState.spaceId)?.pinned) ?? false;
   const menuItems = [
-    { id: 'rename',                 label: 'Edit',                          icon: 'edit' },
-    { id: isMenuTargetPinned ? 'unpin' : 'pin',
-      label: isMenuTargetPinned ? 'Unpin' : 'Pin',
-      icon: 'push_pin' },
+    { id: 'rename', label: 'Edit', icon: 'edit' },
+    { id: isTargetPinned ? 'unpin' : 'pin', label: isTargetPinned ? 'Unpin' : 'Pin', icon: 'push_pin' },
     { id: 'delete', label: 'Delete', icon: 'delete', danger: true, disabled: isLastSpace },
   ];
-
-  // A non-pinned tab — shared by the measuring pass and the real render.
-  const renderTab = (space: Space) => (
-    <SpaceTab
-      key={space.id}
-      space={space}
-      active={space.id === activeSpaceId}
-      onSelect={handleTabClick}
-      onKebab={handleKebabClick}
-    />
-  );
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
+
+  // During the measure pass, render all tabs invisible so the hook can read widths.
+  // After measurement, render only the visible set.
+  const tabsToRender: Space[] = measuring ? orderedSpaces : visible;
+
   return (
     <nav
+      ref={containerRef as React.RefCallback<HTMLElement>}
       className="flex items-center gap-1 border-b border-border bg-surface-elevated px-4 overflow-hidden"
       role="tablist"
       aria-label="Spaces"
     >
-      {/* Pinned zone — always rendered, drag-reorderable. Scrolls within a bounded
-          width when narrow so the overflow + add buttons stay visible. */}
-      {pinnedSpaces.length > 0 && (
-        <div className="flex items-center gap-0.5 py-1.5 overflow-x-auto scrollbar-hidden min-w-0 max-w-[60%]">
-          {pinnedSpaces.map((space, idx) => (
-            <SpaceTab
-              key={space.id}
-              space={space}
-              active={space.id === activeSpaceId}
-              pinned
-              draggable
-              dragOver={dragOverIdx === idx}
-              onSelect={handleTabClick}
-              onKebab={handleKebabClick}
-              onDragStart={() => setDragSourceIdx(idx)}
-              onDragOver={(e) => { e.preventDefault(); setDragOverIdx(idx); }}
-              onDrop={() => handleDrop(idx)}
-              onDragEnd={() => { setDragSourceIdx(null); setDragOverIdx(null); }}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Divider — only when the pinned zone and at least one non-pinned tab coexist */}
-      {pinnedSpaces.length > 0 && nonPinned.length > 0 && (
-        <div className="w-px h-5 bg-border mx-1 flex-shrink-0" aria-hidden="true" />
-      )}
-
-      {/* Non-pinned zone — fills remaining width; the tabs that fit render here */}
+      {/* Tab strip — invisible during measure pass to prevent flash */}
       <div
-        ref={containerRef}
-        className="flex items-center gap-0.5 py-1.5 min-w-0 flex-1 overflow-hidden"
+        className={[
+          // NOT flex-1: the strip is content-width so the trailing buttons (+N / +)
+          // sit immediately after the last tab instead of being pushed to the far
+          // right edge with a gap. min-w-0 lets it still yield width to the
+          // shrink-0 buttons in the rare overshoot (force-pin) so the + is never
+          // clipped past the nav's overflow-hidden edge.
+          'flex items-center min-w-0 gap-0.5 py-1.5',
+          measuring ? 'invisible' : '',
+        ].join(' ')}
       >
-        {measuring
-          // Measuring pass: render all candidates (hidden) so the hook can read
-          // their widths. Settles before paint (useLayoutEffect) — no flicker.
-          ? nonPinned.map((space) => (
-              <div key={space.id} ref={setItemRef(space.id)} className="invisible" aria-hidden="true">
-                {renderTab(space)}
-              </div>
-            ))
-          : visible.map(renderTab)}
+        {tabsToRender.map((space) => (
+          <SpaceTab
+            key={space.id}
+            space={space}
+            active={space.id === activeSpaceId}
+            onSelect={handleTabClick}
+            onKebab={handleKebabClick}
+            refCb={setItemRef(space.id)}
+          />
+        ))}
       </div>
 
-      {/* Overflow menu — a sibling OUTSIDE the clipped zone so its label is never
-          truncated; it lives in the width reserved by useOverflowItems. */}
+      {/* Overflow button (+N) — only shown after measurement and when there is overflow */}
       {!measuring && overflow.length > 0 && (
         <SpaceOverflowMenu
           spaces={overflow}
@@ -208,7 +168,7 @@ export function SpaceTabs() {
         </span>
       </button>
 
-      {/* Context menu (portal) — for Edit / Pin-Unpin / Delete from kebab */}
+      {/* Context menu (portal) — for Edit / Delete from kebab */}
       <ContextMenu
         open={menuState.open}
         anchorRect={menuState.anchorRect}

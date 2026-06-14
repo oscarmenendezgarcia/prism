@@ -34,12 +34,6 @@ Object.defineProperty(window, 'matchMedia', {
 // GlobalSearchModal uses it to keep the selected result visible.
 Element.prototype.scrollIntoView = () => {};
 
-// document.fonts.ready resolves asynchronously in jsdom and re-triggers the
-// layout-measuring pass in useOverflowItems outside React's act(), which can
-// leave a component stuck in its hidden "measuring" render. Neutralise it so the
-// measurement settles once and stays deterministic (font re-measure is browser-only).
-Object.defineProperty(document, 'fonts', { configurable: true, value: undefined });
-
 // IntersectionObserver is not implemented in jsdom.
 // useLazyImage and CardImage rely on this.
 (globalThis as typeof globalThis & { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver =
