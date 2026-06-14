@@ -96,7 +96,7 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
           className="ml-2 px-2 py-0.5 text-xs font-mono bg-surface-elevated rounded-full text-text-secondary tabular-nums"
           aria-live="polite"
         >
-          {tasks.length}
+          {visibleTasks.length}
         </span>
       </div>
 

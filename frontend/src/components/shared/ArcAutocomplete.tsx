@@ -87,6 +87,7 @@ export function ArcAutocomplete({
           aria-expanded={open}
           aria-autocomplete="list"
           aria-haspopup="listbox"
+          aria-controls="arc-autocomplete-listbox"
           value={value}
           onChange={(e) => {
             onChange(e.target.value);
@@ -113,6 +114,7 @@ export function ArcAutocomplete({
 
       {open && filtered.length > 0 && (
         <ul
+          id="arc-autocomplete-listbox"
           role="listbox"
           className="absolute z-50 left-0 right-0 top-full mt-1 bg-surface-elevated border border-border rounded-md shadow-md max-h-48 overflow-y-auto"
         >
