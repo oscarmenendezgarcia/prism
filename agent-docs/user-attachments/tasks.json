@@ -1,0 +1,154 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "user-attachments",
+  "date": "2026-06-14",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Backend: extend attachment schema with optional author field",
+      "description": "In src/handlers/tasks.js: (1) add VALID_ATTACHMENT_AUTHORS constant ['user','agent']; (2) extend validateAttachments() to accept and validate an optional author field — if present it must be 'user' or 'agent', if absent it is preserved as undefined; (3) extend stripAttachmentContent() to include author in the stripped response (it is metadata, not sensitive content); (4) ensure the normalized data object returned by validateAttachments() carries author.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 day",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "PATCH /attachments with { name, type, content, author:'user' } returns 200 and the attachment includes author:'user' in the stored task",
+        "PATCH /attachments without author field returns 200 and the stored attachment has no author field (undefined passthrough, not null)",
+        "PATCH /attachments with author:'invalid' returns 400 VALIDATION_ERROR",
+        "GET /tasks/:id returns attachments with author field included when present (not stripped)",
+        "Existing tests still pass (no regression on attachment validation or strip)"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Backend: add DELETE /tasks/:taskId/attachments/:name endpoint",
+      "description": "In src/handlers/tasks.js: (1) add TASK_ATTACHMENT_BY_NAME_ROUTE regex /^\\/tasks\\/([^/]+)\\/attachments\\/([^/]+)$/ (must come before TASK_SINGLE_ROUTE in the router); (2) add handleDeleteAttachment(req, res, taskId, encodedName) that: URL-decodes the name, looks up the task (404 if missing), finds the attachment by name (404 NOT_FOUND if absent), rejects with 403 FORBIDDEN if attachment.author is not 'user', removes the attachment from the array, calls store.updateTask, returns 200 { task: updatedTask } (stripped); (3) emit a structured log event { event: 'attachments.user_delete', spaceId, taskId, name } to process.stderr; (4) add router dispatch: when method==='DELETE' and TASK_ATTACHMENT_BY_NAME_ROUTE matches, call handleDeleteAttachment.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 day",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "DELETE /spaces/:spaceId/tasks/:taskId/attachments/My%20Link returns 200 with the attachment removed",
+        "DELETE on a name that doesn't exist returns 404 NOT_FOUND",
+        "DELETE on a task that doesn't exist returns 404 TASK_NOT_FOUND",
+        "DELETE on an attachment with no author field returns 403 FORBIDDEN",
+        "DELETE on an attachment with author:'agent' returns 403 FORBIDDEN",
+        "DELETE on an attachment with author:'user' returns 200",
+        "Attachment name with spaces and special chars is correctly URL-decoded",
+        "After deletion, GET /tasks/:taskId confirms attachment is gone"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Frontend: extend types and API client",
+      "description": "Two changes: (1) In frontend/src/types/index.ts, add author?: 'user' | 'agent' to the Attachment interface. (2) In frontend/src/api/client.ts, add two new exports: patchUserAttachment(spaceId, taskId, attachment) that calls PATCH /spaces/:spaceId/tasks/:taskId/attachments with body { attachments: [attachment] } and returns Promise<Task>; and deleteUserAttachment(spaceId, taskId, name) that calls DELETE /spaces/:spaceId/tasks/:taskId/attachments/:encodedName and returns Promise<Task>. Both functions use the existing apiFetch helper.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5 day",
+      "dependencies": ["T-001", "T-002"],
+      "acceptance_criteria": [
+        "patchUserAttachment is exported from api/client.ts and accepted by TypeScript with the correct signature",
+        "deleteUserAttachment is exported from api/client.ts and accepted by TypeScript with the correct signature",
+        "Attachment interface compiles with author?: 'user' | 'agent' added",
+        "No changes to UpdateTaskPayload (attachments go through sub-route, not task PUT)"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Frontend: add addUserAttachment and deleteUserAttachment store actions",
+      "description": "In frontend/src/stores/useAppStore.ts: (1) Define NewUserAttachment interface { name, type, content } — author:'user' is injected by the action. (2) Add addUserAttachment(taskId, attachment) action: injects author:'user', applies an optimistic update that appends the new attachment to detailTask.attachments and to the matching task in the board, calls patchUserAttachment, reconciles with server response on success, or rolls back + showToast on error. (3) Add deleteUserAttachment(taskId, name) action: applies an optimistic update that removes the named attachment, calls deleteUserAttachment API, reconciles on success, rolls back + showToast on error. Both actions set/clear isMutating. Export types in the store interface.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 day",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "addUserAttachment results in the new attachment appearing in detailTask.attachments with author:'user'",
+        "deleteUserAttachment results in the attachment disappearing from detailTask.attachments",
+        "Optimistic update is applied before the API call resolves",
+        "On API error, the board and detailTask revert to pre-action state",
+        "isMutating is true during the API call and false after",
+        "showToast is called with success or error message",
+        "TypeScript: store interface compiles without errors"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Frontend: new AddAttachmentForm component",
+      "description": "Create frontend/src/components/board/AddAttachmentForm.tsx. Props: { spaceId, taskId, existingNames: string[], disabled: boolean, onSuccess: () => void, onCancel: () => void }. Internal state: type ('link'|'text'|'file', default 'link'), name (string), content (string), error (string|null), saving (boolean). Layout: (1) Segmented type selector row: three buttons [Link] [Note] [File Path] — active type uses primary/15 bg. (2) Name field: text input, auto-populates from URL hostname on content blur when name is still empty and type='link'. (3) Content field: URL input for 'link', textarea for 'text', path input for 'file' — label changes accordingly. (4) Error row: shown only when error is set. (5) Footer: [Cancel] (ghost) + [Add] (primary) buttons. Client-side validation: type='link' must be valid https:// URL; type='file' must start with '/'; name must be non-empty, ≤100 chars, not in existingNames. On submit: call useAppStore addUserAttachment, then call onSuccess(). Use existing Button, design tokens (no inline styles). Use Material Symbols icons: 'link', 'notes', 'folder_open' for the type selector.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1.5 days",
+      "dependencies": ["T-004"],
+      "acceptance_criteria": [
+        "Renders all three type options as a segmented selector; active type is visually highlighted",
+        "Submitting a valid link attachment calls addUserAttachment and then onSuccess()",
+        "Submitting a valid text note calls addUserAttachment and then onSuccess()",
+        "Submitting a valid file path calls addUserAttachment and then onSuccess()",
+        "Submitting with a name that already exists (in existingNames) shows a name-conflict error, no API call",
+        "Submitting a non-https URL shows a validation error, no API call",
+        "Submitting a file path not starting with '/' shows a validation error, no API call",
+        "Name auto-populates from URL hostname on blur when name is empty and type='link'",
+        "Cancel button calls onCancel() without making any API call",
+        "disabled prop makes both type selector and all inputs non-interactive",
+        "No inline styles; Tailwind tokens only",
+        "TypeScript: no errors"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Frontend: refactor TaskDetailPanel attachments section",
+      "description": "In frontend/src/components/board/TaskDetailPanel.tsx: (1) Make the attachments section always render (remove the guard `detailTask.attachments && detailTask.attachments.length > 0`). (2) Add header row: 'Attachments' label + a '+' icon button that toggles the AddAttachmentForm inline below the list. (3) When showAddForm is true, render <AddAttachmentForm> passing existingNames from detailTask.attachments and the store actions. (4) Empty state: when attachments.length === 0 and showAddForm is false, render a small 'No attachments' placeholder. (5) Agent attachment row (author is undefined or 'agent'): keep current visual, no delete button, icon is type-based. (6) User attachment row (author === 'user'): bg-primary/[0.04] background, fixed icon 'person', small 'You' text badge (text-primary/50, text-[10px]), delete button (×) that is visible on hover — calls deleteUserAttachment store action; no confirmation dialog. (7) Wire up the + button disabled state to isReadOnly. (8) The section sits in the right sidebar between Pipeline and the footer.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1.5 days",
+      "dependencies": ["T-004", "T-005"],
+      "acceptance_criteria": [
+        "Attachments section renders even when task has 0 attachments",
+        "Empty state text 'No attachments' is shown when there are 0 attachments and the form is not open",
+        "Clicking the + button shows AddAttachmentForm; clicking it again (or Cancel) hides it",
+        "After successful add, AddAttachmentForm collapses and the new attachment appears in the list",
+        "User attachment row has a different background from agent rows",
+        "User attachment row shows the 'You' badge",
+        "User attachment row shows a delete X button on hover",
+        "Clicking delete X removes the attachment (optimistic) and shows a toast",
+        "Agent attachment row has no delete button",
+        "isReadOnly disables the + button and AddAttachmentForm",
+        "Link-type user attachments still open in a new tab on click",
+        "Non-link user attachments still open AttachmentModal / MarkdownModal on click"
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Backend tests: author field + DELETE endpoint",
+      "description": "In tests/ (Node.js test runner): (1) Add test cases to the existing attachment test file covering: validateAttachments with author:'user' passes; validateAttachments with author:'agent' passes; validateAttachments with author:'invalid' fails with VALIDATION_ERROR; author field is present in GET /tasks/:id when stored; stripAttachmentContent passes author through. (2) New test suite for DELETE /spaces/:spaceId/tasks/:taskId/attachments/:name covering all acceptance criteria from T-002. Use the in-memory store pattern already used by existing tests.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "1 day",
+      "dependencies": ["T-001", "T-002"],
+      "acceptance_criteria": [
+        "All new test cases pass via npm test",
+        "Coverage of DELETE endpoint: happy path, 404 task, 404 attachment, 403 agent-owned",
+        "Coverage of author field validation: user, agent, invalid, missing",
+        "No regressions in existing test suite"
+      ]
+    },
+    {
+      "id": "T-008",
+      "title": "Frontend tests: AddAttachmentForm + TaskDetailPanel integration",
+      "description": "In frontend/src/components/board/__tests__/: (1) AddAttachmentForm.test.tsx: unit tests for validation logic, auto-populate hostname, submit calls addUserAttachment, cancel calls onCancel, name conflict shows error. Mock useAppStore. (2) Add to existing TaskDetailPanel tests (or create a new file): attachments section always renders; empty state; user vs agent row rendering; delete button visible only on user rows; + button toggles form. Use React Testing Library + Vitest.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "1 day",
+      "dependencies": ["T-005", "T-006"],
+      "acceptance_criteria": [
+        "All new tests pass via cd frontend && npm test",
+        "AddAttachmentForm: validates URL, path, name uniqueness before submit",
+        "AddAttachmentForm: submits with author:'user' injected",
+        "TaskDetailPanel: renders empty state for 0 attachments",
+        "TaskDetailPanel: delete button present on user row, absent on agent row",
+        "No regressions in existing frontend tests"
+      ]
+    }
+  ]
+}
