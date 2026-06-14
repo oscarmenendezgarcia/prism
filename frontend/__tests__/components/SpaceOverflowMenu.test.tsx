@@ -43,7 +43,7 @@ beforeEach(() => {
 // Trigger button
 // ---------------------------------------------------------------------------
 describe('SpaceOverflowMenu — trigger button', () => {
-  it('renders "Más spaces (N)" with the correct overflow count', () => {
+  it('renders "More spaces (N)" with the correct overflow count', () => {
     render(
       <SpaceOverflowMenu
         spaces={THREE_SPACES}
@@ -51,7 +51,7 @@ describe('SpaceOverflowMenu — trigger button', () => {
         onSelect={vi.fn()}
       />,
     );
-    expect(screen.getByText('Más spaces (3)')).toBeInTheDocument();
+    expect(screen.getByText('More spaces (3)')).toBeInTheDocument();
   });
 
   it('has data-testid="space-overflow-btn"', () => {

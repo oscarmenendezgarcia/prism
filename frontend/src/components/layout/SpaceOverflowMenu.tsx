@@ -233,7 +233,7 @@ export function SpaceOverflowMenu({
             : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant',
         ].join(' ')}
       >
-        Más spaces ({spaces.length})
+        More spaces ({spaces.length})
       </button>
 
       {/* Portal dropdown */}

@@ -696,21 +696,34 @@ export const useAppStore = create<AppState>((set, get) => {
   // ── QOL-2: Space pinning ────────────────────────────────────────────────
 
   pinSpace: async (id: string) => {
-    const { spaces } = get();
+    const { spaces, showToast } = get();
     const maxRank = Math.max(
       -1,
       ...spaces.filter((s) => s.pinned).map((s) => s.pinnedRank ?? -1),
     );
-    await apiUpdateSpace(id, { pinned: true, pinnedRank: maxRank + 1 });
-    await get().loadSpaces();
+    try {
+      await apiUpdateSpace(id, { pinned: true, pinnedRank: maxRank + 1 });
+      await get().loadSpaces();
+    } catch (err) {
+      showToast(`Failed to pin space: ${(err as Error).message}`, 'error');
+    }
   },
 
   unpinSpace: async (id: string) => {
-    await apiUpdateSpace(id, { pinned: false, pinnedRank: null });
-    await get().loadSpaces();
+    const { showToast } = get();
+    try {
+      await apiUpdateSpace(id, { pinned: false, pinnedRank: null });
+      await get().loadSpaces();
+    } catch (err) {
+      showToast(`Failed to unpin space: ${(err as Error).message}`, 'error');
+    }
   },
 
   reorderPinnedSpaces: async (orderedIds: string[]) => {
+    const { showToast } = get();
+    // Snapshot for rollback if persistence fails after the optimistic update.
+    const prevSpaces = get().spaces;
+
     // Optimistic: reorder local state immediately so the UI snaps without a
     // round-trip. Non-pinned spaces retain their positions after the pinned block.
     set((state) => {
@@ -722,13 +735,19 @@ export const useAppStore = create<AppState>((set, get) => {
       return { spaces: [...pinned, ...nonPinned] };
     });
 
-    // Persist each rank in parallel.
-    await Promise.all(
-      orderedIds.map((id, rank) =>
-        apiUpdateSpace(id, { pinned: true, pinnedRank: rank }),
-      ),
-    );
-    await get().loadSpaces();
+    try {
+      // Persist each rank in parallel.
+      await Promise.all(
+        orderedIds.map((id, rank) =>
+          apiUpdateSpace(id, { pinned: true, pinnedRank: rank }),
+        ),
+      );
+      await get().loadSpaces();
+    } catch (err) {
+      // Roll back the optimistic reorder so the UI never diverges from the server.
+      set({ spaces: prevSpaces });
+      showToast(`Failed to reorder spaces: ${(err as Error).message}`, 'error');
+    }
   },
 
   // ── Tasks ───────────────────────────────────────────────────────────────

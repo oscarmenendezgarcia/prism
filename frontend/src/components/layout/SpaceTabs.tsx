@@ -3,7 +3,7 @@
  *
  * Architecture (ADR-1, QOL-2 space-pins):
  *   - Pinned spaces occupy a fixed visible zone on the left (always rendered).
- *   - Non-pinned spaces collapse into a single overflow menu ("Más spaces (N)").
+ *   - Non-pinned spaces collapse into a single overflow menu ("More spaces (N)").
  *   - If the active space is not pinned, it renders as a transient tab after the
  *     pinned zone so the user always has a visual anchor for the current space.
  *   - Drag-to-reorder within the pinned zone uses local state (dragSourceIdx /

@@ -173,10 +173,10 @@ describe('SpaceTabs — overflow (non-pinned spaces)', () => {
     expect(screen.getByTestId('space-overflow-btn')).toBeInTheDocument();
   });
 
-  it('overflow button shows "Más spaces (N)" with correct count', () => {
+  it('overflow button shows "More spaces (N)" with correct count', () => {
     useAppStore.setState({ spaces: MIXED_SPACES, activeSpaceId: 'default' });
     render(<SpaceTabs />);
-    expect(screen.getByText('Más spaces (1)')).toBeInTheDocument();
+    expect(screen.getByText('More spaces (1)')).toBeInTheDocument();
   });
 
   it('pinned space still renders as a tab even when non-pinned space is in overflow', () => {

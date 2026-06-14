@@ -1497,6 +1497,15 @@ describe('pinSpace', () => {
 
     expect(api.getSpaces).toHaveBeenCalled();
   });
+
+  it('shows an error toast and does not throw when the API fails', async () => {
+    vi.mocked(api.updateSpace).mockRejectedValue(new Error('boom'));
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1', toast: null });
+
+    await useAppStore.getState().pinSpace('s1');
+
+    expect(useAppStore.getState().toast?.type).toBe('error');
+  });
 });
 
 describe('unpinSpace', () => {
@@ -1526,6 +1535,15 @@ describe('unpinSpace', () => {
     await useAppStore.getState().unpinSpace('s2');
 
     expect(api.getSpaces).toHaveBeenCalled();
+  });
+
+  it('shows an error toast and does not throw when the API fails', async () => {
+    vi.mocked(api.updateSpace).mockRejectedValue(new Error('boom'));
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's2', toast: null });
+
+    await useAppStore.getState().unpinSpace('s2');
+
+    expect(useAppStore.getState().toast?.type).toBe('error');
   });
 });
 
@@ -1569,5 +1587,16 @@ describe('reorderPinnedSpaces', () => {
     await useAppStore.getState().reorderPinnedSpaces(['s3', 's2']);
 
     expect(api.getSpaces).toHaveBeenCalled();
+  });
+
+  it('rolls back the optimistic order and shows an error toast when persistence fails', async () => {
+    vi.mocked(api.updateSpace).mockRejectedValue(new Error('boom'));
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1', toast: null });
+
+    await useAppStore.getState().reorderPinnedSpaces(['s3', 's2']);
+
+    // Order restored to the original; UI must not diverge from the server.
+    expect(useAppStore.getState().spaces.map((s) => s.id)).toEqual(SAMPLE_SPACES.map((s) => s.id));
+    expect(useAppStore.getState().toast?.type).toBe('error');
   });
 });
