@@ -150,7 +150,7 @@ export function SpaceModal() {
           <label htmlFor="space-wd-input" className="block text-sm font-medium text-text-primary mb-1.5">
             Working Directory <span className="text-text-disabled font-normal">(optional)</span>
           </label>
-          <div className="relative flex gap-2 items-start">
+          <div data-dir-picker-anchor className="flex gap-2 items-start">
             <input
               id="space-wd-input"
               className={`${inputClass} flex-1 min-w-0`}
