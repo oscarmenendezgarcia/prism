@@ -7,6 +7,10 @@
  *   - Kebab affordance: persistent at opacity-70 on active, hover-reveal on inactive
  *   - Accessibility: role="tab", aria-selected, data-space-id, title, focus-visible ring
  *
+ * QOL-2 additions:
+ *   - Optional `pinned` prop: shows push_pin icon affordance
+ *   - Optional drag props: draggable, dragOver, onDragStart, onDragOver, onDrop, onDragEnd
+ *
  * ADR-1 (space-tabs-overflow): extracted from SpaceTabs for single-responsibility
  * and to expose a refCb for the useOverflowItems measurement hook.
  */
@@ -21,9 +25,33 @@ export interface SpaceTabProps {
   onKebab: (e: React.MouseEvent, spaceId: string) => void;
   /** ref callback forwarded from useOverflowItems for width measurement */
   refCb?: (el: HTMLElement | null) => void;
+  // ── QOL-2: drag-reorder + pin indicator ─────────────────────────────────
+  /** When true, renders a push_pin icon to indicate the tab is in the pinned zone. */
+  pinned?: boolean;
+  /** When true, makes the tab draggable (HTML5 Drag API). */
+  draggable?: boolean;
+  /** When true, renders a drop-target ring to signal this tab is the drag-over target. */
+  dragOver?: boolean;
+  onDragStart?: () => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: () => void;
+  onDragEnd?: () => void;
 }
 
-export function SpaceTab({ space, active, onSelect, onKebab, refCb }: SpaceTabProps) {
+export function SpaceTab({
+  space,
+  active,
+  onSelect,
+  onKebab,
+  refCb,
+  pinned,
+  draggable,
+  dragOver,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+}: SpaceTabProps) {
   const labelRef = useRef<HTMLSpanElement | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
 
@@ -59,21 +87,40 @@ export function SpaceTab({ space, active, onSelect, onKebab, refCb }: SpaceTabPr
       aria-selected={active}
       data-space-id={space.id}
       title={space.name}
+      draggable={draggable ?? false}
       onClick={() => onSelect(space)}
       onKeyDown={handleKeyDown}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       aria-label={space.name}
       className={[
         // Base layout
         'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md',
-        'cursor-pointer transition-all duration-fast select-none whitespace-nowrap flex-shrink-0',
+        'transition-all duration-fast select-none whitespace-nowrap flex-shrink-0',
+        // Drag cursor when draggable
+        draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
         // Focus ring
         'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary',
+        // Drop-target ring
+        dragOver ? 'ring-2 ring-primary ring-inset' : '',
         // Active vs inactive styling
         active
           ? 'bg-primary-container text-primary font-medium'
           : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant',
       ].join(' ')}
     >
+      {/* Pin indicator — visual only, not interactive */}
+      {pinned && (
+        <span
+          className="material-symbols-outlined text-xs leading-none opacity-30 flex-shrink-0"
+          aria-hidden="true"
+        >
+          push_pin
+        </span>
+      )}
+
       {/* Truncated label — aria-label is on the outer button; no duplicate needed here */}
       <span
         ref={labelRef}

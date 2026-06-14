@@ -123,6 +123,19 @@ export const deleteSpace = (id: string): Promise<{ deleted: true; id: string }> 
     method: 'DELETE',
   });
 
+/**
+ * Partial update for a space. Accepts any subset of space fields.
+ * QOL-2: used for pin/unpin/reorder operations where only pinned/pinnedRank change.
+ */
+export const updateSpace = (
+  id: string,
+  patch: { name?: string; pinned?: boolean; pinnedRank?: number | null },
+): Promise<Space> =>
+  apiFetch<Space>(`/spaces/${id}`, {
+    method: 'PUT',
+    body:   JSON.stringify(patch),
+  });
+
 // ---------------------------------------------------------------------------
 // Task operations (space-scoped)
 // ---------------------------------------------------------------------------
