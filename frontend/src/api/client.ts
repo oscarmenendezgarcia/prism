@@ -145,6 +145,18 @@ export const moveTask = (spaceId: string, id: string, to: string): Promise<MoveT
     body: JSON.stringify({ to }),
   });
 
+
+/** Update the positional rank of a task within its column. */
+export const reorderTask = (
+  spaceId: string,
+  taskId: string,
+  rank: number,
+): Promise<Task> =>
+  apiFetch<Task>(`/spaces/${spaceId}/tasks/${taskId}/rank`, {
+    method: 'PATCH',
+    body: JSON.stringify({ rank }),
+  });
+
 /** Delete a task from a space. */
 export const deleteTask = (spaceId: string, id: string): Promise<{ deleted: true; id: string }> =>
   apiFetch<{ deleted: true; id: string }>(`/spaces/${spaceId}/tasks/${id}`, {

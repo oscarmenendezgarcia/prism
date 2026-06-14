@@ -60,6 +60,7 @@ interface TaskCardProps {
   column: Column;
   onDragStart?: (e: React.DragEvent, taskId: string, sourceColumn: Column) => void;
   onDragEnd?: () => void;
+  onDragOverTask?: (taskId: string, insertBefore: boolean) => void;
   /** A-1: stagger delay in ms for the entrance animation. EXCEPTION: only inline style allowed. */
   staggerDelayMs?: number;
 }
@@ -72,7 +73,7 @@ interface TaskCardProps {
 // task list changes). Drag state is now read directly from useDragStore with
 // per-card boolean selectors — only this specific card re-renders when its own
 // drag state changes, giving O(1) re-renders per drag event.
-export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragEnd, staggerDelayMs = 0 }: TaskCardProps) {
+export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragEnd, staggerDelayMs = 0, onDragOverTask }: TaskCardProps) {
   const moveTask          = useAppStore((s) => s.moveTask);
   const deleteTask        = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
@@ -83,6 +84,8 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const openPanelForTask  = useRunHistoryStore((s) => s.openPanelForTask);
 
   const isDragging = useDragStore((s) => s.draggedTaskId === task.id);
+  const isDragOverThis = useDragStore((s) => s.dragOverTaskId === task.id);
+  const insertBeforeThis = useDragStore((s) => s.insertBefore);
 
   const isActiveTask = activeRun?.taskId === task.id;
   const isDone = column === 'done';
@@ -107,6 +110,18 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
     ? 'bg-error/10 text-error'
     : 'bg-info/10 text-info';
 
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const { draggedTaskId } = useDragStore.getState();
+    if (!draggedTaskId || draggedTaskId === task.id) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relY = e.clientY - rect.top;
+    const insertBefore = relY < rect.height / 2;
+    onDragOverTask?.(task.id, insertBefore);
+  };
+
   return (
     <article
       role="listitem"
@@ -115,20 +130,30 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       data-column={column}
       data-testid="task-card"
       className={[
-        'group relative bg-surface rounded-xl border border-border p-4 cursor-pointer',
+        'group relative bg-surface rounded-xl border border-border p-4 pl-7 cursor-pointer',
         'animate-fade-in-up shrink-0',
         'transition-all duration-fast ease-default',
         'hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(124,109,250,0.15)] hover:ring-1 hover:ring-primary/30',
         isDone ? 'opacity-50 grayscale-[25%]' : '',
         isDragging ? 'rotate-1 scale-[0.97] shadow-xl ring-1 ring-primary/40 opacity-80' : '',
         isActiveTask ? 'border-primary/30 animate-glow-pulse' : '',
+        isDragOverThis && insertBeforeThis  ? 'border-t-2 border-t-primary ring-0' : '',
+        isDragOverThis && !insertBeforeThis ? 'border-b-2 border-b-primary ring-0' : '',
       ].filter(Boolean).join(' ')}
       style={staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms`, animationFillMode: 'both' } : { animationFillMode: 'both' }}
       aria-grabbed={isDragging}
       onClick={() => openDetailPanel(task)}
       onDragStart={(e) => onDragStart?.(e, task.id, column)}
       onDragEnd={onDragEnd}
+      onDragOver={handleDragOver}
     >
+      {/* Drag handle — visible on hover, left edge */}
+      <div
+        className="absolute left-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 [@media(pointer:coarse)]:opacity-30 transition-opacity duration-fast text-text-secondary cursor-grab active:cursor-grabbing"
+        aria-hidden="true"
+      >
+        <span className="material-symbols-outlined text-base leading-none select-none">drag_indicator</span>
+      </div>
       {/* ── Title ── */}
       <p className="text-sm font-medium text-text-primary leading-snug line-clamp-2">
         {task.title}

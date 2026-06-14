@@ -25,9 +25,10 @@ interface ColumnProps {
   onDragLeave?: (e: React.DragEvent, targetColumn: ColumnType) => void;
   onDragEnd?: () => void;
   onDrop?: (e: React.DragEvent, targetColumn: ColumnType) => void;
+  onDragOverTask?: (taskId: string, insertBefore: boolean) => void;
 }
 
-export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop }: ColumnProps) {
+export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, onDragOverTask }: ColumnProps) {
   const { label, accentClass } = COLUMN_META[column];
 
   // Subscribe to column-level drag-over — re-renders only when this column's
@@ -92,6 +93,7 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
                 onDragStart={onDragStart}
                 onDragEnd={onDragEnd}
                 staggerDelayMs={staggerMs}
+                onDragOverTask={onDragOverTask}
               />
             );
           })
