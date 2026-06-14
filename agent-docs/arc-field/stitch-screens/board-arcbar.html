@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Prism - Professional Kanban</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "error": "#ffb4ab",
+                        "surface-container-low": "#1c1b23",
+                        "primary": "#c6bfff",
+                        "secondary-fixed-dim": "#c6bfff",
+                        "on-tertiary-fixed": "#2c1600",
+                        "primary-fixed": "#e4dfff",
+                        "on-surface": "#e5e0ed",
+                        "inverse-primary": "#5846d4",
+                        "secondary": "#c6bfff",
+                        "on-surface-variant": "#c8c4d7",
+                        "on-primary-fixed-variant": "#3f29bc",
+                        "on-error-container": "#ffdad6",
+                        "surface-dim": "#13121b",
+                        "outline-variant": "#474554",
+                        "primary-container": "#8c80ff",
+                        "tertiary-fixed": "#ffdcbd",
+                        "tertiary-container": "#ce7e17",
+                        "tertiary": "#ffb86e",
+                        "on-primary-container": "#22008d",
+                        "secondary-container": "#454078",
+                        "tertiary-fixed-dim": "#ffb86e",
+                        "background": "#0A0A0F",
+                        "surface-bright": "#3a3841",
+                        "on-secondary": "#2e295f",
+                        "inverse-on-surface": "#312f38",
+                        "surface-container-highest": "#35343d",
+                        "primary-fixed-dim": "#c6bfff",
+                        "on-tertiary-container": "#402300",
+                        "surface-tint": "#c6bfff",
+                        "on-primary-fixed": "#160066",
+                        "surface-variant": "#35343d",
+                        "surface-container-lowest": "#0e0d15",
+                        "on-tertiary": "#492900",
+                        "on-tertiary-fixed-variant": "#693c00",
+                        "on-primary": "#2800a0",
+                        "surface-container-high": "#2a2932",
+                        "on-secondary-container": "#b4aeee",
+                        "surface-container": "#201f27",
+                        "on-error": "#690005",
+                        "secondary-fixed": "#e4dfff",
+                        "error-container": "#93000a",
+                        "on-secondary-fixed": "#19124a",
+                        "on-secondary-fixed-variant": "#454078",
+                        "on-background": "#e5e0ed",
+                        "outline": "#928ea0",
+                        "inverse-surface": "#e5e0ed",
+                        "surface": "#13121b"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-desktop": "24px",
+                        "xs": "4px",
+                        "unit": "4px",
+                        "lg": "24px",
+                        "margin-mobile": "16px",
+                        "xl": "32px",
+                        "md": "16px",
+                        "gutter": "12px",
+                        "sm": "8px"
+                    },
+                    "fontFamily": {
+                        "code-sm": ["JetBrains Mono"],
+                        "headline-md": ["Inter"],
+                        "label-mono": ["JetBrains Mono"],
+                        "body-sm": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "body-base": ["Inter"]
+                    },
+                    "fontSize": {
+                        "code-sm": ["11px", {"lineHeight": "1.4", "letterSpacing": "0", "fontWeight": "400"}],
+                        "headline-md": ["20px", {"lineHeight": "1.4", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "label-mono": ["12px", {"lineHeight": "1.2", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                        "body-sm": ["13px", {"lineHeight": "1.5", "letterSpacing": "0", "fontWeight": "400"}],
+                        "display-lg": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                        "body-base": ["14px", {"lineHeight": "1.5", "letterSpacing": "0", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #0A0A0F;
+            color: rgba(245, 245, 250, 0.96);
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+        }
+        .active-glow {
+            box-shadow: 0 0 12px rgba(124, 109, 250, 0.3);
+        }
+        /* Glassmorphism utility */
+        .glass-panel {
+            background: rgba(26, 26, 36, 0.4);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 bg-surface-dim border-b border-outline-variant flex justify-between items-center h-14 px-margin-desktop w-full">
+<div class="flex items-center gap-xl">
+<span class="font-headline-md text-headline-md font-bold text-primary">Prism</span>
+<nav class="hidden md:flex items-center gap-lg h-full">
+<a class="font-body-base text-body-base text-on-surface-variant hover:text-primary transition-colors cursor-pointer active:opacity-80" href="#">Backlog</a>
+<a class="font-body-base text-body-base text-primary font-bold border-b-2 border-primary pb-1 cursor-pointer active:opacity-80" href="#">In Progress</a>
+<a class="font-body-base text-body-base text-on-surface-variant hover:text-primary transition-colors cursor-pointer active:opacity-80" href="#">Done</a>
+</nav>
+</div>
+<div class="flex items-center gap-md">
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary cursor-pointer" data-icon="notifications">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary cursor-pointer" data-icon="settings">settings</button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-outline-variant">
+<img alt="User profile" data-alt="A professional close-up headshot of a software engineer with short hair, wearing a neutral-colored tech vest, against a soft-focus office background with subtle blue and purple atmospheric lighting to match a dark-themed UI dashboard design." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAQzhPQRn4A_Z647V3KXxr1Z_3vELliB10yDjwSs1rMvdDuVi0x7t360EgKiSCsIplv4tqfxxF3ngNZF6w8jbdp6weNsZhV2URsUHj-ysUSBgGgvHnDKaQrc21RkzgX3_42wEh-0Ri5aSaaevdPnXUOUP6R2w60GlMP2yOEnFqm5e2b0QlQm39k0iJ0lQueiBX90BZ3l1fnVfnpu2Tv-dy8fsN4VWlGqtxEq5Z1YaCkeU1B2VQrE8jg5DxDWTRQqD_W22lT8Eeg5aVh"/>
+</div>
+</div>
+</header>
+<!-- SideNavBar (Suppressed for Kanban focus, but structured for layout context) -->
+<aside class="hidden lg:flex fixed left-0 top-14 h-[calc(100vh-56px)] w-[240px] bg-surface-container-low border-r border-outline-variant flex flex-col p-md gap-sm">
+<div class="flex items-center gap-sm mb-md px-xs">
+<div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary-container" data-icon="folder">folder</span>
+</div>
+<div>
+<div class="font-body-sm text-body-sm font-bold text-on-surface">Engineering</div>
+<div class="text-[10px] text-on-surface-variant uppercase tracking-wider">Prism Core</div>
+</div>
+</div>
+<nav class="flex-1 flex flex-col gap-xs">
+<div class="flex items-center gap-sm px-sm py-2 bg-secondary-container text-on-secondary-container rounded-lg cursor-pointer">
+<span class="material-symbols-outlined text-[20px]" data-icon="speed">speed</span>
+<span class="font-body-sm text-body-sm">Sprints</span>
+</div>
+<div class="flex items-center gap-sm px-sm py-2 text-on-surface-variant hover:bg-surface-container-highest rounded-lg cursor-pointer transition-all">
+<span class="material-symbols-outlined text-[20px]" data-icon="groups">groups</span>
+<span class="font-body-sm text-body-sm">Team</span>
+</div>
+<div class="flex items-center gap-sm px-sm py-2 text-on-surface-variant hover:bg-surface-container-highest rounded-lg cursor-pointer transition-all">
+<span class="material-symbols-outlined text-[20px]" data-icon="monitoring">monitoring</span>
+<span class="font-body-sm text-body-sm">Analytics</span>
+</div>
+</nav>
+<button class="mt-auto bg-primary text-on-primary font-bold py-2 rounded-lg text-body-sm hover:opacity-90 active:scale-95 transition-all">
+            New Project
+        </button>
+</aside>
+<!-- Main Content Area -->
+<main class="mt-14 lg:ml-[240px] flex-1 flex flex-col bg-background">
+<!-- ArcBar (Filter Strip) -->
+<section class="h-10 bg-[#111118] border-b border-[rgba(255,255,255,0.08)] flex items-center justify-between px-md">
+<div class="flex items-center gap-sm">
+<!-- Active Chip -->
+<div class="px-2 py-0.5 rounded-[6px] bg-[rgba(124,109,250,0.15)] border border-[#7C6DFA] text-[#7C6DFA] font-label-mono text-label-mono cursor-pointer">
+                    QOL
+                </div>
+<!-- Inactive Chips -->
+<div class="px-2 py-0.5 rounded-[6px] bg-[#1A1A24] border border-transparent text-[rgba(245,245,250,0.60)] font-label-mono text-label-mono hover:border-outline-variant cursor-pointer transition-colors">
+                    AUTH
+                </div>
+<div class="px-2 py-0.5 rounded-[6px] bg-[#1A1A24] border border-transparent text-[rgba(245,245,250,0.60)] font-label-mono text-label-mono hover:border-outline-variant cursor-pointer transition-colors">
+                    LOOP
+                </div>
+<div class="px-2 py-0.5 rounded-[6px] bg-[#1A1A24] border border-transparent text-[rgba(245,245,250,0.60)] font-label-mono text-label-mono hover:border-outline-variant cursor-pointer transition-colors">
+                    FOLIO
+                </div>
+</div>
+<div class="flex items-center gap-sm">
+<button class="group p-1 rounded-md text-on-surface-variant hover:text-primary transition-all active-glow">
+<span class="material-symbols-outlined text-[18px]" data-icon="grid_view">grid_view</span>
+<span class="hidden md:inline-block ml-1 font-body-sm text-[12px]">Group</span>
+</button>
+</div>
+</section>
+<!-- Kanban Board Container -->
+<section class="flex-1 p-md md:p-lg overflow-x-auto flex gap-lg custom-scrollbar">
+<!-- Column: Todo -->
+<div class="flex-shrink-0 w-[320px] flex flex-col gap-md">
+<div class="flex items-center justify-between px-xs">
+<h3 class="font-headline-md text-headline-md flex items-center gap-sm">
+                        Todo
+                        <span class="bg-surface-container-highest text-on-surface-variant text-[11px] px-2 py-0.5 rounded-full">3</span>
+</h3>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors" data-icon="add">add</button>
+</div>
+<div class="flex-1 bg-[#111118] rounded-[12px] border border-[rgba(255,255,255,0.08)] p-sm flex flex-col gap-sm overflow-y-auto custom-scrollbar">
+<!-- Task Card 1 -->
+<div class="bg-[#1A1A24] p-md rounded-[12px] border border-[rgba(255,255,255,0.08)] hover:border-[#7C6DFA] transition-all cursor-grab active:cursor-grabbing group">
+<div class="flex justify-between items-start mb-sm">
+<span class="bg-[#7C6DFA]/10 text-primary px-2 py-0.5 rounded-[6px] font-label-mono text-[10px] border border-[#7C6DFA]/20">FEATURE</span>
+<span class="material-symbols-outlined text-on-surface-variant opacity-0 group-hover:opacity-100 transition-opacity" data-icon="more_horiz">more_horiz</span>
+</div>
+<h4 class="font-body-base text-on-surface font-medium leading-tight mb-md">Implement dynamic viewport observer for bento grid</h4>
+<div class="flex items-center gap-sm mt-auto pt-sm border-t border-[rgba(255,255,255,0.04)]">
+<div class="px-1.5 py-0.5 bg-[#111118] border border-[rgba(255,255,255,0.08)] rounded-[4px] font-label-mono text-[9px] text-[rgba(245,245,250,0.50)]">QOL</div>
+<div class="ml-auto flex -space-x-2">
+<div class="w-6 h-6 rounded-full border border-[#1A1A24] overflow-hidden">
+<img alt="Dev 1" data-alt="A small circular avatar of a software developer with a friendly expression, wearing a minimalist black t-shirt. The background is a clean, slightly blurred architectural office with soft violet accent lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBOM-kxRRSD9jcwKTTIfU3DRPFfaazVyfhYONK_6vaoTtNjFj1YgafWbNtt1sodaGn2pt-86g82KNDtc1V8tSLdyEL8Uqr1zBQ3sYtuvwm-R_pVCR4HKsu8mrR5_-_PmuA3UO25AJFZI5f11vh9HMsKDRiaO5SuYSW0auKOI9-jdLOjkrEnhCWRcsH8Mca7HHuEoZXYHC6aqgkdM2Ft8BLAnyinZz8FoPL_L_TI1XCfvybtKQ3Ha4qKlZBycGesadXuAriJeo8lbHe0"/>
+</div>
+</div>
+</div>
+</div>
+<!-- Task Card 2 -->
+<div class="bg-[#1A1A24] p-md rounded-[12px] border border-[rgba(255,255,255,0.08)] hover:border-[#7C6DFA] transition-all cursor-grab active:cursor-grabbing">
+<div class="flex justify-between items-start mb-sm">
+<span class="bg-error-container/20 text-error px-2 py-0.5 rounded-[6px] font-label-mono text-[10px] border border-error-container/40">BUG</span>
+</div>
+<h4 class="font-body-base text-on-surface font-medium leading-tight mb-md">Z-index conflict on fixed header overlay</h4>
+<div class="flex items-center gap-sm mt-auto pt-sm border-t border-[rgba(255,255,255,0.04)]">
+<div class="px-1.5 py-0.5 bg-[#111118] border border-[rgba(255,255,255,0.08)] rounded-[4px] font-label-mono text-[9px] text-[rgba(245,245,250,0.50)]">QOL</div>
+<div class="ml-auto w-6 h-6 rounded-full border border-[#1A1A24] bg-surface-container-highest flex items-center justify-center text-[10px] text-on-surface-variant font-bold">
+                                +2
+                            </div>
+</div>
+</div>
+</div>
+</div>
+<!-- Column: In Progress -->
+<div class="flex-shrink-0 w-[320px] flex flex-col gap-md">
+<div class="flex items-center justify-between px-xs">
+<h3 class="font-headline-md text-headline-md flex items-center gap-sm">
+                        In Progress
+                        <span class="bg-primary/20 text-primary text-[11px] px-2 py-0.5 rounded-full">2</span>
+</h3>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors" data-icon="add">add</button>
+</div>
+<div class="flex-1 bg-[#111118] rounded-[12px] border border-[rgba(255,255,255,0.08)] p-sm flex flex-col gap-sm overflow-y-auto custom-scrollbar">
+<!-- Task Card 3 -->
+<div class="bg-[#1A1A24] p-md rounded-[12px] border border-[rgba(255,255,255,0.08)] border-l-2 border-l-[#7C6DFA] hover:border-[#7C6DFA] transition-all cursor-grab active:cursor-grabbing">
+<div class="flex justify-between items-start mb-sm">
+<span class="bg-[#7C6DFA]/10 text-primary px-2 py-0.5 rounded-[6px] font-label-mono text-[10px] border border-[#7C6DFA]/20">FEATURE</span>
+</div>
+<h4 class="font-body-base text-on-surface font-medium leading-tight mb-md">Refactor state management using atomic stores</h4>
+<div class="flex items-center gap-sm mt-auto pt-sm border-t border-[rgba(255,255,255,0.04)]">
+<div class="px-1.5 py-0.5 bg-[#111118] border border-[rgba(255,255,255,0.08)] rounded-[4px] font-label-mono text-[9px] text-[rgba(245,245,250,0.50)]">ARCH</div>
+<div class="ml-auto w-6 h-6 rounded-full border border-[#1A1A24] overflow-hidden">
+<img alt="Dev 2" data-alt="Close up avatar of a designer with glasses, looking thoughtfully at a screen. The lighting is low and cool-toned, with high-tech dashboard reflections on their lenses, perfectly capturing the focused technical aesthetic of Prism." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD9IAS4dYiRewuHZ-QZdheI6sTLlt9EqaZdLtJOCnsj6sldiAGbxUkLYqepCh3sNuByLRrBMMyFCZrAAGamSejl0fhYnfoeL-NqjDIHY--wAz3-rKnf6v_2453XNrgL_PNBepUzzeuiUYPnBglnnzofcTbK5GZ-fgtcTm5k78LOQ1qR7S-ehDeIvyaQO_AP_DPRUpWAWaSpmcYK-Y8yXEdf7F2xaIUsA3vXmyJ_S4Zg4PEqACKj-CiUWqIJaWJ-OcUCy-1elljLD2fL"/>
+</div>
+</div>
+</div>
+<!-- Task Card 4 -->
+<div class="bg-[#1A1A24] p-md rounded-[12px] border border-[rgba(255,255,255,0.08)] hover:border-[#7C6DFA] transition-all cursor-grab active:cursor-grabbing">
+<div class="flex justify-between items-start mb-sm">
+<span class="bg-tertiary-container/20 text-tertiary px-2 py-0.5 rounded-[6px] font-label-mono text-[10px] border border-tertiary-container/40">OPS</span>
+</div>
+<h4 class="font-body-base text-on-surface font-medium leading-tight mb-md">CI/CD Pipeline optimization for edge deployment</h4>
+<div class="flex items-center gap-sm mt-auto pt-sm border-t border-[rgba(255,255,255,0.04)]">
+<div class="px-1.5 py-0.5 bg-[#111118] border border-[rgba(255,255,255,0.08)] rounded-[4px] font-label-mono text-[9px] text-[rgba(245,245,250,0.50)]">QOL</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Column: Done -->
+<div class="flex-shrink-0 w-[320px] flex flex-col gap-md">
+<div class="flex items-center justify-between px-xs">
+<h3 class="font-headline-md text-headline-md flex items-center gap-sm">
+                        Done
+                        <span class="bg-green-500/10 text-green-400 text-[11px] px-2 py-0.5 rounded-full">1</span>
+</h3>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors" data-icon="add">add</button>
+</div>
+<div class="flex-1 bg-[#111118] rounded-[12px] border border-[rgba(255,255,255,0.08)] p-sm flex flex-col gap-sm overflow-y-auto custom-scrollbar">
+<!-- Task Card 5 -->
+<div class="bg-[#1A1A24] p-md rounded-[12px] border border-[rgba(255,255,255,0.08)] opacity-60 grayscale hover:grayscale-0 hover:opacity-100 transition-all cursor-grab active:cursor-grabbing">
+<div class="flex justify-between items-start mb-sm">
+<span class="bg-[#7C6DFA]/10 text-primary px-2 py-0.5 rounded-[6px] font-label-mono text-[10px] border border-[#7C6DFA]/20">CORE</span>
+<span class="material-symbols-outlined text-green-400 text-[16px]" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<h4 class="font-body-base text-on-surface font-medium leading-tight mb-md line-through decoration-[rgba(255,255,255,0.2)]">Initial repository setup and scaffolding</h4>
+<div class="flex items-center gap-sm mt-auto pt-sm border-t border-[rgba(255,255,255,0.04)]">
+<div class="px-1.5 py-0.5 bg-[#111118] border border-[rgba(255,255,255,0.08)] rounded-[4px] font-label-mono text-[9px] text-[rgba(245,245,250,0.50)]">QOL</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Empty State Column Add -->
+<div class="flex-shrink-0 w-[64px] group flex flex-col gap-md">
+<div class="h-8"></div> <!-- Spacer -->
+<div class="flex-1 border-2 border-dashed border-outline-variant rounded-[12px] flex items-center justify-center hover:border-primary hover:bg-primary/5 transition-all cursor-pointer">
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary" data-icon="add_box">add_box</span>
+</div>
+</div>
+</section>
+</main>
+<!-- Micro-interaction Script -->
+<script>
+        // Simple hover effect for chips
+        document.querySelectorAll('.font-label-mono').forEach(chip => {
+            chip.addEventListener('mouseenter', () => {
+                if(!chip.classList.contains('border-[#7C6DFA]')) {
+                    chip.style.borderColor = 'rgba(124,109,250,0.4)';
+                }
+            });
+            chip.addEventListener('mouseleave', () => {
+                if(!chip.classList.contains('border-[#7C6DFA]')) {
+                    chip.style.borderColor = 'transparent';
+                }
+            });
+        });
+
+        // Column drag simulation visual cues
+        document.querySelectorAll('.cursor-grab').forEach(card => {
+            card.addEventListener('mousedown', () => {
+                card.classList.add('scale-95');
+                card.style.zIndex = '100';
+            });
+            card.addEventListener('mouseup', () => {
+                card.classList.remove('scale-95');
+                card.style.zIndex = '1';
+            });
+        });
+    </script>
+</body></html>

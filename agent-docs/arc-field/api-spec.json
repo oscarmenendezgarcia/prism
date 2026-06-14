@@ -1,0 +1,485 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Prism Kanban API — arc field extension",
+    "version": "1.1.0",
+    "description": "Additive extension to the Prism Kanban REST API to support the `arc` field (QOL-5). All existing endpoints are unchanged except for the addition of the optional `arc` field in task create/update/list responses. One new endpoint is added: GET /arcs.",
+    "contact": {
+      "name": "Prism pipeline",
+      "url": "https://github.com/prism"
+    }
+  },
+  "servers": [
+    { "url": "http://localhost:3000/api/v1", "description": "Local dev" }
+  ],
+  "tags": [
+    { "name": "tasks", "description": "Task CRUD — arc field additions" },
+    { "name": "arcs", "description": "Arc distinct-values endpoint (autocomplete source)" },
+    { "name": "tagger", "description": "AI tagger — arc suggestion extension" },
+    { "name": "mcp", "description": "MCP tool schema changes (informational)" }
+  ],
+  "paths": {
+    "/spaces/{spaceId}/tasks": {
+      "post": {
+        "summary": "Create a task (arc field added)",
+        "description": "Creates a new task in the given space. The `arc` field is optional; when provided it must be a non-empty string of ≤60 characters. An empty string is rejected (use omission to leave arc unset).",
+        "operationId": "createTask",
+        "tags": ["tasks"],
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateTaskPayload" },
+              "examples": {
+                "with_arc": {
+                  "summary": "Task with arc",
+                  "value": {
+                    "title": "Add arc field",
+                    "type": "feature",
+                    "arc": "QOL"
+                  }
+                },
+                "without_arc": {
+                  "summary": "Task without arc (arc omitted)",
+                  "value": {
+                    "title": "Fix build script",
+                    "type": "bug"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Task created",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TaskResponse" },
+                "examples": {
+                  "with_arc": {
+                    "value": {
+                      "task": {
+                        "id": "0c2b0135-60ec-47af-92ee-e4297a9d7b09",
+                        "title": "Add arc field",
+                        "type": "feature",
+                        "arc": "QOL",
+                        "createdAt": "2026-06-14T12:00:00.000Z",
+                        "updatedAt": "2026-06-14T12:00:00.000Z"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "examples": {
+                  "arc_too_long": {
+                    "summary": "Arc exceeds 60 characters",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "The arc label is too long. Maximum length is 60 characters.",
+                        "suggestion": "Use a short label like 'QOL', 'AUTH', or 'LOOP'.",
+                        "field": "arc"
+                      }
+                    }
+                  },
+                  "arc_not_string": {
+                    "summary": "Arc must be a string",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "The arc field must be a text string.",
+                        "suggestion": "Provide a short label like 'QOL' or omit the field to leave it unset.",
+                        "field": "arc"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/SpaceNotFound" }
+        }
+      },
+      "get": {
+        "summary": "List tasks in a space (arc field included)",
+        "description": "Returns tasks grouped by column. Each task now includes `arc` when set.",
+        "operationId": "listTasks",
+        "tags": ["tasks"],
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Board state with tasks",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BoardResponse" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/SpaceNotFound" }
+        }
+      }
+    },
+    "/spaces/{spaceId}/tasks/{taskId}": {
+      "put": {
+        "summary": "Update a task (arc field added)",
+        "description": "Updates one or more fields on a task. `arc` is optional in the patch. Sending `arc: \"\"` (empty string) clears the arc. Omitting `arc` entirely leaves the current value unchanged.",
+        "operationId": "updateTask",
+        "tags": ["tasks"],
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" },
+          { "$ref": "#/components/parameters/taskId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateTaskPayload" },
+              "examples": {
+                "set_arc": {
+                  "summary": "Set arc to AUTH",
+                  "value": { "arc": "AUTH" }
+                },
+                "clear_arc": {
+                  "summary": "Clear arc (empty string → null)",
+                  "value": { "arc": "" }
+                },
+                "no_arc_key": {
+                  "summary": "Update title only — arc unchanged",
+                  "value": { "title": "JWT refresh — updated" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Task updated",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TaskResponse" }
+              }
+            }
+          },
+          "400": { "description": "Validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "$ref": "#/components/responses/TaskNotFound" }
+        }
+      }
+    },
+    "/spaces/{spaceId}/arcs": {
+      "get": {
+        "summary": "Get distinct arc values for a space",
+        "description": "Returns all distinct `arc` values currently set on tasks in the given space, sorted alphabetically. Used by ArcAutocomplete to populate suggestions. An empty array is returned when no tasks have an arc set. Response time SLA: < 50ms (single indexed SELECT DISTINCT query).\n\n**Route registration**: This route MUST be registered BEFORE the tasks route in src/routes/index.js to prevent the tasks regex from capturing it.",
+        "operationId": "getArcs",
+        "tags": ["arcs"],
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Distinct arc values, sorted A-Z",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["arcs"],
+                  "properties": {
+                    "arcs": {
+                      "type": "array",
+                      "items": { "type": "string", "minLength": 1, "maxLength": 60 },
+                      "description": "Sorted distinct arc values. Empty array when no arcs are set.",
+                      "example": ["AUTH", "FOLIO", "LOOP", "QOL"]
+                    }
+                  }
+                },
+                "examples": {
+                  "with_arcs": {
+                    "summary": "Space with multiple arcs",
+                    "value": { "arcs": ["AUTH", "FOLIO", "LOOP", "QOL"] }
+                  },
+                  "empty": {
+                    "summary": "No arc values set yet",
+                    "value": { "arcs": [] }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/SpaceNotFound" }
+        }
+      }
+    },
+    "/spaces/{spaceId}/tagger/run": {
+      "post": {
+        "summary": "Run AI tagger (arc suggestions added)",
+        "description": "Runs the Claude-powered tagger on tasks in the given column. The tagger now proposes an `arc` value for each task where it can confidently infer one from the title pattern (e.g. 'QOL-5' → arc 'QOL'). Arc is optional per suggestion — when the model cannot infer an arc, the field is omitted. Existing arc values are sent to Claude so suggestions are consistent with already-tagged tasks.",
+        "operationId": "runTagger",
+        "tags": ["tagger"],
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["column"],
+                "properties": {
+                  "column": { "type": "string", "enum": ["todo", "in-progress", "done"] },
+                  "improve_descriptions": { "type": "boolean", "default": false }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tagger suggestions including arc",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TaggerResult" },
+                "examples": {
+                  "with_arcs": {
+                    "value": {
+                      "suggestions": [
+                        {
+                          "id": "task-001",
+                          "inferredType": "feature",
+                          "confidence": "high",
+                          "arc": "QOL"
+                        },
+                        {
+                          "id": "task-002",
+                          "inferredType": "chore",
+                          "confidence": "high",
+                          "arc": "AUTH"
+                        },
+                        {
+                          "id": "task-003",
+                          "inferredType": "bug",
+                          "confidence": "medium"
+                        }
+                      ],
+                      "skipped": [],
+                      "model": "claude-haiku-4-5",
+                      "inputTokens": 420,
+                      "outputTokens": 85
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/SpaceNotFound" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "spaceId": {
+        "name": "spaceId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Space identifier (UUID or slug)"
+      },
+      "taskId": {
+        "name": "taskId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Task identifier (UUID)"
+      }
+    },
+    "schemas": {
+      "Task": {
+        "type": "object",
+        "required": ["id", "title", "type", "createdAt", "updatedAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string", "minLength": 1 },
+          "type": { "type": "string", "enum": ["feature", "bug", "tech-debt", "chore"] },
+          "arc": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "description": "Narrative grouping label (e.g. 'QOL', 'AUTH'). Omitted when null/unset.",
+            "example": "QOL"
+          },
+          "description": { "type": "string" },
+          "assigned": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreateTaskPayload": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "type": { "type": "string", "enum": ["feature", "bug", "tech-debt", "chore"], "default": "feature" },
+          "description": { "type": "string" },
+          "assigned": { "type": "string" },
+          "arc": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "description": "Narrative grouping label. Omit to leave unset. Must not be an empty string — empty string is rejected with 400."
+          }
+        }
+      },
+      "UpdateTaskPayload": {
+        "type": "object",
+        "description": "Partial update. Only fields present in the body are modified.",
+        "properties": {
+          "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "type": { "type": "string", "enum": ["feature", "bug", "tech-debt", "chore"] },
+          "description": { "type": "string" },
+          "assigned": { "type": "string" },
+          "arc": {
+            "type": "string",
+            "maxLength": 60,
+            "description": "Set or update arc. Pass an empty string '' to clear the arc (sets column to NULL). Omit the key entirely to leave the current value unchanged."
+          }
+        }
+      },
+      "TaskResponse": {
+        "type": "object",
+        "required": ["task"],
+        "properties": {
+          "task": { "$ref": "#/components/schemas/Task" }
+        }
+      },
+      "BoardResponse": {
+        "type": "object",
+        "properties": {
+          "todo": { "type": "array", "items": { "$ref": "#/components/schemas/Task" } },
+          "in-progress": { "type": "array", "items": { "$ref": "#/components/schemas/Task" } },
+          "done": { "type": "array", "items": { "$ref": "#/components/schemas/Task" } }
+        }
+      },
+      "TaggerSuggestion": {
+        "type": "object",
+        "required": ["id", "inferredType", "confidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "inferredType": { "type": "string", "enum": ["feature", "bug", "tech-debt", "chore"] },
+          "confidence": { "type": "string", "enum": ["high", "medium", "low"] },
+          "arc": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "description": "AI-proposed arc label. Omitted when the model cannot confidently infer one. Never null — always omitted or a non-empty string."
+          },
+          "description": {
+            "type": "string",
+            "description": "Only present when improve_descriptions=true was requested."
+          }
+        }
+      },
+      "TaggerResult": {
+        "type": "object",
+        "required": ["suggestions", "skipped"],
+        "properties": {
+          "suggestions": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/TaggerSuggestion" }
+          },
+          "skipped": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Task IDs the model chose to skip (low confidence or insufficient context)"
+          },
+          "model": { "type": "string", "example": "claude-haiku-4-5" },
+          "inputTokens": { "type": "integer" },
+          "outputTokens": { "type": "integer" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string", "example": "VALIDATION_ERROR" },
+              "message": { "type": "string", "description": "Human-readable error message, safe to display to users." },
+              "suggestion": { "type": "string", "description": "Actionable suggestion to fix the error." },
+              "field": { "type": "string", "description": "Name of the field that caused the error." }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "SpaceNotFound": {
+        "description": "Space not found",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" },
+            "example": {
+              "error": {
+                "code": "SPACE_NOT_FOUND",
+                "message": "The space you requested does not exist.",
+                "suggestion": "Check the space ID and try again."
+              }
+            }
+          }
+        }
+      },
+      "TaskNotFound": {
+        "description": "Task not found",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" },
+            "example": {
+              "error": {
+                "code": "TASK_NOT_FOUND",
+                "message": "The task you requested does not exist.",
+                "suggestion": "Refresh the board and try again."
+              }
+            }
+          }
+        }
+      }
+    },
+    "errors": {
+      "VALIDATION_ERROR": "The request body contains an invalid value. See `field` for which field failed.",
+      "SPACE_NOT_FOUND": "The requested space ID does not exist in the database.",
+      "TASK_NOT_FOUND": "The requested task ID does not exist in the database."
+    }
+  },
+  "x-mcp-tool-changes": {
+    "description": "MCP tool schema additions for kanban_create_task and kanban_update_task. These are Zod schemas in mcp/mcp-server.js, not REST endpoints.",
+    "kanban_create_task": {
+      "new_field": "arc",
+      "zod": "z.string().max(60).optional().describe('Narrative grouping label (e.g. \"QOL\", \"AUTH\"). Omit to leave unset.')"
+    },
+    "kanban_update_task": {
+      "new_field": "arc",
+      "zod": "z.string().max(60).optional().describe('Set or clear the arc. Pass \"\" (empty string) to clear the arc.')",
+      "note": "Empty string to null normalization is done by the API handler, not the MCP layer."
+    }
+  },
+  "x-implementation-notes": {
+    "route_ordering": "ARCS_ROUTE = /^\\/api\\/v1\\/spaces\\/([^/]+)\\/arcs$/ MUST be registered before SPACES_TASKS_ROUTE in src/routes/index.js",
+    "arc_normalization": "Empty string '' passed in request body is normalized to null at the handler layer before reaching store.js",
+    "null_semantics": "arc=null in DB → field omitted from Task JS object (undefined). arc='QOL' in DB → arc: 'QOL' on Task object.",
+    "storage": "Plain TEXT column, not JSON-encoded. Enables SELECT DISTINCT and GROUP BY without deserialization. See ADR-1."
+  }
+}
