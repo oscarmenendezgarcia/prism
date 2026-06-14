@@ -1,0 +1,584 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Prism Kanban API — QOL-1 Rank & Drag-to-Reorder",
+    "version": "1.0.0",
+    "description": "API changes for QOL-1: adds fractional rank field to tasks, new PATCH /rank endpoint, and rank-aware ordering in existing list/move/create endpoints."
+  },
+  "servers": [
+    {
+      "url": "/api/v1",
+      "description": "Prism local server"
+    }
+  ],
+  "tags": [
+    {
+      "name": "rank",
+      "description": "Task position ordering within a column"
+    },
+    {
+      "name": "tasks",
+      "description": "Task CRUD (modified to include rank)"
+    }
+  ],
+  "paths": {
+    "/spaces/{spaceId}/tasks/{taskId}/rank": {
+      "patch": {
+        "tags": ["rank"],
+        "summary": "Update task rank (in-column position)",
+        "description": "Updates only the `rank` field of a task. Used for drag-to-reorder within a column. Does NOT trigger FTS re-indexing (dedicated prepared statement). Must be registered BEFORE the generic single-task route in the router to avoid regex shadowing.",
+        "operationId": "patchTaskRank",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/spaceId"
+          },
+          {
+            "$ref": "#/components/parameters/taskId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RankUpdateRequest"
+              },
+              "examples": {
+                "midpoint_insertion": {
+                  "summary": "Fractional midpoint rank",
+                  "value": { "rank": 1500.0 }
+                },
+                "tail_append": {
+                  "summary": "Append to tail",
+                  "value": { "rank": 4000.0 }
+                },
+                "rebalance": {
+                  "summary": "Rebalanced rank (batch operation)",
+                  "value": { "rank": 3000.0 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Task rank updated. Returns the full updated task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                },
+                "example": {
+                  "id": "abc-123",
+                  "title": "Implement login endpoint",
+                  "type": "feature",
+                  "rank": 1500.0,
+                  "column": "todo",
+                  "spaceId": "space-xyz",
+                  "createdAt": "2026-06-14T10:00:00.000Z",
+                  "updatedAt": "2026-06-14T14:30:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error — rank missing or not a finite number.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missing_rank": {
+                    "summary": "rank field missing",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "The 'rank' field is required to reorder this task.",
+                        "suggestion": "Include a numeric 'rank' field in your request body, e.g. { \"rank\": 1500.0 }",
+                        "field": "rank"
+                      }
+                    }
+                  },
+                  "non_finite_rank": {
+                    "summary": "rank is NaN or Infinity",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "The 'rank' value must be a finite number.",
+                        "suggestion": "Provide a normal decimal number like 1500.0 — values like Infinity or NaN are not allowed.",
+                        "field": "rank"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task not found in this space.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "error": {
+                    "code": "TASK_NOT_FOUND",
+                    "message": "Task 'abc-123' does not exist in this space.",
+                    "suggestion": "Check that the task ID and space ID are correct."
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/spaces/{spaceId}/tasks": {
+      "get": {
+        "tags": ["tasks"],
+        "summary": "List tasks by column (rank-ordered)",
+        "description": "Returns all tasks for a space, grouped by column. Tasks within each column are now ordered by `rank ASC, created_at ASC`. Previously ordered by `created_at ASC` only.",
+        "operationId": "listTasks",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/spaceId"
+          },
+          {
+            "name": "column",
+            "in": "query",
+            "description": "Filter to a specific column. When provided, returns only tasks in that column (ordered by rank).",
+            "schema": {
+              "type": "string",
+              "enum": ["todo", "in-progress", "done"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Board tasks, each column ordered by rank ASC.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BoardTasks"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/SpaceNotFound"
+          }
+        }
+      },
+      "post": {
+        "tags": ["tasks"],
+        "summary": "Create task (auto-assigns rank)",
+        "description": "Creates a new task. The server automatically assigns `rank = MAX(rank in the target column) + 1000.0`, placing the new task at the tail. The `rank` field is included in the response.",
+        "operationId": "createTask",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/spaceId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTaskRequest"
+              },
+              "example": {
+                "title": "Add rate limiting middleware",
+                "type": "feature",
+                "description": "Protect the API with IP-based rate limiting"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Task created. `rank` is auto-assigned and included in the response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Task"
+                },
+                "example": {
+                  "id": "def-456",
+                  "title": "Add rate limiting middleware",
+                  "type": "feature",
+                  "rank": 4000.0,
+                  "column": "todo",
+                  "spaceId": "space-xyz",
+                  "createdAt": "2026-06-14T15:00:00.000Z",
+                  "updatedAt": "2026-06-14T15:00:00.000Z"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/spaces/{spaceId}/tasks/{taskId}/move": {
+      "put": {
+        "tags": ["tasks"],
+        "summary": "Move task to another column (tail rank assigned)",
+        "description": "Moves a task to a different column. The server atomically assigns `rank = MAX(rank in destination column) + 1000.0`, placing the task at the tail of the destination. Request body is unchanged. Response now includes `rank` in the task object.",
+        "operationId": "moveTask",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/spaceId"
+          },
+          {
+            "$ref": "#/components/parameters/taskId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveTaskRequest"
+              },
+              "example": {
+                "to": "in-progress"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Task moved. The task is appended to the tail of the destination column. `rank` reflects the new position.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MoveTaskResponse"
+                },
+                "example": {
+                  "task": {
+                    "id": "abc-123",
+                    "title": "Implement login endpoint",
+                    "type": "feature",
+                    "rank": 5000.0,
+                    "column": "in-progress",
+                    "spaceId": "space-xyz",
+                    "createdAt": "2026-06-14T10:00:00.000Z",
+                    "updatedAt": "2026-06-14T15:05:00.000Z"
+                  },
+                  "from": "todo",
+                  "to": "in-progress"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "404": {
+            "$ref": "#/components/responses/TaskNotFound"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "spaceId": {
+        "name": "spaceId",
+        "in": "path",
+        "required": true,
+        "description": "The space (project) identifier.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "taskId": {
+        "name": "taskId",
+        "in": "path",
+        "required": true,
+        "description": "The task identifier.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "schemas": {
+      "Task": {
+        "type": "object",
+        "required": ["id", "title", "type", "rank", "column", "spaceId", "createdAt", "updatedAt"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique task identifier (UUID)."
+          },
+          "title": {
+            "type": "string",
+            "description": "Task title."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["feature", "bug", "tech-debt", "chore"],
+            "description": "Task type."
+          },
+          "rank": {
+            "type": "number",
+            "format": "double",
+            "description": "Positional order within the column. Fractional (REAL). Lower rank = higher position. Initial values are multiples of 1000. Midpoint insertion avoids cascade writes. Ties fall back to createdAt ASC.",
+            "example": 1500.0
+          },
+          "column": {
+            "type": "string",
+            "enum": ["todo", "in-progress", "done"],
+            "description": "The column this task currently belongs to."
+          },
+          "spaceId": {
+            "type": "string",
+            "description": "The space this task belongs to."
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "assigned": {
+            "type": "string",
+            "nullable": true,
+            "description": "Assigned agent or user name."
+          },
+          "pipeline": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Ordered agent IDs for this task's pipeline."
+          },
+          "attachments": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Attachment" }
+          },
+          "comments": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Comment" }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BoardTasks": {
+        "type": "object",
+        "description": "All tasks for a space, grouped by column. Each column's task array is ordered by rank ASC, created_at ASC.",
+        "properties": {
+          "todo": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Task" },
+            "description": "Tasks in the todo column, ordered by rank. This is the LOOP-3 priority queue."
+          },
+          "in-progress": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Task" }
+          },
+          "done": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Task" }
+          }
+        }
+      },
+      "RankUpdateRequest": {
+        "type": "object",
+        "required": ["rank"],
+        "properties": {
+          "rank": {
+            "type": "number",
+            "format": "double",
+            "description": "New rank value for the task. Must be a finite number. The client computes this as a fractional midpoint: newRank = (rank_above + rank_below) / 2. For tail appends: newRank = MAX(column_ranks) + 1000.",
+            "example": 1500.0
+          }
+        }
+      },
+      "CreateTaskRequest": {
+        "type": "object",
+        "required": ["title", "type"],
+        "properties": {
+          "title": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["feature", "bug", "tech-debt", "chore"]
+          },
+          "description": { "type": "string", "nullable": true },
+          "assigned": { "type": "string", "nullable": true },
+          "pipeline": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "MoveTaskRequest": {
+        "type": "object",
+        "required": ["to"],
+        "properties": {
+          "to": {
+            "type": "string",
+            "enum": ["todo", "in-progress", "done"],
+            "description": "Destination column."
+          }
+        }
+      },
+      "MoveTaskResponse": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "$ref": "#/components/schemas/Task",
+            "description": "The updated task, now in the destination column with rank = MAX(destination) + 1000."
+          },
+          "from": {
+            "type": "string",
+            "description": "Source column."
+          },
+          "to": {
+            "type": "string",
+            "description": "Destination column."
+          }
+        }
+      },
+      "Attachment": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["file", "text", "link"]
+          },
+          "content": { "type": "string" }
+        }
+      },
+      "Comment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "author": { "type": "string" },
+          "text": { "type": "string" },
+          "type": {
+            "type": "string",
+            "enum": ["note", "question", "answer"]
+          },
+          "resolved": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Machine-readable error code.",
+                "enum": [
+                  "VALIDATION_ERROR",
+                  "TASK_NOT_FOUND",
+                  "SPACE_NOT_FOUND",
+                  "INTERNAL_ERROR",
+                  "PAYLOAD_TOO_LARGE",
+                  "INVALID_JSON"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable error message. Never exposes internal stack traces."
+              },
+              "suggestion": {
+                "type": "string",
+                "description": "Actionable guidance to resolve the error."
+              },
+              "field": {
+                "type": "string",
+                "description": "The field that caused the error (for validation errors)."
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "ValidationError": {
+        "description": "Request validation failed.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "TaskNotFound": {
+        "description": "Task not found in this space.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": {
+                "code": "TASK_NOT_FOUND",
+                "message": "Task not found in this space.",
+                "suggestion": "Verify the task ID and space ID are correct."
+              }
+            }
+          }
+        }
+      },
+      "SpaceNotFound": {
+        "description": "Space not found.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": {
+                "code": "SPACE_NOT_FOUND",
+                "message": "Space not found.",
+                "suggestion": "Check the space ID in the URL."
+              }
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Unexpected server error.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "An unexpected error occurred. Please try again.",
+                "suggestion": "If the problem persists, check the server logs or restart the service."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-rank-implementation-notes": {
+    "fractional_ranking": {
+      "description": "Tasks use float (REAL) ranks. Midpoint insertion: newRank = (rankAbove + rankBelow) / 2. Initial spacing: 1000 units. No cascade writes on reorder.",
+      "rebalance_guard": "When gap < 0.001, client reassigns ranks as [1000, 2000, ...] for all tasks in the column and sends batch PATCH /rank calls.",
+      "precision_limit": "~1000 halvings per gap before rebalance triggers. Negligible for Kanban boards (<100 tasks/column)."
+    },
+    "fts_isolation": {
+      "description": "PATCH /rank uses a dedicated prepared statement (UPDATE tasks SET rank=?, updated_at=? WHERE ...) that does NOT touch title/description, so SQLite FTS5 triggers never fire on rank updates.",
+      "constraint": "rank MUST only be set via PATCH /rank. Never pass rank through PUT /tasks/:id — it would trigger FTS and is semantically wrong."
+    },
+    "loop3_integration": {
+      "description": "LOOP-3 (Board Autopilot) calls GET /tasks?column=todo and processes the first task. Since tasks are now ordered by rank ASC, the todo column becomes the user-controlled priority queue for LOOP-3."
+    }
+  }
+}
