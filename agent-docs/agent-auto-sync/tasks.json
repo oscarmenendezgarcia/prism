@@ -1,0 +1,106 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "agent-auto-sync",
+  "date": "2026-06-14",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Create src/services/agentSync.js",
+      "description": "Implement the agentSync module with SHA-256 manifest-based safe sync. Exports syncAgents({ packageRoot, agentsDir, prismVersion, log }) → { synced, skipped, noChange, errors }. Implements the 3-case algorithm (Case 1: dest missing, Case 2: manifest entry present, Case 3: migration/no-baseline). Reads .prism-manifest.json at start of call; writes it atomically via .tmp→rename only if any entry changed. Tolerates: missing agents/ directory, malformed manifest JSON, per-file I/O errors (push to errors[], continue). Uses Node.js built-in crypto.createHash('sha256').",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "syncAgents returns { synced, skipped, noChange, errors } with correct arrays for each scenario",
+        "Case 1: new file is copied to dest and manifest entry is written",
+        "Case 2a: dest matches manifest hash AND src equals dest → noChange, no disk write",
+        "Case 2b: dest matches manifest hash AND src differs → file updated, manifest entry updated",
+        "Case 2c: dest differs from manifest hash → file skipped (user-modified), no write",
+        "Case 3a: no manifest entry, src == dest → noChange, manifest entry written",
+        "Case 3b: no manifest entry, src != dest → file updated, manifest entry written, log 'first-sync updated'",
+        "Manifest written atomically via .tmp→rename",
+        "Missing agents/ directory → returns empty result without throwing",
+        "Malformed manifest JSON → treats as empty manifest, logs warning, does not throw",
+        "Per-file I/O error → pushed to errors[], remaining files processed normally",
+        "Module exports: { syncAgents, readManifest, writeManifest, computeHash } (helpers exported for testability)"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Integrate syncAgents into server.js startServer()",
+      "description": "Call syncAgents() inside startServer() after the PIPELINE_AGENTS_DIR resolution block. Add optional options.agentsDir field to startServer(options) for test injection. The agentsDir resolution order: options.agentsDir → process.env.PIPELINE_AGENTS_DIR → path.join(os.homedir(), '.claude', 'agents'). On silent mode, suppress sync logs. Log summary line '[agent-sync] synced N, skipped M' only when N>0 or M>0; log 'nothing to do (N agents up to date)' only at debug level (or suppress entirely to avoid startup noise). Errors are always logged regardless of silent mode.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "syncAgents() is called during startServer() before server.listen()",
+        "options.agentsDir is respected when passed to startServer()",
+        "PIPELINE_AGENTS_DIR env var is respected as fallback agentsDir",
+        "~/.claude/agents is used when neither option is set",
+        "Silent mode suppresses sync log lines",
+        "Errors from syncAgents are logged to console.error regardless of silent",
+        "Server startup proceeds normally even if syncAgents throws (try/catch around the call)"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Update bin/init.js installAgents to write manifest",
+      "description": "After the existing copy loop in installAgents(), write (or update) .prism-manifest.json in the destination directory. For installed files: compute srcHash after copy, write manifest entry with hash + prismVersion + syncedAt. For skipped files (already existed): compute srcHash from source and write manifest entry using srcHash — init asserts that the destination is Prism's baseline (either freshly installed or previously installed by init). This ensures the manifest exists from day 1 for fresh installs so auto-sync behaves correctly (Case 2 instead of Case 3) on the very first server start after init.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        ".prism-manifest.json is created in agentsDir after prism init",
+        "Manifest has entries for all installed files with correct srcHash",
+        "Manifest has entries for skipped files using srcHash (not destHash)",
+        "installAgents returns { installed, skipped } with unchanged signature",
+        "Manifest write is atomic (.tmp→rename)",
+        "prism init is idempotent: running twice leaves manifest in consistent state",
+        "prism init --force still works correctly and updates manifest entries"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Tests: tests/agent-sync.test.js",
+      "description": "Comprehensive unit tests for src/services/agentSync.js. All tests use temp directories (mkdtempSync + cleanup in finally). Tests cover: the 3 sync cases, idempotency, manifest read/write, malformed manifest, missing agents/ dir, per-file error handling, and the installAgents manifest integration. Also add a test for the startServer() options.agentsDir injection path to verify the integration point without touching ~/.claude/agents.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-001", "T-002", "T-003"],
+      "acceptance_criteria": [
+        "TC-001: empty agentsDir → all agents installed, manifest created with correct hashes",
+        "TC-002: second syncAgents call with unchanged source → all noChange, no disk writes",
+        "TC-003: source agent changed (simulate v2) → file updated, manifest hash updated",
+        "TC-004: user edits dest agent → skipped on next sync (manifest hash diverged)",
+        "TC-005: no manifest file exists, src == dest → noChange, manifest created",
+        "TC-006: no manifest file exists, src != dest → file updated (migration bias), logged",
+        "TC-007: missing agents/ source dir → returns { synced: [], skipped: [], noChange: [], errors: [] }",
+        "TC-008: malformed manifest JSON → treated as empty manifest, sync proceeds",
+        "TC-009: per-file read error → that file in errors[], other files processed normally",
+        "TC-010: prism init → .prism-manifest.json created with entries for all agents",
+        "TC-011: prism init idempotent → running twice does not corrupt manifest",
+        "TC-012: startServer options.agentsDir → sync targets that directory, not ~/.claude/agents",
+        "All tests pass: node --test tests/agent-sync.test.js"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Update CHANGELOG.md",
+      "description": "Add entry under ## [Unreleased] (or bump to 1.2.0) documenting the agent auto-sync feature: what changed (server startup now syncs agents automatically), the safe-sync guarantee (user customisations are preserved via SHA-256 manifest), the one-time migration note (first startup after upgrade updates existing agents without a manifest baseline), and the new log prefix [agent-sync] for observability.",
+      "role": "Developer",
+      "priority": "Low",
+      "estimate": "1",
+      "dependencies": ["T-001", "T-002", "T-003"],
+      "acceptance_criteria": [
+        "CHANGELOG.md has a new entry describing the auto-sync feature",
+        "Entry mentions the manifest file (.prism-manifest.json) and its location",
+        "Entry mentions the one-time migration behavior (first sync updates all agents)",
+        "Entry mentions that user-customised agents are protected on subsequent syncs"
+      ]
+    }
+  ]
+}

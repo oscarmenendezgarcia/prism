@@ -1,5 +1,38 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Agent auto-sync on startup** — Prism now automatically syncs agent definition files
+  (`agents/*.md`) to the runtime directory (`~/.claude/agents/` or `PIPELINE_AGENTS_DIR`)
+  on every server startup. After `npm install -g prism-kanban@latest`, the updated agents
+  are available immediately on the next restart — no `prism init` required.
+
+  **Safe-sync guarantee:** A SHA-256 manifest (`.prism-manifest.json` inside the agents
+  directory) records the hash of every file as last written by Prism. On sync, the
+  destination file's current hash is compared against the manifest:
+  - **Hash matches manifest** → Prism owns it → update if source has changed.
+  - **Hash diverges from manifest** → user has edited the file → skip, never overwrite.
+
+  **One-time migration note:** On the first restart after upgrading from a pre-manifest
+  Prism version (≤ 1.1.0), all existing agent files are updated to the latest shipped
+  version (migration-bias). This is a one-time event; the manifest is then written and
+  protects user customisations on all subsequent syncs. Each updated file is logged with
+  the `[agent-sync]` prefix.
+
+  **`prism init`** still handles initial setup (fresh install). It now also writes the
+  manifest after copying files, so the first auto-sync immediately operates in safe mode
+  (Case 2) rather than migration mode (Case 3).
+
+  **Observability:** All sync activity is logged under the `[agent-sync]` prefix:
+  ```
+  [agent-sync] installed: developer-agent.md
+  [agent-sync] updated: senior-architect.md (prism v1.1.0 → v1.2.0)
+  [agent-sync] skipped (user-modified): ux-api-designer.md
+  [agent-sync] first-sync updated: qa-engineer-e2e.md (no prior baseline)
+  [agent-sync] synced 3, skipped (user-modified) 1
+  ```
+
 ## [1.1.0] — 2026-06-07
 
 Headline: **Folio** — a navigable, augmentable knowledge base shared between you and your agents.
