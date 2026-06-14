@@ -1259,6 +1259,20 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     promptText += '⚠️ You MUST cd into this directory before starting work. All file paths should be relative to this directory.\n';
   }
 
+  // MERGE-1: tell the agent which branch its PR should target. An isolated run
+  // is branched off run.worktree.baseBranch; the PR must merge back into THAT
+  // branch (not the repo default, e.g. main) so it contains only this run's
+  // commits and lands where the work came from. Only emitted for worktree runs;
+  // direct unit calls to buildStagePrompt (no matching run) skip this cleanly.
+  if (runId) {
+    const runForBase = readRun(dataDir, runId);
+    const prBaseBranch = runForBase && runForBase.worktree && runForBase.worktree.baseBranch;
+    if (prBaseBranch) {
+      promptText += `\nPR Base Branch: ${prBaseBranch}\n`;
+      promptText += `⚠️ This run is isolated on its own branch. When you open the PR, target this base branch — \`gh pr create --base ${prBaseBranch} ...\` — so the PR contains only this run's commits.\n`;
+    }
+  }
+
   // Include artifact paths from previous stages (accumulated on the task by earlier agents).
   if (task && Array.isArray(task.attachments) && task.attachments.length > 0) {
     const fileArtifacts = task.attachments.filter((a) => a.type === 'file' && a.content);
