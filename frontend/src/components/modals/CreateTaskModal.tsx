@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { ReferenceAutocomplete } from '@/components/folio/ReferenceAutocomplete';
+import { ArcAutocomplete } from '@/components/shared/ArcAutocomplete';
 import { useAppStore } from '@/stores/useAppStore';
 import type { CreateTaskPayload } from '@/types';
 
@@ -34,10 +35,12 @@ export function CreateTaskModal() {
   const createTask = useAppStore((s) => s.createTask);
   const availableAgents = useAppStore((s) => s.availableAgents);
   const loadAgents = useAppStore((s) => s.loadAgents);
+  const activeSpaceId = useAppStore((s) => s.activeSpaceId);
 
   const [title, setTitle] = useState('');
   const [type, setType] = useState<'feature' | 'bug' | 'tech-debt' | 'chore' | ''>('');
   const [assigned, setAssigned] = useState('');
+  const [arc, setArc] = useState('');
   const [description, setDescription] = useState('');
   const [pipeline, setPipeline] = useState<string[]>([]);
   const [pipelineOpen, setPipelineOpen] = useState(false);
@@ -73,6 +76,7 @@ export function CreateTaskModal() {
       setTitle('');
       setType('');
       setAssigned('');
+      setArc('');
       setDescription('');
       setPipeline([]);
       setPipelineOpen(false);
@@ -121,6 +125,7 @@ export function CreateTaskModal() {
     const desc = description.trim();
     if (desc) payload.description = desc;
     if (pipeline.length > 0) payload.pipeline = pipeline;
+    if (arc.trim()) payload.arc = arc.trim();
 
     setSubmitting(true);
     try {
@@ -236,6 +241,34 @@ export function CreateTaskModal() {
             />
             <p className="mt-1 text-xs text-text-secondary">
               Type <code className="text-primary">[[</code> to autocomplete a folio reference.
+            </p>
+          </div>
+
+          {/* Arc (optional) */}
+          <div>
+            <label htmlFor="input-arc" className={labelClass}>
+              Arc
+            </label>
+            {activeSpaceId ? (
+              <ArcAutocomplete
+                value={arc}
+                onChange={setArc}
+                spaceId={activeSpaceId}
+              />
+            ) : (
+              <input
+                id="input-arc"
+                type="text"
+                className={baseInputClass}
+                placeholder="e.g. QOL, AUTH, LOOP"
+                value={arc}
+                onChange={(e) => setArc(e.target.value)}
+                autoComplete="off"
+                maxLength={60}
+              />
+            )}
+            <p className="mt-1 text-xs text-text-secondary">
+              Optional narrative grouping label. Free-text or pick an existing arc.
             </p>
           </div>
 

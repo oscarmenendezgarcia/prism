@@ -95,6 +95,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
     task.comments?.filter((c) => c.type === 'question' && !c.resolved).length ?? 0;
 
   const hasMetadata =
+    !!task.arc ||
     !!task.assigned ||
     (task.attachments && task.attachments.length > 0) ||
     !!task.description ||
@@ -146,6 +147,16 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
 
         {/* Divider dot */}
         <span className="w-1 h-1 rounded-full bg-border flex-shrink-0" aria-hidden="true" />
+
+        {/* Arc chip */}
+        {task.arc && (
+          <span
+            data-testid="arc-chip"
+            className="inline-flex items-center text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded border border-border bg-surface-elevated text-text-secondary flex-shrink-0"
+          >
+            {task.arc}
+          </span>
+        )}
 
         {/* Assigned / Unassigned */}
         {task.assigned ? (
