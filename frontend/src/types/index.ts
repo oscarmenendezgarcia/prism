@@ -75,6 +75,8 @@ export interface Task {
    * ADR-1 (pipeline-field-per-card): resolution chain is task > space > DEFAULT_STAGES.
    */
   pipeline?: string[];
+  /** Optional narrative grouping label (e.g. "QOL", "AUTH", "LOOP"). */
+  arc?: string;
   attachments?: Attachment[];
   /** Thread of comments (notes, questions, answers). Aditively returned by GET task. */
   comments?: Comment[];
@@ -94,6 +96,8 @@ export interface CreateTaskPayload {
   description?: string;
   /** Optional ordered list of agent IDs. Omit to inherit the space default. */
   pipeline?: string[];
+  /** Optional narrative grouping label (e.g. "QOL", "AUTH"). */
+  arc?: string;
 }
 
 /**
@@ -114,6 +118,8 @@ export interface UpdateTaskPayload {
    * (reverts to space default). Omit to leave the field unchanged.
    */
   pipeline?: string[];
+  /** Empty string deletes the arc field on the server. */
+  arc?: string;
 }
 
 /** Response from PUT /spaces/:spaceId/tasks/:id/move */
@@ -464,6 +470,8 @@ export interface TaggerSuggestion {
   confidence: 'high' | 'medium' | 'low';
   /** Only present when improveDescriptions=true was requested. */
   description?: string;
+  /** Optional arc label suggested by the tagger. */
+  arc?: string;
 }
 
 /** Response from POST /api/v1/spaces/:spaceId/tagger/run */
