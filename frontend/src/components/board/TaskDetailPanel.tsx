@@ -26,6 +26,7 @@ import { Button } from '@/components/shared/Button';
 import { ArcAutocomplete } from '@/components/shared/ArcAutocomplete';
 import { ReferenceAutocomplete } from '@/components/folio/ReferenceAutocomplete';
 import { CommentsSection } from '@/components/board/CommentsSection';
+import { DependsOnSection } from '@/components/board/DependsOnSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import { resolveAgentName } from '@/utils/agentName';
@@ -462,6 +463,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [localArc, setLocalArc]                 = useState('');
   const [localDescription, setLocalDescription] = useState('');
   const [localType, setLocalType]               = useState<'feature' | 'bug' | 'tech-debt' | 'chore'>('chore');
+  const [localDependsOn, setLocalDependsOn]     = useState<string[]>([]);
   /** Mobile tab — shown only when viewport is <768px (two-column doesn't fit). */
   const [mobileTab, setMobileTab]               = useState<'content' | 'details'>('content');
   const [isCopied, setIsCopied]                 = useState(false);
@@ -495,6 +497,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
     setLocalArc(detailTask.arc ?? '');
     setLocalDescription(detailTask.description ?? '');
     setLocalType(detailTask.type);
+    setLocalDependsOn(detailTask.dependsOn ?? []);
 
     // MODEL-1: initialize local stageModels from task
     const initModels: Record<string, string> = {};
@@ -1107,6 +1110,23 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   </div>
                 );
               })()}
+
+              {/* Depends on — QOL-3 */}
+              {column !== 'done' && (
+                <div className="py-5 animate-fade-in-up [animation-delay:270ms]">
+                  <DependsOnSection
+                    spaceId={activeSpaceId}
+                    taskId={detailTask.id}
+                    dependsOn={localDependsOn}
+                    disabled={fieldDisabled}
+                    onUpdated={(newDeps) => {
+                      setLocalDependsOn(newDeps);
+                      // Refresh board so isBlocked is recalculated for all tasks
+                      useAppStore.getState().loadBoard();
+                    }}
+                  />
+                </div>
+              )}
 
               {/* Attachments */}
               {detailTask.attachments && detailTask.attachments.length > 0 && (
