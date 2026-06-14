@@ -14,6 +14,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { Space } from '@/types';
+import { useLocalStorage } from '@/hooks/useLocalStorage';
 
 export interface SpaceOverflowMenuProps {
   /** Spaces that did not fit the visible tab bar */
@@ -30,7 +31,8 @@ export function SpaceOverflowMenu({
   onSelect,
   filterThreshold = 6,
 }: SpaceOverflowMenuProps) {
-  const [open, setOpen] = useState(false);
+  // QOL-2: persist dropdown open state across page reloads (F7).
+  const [open, setOpen] = useLocalStorage<boolean>('prism:space-overflow-open', false);
   const [filter, setFilter] = useState('');
   const [focusedIdx, setFocusedIdx] = useState<number>(-1);
 
@@ -216,7 +218,7 @@ export function SpaceOverflowMenu({
       <button
         ref={triggerRef}
         type="button"
-        aria-label={`Show ${spaces.length} more spaces`}
+        aria-label={`Show ${spaces.length} more unpinned spaces`}
         aria-haspopup="menu"
         aria-expanded={open}
         data-testid="space-overflow-btn"
@@ -231,7 +233,7 @@ export function SpaceOverflowMenu({
             : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant',
         ].join(' ')}
       >
-        +{spaces.length}
+        More spaces ({spaces.length})
       </button>
 
       {/* Portal dropdown */}

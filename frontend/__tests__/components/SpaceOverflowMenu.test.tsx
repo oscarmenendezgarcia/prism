@@ -35,13 +35,15 @@ const SEVEN_SPACES = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Clear localStorage so overflow-open state doesn't leak between tests (QOL-2).
+  localStorage.removeItem('prism:space-overflow-open');
 });
 
 // ---------------------------------------------------------------------------
 // Trigger button
 // ---------------------------------------------------------------------------
 describe('SpaceOverflowMenu — trigger button', () => {
-  it('renders "+N" with the correct overflow count', () => {
+  it('renders "More spaces (N)" with the correct overflow count', () => {
     render(
       <SpaceOverflowMenu
         spaces={THREE_SPACES}
@@ -49,7 +51,7 @@ describe('SpaceOverflowMenu — trigger button', () => {
         onSelect={vi.fn()}
       />,
     );
-    expect(screen.getByText('+3')).toBeInTheDocument();
+    expect(screen.getByText('More spaces (3)')).toBeInTheDocument();
   });
 
   it('has data-testid="space-overflow-btn"', () => {

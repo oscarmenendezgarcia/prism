@@ -8,7 +8,7 @@
 
 import { create } from 'zustand';
 import * as api from '@/api/client';
-import { ApiError } from '@/api/client';
+import { ApiError, updateSpace as apiUpdateSpace } from '@/api/client';
 // Imported via getState() to avoid circular imports with useRunHistoryStore.
 // ADR-1 (Agent Run History) §5.1: all lifecycle calls use getState() boundary.
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
@@ -93,6 +93,12 @@ interface AppState {
   createSpace: (name: string, workingDirectory?: string, pipeline?: string[]) => Promise<void>;
   renameSpace: (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>) => Promise<void>;
   deleteSpace: (id: string) => Promise<void>;
+  /** QOL-2: Pin a space — appends it to the pinned zone with the next available rank. */
+  pinSpace: (id: string) => Promise<void>;
+  /** QOL-2: Unpin a space — removes it from the pinned zone. */
+  unpinSpace: (id: string) => Promise<void>;
+  /** QOL-2: Persist a new order for the pinned zone. Optimistic local update first. */
+  reorderPinnedSpaces: (orderedIds: string[]) => Promise<void>;
 
   // Tasks
   tasks: BoardTasks;
@@ -685,6 +691,63 @@ export const useAppStore = create<AppState>((set, get) => {
 
     await loadSpaces();
     showToast(`Space "${spaceName}" deleted.`);
+  },
+
+  // ── QOL-2: Space pinning ────────────────────────────────────────────────
+
+  pinSpace: async (id: string) => {
+    const { spaces, showToast } = get();
+    const maxRank = Math.max(
+      -1,
+      ...spaces.filter((s) => s.pinned).map((s) => s.pinnedRank ?? -1),
+    );
+    try {
+      await apiUpdateSpace(id, { pinned: true, pinnedRank: maxRank + 1 });
+      await get().loadSpaces();
+    } catch (err) {
+      showToast(`Failed to pin space: ${(err as Error).message}`, 'error');
+    }
+  },
+
+  unpinSpace: async (id: string) => {
+    const { showToast } = get();
+    try {
+      await apiUpdateSpace(id, { pinned: false, pinnedRank: null });
+      await get().loadSpaces();
+    } catch (err) {
+      showToast(`Failed to unpin space: ${(err as Error).message}`, 'error');
+    }
+  },
+
+  reorderPinnedSpaces: async (orderedIds: string[]) => {
+    const { showToast } = get();
+    // Snapshot for rollback if persistence fails after the optimistic update.
+    const prevSpaces = get().spaces;
+
+    // Optimistic: reorder local state immediately so the UI snaps without a
+    // round-trip. Non-pinned spaces retain their positions after the pinned block.
+    set((state) => {
+      const idxMap = new Map(orderedIds.map((id, i) => [id, i]));
+      const pinned    = orderedIds
+        .map((id) => state.spaces.find((s) => s.id === id))
+        .filter(Boolean) as Space[];
+      const nonPinned = state.spaces.filter((s) => !idxMap.has(s.id));
+      return { spaces: [...pinned, ...nonPinned] };
+    });
+
+    try {
+      // Persist each rank in parallel.
+      await Promise.all(
+        orderedIds.map((id, rank) =>
+          apiUpdateSpace(id, { pinned: true, pinnedRank: rank }),
+        ),
+      );
+      await get().loadSpaces();
+    } catch (err) {
+      // Roll back the optimistic reorder so the UI never diverges from the server.
+      set({ spaces: prevSpaces });
+      showToast(`Failed to reorder spaces: ${(err as Error).message}`, 'error');
+    }
   },
 
   // ── Tasks ───────────────────────────────────────────────────────────────

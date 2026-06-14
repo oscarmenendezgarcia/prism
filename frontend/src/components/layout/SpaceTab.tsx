@@ -74,6 +74,16 @@ export function SpaceTab({ space, active, onSelect, onKebab, refCb }: SpaceTabPr
           : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant',
       ].join(' ')}
     >
+      {/* Pin indicator — shown for pinned spaces (which sort to the front) */}
+      {space.pinned && (
+        <span
+          className="material-symbols-outlined text-xs leading-none opacity-40 flex-shrink-0"
+          aria-hidden="true"
+        >
+          push_pin
+        </span>
+      )}
+
       {/* Truncated label — aria-label is on the outer button; no duplicate needed here */}
       <span
         ref={labelRef}

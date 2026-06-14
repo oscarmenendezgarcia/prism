@@ -30,12 +30,27 @@ export function SpaceTabs() {
   const loadBoard        = useAppStore((s) => s.loadBoard);
   const openSpaceModal   = useAppStore((s) => s.openSpaceModal);
   const openDeleteDialog = useAppStore((s) => s.openDeleteSpaceDialog);
+  const pinSpace         = useAppStore((s) => s.pinSpace);
+  const unpinSpace       = useAppStore((s) => s.unpinSpace);
+
+  // ---------------------------------------------------------------------------
+  // Ordering: pinned spaces always come first, in the order they were pinned
+  // (pinnedRank). Non-pinned keep their existing relative order (stable sort).
+  // The width-based overflow then naturally keeps the pinned ones as visible tabs.
+  // ---------------------------------------------------------------------------
+  const orderedSpaces = [...spaces].sort((a, b) => {
+    const ap = a.pinned ? 0 : 1;
+    const bp = b.pinned ? 0 : 1;
+    if (ap !== bp) return ap - bp;
+    if (a.pinned && b.pinned) return (a.pinnedRank ?? 0) - (b.pinnedRank ?? 0);
+    return 0;
+  });
 
   // ---------------------------------------------------------------------------
   // Overflow measurement
   // ---------------------------------------------------------------------------
   const { containerRef, setItemRef, visible, overflow, measuring } =
-    useOverflowItems<Space>(spaces, {
+    useOverflowItems<Space>(orderedSpaces, {
       pinnedId: activeSpaceId ?? undefined,
       // 112 = nav px-4 padding (32) + overflowBtn (~42) + addBtn (~28) + 2 gaps (~8) + 2px safety
       reservedTrailingPx: 112,
@@ -70,6 +85,10 @@ export function SpaceTabs() {
       if (space) openSpaceModal('rename', space);
     } else if (itemId === 'delete') {
       openDeleteDialog(spaceId);
+    } else if (itemId === 'pin') {
+      pinSpace(spaceId);
+    } else if (itemId === 'unpin') {
+      unpinSpace(spaceId);
     }
   }
 
@@ -80,8 +99,10 @@ export function SpaceTabs() {
   }
 
   const isLastSpace = spaces.length <= 1;
+  const isTargetPinned = (spaces.find((s) => s.id === menuState.spaceId)?.pinned) ?? false;
   const menuItems = [
-    { id: 'rename', label: 'Edit',   icon: 'edit' },
+    { id: 'rename', label: 'Edit', icon: 'edit' },
+    { id: isTargetPinned ? 'unpin' : 'pin', label: isTargetPinned ? 'Unpin' : 'Pin', icon: 'push_pin' },
     { id: 'delete', label: 'Delete', icon: 'delete', danger: true, disabled: isLastSpace },
   ];
 
@@ -91,7 +112,7 @@ export function SpaceTabs() {
 
   // During the measure pass, render all tabs invisible so the hook can read widths.
   // After measurement, render only the visible set.
-  const tabsToRender: Space[] = measuring ? spaces : visible;
+  const tabsToRender: Space[] = measuring ? orderedSpaces : visible;
 
   return (
     <nav

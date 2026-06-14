@@ -248,3 +248,55 @@ describe('SpaceTabs — context menu (kebab)', () => {
     expect(deleteBtn).toBeDisabled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Pinning (QOL-2) — pinned spaces sort first; Pin/Unpin from the kebab menu
+// ---------------------------------------------------------------------------
+describe('SpaceTabs — pinning', () => {
+  it('orders pinned spaces first, in pinnedRank order', () => {
+    useAppStore.setState({
+      spaces: [
+        { id: 'a', name: 'Alpha', createdAt: '', updatedAt: '' },
+        { id: 'b', name: 'Beta',  pinned: true, pinnedRank: 1, createdAt: '', updatedAt: '' },
+        { id: 'c', name: 'Gamma', pinned: true, pinnedRank: 0, createdAt: '', updatedAt: '' },
+      ],
+      activeSpaceId: 'a',
+    } as any);
+    render(<SpaceTabs />);
+    const ids = screen.getAllByRole('tab').map((t) => t.getAttribute('data-space-id'));
+    // Gamma (rank 0) → Beta (rank 1) → Alpha (non-pinned, original order)
+    expect(ids).toEqual(['c', 'b', 'a']);
+  });
+
+  it('shows "Pin" for a non-pinned space and calls pinSpace', () => {
+    const mockPin = vi.fn();
+    useAppStore.setState({
+      spaces: [
+        { id: 'a', name: 'Alpha', createdAt: '', updatedAt: '' },
+        { id: 'b', name: 'Beta',  createdAt: '', updatedAt: '' },
+      ],
+      activeSpaceId: 'a',
+      pinSpace: mockPin,
+    } as any);
+    render(<SpaceTabs />);
+    fireEvent.click(screen.getAllByTitle('Space options')[1]); // Beta's kebab
+    fireEvent.click(screen.getByText('Pin'));
+    expect(mockPin).toHaveBeenCalledWith('b');
+  });
+
+  it('shows "Unpin" for a pinned space and calls unpinSpace', () => {
+    const mockUnpin = vi.fn();
+    useAppStore.setState({
+      spaces: [
+        { id: 'a', name: 'Alpha', pinned: true, pinnedRank: 0, createdAt: '', updatedAt: '' },
+        { id: 'b', name: 'Beta',  createdAt: '', updatedAt: '' },
+      ],
+      activeSpaceId: 'a',
+      unpinSpace: mockUnpin,
+    } as any);
+    render(<SpaceTabs />);
+    fireEvent.click(screen.getAllByTitle('Space options')[0]); // Alpha (pinned)
+    fireEvent.click(screen.getByText('Unpin'));
+    expect(mockUnpin).toHaveBeenCalledWith('a');
+  });
+});
