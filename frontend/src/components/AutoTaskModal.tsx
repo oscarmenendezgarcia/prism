@@ -17,7 +17,7 @@
  * Mobile (<600px): full-screen, border-radius 20px 20px 0 0
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   Modal,
   ModalHeader,
@@ -53,6 +53,13 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
   const startTagger        = useAppStore((s) => s.startTagger);
   const setSuggestions     = useAppStore((s) => s.setSuggestions);
   const setTaggerError     = useAppStore((s) => s.setTaggerError);
+  const boardTasks         = useAppStore((s) => s.tasks);
+
+  // Count blocked tasks in the todo column (for the autopilot notice)
+  const blockedTodoCount = useMemo(() =>
+    boardTasks['todo'].filter(t => t.isBlocked).length,
+    [boardTasks]
+  );
 
   const [mode,         setMode]         = useState<Mode>('generate');
   const [step,         setStep]         = useState<Step>('form');
@@ -329,6 +336,13 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
 
               {pendingTasks.length === 0 && (
                 <p className="text-[13px] text-text-secondary text-center py-4">All tasks removed.</p>
+              )}
+
+              {column === 'todo' && blockedTodoCount > 0 && (
+                <p className="text-[12px] text-text-secondary flex items-center gap-1 mt-1">
+                  <span className="material-symbols-outlined text-[13px] leading-none text-warning" aria-hidden="true">info</span>
+                  {blockedTodoCount} task{blockedTodoCount !== 1 ? 's' : ''} in Todo are blocked by unfinished dependencies and will be skipped by autopilot.
+                </p>
               )}
 
               {error && (
