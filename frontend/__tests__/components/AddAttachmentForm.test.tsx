@@ -273,11 +273,12 @@ describe('AddAttachmentForm — validation', () => {
 
 describe('AddAttachmentForm — auto-populate name from URL', () => {
   it('fills name from URL hostname on content blur when name is empty', async () => {
-    const user = userEvent.setup();
     renderForm();
 
+    // Use fireEvent.change instead of userEvent.type to avoid jsdom type="url"
+    // input filtering and requestAnimationFrame focus-stealing on the name field.
     const urlInput = screen.getByPlaceholderText(/https:\/\/example\.com/i);
-    await user.type(urlInput, 'https://github.com/owner/repo');
+    fireEvent.change(urlInput, { target: { value: 'https://github.com/owner/repo' } });
     fireEvent.blur(urlInput);
 
     await waitFor(() => {
