@@ -17,26 +17,28 @@ import type { Task } from '../../src/types';
 // ---------------------------------------------------------------------------
 
 vi.mock('../../src/api/client', () => ({
-  getSpaces:         vi.fn(),
-  getTasks:          vi.fn(),
-  createTask:        vi.fn(),
-  moveTask:          vi.fn(),
-  deleteTask:        vi.fn(),
-  createSpace:       vi.fn(),
-  renameSpace:       vi.fn(),
-  deleteSpace:       vi.fn(),
+  getSpaces:            vi.fn(),
+  getTasks:             vi.fn(),
+  createTask:           vi.fn(),
+  moveTask:             vi.fn(),
+  deleteTask:           vi.fn(),
+  createSpace:          vi.fn(),
+  renameSpace:          vi.fn(),
+  deleteSpace:          vi.fn(),
   getAttachmentContent: vi.fn(),
-  updateTask:        vi.fn(),
-  getAgents:         vi.fn(),
-  generatePrompt:    vi.fn(),
-  getSettings:       vi.fn().mockResolvedValue({}),
-  saveSettings:      vi.fn(),
-  createAgentRun:    vi.fn().mockResolvedValue({ id: 'run_mock' }),
-  updateAgentRun:    vi.fn().mockResolvedValue({ id: 'run_mock', status: 'completed' }),
-  getAgentRuns:      vi.fn().mockResolvedValue({ runs: [], total: 0 }),
-  startRun:          vi.fn(),
-  getBackendRun:     vi.fn(),
-  deleteRun:         vi.fn(),
+  updateTask:           vi.fn(),
+  patchUserAttachment:  vi.fn(),
+  deleteUserAttachment: vi.fn(),
+  getAgents:            vi.fn(),
+  generatePrompt:       vi.fn(),
+  getSettings:          vi.fn().mockResolvedValue({}),
+  saveSettings:         vi.fn(),
+  createAgentRun:       vi.fn().mockResolvedValue({ id: 'run_mock' }),
+  updateAgentRun:       vi.fn().mockResolvedValue({ id: 'run_mock', status: 'completed' }),
+  getAgentRuns:         vi.fn().mockResolvedValue({ runs: [], total: 0 }),
+  startRun:             vi.fn(),
+  getBackendRun:        vi.fn(),
+  deleteRun:            vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -645,16 +647,29 @@ describe('TaskDetailPanel — pipeline field: edit mode', () => {
 // ---------------------------------------------------------------------------
 
 describe('TaskDetailPanel — attachments section', () => {
-  it('does not render the attachments section when task has no attachments', () => {
+  // QOL-7: section always renders — empty state shows "No attachments yet" placeholder.
+  it('renders the attachments section even when task has no attachments', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     const { container } = render(<TaskDetailPanel />);
-    expect(container.querySelector('[data-testid="attachments-section"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-testid="attachments-section"]')).toBeInTheDocument();
   });
 
-  it('does not render the attachments section when attachments is an empty array', () => {
+  it('shows "No attachments yet" empty state when attachments is undefined', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByText('No attachments yet')).toBeInTheDocument();
+  });
+
+  it('renders the attachments section even when attachments is an empty array', () => {
     useAppStore.setState({ detailTask: { ...TASK, attachments: [] } } as any);
     const { container } = render(<TaskDetailPanel />);
-    expect(container.querySelector('[data-testid="attachments-section"]')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-testid="attachments-section"]')).toBeInTheDocument();
+  });
+
+  it('shows "No attachments yet" empty state when attachments array is empty', () => {
+    useAppStore.setState({ detailTask: { ...TASK, attachments: [] } } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByText('No attachments yet')).toBeInTheDocument();
   });
 
   it('renders the attachments section when task has attachments', () => {

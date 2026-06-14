@@ -1,0 +1,362 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Prism — User Attachments API",
+    "version": "1.0.0",
+    "description": "Endpoints for managing task attachments. Extends the existing attachment sub-route with user-provenance support and a new DELETE endpoint. Phase 1: link, text, and file-path attachments only (no binary upload)."
+  },
+  "servers": [
+    { "url": "/api/v1", "description": "Local server (node server.js)" }
+  ],
+  "tags": [
+    { "name": "attachments", "description": "Task attachment operations" }
+  ],
+  "paths": {
+    "/spaces/{spaceId}/tasks/{taskId}/attachments": {
+      "patch": {
+        "tags": ["attachments"],
+        "operationId": "patchAttachments",
+        "summary": "Add or update attachments (merge by name)",
+        "description": "Upserts incoming attachments into the task's attachment array using name as the key. Existing attachments not in the payload are preserved. Passing `author: 'user'` on a new item marks it as user-owned. The `author` field is stored and returned but not validated for ownership at this layer (backend relies on the DELETE guard for security).",
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" },
+          { "$ref": "#/components/parameters/taskId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["attachments"],
+                "properties": {
+                  "attachments": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/components/schemas/AttachmentInput" }
+                  }
+                }
+              },
+              "examples": {
+                "addLink": {
+                  "summary": "Add a user link attachment",
+                  "value": {
+                    "attachments": [
+                      {
+                        "name": "GitHub PR",
+                        "type": "link",
+                        "content": "https://github.com/org/repo/pull/42",
+                        "author": "user"
+                      }
+                    ]
+                  }
+                },
+                "addNote": {
+                  "summary": "Add a user text note",
+                  "value": {
+                    "attachments": [
+                      {
+                        "name": "Meeting Notes",
+                        "type": "text",
+                        "content": "Discussed schema changes with the team. Decision: defer binary upload to Phase 2.",
+                        "author": "user"
+                      }
+                    ]
+                  }
+                },
+                "addFilePath": {
+                  "summary": "Add a user file path",
+                  "value": {
+                    "attachments": [
+                      {
+                        "name": "Local design spec",
+                        "type": "file",
+                        "content": "/Users/oscar/designs/qol-7-spec.png",
+                        "author": "user"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Attachments merged. Returns the full updated task (attachment content stripped for non-link types).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Task" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error in the request body.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "examples": {
+                  "invalidAuthor": {
+                    "summary": "Invalid author value",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "attachments[0].author must be 'user' or 'agent'.",
+                        "suggestion": "Omit the author field to leave provenance unset, or use 'user' for user-added attachments.",
+                        "field": "attachments[0].author"
+                      }
+                    }
+                  },
+                  "invalidUrl": {
+                    "summary": "Link type requires https URL",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "A link attachment must have a valid https:// URL as its content.",
+                        "suggestion": "Make sure the URL starts with https:// — for example: https://github.com/org/repo",
+                        "field": "attachments[0].content"
+                      }
+                    }
+                  },
+                  "nameTooLong": {
+                    "summary": "Name exceeds 100 characters",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Attachment name must be 100 characters or fewer.",
+                        "suggestion": "Shorten the attachment name.",
+                        "field": "attachments[0].name"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or space not found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "example": {
+                  "error": {
+                    "code": "TASK_NOT_FOUND",
+                    "message": "Task 'abc-123' was not found in this space.",
+                    "suggestion": "Check that the task ID is correct and that you are querying the right space."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/spaces/{spaceId}/tasks/{taskId}/attachments/{encodedName}": {
+      "delete": {
+        "tags": ["attachments"],
+        "operationId": "deleteUserAttachment",
+        "summary": "Delete a user-owned attachment by name",
+        "description": "Removes a single attachment identified by its URL-encoded name. Only attachments with `author: 'user'` can be deleted through this endpoint. Agent-produced artefacts (author missing or 'agent') are always rejected with 403. This is a backend-enforced guard — the UI additionally hides the delete button on agent rows.",
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" },
+          { "$ref": "#/components/parameters/taskId" },
+          {
+            "name": "encodedName",
+            "in": "path",
+            "required": true,
+            "description": "URL-encoded attachment name (e.g. `GitHub%20PR` for 'GitHub PR').",
+            "schema": { "type": "string" },
+            "example": "GitHub%20PR"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Attachment deleted. Returns the full updated task.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["task"],
+                  "properties": {
+                    "task": { "$ref": "#/components/schemas/Task" }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Attachment is agent-owned and cannot be deleted via the user endpoint.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "example": {
+                  "error": {
+                    "code": "FORBIDDEN",
+                    "message": "This attachment was created by the pipeline and cannot be deleted here.",
+                    "suggestion": "Only attachments you added yourself can be removed. Pipeline artefacts (ADR, blueprint, PR links) are managed by the agents."
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Task or attachment not found.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "examples": {
+                  "taskNotFound": {
+                    "summary": "Task not found",
+                    "value": {
+                      "error": {
+                        "code": "TASK_NOT_FOUND",
+                        "message": "Task 'abc-123' was not found in this space.",
+                        "suggestion": "Check that the task ID is correct and that you are querying the right space."
+                      }
+                    }
+                  },
+                  "attachmentNotFound": {
+                    "summary": "Attachment not found",
+                    "value": {
+                      "error": {
+                        "code": "NOT_FOUND",
+                        "message": "Attachment 'GitHub PR' was not found on this task.",
+                        "suggestion": "The attachment may have already been deleted. Refresh the task to see the current list."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "spaceId": {
+        "name": "spaceId",
+        "in": "path",
+        "required": true,
+        "description": "The space UUID that owns the task.",
+        "schema": { "type": "string", "format": "uuid" },
+        "example": "193f336c-1950-4a39-804e-5691be135ddc"
+      },
+      "taskId": {
+        "name": "taskId",
+        "in": "path",
+        "required": true,
+        "description": "The task UUID.",
+        "schema": { "type": "string", "format": "uuid" },
+        "example": "9cfcd99e-390f-43ad-8356-24c644a2c895"
+      }
+    },
+    "schemas": {
+      "AttachmentInput": {
+        "type": "object",
+        "required": ["name", "type", "content"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Display name for the attachment. Used as the merge key — must be unique within the task's attachment list.",
+            "example": "GitHub PR"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["link", "text", "file"],
+            "description": "Attachment type: 'link' (https URL), 'text' (inline note), 'file' (local absolute path)."
+          },
+          "content": {
+            "type": "string",
+            "description": "The attachment payload. For 'link': must be a valid https:// URL. For 'file': must be an absolute path starting with '/'. For 'text': any non-empty string.",
+            "example": "https://github.com/org/repo/pull/42"
+          },
+          "author": {
+            "type": "string",
+            "enum": ["user", "agent"],
+            "description": "Who created this attachment. Optional — if absent, treated as 'agent' by the frontend. Set to 'user' for all user-created attachments so the DELETE guard can protect agent artefacts.",
+            "example": "user"
+          }
+        }
+      },
+      "Attachment": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Display name and merge key."
+          },
+          "type": {
+            "type": "string",
+            "enum": ["link", "text", "file"]
+          },
+          "content": {
+            "type": "string",
+            "description": "Present only for 'link' type in list responses. Stripped for 'text' and 'file' types in list responses for security (fetched separately via GET /attachments/:index).",
+            "example": "https://github.com/org/repo/pull/42"
+          },
+          "author": {
+            "type": "string",
+            "enum": ["user", "agent"],
+            "description": "Provenance. Absent on legacy agent attachments — frontend treats missing as 'agent'."
+          }
+        }
+      },
+      "Task": {
+        "type": "object",
+        "description": "Full task object as returned by GET /tasks/:taskId. Included here only to document the shape returned by attachment mutation endpoints.",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "type": { "type": "string", "enum": ["feature", "bug", "tech-debt", "chore"] },
+          "description": { "type": "string" },
+          "assigned": { "type": "string" },
+          "pipeline": { "type": "array", "items": { "type": "string" } },
+          "attachments": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Attachment" }
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Machine-readable error code.",
+                "enum": [
+                  "VALIDATION_ERROR",
+                  "FORBIDDEN",
+                  "NOT_FOUND",
+                  "TASK_NOT_FOUND"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable description of what went wrong."
+              },
+              "suggestion": {
+                "type": "string",
+                "description": "How the user or caller can resolve the error."
+              },
+              "field": {
+                "type": "string",
+                "description": "The specific field that caused a VALIDATION_ERROR, using dot-notation."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
