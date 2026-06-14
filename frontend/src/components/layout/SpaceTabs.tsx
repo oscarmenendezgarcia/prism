@@ -140,9 +140,10 @@ export function SpaceTabs() {
       role="tablist"
       aria-label="Spaces"
     >
-      {/* Pinned zone — always visible, drag-reorderable */}
+      {/* Pinned zone — always rendered, drag-reorderable. Scrolls within a bounded
+          width when narrow so the overflow + add buttons stay visible. */}
       {pinnedSpaces.length > 0 && (
-        <div className="flex items-center gap-0.5 py-1.5 overflow-x-auto scrollbar-hidden flex-shrink-0">
+        <div className="flex items-center gap-0.5 py-1.5 overflow-x-auto scrollbar-hidden min-w-0 max-w-[60%]">
           {pinnedSpaces.map((space, idx) => (
             <SpaceTab
               key={space.id}
@@ -167,33 +168,32 @@ export function SpaceTabs() {
         <div className="w-px h-5 bg-border mx-1 flex-shrink-0" aria-hidden="true" />
       )}
 
-      {/* Non-pinned zone — fills remaining width; overflow collapses into the menu */}
+      {/* Non-pinned zone — fills remaining width; the tabs that fit render here */}
       <div
         ref={containerRef}
         className="flex items-center gap-0.5 py-1.5 min-w-0 flex-1 overflow-hidden"
       >
-        {measuring ? (
+        {measuring
           // Measuring pass: render all candidates (hidden) so the hook can read
           // their widths. Settles before paint (useLayoutEffect) — no flicker.
-          nonPinned.map((space) => (
-            <div key={space.id} ref={setItemRef(space.id)} className="invisible" aria-hidden="true">
-              {renderTab(space)}
-            </div>
-          ))
-        ) : (
-          <>
-            {visible.map(renderTab)}
-            {overflow.length > 0 && (
-              <SpaceOverflowMenu
-                spaces={overflow}
-                activeSpaceId={activeSpaceId ?? ''}
-                onSelect={handleOverflowSelect}
-                filterThreshold={6}
-              />
-            )}
-          </>
-        )}
+          ? nonPinned.map((space) => (
+              <div key={space.id} ref={setItemRef(space.id)} className="invisible" aria-hidden="true">
+                {renderTab(space)}
+              </div>
+            ))
+          : visible.map(renderTab)}
       </div>
+
+      {/* Overflow menu — a sibling OUTSIDE the clipped zone so its label is never
+          truncated; it lives in the width reserved by useOverflowItems. */}
+      {!measuring && overflow.length > 0 && (
+        <SpaceOverflowMenu
+          spaces={overflow}
+          activeSpaceId={activeSpaceId ?? ''}
+          onSelect={handleOverflowSelect}
+          filterThreshold={6}
+        />
+      )}
 
       {/* Add space button */}
       <button
