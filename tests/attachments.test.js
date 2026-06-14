@@ -896,6 +896,223 @@ async function runTests() {
       assert(updated.body.attachments.length === 2, `Expected 2, got ${updated.body.attachments.length}`);
     });
 
+    // -------------------------------------------------------------------------
+    // T-007: author field — validation
+    // -------------------------------------------------------------------------
+
+    suite('T-007: author field — validation (POST with author)');
+
+    await test('author:user accepted — stored and returned', async () => {
+      const res = await request('POST', '/api/v1/tasks', {
+        title: 'User attachment task',
+        type: 'feature',
+        attachments: [{ name: 'my note', type: 'text', content: 'hello', author: 'user' }],
+      });
+      assert(res.status === 201, `Expected 201, got ${res.status}`);
+      assert(Array.isArray(res.body.attachments), 'attachments should be present');
+      const att = res.body.attachments[0];
+      assert(att.author === 'user', `Expected author 'user', got '${att.author}'`);
+    });
+
+    await test('author:agent accepted — stored and returned', async () => {
+      const res = await request('POST', '/api/v1/tasks', {
+        title: 'Agent attachment task',
+        type: 'feature',
+        attachments: [{ name: 'agent note', type: 'text', content: 'agent wrote this', author: 'agent' }],
+      });
+      assert(res.status === 201, `Expected 201, got ${res.status}`);
+      const att = res.body.attachments[0];
+      assert(att.author === 'agent', `Expected author 'agent', got '${att.author}'`);
+    });
+
+    await test('author:invalid rejected with 400 VALIDATION_ERROR', async () => {
+      const res = await request('POST', '/api/v1/tasks', {
+        title: 'T',
+        type: 'chore',
+        attachments: [{ name: 'x', type: 'text', content: 'y', author: 'bot' }],
+      });
+      assert(res.status === 400, `Expected 400, got ${res.status}`);
+      assert(res.body.error.code === 'VALIDATION_ERROR',
+        `Expected VALIDATION_ERROR, got '${res.body.error.code}'`);
+      assert(res.body.error.message.includes('author'),
+        `Error should mention 'author', got: ${res.body.error.message}`);
+    });
+
+    await test('author field absent when not provided (legacy behaviour)', async () => {
+      const res = await request('POST', '/api/v1/tasks', {
+        title: 'Legacy no-author task',
+        type: 'chore',
+        attachments: [{ name: 'old note', type: 'text', content: 'no author field' }],
+      });
+      assert(res.status === 201, `Expected 201, got ${res.status}`);
+      const att = res.body.attachments[0];
+      assert(!('author' in att), `Expected no 'author' field, but got '${att.author}'`);
+    });
+
+    await test('author:user on link attachment — content preserved + author present', async () => {
+      const res = await request('POST', '/api/v1/tasks', {
+        title: 'User link task',
+        type: 'feature',
+        attachments: [{
+          name: 'My PR',
+          type: 'link',
+          content: 'https://github.com/owner/repo/pull/100',
+          author: 'user',
+        }],
+      });
+      assert(res.status === 201, `Expected 201, got ${res.status}`);
+      const att = res.body.attachments[0];
+      assert(att.content === 'https://github.com/owner/repo/pull/100', 'link content preserved');
+      assert(att.author === 'user', `author should be 'user', got '${att.author}'`);
+    });
+
+    await test('author field present in GET /tasks board response', async () => {
+      const created = await request('POST', '/api/v1/tasks', {
+        title: 'Author in list',
+        type: 'chore',
+        attachments: [{ name: 'board att', type: 'text', content: 'board content', author: 'user' }],
+      });
+      const tid = created.body.id;
+
+      const board = await request('GET', '/api/v1/tasks');
+      assert(board.status === 200, `Expected 200, got ${board.status}`);
+      const allTasks = [...board.body.todo, ...board.body['in-progress'], ...board.body.done];
+      const found = allTasks.find((t) => t.id === tid);
+      assert(found !== undefined, 'Task should appear in board response');
+      const att = (found.attachments ?? []).find((a) => a.name === 'board att');
+      assert(att !== undefined, 'Attachment should be in board response');
+      assert(att.author === 'user', `Expected author 'user' in board, got '${att.author}'`);
+    });
+
+    // -------------------------------------------------------------------------
+    // T-007: DELETE by name — happy path
+    // -------------------------------------------------------------------------
+
+    suite('T-007: DELETE /tasks/:id/attachments/:name — happy path');
+
+    let deleteTaskId;
+
+    await test('setup: create task with user + agent attachments', async () => {
+      const res = await request('POST', '/api/v1/tasks', {
+        title: 'Delete attachment test task',
+        type: 'feature',
+        attachments: [
+          { name: 'user note', type: 'text', content: 'I wrote this', author: 'user' },
+          { name: 'agent note', type: 'text', content: 'agent wrote this', author: 'agent' },
+          { name: 'legacy note', type: 'text', content: 'pre-author era' },
+        ],
+      });
+      assert(res.status === 201, `Expected 201, got ${res.status}`);
+      deleteTaskId = res.body.id;
+      assert(res.body.attachments.length === 3, `Expected 3 attachments, got ${res.body.attachments.length}`);
+    });
+
+    await test('DELETE user-owned attachment → 200, task returned', async () => {
+      const res = await request('DELETE', `/api/v1/tasks/${deleteTaskId}/attachments/user%20note`);
+      assert(res.status === 200, `Expected 200, got ${res.status}: ${JSON.stringify(res.body)}`);
+      assert(res.body.task !== undefined, 'Response should have task field');
+      const names = (res.body.task.attachments ?? []).map((a) => a.name);
+      assert(!names.includes('user note'), 'user note should be removed');
+      assert(names.includes('agent note'), 'agent note should still be present');
+      assert(names.includes('legacy note'), 'legacy note should still be present');
+    });
+
+    await test('GET after delete — attachment absent from board', async () => {
+      const board = await request('GET', '/api/v1/tasks');
+      const allTasks = [...board.body.todo, ...board.body['in-progress'], ...board.body.done];
+      const found = allTasks.find((t) => t.id === deleteTaskId);
+      assert(found !== undefined, 'Task should still appear in board');
+      const names = (found.attachments ?? []).map((a) => a.name);
+      assert(!names.includes('user note'), 'Deleted attachment should not reappear in board');
+    });
+
+    await test('URL-encoded name with spaces decoded correctly', async () => {
+      const createRes = await request('POST', '/api/v1/tasks', {
+        title: 'URL encode test',
+        type: 'chore',
+        attachments: [{ name: 'my special note', type: 'text', content: 'x', author: 'user' }],
+      });
+      const tid = createRes.body.id;
+      // Name has a space — must be percent-encoded
+      const delRes = await request('DELETE', `/api/v1/tasks/${tid}/attachments/my%20special%20note`);
+      assert(delRes.status === 200, `Expected 200, got ${delRes.status}: ${JSON.stringify(delRes.body)}`);
+      const names = (delRes.body.task.attachments ?? []).map((a) => a.name);
+      assert(!names.includes('my special note'), 'attachment should be removed after URL-decoded delete');
+    });
+
+    // -------------------------------------------------------------------------
+    // T-007: DELETE by name — error cases
+    // -------------------------------------------------------------------------
+
+    suite('T-007: DELETE /tasks/:id/attachments/:name — error cases');
+
+    await test('DELETE on non-existent task → 404 TASK_NOT_FOUND', async () => {
+      const res = await request('DELETE', '/api/v1/tasks/task-does-not-exist/attachments/anything');
+      assert(res.status === 404, `Expected 404, got ${res.status}`);
+      assert(res.body.error.code === 'TASK_NOT_FOUND',
+        `Expected TASK_NOT_FOUND, got '${res.body.error.code}'`);
+    });
+
+    await test('DELETE on non-existent attachment name → 404 NOT_FOUND', async () => {
+      const createRes = await request('POST', '/api/v1/tasks', {
+        title: 'No such attachment',
+        type: 'chore',
+        attachments: [{ name: 'real', type: 'text', content: 'x', author: 'user' }],
+      });
+      const tid = createRes.body.id;
+      const res = await request('DELETE', `/api/v1/tasks/${tid}/attachments/does-not-exist`);
+      assert(res.status === 404, `Expected 404, got ${res.status}`);
+      assert(res.body.error.code === 'NOT_FOUND',
+        `Expected NOT_FOUND, got '${res.body.error.code}'`);
+    });
+
+    await test('DELETE on legacy attachment (no author field) → 403 FORBIDDEN', async () => {
+      const res = await request('DELETE', `/api/v1/tasks/${deleteTaskId}/attachments/legacy%20note`);
+      assert(res.status === 403, `Expected 403, got ${res.status}`);
+      assert(res.body.error.code === 'FORBIDDEN',
+        `Expected FORBIDDEN, got '${res.body.error.code}'`);
+    });
+
+    await test("DELETE on author:'agent' attachment → 403 FORBIDDEN", async () => {
+      const res = await request('DELETE', `/api/v1/tasks/${deleteTaskId}/attachments/agent%20note`);
+      assert(res.status === 403, `Expected 403, got ${res.status}`);
+      assert(res.body.error.code === 'FORBIDDEN',
+        `Expected FORBIDDEN, got '${res.body.error.code}'`);
+    });
+
+    await test('DELETE on task with no attachments at all → 404 NOT_FOUND', async () => {
+      const createRes = await request('POST', '/api/v1/tasks', {
+        title: 'Empty attachment task',
+        type: 'chore',
+      });
+      const tid = createRes.body.id;
+      const res = await request('DELETE', `/api/v1/tasks/${tid}/attachments/anything`);
+      assert(res.status === 404, `Expected 404, got ${res.status}`);
+      assert(res.body.error.code === 'TASK_NOT_FOUND' || res.body.error.code === 'NOT_FOUND',
+        `Expected 404 error code, got '${res.body.error.code}'`);
+    });
+
+    await test('PATCH and DELETE on same resource coexist — no route conflict', async () => {
+      const createRes = await request('POST', '/api/v1/tasks', {
+        title: 'Coexist test',
+        type: 'chore',
+        attachments: [{ name: 'coexist att', type: 'text', content: 'v1', author: 'user' }],
+      });
+      const tid = createRes.body.id;
+
+      // PATCH (merge by name) should still work on the list endpoint
+      const patchRes = await request('PATCH', `/api/v1/tasks/${tid}/attachments`, {
+        attachments: [{ name: 'coexist att', type: 'text', content: 'v2', author: 'user' }],
+      });
+      assert(patchRes.status === 200, `PATCH expected 200, got ${patchRes.status}`);
+
+      // DELETE by name should work independently on the by-name endpoint
+      const delRes = await request('DELETE', `/api/v1/tasks/${tid}/attachments/coexist%20att`);
+      assert(delRes.status === 200, `DELETE expected 200, got ${delRes.status}`);
+      const names = (delRes.body.task.attachments ?? []).map((a) => a.name);
+      assert(!names.includes('coexist att'), 'attachment should be deleted');
+    });
+
   } finally {
     await close();
   }
