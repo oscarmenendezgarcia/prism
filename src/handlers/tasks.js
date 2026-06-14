@@ -31,6 +31,7 @@ const ATTACHMENT_NAME_MAX_LEN      = 100;
 const ATTACHMENT_TEXT_MAX_BYTES    = 100 * 1024;
 const ATTACHMENT_FILE_MAX_BYTES    = 5 * 1024 * 1024;
 const VALID_ATTACHMENT_TYPES       = ['text', 'file', 'link'];
+const VALID_ATTACHMENT_AUTHORS     = ['user', 'agent'];
 const ATTACHMENT_LINK_MAX_LEN      = 2048;
 const LINK_SCHEME_ALLOWLIST        = ['http:', 'https:'];
 
@@ -41,6 +42,7 @@ const LINK_SCHEME_ALLOWLIST        = ['http:', 'https:'];
 const TASK_MOVE_ROUTE               = /^\/tasks\/([^/]+)\/move$/;
 const TASK_ATTACHMENTS_ROUTE        = /^\/tasks\/([^/]+)\/attachments$/;
 const TASK_ATTACHMENT_CONTENT_ROUTE = /^\/tasks\/([^/]+)\/attachments\/(\d+)$/;
+const TASK_ATTACHMENT_BY_NAME_ROUTE = /^\/tasks\/([^/]+)\/attachments\/([^/]+)$/;
 const TASK_SINGLE_ROUTE             = /^\/tasks\/([^/]+)$/;
 
 // ---------------------------------------------------------------------------
@@ -131,7 +133,7 @@ function createApp(spaceId, store) {
         continue;
       }
 
-      const { name, type, content } = item;
+      const { name, type, content, author } = item;
 
       if (!name || typeof name !== 'string' || name.trim().length === 0) {
         errors.push(`${prefix}.name is required and must be a non-empty string`);
@@ -167,9 +169,16 @@ function createApp(spaceId, store) {
         }
       }
 
+      // Optional author field: if present, must be one of the valid values.
+      if (author !== undefined && !VALID_ATTACHMENT_AUTHORS.includes(author)) {
+        errors.push(`${prefix}.author must be 'user' or 'agent'`);
+      }
+
       const itemErrors = errors.filter((e) => e.startsWith(prefix));
       if (itemErrors.length === 0) {
-        data.push({ name: name.trim(), type, content });
+        const entry = { name: name.trim(), type, content };
+        if (author !== undefined) entry.author = author;
+        data.push(entry);
       }
     }
 
@@ -253,10 +262,12 @@ function createApp(spaceId, store) {
       attachments: task.attachments.map((att) => {
         // Link attachments: preserve content so the frontend can extract the hostname
         // without a second API round-trip. URLs are not sensitive.
+        // author is metadata (not sensitive), always pass it through when present.
+        const authorField = att.author !== undefined ? { author: att.author } : {};
         if (att.type === 'link') {
-          return { name: att.name, type: att.type, content: att.content };
+          return { name: att.name, type: att.type, content: att.content, ...authorField };
         }
-        return { name: att.name, type: att.type };
+        return { name: att.name, type: att.type, ...authorField };
       }),
     };
   }
@@ -767,6 +778,53 @@ function createApp(spaceId, store) {
     }
   }
 
+  function handleDeleteAttachment(req, res, taskId, encodedName) {
+    let name;
+    try {
+      name = decodeURIComponent(encodedName);
+    } catch {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'Invalid URL-encoded attachment name');
+    }
+
+    try {
+      const task = store.getTask(spaceId, taskId);
+      if (!task) {
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task '${taskId}' was not found in this space.`);
+      }
+
+      const attachments = task.attachments || [];
+      const attIndex = attachments.findIndex((a) => a.name === name);
+
+      if (attIndex === -1) {
+        return sendError(res, 404, 'NOT_FOUND', `Attachment '${name}' was not found on this task.`);
+      }
+
+      const att = attachments[attIndex];
+
+      // Backend guard: only user-owned attachments can be deleted via this endpoint.
+      if (att.author !== 'user') {
+        return sendError(res, 403, 'FORBIDDEN',
+          'This attachment was created by the pipeline and cannot be deleted here.');
+      }
+
+      const updatedAttachments = attachments.filter((_, i) => i !== attIndex);
+
+      const updatedTask = store.updateTask(spaceId, taskId, {
+        attachments: updatedAttachments.length > 0 ? updatedAttachments : undefined,
+        updatedAt:   new Date().toISOString(),
+      });
+
+      process.stderr.write(JSON.stringify({
+        event: 'attachments.user_delete', spaceId, taskId, name,
+      }) + '\n');
+
+      sendJSON(res, 200, { task: stripAttachmentContent(updatedTask) });
+    } catch (err) {
+      console.error(`DELETE tasks/${taskId}/attachments/${encodedName} error:`, err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to delete attachment');
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Search handler
   // -------------------------------------------------------------------------
@@ -850,6 +908,15 @@ function createApp(spaceId, store) {
     }
     if (method === 'PATCH' && attachmentsMatch) {
       return handlePatchAttachments(req, res, attachmentsMatch[1]);
+    }
+
+    // DELETE /tasks/:taskId/attachments/:encodedName — user-owned attachments only.
+    // Must be checked before TASK_SINGLE_ROUTE to avoid treating the attachment
+    // sub-path as a task ID. TASK_ATTACHMENT_CONTENT_ROUTE (numeric) is already
+    // handled above (GET only), so no conflict here.
+    const attachmentByNameMatch = TASK_ATTACHMENT_BY_NAME_ROUTE.exec(taskPath);
+    if (method === 'DELETE' && attachmentByNameMatch) {
+      return handleDeleteAttachment(req, res, attachmentByNameMatch[1], attachmentByNameMatch[2]);
     }
 
     const moveMatch = TASK_MOVE_ROUTE.exec(taskPath);
