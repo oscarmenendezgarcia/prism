@@ -184,6 +184,45 @@ export const getAttachmentContent = (
 ): Promise<AttachmentContent> =>
   apiFetch<AttachmentContent>(`/spaces/${spaceId}/tasks/${taskId}/attachments/${index}`);
 
+/**
+ * Add or update a single user-owned attachment via PATCH (merge by name).
+ * QOL-7: always injects author: 'user' — callers only pass name/type/content.
+ *
+ * @param spaceId    - The space ID.
+ * @param taskId     - The task ID.
+ * @param attachment - Attachment to add (name, type, content). author is injected automatically.
+ * @returns The full updated Task object (attachment content stripped for non-link types).
+ */
+export const patchUserAttachment = (
+  spaceId: string,
+  taskId: string,
+  attachment: { name: string; type: 'link' | 'text' | 'file'; content: string; author: 'user' },
+): Promise<Task> =>
+  apiFetch<Task>(`/spaces/${spaceId}/tasks/${taskId}/attachments`, {
+    method: 'PATCH',
+    body: JSON.stringify({ attachments: [attachment] }),
+  });
+
+/**
+ * Delete a user-owned attachment by name.
+ * The backend enforces that only author:'user' attachments can be deleted.
+ * QOL-7: DELETE /spaces/:spaceId/tasks/:taskId/attachments/:encodedName
+ *
+ * @param spaceId - The space ID.
+ * @param taskId  - The task ID.
+ * @param name    - The attachment name (not encoded — this function URL-encodes it).
+ * @returns The full updated Task object with the attachment removed.
+ */
+export const deleteUserAttachment = (
+  spaceId: string,
+  taskId: string,
+  name: string,
+): Promise<{ task: Task }> =>
+  apiFetch<{ task: Task }>(
+    `/spaces/${spaceId}/tasks/${taskId}/attachments/${encodeURIComponent(name)}`,
+    { method: 'DELETE' },
+  );
+
 // ---------------------------------------------------------------------------
 // Task comments (ADR-1: task-comments)
 // ---------------------------------------------------------------------------
