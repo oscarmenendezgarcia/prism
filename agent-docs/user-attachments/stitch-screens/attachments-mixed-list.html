@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Attachments Sidebar</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-container": "#ce7e17",
+                        "on-background": "#e5e0ed",
+                        "surface-container-low": "#1c1b23",
+                        "on-primary-fixed": "#160066",
+                        "inverse-primary": "#5846d4",
+                        "on-surface": "#e5e0ed",
+                        "on-secondary-fixed": "#1b1b25",
+                        "surface-container-highest": "#35343d",
+                        "on-surface-variant": "#c8c4d7",
+                        "on-error": "#690005",
+                        "outline-variant": "#474554",
+                        "error-container": "#93000a",
+                        "tertiary": "#ffb86e",
+                        "surface-bright": "#3a3841",
+                        "secondary-container": "#494853",
+                        "inverse-surface": "#e5e0ed",
+                        "surface-container-lowest": "#0e0d15",
+                        "surface-container": "#201f27",
+                        "surface-container-high": "#2a2932",
+                        "on-primary-fixed-variant": "#3f29bc",
+                        "on-tertiary-container": "#402300",
+                        "primary-fixed-dim": "#c6bfff",
+                        "tertiary-fixed": "#ffdcbd",
+                        "on-primary-container": "#22008d",
+                        "background": "#13121b",
+                        "on-secondary-fixed-variant": "#464651",
+                        "inverse-on-surface": "#312f38",
+                        "error": "#ffb4ab",
+                        "outline": "#928ea0",
+                        "on-tertiary-fixed-variant": "#693c00",
+                        "secondary-fixed": "#e3e1ef",
+                        "primary-container": "#8c80ff",
+                        "secondary-fixed-dim": "#c7c5d3",
+                        "on-secondary-container": "#b9b7c4",
+                        "tertiary-fixed-dim": "#ffb86e",
+                        "on-secondary": "#302f3a",
+                        "on-error-container": "#ffdad6",
+                        "surface-variant": "#35343d",
+                        "on-primary": "#2800a0",
+                        "secondary": "#c7c5d3",
+                        "on-tertiary": "#492900",
+                        "surface": "#13121b",
+                        "primary-fixed": "#e4dfff",
+                        "primary": "#c6bfff",
+                        "on-tertiary-fixed": "#2c1600",
+                        "surface-tint": "#c6bfff",
+                        "surface-dim": "#13121b"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "2xl": "48px",
+                        "xl": "32px",
+                        "3xl": "64px",
+                        "md": "16px",
+                        "xs": "4px",
+                        "sm": "8px",
+                        "unit": "8px",
+                        "lg": "24px"
+                    },
+                    "fontFamily": {
+                        "code-md": ["JetBrains Mono"],
+                        "headline-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "code-sm": ["JetBrains Mono"],
+                        "body-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "code-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "500" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "code-sm": ["12px", { "lineHeight": "16px", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "body-sm": ["12px", { "lineHeight": "18px", "letterSpacing": "0.01em", "fontWeight": "400" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.06em", "fontWeight": "700" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0em", "fontWeight": "400" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .custom-sidebar { width: 340px; background-color: #111118; }
+        .agent-row-bg { background-color: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.08); }
+        .user-row-bg { background-color: rgba(124,109,250,0.04); border-color: rgba(124,109,250,0.15); }
+        .user-row-hover-bg { background-color: rgba(124,109,250,0.08); border-color: rgba(124,109,250,0.25); }
+        .you-chip-bg { background-color: rgba(124,109,250,0.12); }
+        .text-primary-custom { color: #7C6DFA; }
+        .text-header-custom { color: rgba(245,245,250,0.40); }
+        .text-primary-high { color: rgba(245,245,250,0.96); }
+        .text-secondary-med { color: rgba(245,245,250,0.60); }
+        .text-error-custom { color: #FF5A5F; }
+    </style>
+</head>
+<body class="bg-background min-h-screen flex items-start justify-center p-xl">
+<!-- ATTACHMENTS Sidebar -->
+<div class="custom-sidebar py-5 px-md rounded-lg border border-outline-variant/30 flex flex-col gap-md">
+<!-- Header -->
+<div class="flex items-center justify-between px-xs">
+<h2 class="font-label-caps text-label-caps text-header-custom uppercase tracking-widest">ATTACHMENTS</h2>
+<button class="text-secondary-med hover:text-primary-high transition-colors">
+<span class="material-symbols-outlined" style="font-size: 24px;">add</span>
+</button>
+</div>
+<!-- List Items -->
+<div class="flex flex-col gap-[6px]">
+<!-- Agent Row 1 -->
+<div class="agent-row-bg border rounded-lg p-sm flex items-center justify-between group transition-colors hover:bg-surface-variant/20">
+<div class="flex items-center gap-sm overflow-hidden">
+<span class="material-symbols-outlined text-primary-custom" style="font-size: 20px;">description</span>
+<span class="font-code-sm text-code-sm text-primary-high truncate">ADR-1.md</span>
+</div>
+<button class="text-secondary-med opacity-50 cursor-not-allowed group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined" style="font-size: 20px;">download</span>
+</button>
+</div>
+<!-- Agent Row 2 -->
+<div class="agent-row-bg border rounded-lg p-sm flex items-center justify-between group transition-colors hover:bg-surface-variant/20">
+<div class="flex items-center gap-sm overflow-hidden">
+<span class="material-symbols-outlined text-primary-custom" style="font-size: 20px;">description</span>
+<span class="font-code-sm text-code-sm text-primary-high truncate">blueprint.md</span>
+</div>
+<button class="text-secondary-med opacity-50 cursor-not-allowed group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined" style="font-size: 20px;">download</span>
+</button>
+</div>
+<!-- User Row 1 (Hover state style) -->
+<div class="user-row-hover-bg border rounded-lg p-sm flex items-center justify-between group cursor-pointer transition-colors">
+<div class="flex items-center gap-sm overflow-hidden flex-1">
+<span class="material-symbols-outlined text-tertiary" style="font-size: 20px;">person</span>
+<span class="font-code-sm text-code-sm text-primary-high truncate">GitHub PR</span>
+<span class="you-chip-bg text-primary-custom px-[6px] py-[2px] rounded-[4px] font-label-caps text-[10px] leading-tight">You</span>
+</div>
+<div class="flex items-center gap-xs opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="text-secondary-med hover:text-primary-high p-[2px] rounded hover:bg-white/10 transition-colors">
+<span class="material-symbols-outlined" style="font-size: 18px;">open_in_new</span>
+</button>
+<button class="text-secondary-med hover:text-error-custom p-[2px] rounded hover:bg-error/10 transition-colors">
+<span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+</button>
+</div>
+</div>
+<!-- User Row 2 -->
+<div class="user-row-bg border rounded-lg p-sm flex items-center justify-between group transition-colors hover:border-primary-container/30">
+<div class="flex items-center gap-sm overflow-hidden">
+<span class="material-symbols-outlined text-tertiary" style="font-size: 20px;">person</span>
+<span class="font-code-sm text-code-sm text-primary-high truncate">Meeting Notes</span>
+<span class="you-chip-bg text-primary-custom px-[6px] py-[2px] rounded-[4px] font-label-caps text-[10px] leading-tight">You</span>
+</div>
+<button class="text-secondary-med opacity-30 cursor-not-allowed">
+<span class="material-symbols-outlined" style="font-size: 20px;">visibility</span>
+</button>
+</div>
+</div>
+</div>
+</body></html>
