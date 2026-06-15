@@ -109,6 +109,15 @@ function setupTestFile() {
   if (!fs.existsSync(CLAUDE_DIR)) {
     fs.mkdirSync(CLAUDE_DIR, { recursive: true });
   }
+  // Sweep any leftovers from prior runs that were killed before teardown
+  // (crashes, compaction-killed background runs) so they don't accumulate.
+  try {
+    for (const f of fs.readdirSync(CLAUDE_DIR)) {
+      if (f.startsWith(TEST_FILE_PREFIX)) {
+        try { fs.unlinkSync(path.join(CLAUDE_DIR, f)); } catch { /* ignore */ }
+      }
+    }
+  } catch { /* ignore */ }
   fs.writeFileSync(TEST_FILE_PATH, TEST_CONTENT, 'utf8');
 }
 
