@@ -250,7 +250,7 @@ describe('SpaceTabs — context menu (kebab)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Pinning (QOL-2) — pinned spaces sort first; Pin/Unpin from the kebab menu
+// Pinning — pinned spaces sort first; Pin/Unpin from the kebab menu
 // ---------------------------------------------------------------------------
 describe('SpaceTabs — pinning', () => {
   it('orders pinned spaces first, in pinnedRank order', () => {

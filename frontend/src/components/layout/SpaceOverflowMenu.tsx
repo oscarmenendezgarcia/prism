@@ -8,7 +8,7 @@
  *   - Closes on outside click or Escape.
  *   - data-testid="space-overflow-btn" + data-overflow-count for E2E tests.
  *
- * ADR-1 (space-tabs-overflow): reuses ContextMenu portal/positioning pattern.
+ * Reuses the ContextMenu portal/positioning pattern.
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -34,7 +34,7 @@ export function SpaceOverflowMenu({
   onUnpin,
   filterThreshold = 6,
 }: SpaceOverflowMenuProps) {
-  // QOL-2: persist dropdown open state across page reloads (F7).
+  // persist dropdown open state across page reloads.
   const [open, setOpen] = useLocalStorage<boolean>('prism:space-overflow-open', false);
   const [filter, setFilter] = useState('');
   const [focusedIdx, setFocusedIdx] = useState<number>(-1);

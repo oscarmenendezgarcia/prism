@@ -93,11 +93,11 @@ interface AppState {
   createSpace: (name: string, workingDirectory?: string, pipeline?: string[]) => Promise<void>;
   renameSpace: (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>) => Promise<void>;
   deleteSpace: (id: string) => Promise<void>;
-  /** QOL-2: Pin a space — appends it to the pinned zone with the next available rank. */
+  /** Pin a space — appends it to the pinned zone with the next available rank. */
   pinSpace: (id: string) => Promise<void>;
-  /** QOL-2: Unpin a space — removes it from the pinned zone. */
+  /** Unpin a space — removes it from the pinned zone. */
   unpinSpace: (id: string) => Promise<void>;
-  /** QOL-2: Persist a new order for the pinned zone. Optimistic local update first. */
+  /** Persist a new order for the pinned zone. Optimistic local update first. */
   reorderPinnedSpaces: (orderedIds: string[]) => Promise<void>;
 
   // Tasks
@@ -693,7 +693,7 @@ export const useAppStore = create<AppState>((set, get) => {
     showToast(`Space "${spaceName}" deleted.`);
   },
 
-  // ── QOL-2: Space pinning ────────────────────────────────────────────────
+  // ── Space pinning ────────────────────────────────────────────────
 
   pinSpace: async (id: string) => {
     const { spaces, showToast } = get();

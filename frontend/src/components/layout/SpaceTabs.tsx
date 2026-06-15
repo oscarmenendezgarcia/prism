@@ -1,7 +1,7 @@
 /**
  * SpaceTabs — responsive space tab bar with overflow handling.
  *
- * Architecture (ADR-1, space-tabs-overflow):
+ * Architecture:
  *   - useOverflowItems measures which spaces fit the container width.
  *   - Visible spaces render as <SpaceTab> components.
  *   - Overflow spaces are reached via <SpaceOverflowMenu> (+N button).
@@ -73,7 +73,7 @@ export function SpaceTabs() {
     });
 
   // ---------------------------------------------------------------------------
-  // Pinned drag-and-drop reorder state (QOL-2)
+  // Pinned drag-and-drop reorder state
   // ---------------------------------------------------------------------------
   const pinnedOrder = orderedSpaces.filter((s) => s.pinned).map((s) => s.id);
   const [dragId, setDragId] = useState<string | null>(null);

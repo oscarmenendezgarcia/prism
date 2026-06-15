@@ -125,7 +125,7 @@ export const deleteSpace = (id: string): Promise<{ deleted: true; id: string }> 
 
 /**
  * Partial update for a space. Accepts any subset of space fields.
- * QOL-2: used for pin/unpin/reorder operations where only pinned/pinnedRank change.
+ * used for pin/unpin/reorder operations where only pinned/pinnedRank change.
  */
 export const updateSpace = (
   id: string,

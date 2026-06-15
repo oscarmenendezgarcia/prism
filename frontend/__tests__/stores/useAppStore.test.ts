@@ -1441,7 +1441,7 @@ describe('resumeInterruptedRun', () => {
 });
 
 // ---------------------------------------------------------------------------
-// QOL-2: Space pinning actions
+// Space pinning actions
 // ---------------------------------------------------------------------------
 
 const SAMPLE_SPACES = [

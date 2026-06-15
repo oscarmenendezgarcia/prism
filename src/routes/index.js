@@ -564,7 +564,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         const pipeline         = body && body.pipeline;
         const agentNicknames   = body && body.agentNicknames;
         const folioBackend     = body && body.folioBackend;
-        // QOL-2: pin/rank fields (optional; name is also optional for pin-only updates).
+        // pin/rank fields (optional; name is also optional for pin-only updates).
         const pinned     = body && body.pinned     !== undefined ? body.pinned     : undefined;
         const pinnedRank = body && body.pinnedRank !== undefined ? body.pinnedRank : undefined;
 

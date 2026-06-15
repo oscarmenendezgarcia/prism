@@ -35,7 +35,7 @@ const SEVEN_SPACES = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Clear localStorage so overflow-open state doesn't leak between tests (QOL-2).
+  // Clear localStorage so overflow-open state doesn't leak between tests.
   localStorage.removeItem('prism:space-overflow-open');
 });
 

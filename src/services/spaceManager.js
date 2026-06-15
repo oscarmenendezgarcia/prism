@@ -180,7 +180,7 @@ function createSpaceManager(storeOrDataDir) {
    * @param {string}  id                - Space ID.
    * @param {string|null|undefined} newName - New display name. When null/undefined/'',
    *   falls back to the existing name so callers can do pin-only updates without
-   *   providing a name. (QOL-2: partial PUT support.)
+   *   providing a name. (partial PUT support.)
    * @param {string}  [workingDirectory]
    * @param {string[]} [pipeline]
    * @param {string}  [projectClaudeMdPath]
@@ -294,7 +294,7 @@ function createSpaceManager(storeOrDataDir) {
       ...(resolvedFolioBackend !== undefined
         ? { folioBackend: resolvedFolioBackend !== 'sqlite' ? resolvedFolioBackend : undefined }
         : {}),
-      // QOL-2: pin/rank fields — only update when explicitly provided.
+      // pin/rank fields — only update when explicitly provided.
       ...(pinned !== undefined ? { pinned } : {}),
       ...(pinnedRank !== undefined ? { pinnedRank: pinnedRank ?? undefined } : {}),
     };

@@ -1,5 +1,5 @@
 /**
- * Integration tests for Space Pinning (QOL-2).
+ * Integration tests for Space Pinning.
  *
  * Covers:
  *   - PUT /api/v1/spaces/:id { pinned, pinnedRank } — without name

@@ -7,7 +7,7 @@
  *   - Kebab affordance: persistent at opacity-70 on active, hover-reveal on inactive
  *   - Accessibility: role="tab", aria-selected, data-space-id, title, focus-visible ring
  *
- * ADR-1 (space-tabs-overflow): extracted from SpaceTabs for single-responsibility
+ * Extracted from SpaceTabs for single-responsibility
  * and to expose a refCb for the useOverflowItems measurement hook.
  */
 
@@ -21,7 +21,7 @@ export interface SpaceTabProps {
   onKebab: (e: React.MouseEvent, spaceId: string) => void;
   /** ref callback forwarded from useOverflowItems for width measurement */
   refCb?: (el: HTMLElement | null) => void;
-  /** QOL-2: pinned tabs are draggable to reorder within the pinned block. */
+  /** pinned tabs are draggable to reorder within the pinned block. */
   draggable?: boolean;
   onDragStart?: (e: React.DragEvent, spaceId: string) => void;
   onDragOver?: (e: React.DragEvent, spaceId: string) => void;

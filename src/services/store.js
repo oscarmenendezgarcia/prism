@@ -147,7 +147,7 @@ function rowToSpace(row) {
   if (an !== undefined) space.agentNicknames = an;
   // folio_backend is a plain TEXT column (not JSON) — treat NULL as undefined.
   if (row.folio_backend != null) space.folioBackend = row.folio_backend;
-  // pinned + pinnedRank (QOL-2: space pinning). Columns default to 0/NULL.
+  // pinned + pinnedRank (space pinning). Columns default to 0/NULL.
   space.pinned = row.pinned === 1;
   if (row.pinned_rank != null) space.pinnedRank = row.pinned_rank;
   return space;
@@ -229,7 +229,7 @@ function createStore(dataDir) {
     }
   }
 
-  // Additive migration: pinned + pinned_rank columns (QOL-2 — space pinning).
+  // Additive migration: pinned + pinned_rank columns(space pinning).
   // Guarded by PRAGMA table_info; idempotent on existing DBs with the column.
   {
     const cols = db.pragma('table_info(spaces)');

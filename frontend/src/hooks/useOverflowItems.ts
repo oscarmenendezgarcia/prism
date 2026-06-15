@@ -1,6 +1,6 @@
 /**
  * useOverflowItems — generic responsive overflow measurement hook.
- * ADR-1 (space-tabs-overflow): measures tab widths via DOM refs + ResizeObserver
+ * Measures tab widths via DOM refs + ResizeObserver
  * and returns which items fit the container vs. which overflow.
  *
  * Architecture:
