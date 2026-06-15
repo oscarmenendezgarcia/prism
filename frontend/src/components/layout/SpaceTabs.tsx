@@ -32,6 +32,7 @@ export function SpaceTabs() {
   const openDeleteDialog = useAppStore((s) => s.openDeleteSpaceDialog);
   const pinSpace         = useAppStore((s) => s.pinSpace);
   const unpinSpace       = useAppStore((s) => s.unpinSpace);
+  const reorderPinned    = useAppStore((s) => s.reorderPinnedSpaces);
 
   // ---------------------------------------------------------------------------
   // Ordering: pinned spaces always come first, in the order they were pinned
@@ -49,13 +50,68 @@ export function SpaceTabs() {
   // ---------------------------------------------------------------------------
   // Overflow measurement
   // ---------------------------------------------------------------------------
+  // Forced-visible = the active space + every pinned space. Pinned tabs must win
+  // the visible slots over non-pinned ones (otherwise a short non-pinned space
+  // like "General" can take a slot while a pinned space sits in overflow).
+  const forcedVisibleIds = orderedSpaces
+    .filter((s) => s.pinned || s.id === activeSpaceId)
+    .map((s) => s.id);
+
+  // The set of pinned spaces drives whether tabs show a pin icon — i.e. their
+  // rendered width. Feed it as measureKey so pin/unpin forces a fresh measure
+  // pass (same ids, different widths) instead of computing with stale widths.
+  const pinnedSetKey = orderedSpaces.filter((s) => s.pinned).map((s) => s.id).join('\0');
+
   const { containerRef, setItemRef, visible, overflow, measuring } =
     useOverflowItems<Space>(orderedSpaces, {
-      pinnedId: activeSpaceId ?? undefined,
-      // 112 = nav px-4 padding (32) + overflowBtn (~42) + addBtn (~28) + 2 gaps (~8) + 2px safety
-      reservedTrailingPx: 112,
+      pinnedIds: forcedVisibleIds,
+      activeId: activeSpaceId ?? undefined,
+      measureKey: pinnedSetKey,
+      // 122 = nav px-4 padding (32) + overflowBtn "N ⌄" (~44) + divider (~9) + addBtn (~28) + gaps (~7) + 2px safety
+      reservedTrailingPx: 122,
       gapPx: 2,
     });
+
+  // ---------------------------------------------------------------------------
+  // Pinned drag-and-drop reorder state (QOL-2)
+  // ---------------------------------------------------------------------------
+  const pinnedOrder = orderedSpaces.filter((s) => s.pinned).map((s) => s.id);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  function resetDrag() {
+    setDragId(null);
+    setDragOverId(null);
+  }
+
+  function handleDragStart(e: React.DragEvent, spaceId: string) {
+    setDragId(spaceId);
+    e.dataTransfer.effectAllowed = 'move';
+    // Required for Firefox to initiate the drag.
+    e.dataTransfer.setData('text/plain', spaceId);
+  }
+
+  function handleDragOver(e: React.DragEvent, spaceId: string) {
+    if (!dragId) return;
+    e.preventDefault(); // allow drop
+    e.dataTransfer.dropEffect = 'move';
+    if (spaceId !== dragOverId) setDragOverId(spaceId);
+  }
+
+  function handleDrop(e: React.DragEvent, targetId: string) {
+    e.preventDefault();
+    const from = pinnedOrder.indexOf(dragId ?? '');
+    const to = pinnedOrder.indexOf(targetId);
+    if (from < 0 || to < 0 || from === to) {
+      resetDrag();
+      return;
+    }
+    const next = [...pinnedOrder];
+    next.splice(from, 1);
+    next.splice(to, 0, dragId!);
+    reorderPinned(next);
+    resetDrag();
+  }
 
   // ---------------------------------------------------------------------------
   // Kebab / context menu state
@@ -129,7 +185,7 @@ export function SpaceTabs() {
           // right edge with a gap. min-w-0 lets it still yield width to the
           // shrink-0 buttons in the rare overshoot (force-pin) so the + is never
           // clipped past the nav's overflow-hidden edge.
-          'flex items-center min-w-0 gap-0.5 py-1.5',
+          'flex items-center min-w-0 gap-1 py-1.5',
           measuring ? 'invisible' : '',
         ].join(' ')}
       >
@@ -141,6 +197,14 @@ export function SpaceTabs() {
             onSelect={handleTabClick}
             onKebab={handleKebabClick}
             refCb={setItemRef(space.id)}
+            // Only pinned tabs are draggable, and they reorder within the pinned block.
+            draggable={!!space.pinned}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            onDragEnd={resetDrag}
+            isDragging={dragId === space.id}
+            isDragOver={dragOverId === space.id && dragId !== space.id}
           />
         ))}
       </div>
@@ -151,9 +215,13 @@ export function SpaceTabs() {
           spaces={overflow}
           activeSpaceId={activeSpaceId ?? ''}
           onSelect={handleOverflowSelect}
+          onUnpin={unpinSpace}
           filterThreshold={6}
         />
       )}
+
+      {/* Divider — separates space navigation (tabs + overflow) from the create action */}
+      <span className="w-px h-5 bg-border mx-1 flex-shrink-0" aria-hidden="true" />
 
       {/* Add space button */}
       <button
@@ -161,7 +229,7 @@ export function SpaceTabs() {
         aria-label="Create new space"
         title="Create new space"
         onClick={() => openSpaceModal('create')}
-        className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary transition-all duration-fast flex-shrink-0"
+        className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary active:scale-90 transition-[color,background-color,transform] duration-fast flex-shrink-0"
       >
         <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
           add
