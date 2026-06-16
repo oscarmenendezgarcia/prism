@@ -8,18 +8,21 @@
  *   - Closes on outside click or Escape.
  *   - data-testid="space-overflow-btn" + data-overflow-count for E2E tests.
  *
- * ADR-1 (space-tabs-overflow): reuses ContextMenu portal/positioning pattern.
+ * Reuses the ContextMenu portal/positioning pattern.
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import type { Space } from '@/types';
+import { useLocalStorage } from '@/hooks/useLocalStorage';
 
 export interface SpaceOverflowMenuProps {
   /** Spaces that did not fit the visible tab bar */
   spaces: Space[];
   activeSpaceId: string;
   onSelect: (spaceId: string) => void;
+  /** Unpin a space directly from the dropdown (pinned spaces can collapse here). */
+  onUnpin?: (spaceId: string) => void;
   /** Show filter input when overflow count exceeds this. Default: 6. */
   filterThreshold?: number;
 }
@@ -28,9 +31,11 @@ export function SpaceOverflowMenu({
   spaces,
   activeSpaceId,
   onSelect,
+  onUnpin,
   filterThreshold = 6,
 }: SpaceOverflowMenuProps) {
-  const [open, setOpen] = useState(false);
+  // persist dropdown open state across page reloads.
+  const [open, setOpen] = useLocalStorage<boolean>('prism:space-overflow-open', false);
   const [filter, setFilter] = useState('');
   const [focusedIdx, setFocusedIdx] = useState<number>(-1);
 
@@ -221,17 +226,26 @@ export function SpaceOverflowMenu({
         aria-expanded={open}
         data-testid="space-overflow-btn"
         data-overflow-count={spaces.length}
-        onClick={openDropdown}
+        onClick={() => (open ? closeDropdown() : openDropdown())}
         className={[
-          'flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium',
-          'flex-shrink-0 transition-all duration-fast select-none whitespace-nowrap',
+          'flex items-center gap-0.5 pl-3 pr-2 py-1.5 rounded-md text-sm font-medium',
+          'flex-shrink-0 transition-[color,background-color,transform] duration-fast active:scale-95 select-none whitespace-nowrap',
           'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary',
           open
             ? 'bg-surface-variant text-text-primary'
             : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant',
         ].join(' ')}
       >
-        +{spaces.length}
+        <span className="tabular-nums">{spaces.length}</span>
+        <span
+          className={[
+            'material-symbols-outlined text-base leading-none transition-transform duration-fast',
+            open ? 'rotate-180' : '',
+          ].join(' ')}
+          aria-hidden="true"
+        >
+          expand_more
+        </span>
       </button>
 
       {/* Portal dropdown */}
@@ -240,14 +254,14 @@ export function SpaceOverflowMenu({
           <div
             ref={dropdownRef}
             style={dropdownStyle}
-            className="w-[280px] max-w-[90vw] bg-surface-elevated border border-border rounded-md shadow-md overflow-hidden animate-scale-in"
+            className="w-[280px] max-w-[90vw] bg-surface-elevated border border-border rounded-md shadow-md overflow-hidden animate-scale-in origin-top-left"
           >
             {/* Filter input */}
             {showFilter && (
-              <div className="px-2 pt-2 pb-2 mb-1 border-b border-border">
+              <div className="p-2.5 mb-0.5 border-b border-border">
                 <div className="relative flex items-center">
                   <span
-                    className="material-symbols-outlined absolute left-2 text-sm leading-none text-text-secondary pointer-events-none"
+                    className="material-symbols-outlined absolute left-3 text-base leading-none text-text-secondary pointer-events-none"
                     aria-hidden="true"
                   >
                     search
@@ -255,7 +269,7 @@ export function SpaceOverflowMenu({
                   <input
                     ref={filterInputRef}
                     type="text"
-                    placeholder="search spaces..."
+                    placeholder="Search spaces..."
                     value={filter}
                     onChange={(e) => {
                       setFilter(e.target.value);
@@ -263,10 +277,11 @@ export function SpaceOverflowMenu({
                     }}
                     onKeyDown={handleFilterKeyDown}
                     className={[
-                      'w-full pl-7 pr-7 py-1.5 text-sm bg-surface rounded-sm',
+                      'w-full pl-10 pr-9 py-2 text-sm bg-surface rounded-md',
                       'text-text-primary placeholder:text-text-tertiary',
-                      'border border-border focus:border-primary',
-                      'focus:outline-none transition-colors duration-fast',
+                      'border border-border hover:border-text-tertiary',
+                      'focus:border-primary focus:ring-2 focus:ring-primary/20',
+                      'focus:outline-none transition-[color,border-color,box-shadow] duration-fast',
                     ].join(' ')}
                     aria-label="Filter spaces"
                   />
@@ -279,9 +294,13 @@ export function SpaceOverflowMenu({
                         filterInputRef.current?.focus();
                         setFocusedIdx(-1);
                       }}
-                      className="absolute right-2 text-text-secondary hover:text-text-primary transition-colors"
+                      className={[
+                        'absolute right-2 flex items-center justify-center w-6 h-6 rounded-sm',
+                        'text-text-secondary hover:text-text-primary hover:bg-surface-variant',
+                        'active:scale-90 transition-[color,background-color,transform] duration-fast',
+                      ].join(' ')}
                     >
-                      <span className="material-symbols-outlined text-sm leading-none">close</span>
+                      <span className="material-symbols-outlined text-base leading-none">close</span>
                     </button>
                   )}
                 </div>
@@ -297,7 +316,7 @@ export function SpaceOverflowMenu({
             >
               {filteredSpaces.length > 0 ? (
                 filteredSpaces.map((space, idx) => (
-                  <li key={space.id} role="none">
+                  <li key={space.id} role="none" className="relative group/ovitem">
                     <button
                       ref={(el) => {
                         itemRefs.current[idx] = el;
@@ -313,7 +332,8 @@ export function SpaceOverflowMenu({
                         }
                       }}
                       className={[
-                        'w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-sm text-sm',
+                        'w-full text-left flex items-center gap-2 py-2.5 rounded-sm text-sm',
+                        space.pinned ? 'pl-3 pr-9' : 'px-3',
                         'transition-colors duration-fast cursor-pointer',
                         'focus:outline-none focus-visible:outline-2 focus-visible:outline-primary',
                         space.id === activeSpaceId
@@ -329,8 +349,44 @@ export function SpaceOverflowMenu({
                           check
                         </span>
                       )}
+                      {space.pinned && (
+                        <span
+                          className="material-symbols-outlined text-sm leading-none flex-shrink-0 opacity-50"
+                          aria-hidden="true"
+                        >
+                          push_pin
+                        </span>
+                      )}
                       <span className="truncate">{space.name}</span>
                     </button>
+
+                    {/* Unpin — pinned spaces can collapse into here; reveal on hover so the
+                        list stays calm. Sibling button (not nested) to keep valid HTML. */}
+                    {space.pinned && onUnpin && (
+                      <button
+                        type="button"
+                        aria-label={`Unpin ${space.name}`}
+                        title="Unpin"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUnpin(space.id);
+                        }}
+                        className={[
+                          'absolute right-1.5 top-1/2 -translate-y-1/2',
+                          'flex items-center justify-center w-7 h-7 rounded-sm',
+                          'text-text-secondary hover:text-text-primary hover:bg-surface-variant',
+                          // Touch devices have no hover → always visible. On hover-capable
+                          // devices, stay calm and reveal on row hover / keyboard focus.
+                          'opacity-100 [@media(hover:hover)]:opacity-0',
+                          '[@media(hover:hover)]:group-hover/ovitem:opacity-100 focus-visible:opacity-100',
+                          'active:scale-90 transition-[color,background-color,transform,opacity] duration-fast',
+                        ].join(' ')}
+                      >
+                        <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+                          keep_off
+                        </span>
+                      </button>
+                    )}
                   </li>
                 ))
               ) : (

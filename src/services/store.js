@@ -147,6 +147,9 @@ function rowToSpace(row) {
   if (an !== undefined) space.agentNicknames = an;
   // folio_backend is a plain TEXT column (not JSON) — treat NULL as undefined.
   if (row.folio_backend != null) space.folioBackend = row.folio_backend;
+  // pinned + pinnedRank (space pinning). Columns default to 0/NULL.
+  space.pinned = row.pinned === 1;
+  if (row.pinned_rank != null) space.pinnedRank = row.pinned_rank;
   return space;
 }
 
@@ -226,6 +229,17 @@ function createStore(dataDir) {
     }
   }
 
+  // Additive migration: pinned + pinned_rank columns(space pinning).
+  // Guarded by PRAGMA table_info; idempotent on existing DBs with the column.
+  {
+    const cols = db.pragma('table_info(spaces)');
+    if (!cols.some((c) => c.name === 'pinned')) {
+      db.exec('ALTER TABLE spaces ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+      db.exec('ALTER TABLE spaces ADD COLUMN pinned_rank INTEGER');
+      console.log('[store] migration: added pinned + pinned_rank columns to spaces');
+    }
+  }
+
   // Apply Folio core schema (space-agnostic) and Prism binding schema.
   applyFolioSchema(db);
   applyBindingSchema(db);
@@ -255,13 +269,13 @@ function createStore(dataDir) {
   // ---------------------------------------------------------------------------
 
   const stmts = {
-    listSpaces:    db.prepare('SELECT * FROM spaces ORDER BY created_at ASC'),
+    listSpaces:    db.prepare('SELECT * FROM spaces ORDER BY pinned DESC, pinned_rank ASC, created_at ASC'),
     getSpace:      db.prepare('SELECT * FROM spaces WHERE id = ?'),
     upsertSpace:   db.prepare(`
       INSERT INTO spaces
-        (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, folio_backend, created_at, updated_at)
+        (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, folio_backend, pinned, pinned_rank, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name              = excluded.name,
         working_directory = excluded.working_directory,
@@ -269,6 +283,8 @@ function createStore(dataDir) {
         project_claude_md = excluded.project_claude_md,
         agent_nicknames   = excluded.agent_nicknames,
         folio_backend     = excluded.folio_backend,
+        pinned            = excluded.pinned,
+        pinned_rank       = excluded.pinned_rank,
         updated_at        = excluded.updated_at
     `),
     deleteSpace:   db.prepare('DELETE FROM spaces WHERE id = ?'),
@@ -387,6 +403,10 @@ function createStore(dataDir) {
       space.agentNicknames    !== undefined ? JSON.stringify(space.agentNicknames)  : null,
       // folio_backend is a plain TEXT column — store as-is or NULL.
       space.folioBackend !== undefined ? space.folioBackend : null,
+      // pinned: boolean → INTEGER (1/0); default false when absent.
+      space.pinned ? 1 : 0,
+      // pinned_rank: number or null.
+      space.pinnedRank !== undefined ? space.pinnedRank : null,
       space.createdAt,
       space.updatedAt,
     );

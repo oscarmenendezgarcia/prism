@@ -564,12 +564,15 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         const pipeline         = body && body.pipeline;
         const agentNicknames   = body && body.agentNicknames;
         const folioBackend     = body && body.folioBackend;
+        // pin/rank fields (optional; name is also optional for pin-only updates).
+        const pinned     = body && body.pinned     !== undefined ? body.pinned     : undefined;
+        const pinnedRank = body && body.pinnedRank !== undefined ? body.pinnedRank : undefined;
 
         // Capture the prior working dir so we can detect a fresh repo activation.
         const prevSpace = spaceManager.getSpace(spaceId);
         const prevWd    = prevSpace.ok ? prevSpace.space.workingDirectory : undefined;
 
-        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames, folioBackend);
+        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames, folioBackend, pinned, pinnedRank);
 
         if (!result.ok) {
           const status = result.code === 'SPACE_NOT_FOUND' ? 404

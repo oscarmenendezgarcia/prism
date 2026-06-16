@@ -15,6 +15,10 @@ export interface Space {
   agentNicknames?: Record<string, string>; // custom display names per agent, keyed by agent ID
   /** Folio storage backend. Omitted by the API for the default ('sqlite'); 'file' means a repo-backed .folio/. */
   folioBackend?: 'sqlite' | 'file';
+  /** true when the space is pinned in SpaceTabs (always visible, never in overflow). */
+  pinned?: boolean;
+  /** zero-based position within the pinned zone. Absent for non-pinned spaces. */
+  pinnedRank?: number;
   createdAt: string;
   updatedAt: string;
 }

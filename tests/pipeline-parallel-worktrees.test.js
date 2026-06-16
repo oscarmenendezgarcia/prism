@@ -648,7 +648,7 @@ describe('Integration — parallel runs on same workingDirectory', () => {
     rmrf(serverInfo.agentsDir);
   });
 
-  test('first run on a directory has no worktree (solo run — backward compatible)', async () => {
+  test('every run gets an isolated worktree, even a solo run (WORKTREE-1)', async () => {
     // Create space with workingDirectory via API so the server stores it.
     const spaceId = await createSpaceViaApi(serverInfo.port, `space-${crypto.randomUUID().slice(0, 8)}`, repoDir);
     const taskId  = await createTaskViaApi(serverInfo.port, spaceId, 'Task solo');
@@ -661,7 +661,12 @@ describe('Integration — parallel runs on same workingDirectory', () => {
 
     assert.equal(res.status, 201, `Expected 201, got ${res.status}: ${JSON.stringify(res.body)}`);
     const run = res.body;
-    assert.ok(!run.worktree, 'First solo run should have no worktree');
+    // WORKTREE-1: a solo run must no longer run in the main checkout — it gets
+    // its own worktree like every other run.
+    assert.ok(run.worktree,        'A solo run should now get its own worktree');
+    assert.ok(run.worktree.path,   'worktree.path should be set');
+    assert.match(run.worktree.branch, /^pipeline\/run-/, 'branch should follow pipeline/run-<short> pattern');
+    assert.ok(fs.existsSync(run.worktree.path), 'worktree path should exist on disk');
 
     // Cleanup.
     await request(serverInfo.port, 'DELETE', `/api/v1/runs/${run.runId}`);
@@ -680,7 +685,7 @@ describe('Integration — parallel runs on same workingDirectory', () => {
       stages: ['developer-agent'],
     });
     assert.equal(resA.status, 201, `Run A creation should return 201, got ${resA.status}: ${JSON.stringify(resA.body)}`);
-    assert.ok(!resA.body.worktree, 'Run A (solo) should have no worktree');
+    assert.ok(resA.body.worktree, 'Run A should get its own worktree (WORKTREE-1: every run is isolated)');
 
     // Run B now overlaps — should get a worktree.
     const resB = await request(serverInfo.port, 'POST', '/api/v1/runs', {
