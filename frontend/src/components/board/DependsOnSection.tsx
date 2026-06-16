@@ -60,22 +60,13 @@ export function DependsOnSection({
   const searchRef = useRef<HTMLInputElement>(null);
   const abortRef  = useRef<AbortController | null>(null);
 
-  // Build a lookup of task column from the board tasks
-  const allTasks: Task[] = [
-    ...tasks['todo'],
-    ...tasks['in-progress'],
-    ...tasks['done'],
-  ];
-
-  function getTaskColumn(id: string): Column {
-    if (tasks['todo'].some(x => x.id === id)) return 'todo';
-    if (tasks['in-progress'].some(x => x.id === id)) return 'in-progress';
-    return 'done';
-  }
-
+  // Build a task → { title, column } lookup straight from the board's columns —
+  // the column is the loop key, so no per-task scan is needed.
   const depTaskMap = new Map<string, DepTask>();
-  for (const t of allTasks) {
-    depTaskMap.set(t.id, { id: t.id, title: t.title, column: getTaskColumn(t.id) });
+  for (const col of ['todo', 'in-progress', 'done'] as const) {
+    for (const t of tasks[col]) {
+      depTaskMap.set(t.id, { id: t.id, title: t.title, column: col });
+    }
   }
 
   // Focus search input when opened
@@ -247,7 +238,7 @@ export function DependsOnSection({
           {results.length > 0 && (
             <ul className="flex flex-col gap-0.5 max-h-[200px] overflow-y-auto border border-border/30 rounded-lg bg-surface-elevated shadow-md" role="listbox" aria-label="Search results">
               {results.map((t) => {
-                const col = getTaskColumn(t.id);
+                const col = depTaskMap.get(t.id)?.column ?? 'done';
                 return (
                   <li key={t.id} role="option" aria-selected={false}>
                     <button
