@@ -43,7 +43,6 @@ vi.mock('../../src/api/client', () => ({
 // ---------------------------------------------------------------------------
 
 const DEFAULT_PROPS = {
-  spaceId: 'space-1',
   taskId: 'task-1',
   existingNames: [] as string[],
   disabled: false,

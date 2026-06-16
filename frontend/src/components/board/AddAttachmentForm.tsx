@@ -19,8 +19,6 @@ import { Button } from '@/components/shared/Button';
 export type AttachmentType = 'link' | 'text' | 'file';
 
 interface AddAttachmentFormProps {
-  /** Space the task belongs to (read from store in parent). */
-  spaceId: string;
   /** Task ID to attach to. */
   taskId: string;
   /** Names already on the task — used for name-conflict detection. */
@@ -113,7 +111,6 @@ function TypeTab({ value, current, icon, label, disabled, onClick }: TypeTabProp
 // ---------------------------------------------------------------------------
 
 export function AddAttachmentForm({
-  spaceId: _spaceId,
   taskId,
   existingNames,
   disabled,

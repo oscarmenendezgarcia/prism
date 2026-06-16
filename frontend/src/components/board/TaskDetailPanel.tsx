@@ -1074,7 +1074,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 {showAddAttachmentForm && (
                   <div className="mt-1 pt-3 border-t border-border/20">
                     <AddAttachmentForm
-                      spaceId={activeSpaceId}
                       taskId={detailTask.id}
                       existingNames={(detailTask.attachments ?? []).map((a) => a.name)}
                       disabled={isReadOnly}
