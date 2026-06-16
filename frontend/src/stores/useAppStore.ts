@@ -322,9 +322,6 @@ interface AppState {
     patch: { resolved?: boolean; text?: string },
   ) => Promise<void>;
 
-  /** Look up a task across all columns by ID. Returns undefined if not found. */
-  getTaskById: (id: string) => Task | undefined;
-
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 
   /** Whether the GlobalSearchModal is currently open. */
@@ -1600,17 +1597,6 @@ export const useAppStore = create<AppState>((set, get) => {
       showToast(`Failed to update comment: ${(err as Error).message}`, 'error');
       throw err;
     }
-  },
-
-  // ── getTaskById helper ────────────────────────────────────────────────────
-
-  getTaskById: (id: string) => {
-    const { tasks } = get();
-    for (const col of ['todo', 'in-progress', 'done'] as const) {
-      const found = tasks[col].find(t => t.id === id);
-      if (found) return found;
-    }
-    return undefined;
   },
 
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
