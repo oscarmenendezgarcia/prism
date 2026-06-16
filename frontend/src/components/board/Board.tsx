@@ -130,7 +130,6 @@ export function Board() {
       );
 
       if (needsRebalance && rebalancedTasks) {
-        console.warn('[rank] rebalance triggered', { column: targetColumn, count: rebalancedTasks.length });
         for (const t of rebalancedTasks) {
           reorderTask(t.id, targetColumn, t.rank ?? 0);
         }
