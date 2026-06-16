@@ -15,7 +15,6 @@
 const fs     = require('fs');
 const path   = require('path');
 const crypto = require('crypto');
-const os     = require('os');
 
 const MANIFEST_VERSION  = '1.0';
 const MANIFEST_FILENAME = '.prism-manifest.json';
