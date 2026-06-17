@@ -43,6 +43,7 @@ import type {
   Comment,
 } from '@/types';
 import { buildSingleState, buildPipelineGroupState } from '@/stores/pipelineStateFromRun';
+import { safeStorage } from '@/utils/safeStorage';
 
 // ---------------------------------------------------------------------------
 // openLogPanelForRun input type
@@ -613,10 +614,10 @@ export const useAppStore = create<AppState>((set, get) => {
   // ── Spaces ──────────────────────────────────────────────────────────────
 
   spaces: [],
-  activeSpaceId: localStorage.getItem(ACTIVE_SPACE_KEY) || 'default',
+  activeSpaceId: safeStorage.getItem(ACTIVE_SPACE_KEY) || 'default',
 
   setActiveSpace: (id: string) => {
-    localStorage.setItem(ACTIVE_SPACE_KEY, id);
+    safeStorage.setItem(ACTIVE_SPACE_KEY, id);
     set({ activeSpaceId: id });
   },
 
@@ -866,7 +867,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   // ── Config editor ─────────────────────────────────────────────────────────
 
-  configPanelOpen:     localStorage.getItem(CONFIG_OPEN_KEY) === '1',
+  configPanelOpen:     safeStorage.getItem(CONFIG_OPEN_KEY) === '1',
   configFiles:         [],
   activeConfigFileId:  null,
   activeConfigContent: '',
@@ -878,18 +879,18 @@ export const useAppStore = create<AppState>((set, get) => {
   toggleConfigPanel: () => {
     const next = !get().configPanelOpen;
     if (next) {
-      localStorage.setItem(CONFIG_OPEN_KEY, '1');
+      safeStorage.setItem(CONFIG_OPEN_KEY, '1');
     } else {
-      localStorage.removeItem(CONFIG_OPEN_KEY);
+      safeStorage.removeItem(CONFIG_OPEN_KEY);
     }
     set({ configPanelOpen: next });
   },
 
   setConfigPanelOpen: (open: boolean) => {
     if (open) {
-      localStorage.setItem(CONFIG_OPEN_KEY, '1');
+      safeStorage.setItem(CONFIG_OPEN_KEY, '1');
     } else {
-      localStorage.removeItem(CONFIG_OPEN_KEY);
+      safeStorage.removeItem(CONFIG_OPEN_KEY);
     }
     set({ configPanelOpen: open });
   },
