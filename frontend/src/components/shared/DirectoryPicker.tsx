@@ -19,12 +19,14 @@ import type { DirectoryItem } from '@/types';
 // ---------------------------------------------------------------------------
 
 interface TreeNode {
-  /** Full absolute path to this directory. */
+  /** Full absolute path to this node. */
   path: string;
   /** Display name (last segment). */
   name: string;
   /** Nesting depth (0 = root). */
   depth: number;
+  /** True for a file leaf (only surfaced in mode="file"). */
+  isFile: boolean;
   isExpanded: boolean;
   isAccessible: boolean;
   isLoading: boolean;
@@ -33,11 +35,17 @@ interface TreeNode {
 }
 
 interface DirectoryPickerProps {
-  /** Controlled value — current working directory path. */
+  /** Controlled value — current path. */
   value: string;
-  /** Called when the user selects or clears a directory. */
+  /** Called when the user selects a path. */
   onChange: (path: string) => void;
-  /** aria-label override for the folder button. Defaults to "Browse for directory". */
+  /**
+   * What can be selected. "directory" (default) browses + selects folders;
+   * "file" also lists files and only a file is a valid selection (folders are
+   * navigation only).
+   */
+  mode?: 'directory' | 'file';
+  /** aria-label override for the trigger button. */
   buttonLabel?: string;
   /** Whether the input is disabled. */
   disabled?: boolean;
@@ -58,11 +66,12 @@ function buildBreadcrumb(absPath: string, homePath: string): string {
   return display.replace(/\//g, ' / ');
 }
 
-function makeNode(absPath: string, name: string, depth: number, item?: DirectoryItem): TreeNode {
+function makeNode(absPath: string, name: string, depth: number, isFile: boolean, item?: DirectoryItem): TreeNode {
   return {
     path:         absPath,
     name,
     depth,
+    isFile,
     isExpanded:   false,
     isAccessible: item ? item.isAccessible : true,
     isLoading:    false,
@@ -70,11 +79,20 @@ function makeNode(absPath: string, name: string, depth: number, item?: Directory
   };
 }
 
+/** Map a directory listing's items to child nodes, honouring the picker mode. */
+function listingChildren(listing: { path: string; items: DirectoryItem[] }, depth: number, mode: 'directory' | 'file'): TreeNode[] {
+  return listing.items
+    .filter((it) => mode === 'file' ? (it.type === 'dir' || it.type === 'file') : it.type === 'dir')
+    .map((it) => makeNode(`${listing.path}/${it.name}`, it.name, depth, it.type === 'file', it));
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for directory', disabled = false }: DirectoryPickerProps) {
+export function DirectoryPicker({ value, onChange, mode = 'directory', buttonLabel, disabled = false }: DirectoryPickerProps) {
+  const isFileMode = mode === 'file';
+  const triggerLabel = buttonLabel ?? (isFileMode ? 'Browse for file' : 'Browse for directory');
   const [open, setOpen]               = useState(false);
   const [homePath, setHomePath]       = useState<string | null>(null);
   const [nodes, setNodes]             = useState<TreeNode[]>([]);
@@ -159,20 +177,17 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
 
       // Start at current value's directory, or home
       const startPath = value.trim() || home;
-      const listing   = await browseDirectory(startPath);
+      const listing   = await browseDirectory(startPath, false, mode === 'file');
 
       const rootNode: TreeNode = {
         path:         listing.path,
         name:         pathDisplayName(listing.path, home),
         depth:        0,
+        isFile:       false,
         isExpanded:   true,
         isAccessible: true,
         isLoading:    false,
-        children:     listing.items
-          .filter((it) => it.type === 'dir')
-          .map((it) =>
-            makeNode(`${listing.path}/${it.name}`, it.name, 1, it)
-          ),
+        children:     listingChildren(listing, 1, mode),
       };
 
       setNodes([rootNode]);
@@ -184,7 +199,7 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
     } finally {
       setRootLoading(false);
     }
-  }, [disabled, value]);
+  }, [disabled, value, mode]);
 
   const closePicker = useCallback(() => {
     setOpen(false);
@@ -214,12 +229,8 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
     setNodes((prev) => updateNode(prev, targetPath, (n) => ({ ...n, isLoading: true })));
 
     try {
-      const listing = await browseDirectory(targetPath);
-      const children = listing.items
-        .filter((it) => it.type === 'dir')
-        .map((it) =>
-          makeNode(`${listing.path}/${it.name}`, it.name, 0, it) // depth set below
-        );
+      const listing = await browseDirectory(targetPath, false, mode === 'file');
+      const children = listingChildren(listing, 0, mode); // depth set below
 
       setNodes((prev) => {
         return updateNode(prev, targetPath, (n) => ({
@@ -232,7 +243,7 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
     } catch {
       setNodes((prev) => updateNode(prev, targetPath, (n) => ({ ...n, isLoading: false })));
     }
-  }, []);
+  }, [mode]);
 
   const collapseNode = useCallback((targetPath: string) => {
     setNodes((prev) => updateNode(prev, targetPath, (n) => ({ ...n, isExpanded: false })));
@@ -245,6 +256,9 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
     const flat = flatNodes();
     const idx  = flat.findIndex((n) => n.path === node.path);
     if (idx >= 0) setFocusedIndex(idx);
+
+    // Files are leaves — selecting one is the final choice, never expands.
+    if (node.isFile) return;
 
     if (node.isExpanded) {
       collapseNode(node.path);
@@ -311,11 +325,13 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
       case 'Enter': {
         e.preventDefault();
         const node = flat[focusedIndex];
-        if (node) {
-          setSelectedPath(node.path);
-          onChange(node.path);
-          closePicker();
-        }
+        if (!node) break;
+        // In file mode, Enter on a folder navigates (same expand/collapse as a
+        // click) instead of selecting — reuse handleNodeClick.
+        if (isFileMode && !node.isFile) { handleNodeClick(node); break; }
+        setSelectedPath(node.path);
+        onChange(node.path);
+        closePicker();
         break;
       }
       case 'Escape': {
@@ -324,15 +340,17 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
         break;
       }
     }
-  }, [flatNodes, focusedIndex, expandNode, collapseNode, onChange, closePicker]);
+  }, [flatNodes, focusedIndex, expandNode, collapseNode, onChange, closePicker, isFileMode, handleNodeClick]);
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   const flat          = flatNodes();
+  const selectedNode  = flat.find((n) => n.path === selectedPath) ?? null;
   const breadcrumb    = selectedPath && homePath ? buildBreadcrumb(selectedPath, homePath) : '';
-  const selectDisabled = !selectedPath;
+  // In file mode only a file is a valid selection; folders are navigation only.
+  const selectDisabled = !selectedPath || (isFileMode && !selectedNode?.isFile);
 
   return (
     <div className="relative shrink-0">
@@ -340,7 +358,7 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
       <button
         ref={buttonRef}
         type="button"
-        aria-label={buttonLabel}
+        aria-label={triggerLabel}
         aria-expanded={open}
         aria-haspopup="tree"
         disabled={disabled}
@@ -369,7 +387,7 @@ export function DirectoryPicker({ value, onChange, buttonLabel = 'Browse for dir
         >
           {/* Panel header */}
           <div className="shrink-0 px-3 py-2 border-b border-border flex items-center justify-between">
-            <span className="text-xs font-medium text-text-secondary">Select a directory</span>
+            <span className="text-xs font-medium text-text-secondary">{isFileMode ? 'Select a file' : 'Select a directory'}</span>
             <button
               type="button"
               aria-label="Close directory browser"
@@ -493,24 +511,26 @@ function DirectoryRow({ node, isFocused, isSelected, onClick, onFocus }: Directo
       onClick={onClick}
       onFocus={onFocus}
     >
-      {/* Expand/collapse chevron */}
+      {/* Expand/collapse chevron — files are leaves, so render a spacer instead. */}
       <span
-        className="material-symbols-outlined text-[14px] leading-none text-text-disabled flex-shrink-0"
+        className="material-symbols-outlined text-[14px] leading-none text-text-disabled flex-shrink-0 w-[14px]"
         aria-hidden="true"
       >
-        {node.isLoading
+        {node.isFile
+          ? ''
+          : node.isLoading
           ? 'sync'
           : node.isExpanded
           ? 'expand_more'
           : 'chevron_right'}
       </span>
 
-      {/* Folder icon */}
+      {/* Folder / file icon */}
       <span
         className="material-symbols-outlined text-[15px] leading-none flex-shrink-0 text-text-secondary"
         aria-hidden="true"
       >
-        {node.isExpanded ? 'folder_open' : 'folder'}
+        {node.isFile ? 'description' : node.isExpanded ? 'folder_open' : 'folder'}
       </span>
 
       {/* Name */}

@@ -70,6 +70,7 @@ async function handleBrowse(req, res) {
   const rawPath       = body.path.trim();
   const dirPath       = expandHome(rawPath);
   const includeHidden = body.includeHidden === true;
+  const includeFiles  = body.includeFiles === true;
 
   if (!path.isAbsolute(dirPath)) {
     return sendError(res, 400, 'INVALID_PATH', 'path must be absolute (use ~ or /absolute/path)');
@@ -110,6 +111,7 @@ async function handleBrowse(req, res) {
 
     const fullPath = path.join(dirPath, name);
     let isDir        = false;
+    let isFile       = false;
     let isReadable   = true;
     let isAccessible = true;
 
@@ -119,15 +121,17 @@ async function handleBrowse(req, res) {
       if (lstat.isDirectory()) {
         isDir = true;
       } else if (lstat.isSymbolicLink()) {
-        // Follow symlink to determine whether it points to a directory
+        // Resolve the symlink to classify its target as dir or file.
         try {
           const real = fs.statSync(fullPath);
-          isDir = real.isDirectory();
+          isDir  = real.isDirectory();
+          isFile = !isDir && real.isFile();
         } catch {
           isAccessible = false;
         }
+      } else if (lstat.isFile()) {
+        isFile = true;
       } else {
-        // Regular files are excluded from the directory picker
         continue;
       }
     } catch {
@@ -136,9 +140,12 @@ async function handleBrowse(req, res) {
       // Include inaccessible dirs so users see them (greyed out in the UI)
     }
 
+    // Regular files (and symlinks to files) are only surfaced when requested.
+    if (isFile && !includeFiles) continue;
+
     items.push({
       name,
-      type: isDir ? 'dir' : 'symlink',
+      type: isDir ? 'dir' : isFile ? 'file' : 'symlink',
       isReadable,
       isAccessible,
     });

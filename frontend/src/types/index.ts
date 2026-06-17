@@ -29,6 +29,11 @@ export interface Attachment {
   type: 'text' | 'file' | 'link';
   /** Only present when type === 'link' (URL preserved for hostname extraction). */
   content?: string;
+  /**
+   * Provenance field (QOL-7: user-attachments).
+   * Absent on legacy agent attachments — frontend treats missing as 'agent'.
+   */
+  author?: 'user' | 'agent';
 }
 
 /** Full attachment content (only returned by the single-attachment endpoint). */

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Add Attachment Form</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-dim": "#13121b",
+                        "surface-container-high": "#2a2932",
+                        "secondary-fixed": "#e3e1ef",
+                        "primary-fixed-dim": "#c6bfff",
+                        "on-primary-container": "#22008d",
+                        "surface-container-highest": "#35343d",
+                        "inverse-primary": "#5846d4",
+                        "secondary": "#c7c5d3",
+                        "tertiary": "#ffb86e",
+                        "surface": "#13121b",
+                        "secondary-fixed-dim": "#c7c5d3",
+                        "on-tertiary-fixed-variant": "#693c00",
+                        "on-primary-fixed-variant": "#3f29bc",
+                        "secondary-container": "#494853",
+                        "primary-container": "#8c80ff",
+                        "on-error-container": "#ffdad6",
+                        "outline": "#928ea0",
+                        "on-primary-fixed": "#160066",
+                        "tertiary-fixed-dim": "#ffb86e",
+                        "surface-bright": "#3a3841",
+                        "on-secondary": "#302f3a",
+                        "error": "#ffb4ab",
+                        "background": "#13121b",
+                        "surface-container": "#201f27",
+                        "surface-container-low": "#1c1b23",
+                        "on-tertiary-fixed": "#2c1600",
+                        "surface-container-lowest": "#0e0d15",
+                        "primary": "#c6bfff",
+                        "on-surface": "#e5e0ed",
+                        "on-error": "#690005",
+                        "tertiary-fixed": "#ffdcbd",
+                        "on-tertiary": "#492900",
+                        "surface-variant": "#35343d",
+                        "on-surface-variant": "#c8c4d7",
+                        "inverse-on-surface": "#312f38",
+                        "primary-fixed": "#e4dfff",
+                        "on-primary": "#2800a0",
+                        "on-tertiary-container": "#402300",
+                        "on-secondary-fixed": "#1b1b25",
+                        "on-background": "#e5e0ed",
+                        "on-secondary-container": "#b9b7c4",
+                        "surface-tint": "#c6bfff",
+                        "outline-variant": "#474554",
+                        "on-secondary-fixed-variant": "#464651",
+                        "inverse-surface": "#e5e0ed",
+                        "tertiary-container": "#ce7e17",
+                        "error-container": "#93000a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "xl": "32px",
+                        "lg": "24px",
+                        "3xl": "64px",
+                        "2xl": "48px",
+                        "unit": "8px",
+                        "xs": "4px",
+                        "sm": "8px",
+                        "md": "16px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "code-sm": ["JetBrains Mono"],
+                        "headline-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "code-md": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.06em", "fontWeight": "700"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "500"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0em", "fontWeight": "400"}],
+                        "code-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0em", "fontWeight": "400"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "body-sm": ["12px", {"lineHeight": "18px", "letterSpacing": "0.01em", "fontWeight": "400"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "letterSpacing": "0em", "fontWeight": "400"}],
+                        "code-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0em", "fontWeight": "400"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body class="bg-surface-dim min-h-screen flex items-center justify-center p-md">
+<div class="w-full max-w-[340px] bg-[#1A1A24] rounded-lg border border-white/10 p-md flex flex-col gap-[12px]">
+<!-- Type Selector -->
+<div class="flex items-center gap-sm w-full">
+<button class="flex-1 flex items-center justify-center gap-xs h-[32px] rounded-lg bg-[#7C6DFA]/15 border border-[#7C6DFA] text-[#7C6DFA] font-body-sm transition-colors hover:bg-[#7C6DFA]/25">
+<span class="material-symbols-outlined" data-icon="link">link</span>
+                Link
+            </button>
+<button class="flex-1 flex items-center justify-center gap-xs h-[32px] rounded-lg bg-transparent border border-white/10 text-on-surface-variant font-body-sm transition-colors hover:bg-surface-variant">
+<span class="material-symbols-outlined" data-icon="notes">notes</span>
+                Note
+            </button>
+<button class="flex-1 flex items-center justify-center gap-xs h-[32px] rounded-lg bg-transparent border border-white/10 text-on-surface-variant font-body-sm transition-colors hover:bg-surface-variant">
+<span class="material-symbols-outlined" data-icon="folder_open">folder_open</span>
+                File Path
+            </button>
+</div>
+<!-- Name Field -->
+<div class="flex flex-col gap-xs">
+<label class="font-label-caps text-on-surface-variant text-[10px] uppercase tracking-wider">NAME</label>
+<input class="w-full h-[36px] bg-[#111118] border border-white/10 rounded-lg px-sm text-[13px] text-primary placeholder:text-outline-variant focus:border-primary focus:ring-1 focus:ring-primary transition-colors outline-none font-body-md" placeholder="e.g. GitHub PR" type="text"/>
+</div>
+<!-- URL Field -->
+<div class="flex flex-col gap-xs">
+<label class="font-label-caps text-on-surface-variant text-[10px] uppercase tracking-wider">URL</label>
+<input class="w-full h-[36px] bg-[#111118] border border-white/10 rounded-lg px-sm text-[13px] text-primary placeholder:text-outline-variant focus:border-primary focus:ring-1 focus:ring-primary transition-colors outline-none font-body-md" placeholder="https://..." type="url"/>
+</div>
+<!-- Footer Actions -->
+<div class="flex justify-end items-center gap-sm mt-xs">
+<button class="h-[32px] px-md rounded-lg bg-transparent border border-white/10 text-secondary font-body-sm transition-colors hover:bg-surface-variant">Cancel</button>
+<button class="h-[32px] px-md rounded-lg bg-[#7C6DFA] text-white font-body-sm transition-colors hover:bg-[#7C6DFA]/90">Add</button>
+</div>
+</div>
+</body></html>

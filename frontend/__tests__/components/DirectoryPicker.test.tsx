@@ -178,7 +178,7 @@ describe('DirectoryPicker — tree display', () => {
     await user.click(screen.getByRole('button', { name: /browse for directory/i }));
 
     await waitFor(() => {
-      expect(mockBrowseDirectory).toHaveBeenCalledWith(existingPath);
+      expect(mockBrowseDirectory).toHaveBeenCalledWith(existingPath, false, false);
     });
   });
 

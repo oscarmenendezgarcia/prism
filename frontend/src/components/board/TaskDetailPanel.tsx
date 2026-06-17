@@ -22,6 +22,7 @@ import React, {
 } from 'react';
 import { useAppStore, useActiveRun, useAvailableAgents, usePipelineStates } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
+import { AddAttachmentForm } from '@/components/board/AddAttachmentForm';
 import { ReferenceAutocomplete } from '@/components/folio/ReferenceAutocomplete';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
@@ -428,6 +429,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const updateTask           = useAppStore((s) => s.updateTask);
   const addComment           = useAppStore((s) => s.addComment);
   const patchComment         = useAppStore((s) => s.patchComment);
+  const deleteUserAttachment = useAppStore((s) => s.deleteUserAttachment);
   const isMutating           = useAppStore((s) => s.isMutating);
   const tasks                = useAppStore((s) => s.tasks);
   const showToast            = useAppStore((s) => s.showToast);
@@ -451,6 +453,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [isCopied, setIsCopied]                 = useState(false);
   /** Index of attachment currently being fetched for direct .md → reader opening. */
   const [loadingAttachmentIndex, setLoadingAttachmentIndex] = useState<number | null>(null);
+  /** QOL-7: whether the AddAttachmentForm is expanded in the sidebar. */
+  const [showAddAttachmentForm, setShowAddAttachmentForm] = useState(false);
 
   // Track initial values to detect actual changes on blur.
   const savedTitle       = useRef('');
@@ -910,19 +914,82 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 />
               </div>
 
-              {/* Attachments */}
-              {detailTask.attachments && detailTask.attachments.length > 0 && (
-                <div className="flex flex-col gap-2 py-5" data-testid="attachments-section">
-                  <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">Attachments</span>
-                  <div className="flex flex-col gap-1.5" aria-label="Task attachments">
-                    {detailTask.attachments.map((att, index) => (
-                      <React.Fragment key={index}>
-                        {att.type === 'link' ? (
+              {/* Attachments — QOL-7: always renders; user/agent visual distinction */}
+              <div className="flex flex-col gap-2 py-5" data-testid="attachments-section">
+                {/* Header row: label + "+" button */}
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
+                    Attachments
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddAttachmentForm((v) => !v)}
+                    disabled={isReadOnly}
+                    aria-label="Add attachment"
+                    title="Add attachment"
+                    className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:text-primary hover:bg-primary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[160ms] ease-spring"
+                  >
+                    <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
+                      {showAddAttachmentForm ? 'remove' : 'add'}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Attachment list */}
+                {(detailTask.attachments && detailTask.attachments.length > 0) ? (
+                  <div
+                    role="list"
+                    aria-label="Task attachments"
+                    className="flex flex-col gap-1.5"
+                  >
+                    {detailTask.attachments.map((att, index) => {
+                      const isUserOwned = att.author === 'user';
+
+                      // ── Link attachments ──────────────────────────────────
+
+                      if (att.type === 'link') {
+                        // User-owned link: div wrapper with inner <a> + delete button
+                        if (isUserOwned) {
+                          return (
+                            <div
+                              key={index}
+                              role="listitem"
+                              data-testid="attachment-row"
+                              data-author="user"
+                              className="group flex items-center gap-2 px-3 py-2 rounded-lg border bg-primary/[0.04] border-primary/15 hover:border-primary/30 transition-all duration-[200ms] ease-spring"
+                            >
+                              <span className="material-symbols-outlined text-[14px] leading-none flex-shrink-0 text-text-tertiary" aria-hidden="true">person</span>
+                              <a
+                                href={att.content}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                aria-label={`Open link ${att.name}, added by you, in new tab`}
+                                className="font-mono text-xs text-text-primary truncate flex-1 hover:text-primary focus:outline-none focus-visible:underline"
+                              >
+                                {att.name}
+                              </a>
+                              <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/[0.12] text-primary/60 leading-none">you</span>
+                              <span className="material-symbols-outlined text-[12px] leading-none text-text-disabled group-hover:text-text-secondary flex-shrink-0" aria-hidden="true">open_in_new</span>
+                              <button
+                                type="button"
+                                onClick={() => deleteUserAttachment(detailTask.id, att.name)}
+                                aria-label={`Delete attachment ${att.name}`}
+                                className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-text-disabled opacity-0 group-hover:opacity-100 hover:text-error hover:bg-error/10 focus:outline-none focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-error transition-all duration-150"
+                              >
+                                <span className="material-symbols-outlined text-[12px] leading-none" aria-hidden="true">close</span>
+                              </button>
+                            </div>
+                          );
+                        }
+                        // Agent link: whole row is the anchor (preserves existing test clicks)
+                        return (
                           <a
+                            key={index}
                             href={att.content}
                             target="_blank"
                             rel="noopener noreferrer"
                             data-testid="attachment-row"
+                            data-author="agent"
                             aria-label={`Open link ${att.name} in new tab`}
                             className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-[200ms] ease-spring group"
                           >
@@ -930,29 +997,92 @@ export function TaskDetailPanel(): React.ReactElement | null {
                             <span className="font-mono text-xs text-text-primary truncate flex-1">{att.name}</span>
                             <span className="material-symbols-outlined text-[13px] leading-none text-text-disabled group-hover:text-text-secondary flex-shrink-0" aria-hidden="true">open_in_new</span>
                           </a>
-                        ) : (
-                          <button
-                            type="button"
+                        );
+                      }
+
+                      // ── Non-link attachments (text / file) ────────────────
+
+                      // User-owned: group div with clickable name + delete button
+                      if (isUserOwned) {
+                        return (
+                          <div
+                            key={index}
+                            role="listitem"
                             data-testid="attachment-row"
-                            onClick={() => handleAttachmentClick(index, att.name)}
-                            disabled={loadingAttachmentIndex === index}
-                            aria-label={`Open attachment ${att.name}`}
-                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-wait transition-all duration-[200ms] ease-spring text-left group"
+                            data-author="user"
+                            className="group flex items-center gap-2 px-3 py-2 rounded-lg border bg-primary/[0.04] border-primary/15 hover:border-primary/30 transition-all duration-[200ms] ease-spring"
                           >
-                            <span className={`material-symbols-outlined text-[15px] leading-none flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin text-text-disabled' : att.name.toLowerCase().endsWith('.md') ? 'text-primary' : 'text-text-secondary'}`} aria-hidden="true">
-                              {loadingAttachmentIndex === index ? 'progress_activity' : att.name.toLowerCase().endsWith('.md') ? 'description' : att.type === 'file' ? 'folder' : 'attach_file'}
-                            </span>
-                            <span className="font-mono text-xs text-text-primary truncate flex-1">{att.name}</span>
-                            <span className="material-symbols-outlined text-[13px] leading-none text-text-disabled group-hover:text-text-secondary flex-shrink-0" aria-hidden="true">
-                              {loadingAttachmentIndex === index ? '' : 'download'}
-                            </span>
-                          </button>
-                        )}
-                      </React.Fragment>
-                    ))}
+                            <span className="material-symbols-outlined text-[14px] leading-none flex-shrink-0 text-text-tertiary" aria-hidden="true">person</span>
+                            <button
+                              type="button"
+                              onClick={() => handleAttachmentClick(index, att.name)}
+                              disabled={loadingAttachmentIndex === index}
+                              aria-label={`Open attachment ${att.name}, added by you`}
+                              className="font-mono text-xs text-text-primary truncate flex-1 text-left disabled:cursor-wait focus:outline-none focus-visible:underline hover:text-primary transition-colors"
+                            >
+                              {att.name}
+                            </button>
+                            <span className="flex-shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/[0.12] text-primary/60 leading-none">you</span>
+                            <span className="material-symbols-outlined text-[12px] leading-none text-text-disabled group-hover:text-text-secondary flex-shrink-0" aria-hidden="true">visibility</span>
+                            <button
+                              type="button"
+                              onClick={() => deleteUserAttachment(detailTask.id, att.name)}
+                              aria-label={`Delete attachment ${att.name}`}
+                              className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-text-disabled opacity-0 group-hover:opacity-100 hover:text-error hover:bg-error/10 focus:outline-none focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-error transition-all duration-150"
+                            >
+                              <span className="material-symbols-outlined text-[12px] leading-none" aria-hidden="true">close</span>
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      // Agent non-link: whole row is a clickable button (backward-compat with tests)
+                      return (
+                        <button
+                          key={index}
+                          type="button"
+                          data-testid="attachment-row"
+                          data-author="agent"
+                          onClick={() => handleAttachmentClick(index, att.name)}
+                          disabled={loadingAttachmentIndex === index}
+                          aria-label={`Open attachment ${att.name}`}
+                          className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-wait transition-all duration-[200ms] ease-spring text-left group"
+                        >
+                          <span className={`material-symbols-outlined text-[15px] leading-none flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin text-text-disabled' : att.name.toLowerCase().endsWith('.md') ? 'text-primary' : 'text-text-secondary'}`} aria-hidden="true">
+                            {loadingAttachmentIndex === index ? 'progress_activity' : att.name.toLowerCase().endsWith('.md') ? 'description' : att.type === 'file' ? 'folder' : 'attach_file'}
+                          </span>
+                          <span className="font-mono text-xs text-text-primary truncate flex-1">{att.name}</span>
+                          <span className="material-symbols-outlined text-[13px] leading-none text-text-disabled group-hover:text-text-secondary flex-shrink-0" aria-hidden="true">
+                            {loadingAttachmentIndex === index ? '' : 'download'}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
-                </div>
-              )}
+                ) : !showAddAttachmentForm ? (
+                  /* Empty state */
+                  <p
+                    aria-live="polite"
+                    className="text-xs text-text-disabled italic flex items-center gap-1.5 pl-0.5"
+                  >
+                    <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">link_off</span>
+                    No attachments yet
+                  </p>
+                ) : null}
+
+                {/* AddAttachmentForm — inline, below the list */}
+                {showAddAttachmentForm && (
+                  <div className="mt-1 pt-3 border-t border-border/20">
+                    <AddAttachmentForm
+                      taskId={detailTask.id}
+                      existingNames={(detailTask.attachments ?? []).map((a) => a.name)}
+                      disabled={isReadOnly}
+                      onSuccess={() => setShowAddAttachmentForm(false)}
+                      onCancel={() => setShowAddAttachmentForm(false)}
+                    />
+                  </div>
+                )}
+              </div>
 
             </div>
           </div>

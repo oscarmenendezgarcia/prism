@@ -309,6 +309,29 @@ interface AppState {
   updateTask: (taskId: string, patch: UpdateTaskPayload) => Promise<void>;
 
   /**
+   * Add a user-owned attachment to a task (QOL-7).
+   * Injects author:'user' automatically. Applies an optimistic update and
+   * reconciles with the server response on success. Rolls back on error.
+   *
+   * @param taskId     - Task to update.
+   * @param attachment - Name, type, and content. author is always 'user'.
+   */
+  addUserAttachment: (
+    taskId: string,
+    attachment: { name: string; type: 'link' | 'text' | 'file'; content: string },
+  ) => Promise<void>;
+
+  /**
+   * Delete a user-owned attachment from a task (QOL-7).
+   * Applies an optimistic update and reconciles on success. Rolls back on error.
+   * The backend enforces that only author:'user' attachments can be deleted.
+   *
+   * @param taskId - Task to update.
+   * @param name   - Attachment name to remove.
+   */
+  deleteUserAttachment: (taskId: string, name: string) => Promise<void>;
+
+  /**
    * Post a new comment on a task.
    * Optimistically appends to detailTask.comments and the board task's comments.
    * Throws on API failure (so CommentsSection can show the error).
@@ -1603,6 +1626,113 @@ export const useAppStore = create<AppState>((set, get) => {
       // Roll back optimistic changes on error.
       set({ tasks, detailTask });
       showToast(`Failed to save: ${(err as Error).message}`, 'error');
+    } finally {
+      set({ isMutating: false });
+    }
+  },
+
+  // ── User attachments (QOL-7) ─────────────────────────────────────────────
+
+  addUserAttachment: async (taskId, attachment) => {
+    const { activeSpaceId, tasks, detailTask, showToast } = get();
+
+    // Inject author: 'user' before sending.
+    const newAttachment = { ...attachment, author: 'user' as const };
+
+    // Optimistic: append new attachment to board + detailTask immediately.
+    const applyOptimistic = (columnTasks: Task[]): Task[] =>
+      columnTasks.map((t) => {
+        if (t.id !== taskId) return t;
+        return { ...t, attachments: [...(t.attachments ?? []), newAttachment] };
+      });
+
+    const optimisticTasks: BoardTasks = {
+      'todo':        applyOptimistic(tasks['todo']),
+      'in-progress': applyOptimistic(tasks['in-progress']),
+      'done':        applyOptimistic(tasks['done']),
+    };
+    const optimisticDetail =
+      detailTask?.id === taskId
+        ? { ...detailTask, attachments: [...(detailTask.attachments ?? []), newAttachment] }
+        : detailTask;
+
+    set({ isMutating: true, tasks: optimisticTasks, detailTask: optimisticDetail });
+
+    try {
+      const updated = await api.patchUserAttachment(activeSpaceId, taskId, newAttachment);
+
+      // Reconcile with server response (authoritative timestamps).
+      const reconcile = (columnTasks: Task[]): Task[] =>
+        columnTasks.map((t) => (t.id === taskId ? updated : t));
+
+      set({
+        tasks: {
+          'todo':        reconcile(get().tasks['todo']),
+          'in-progress': reconcile(get().tasks['in-progress']),
+          'done':        reconcile(get().tasks['done']),
+        },
+        detailTask: get().detailTask?.id === taskId ? updated : get().detailTask,
+      });
+
+      showToast('Attachment added', 'success');
+    } catch (err) {
+      // Roll back optimistic changes.
+      set({ tasks, detailTask });
+      showToast(`Failed to add attachment: ${(err as Error).message}`, 'error');
+      throw err;
+    } finally {
+      set({ isMutating: false });
+    }
+  },
+
+  deleteUserAttachment: async (taskId, name) => {
+    const { activeSpaceId, tasks, detailTask, showToast } = get();
+
+    // Optimistic: remove the named attachment from board + detailTask immediately.
+    const applyOptimistic = (columnTasks: Task[]): Task[] =>
+      columnTasks.map((t) => {
+        if (t.id !== taskId) return t;
+        return { ...t, attachments: (t.attachments ?? []).filter((a) => a.name !== name) };
+      });
+
+    const optimisticTasks: BoardTasks = {
+      'todo':        applyOptimistic(tasks['todo']),
+      'in-progress': applyOptimistic(tasks['in-progress']),
+      'done':        applyOptimistic(tasks['done']),
+    };
+    const optimisticDetail =
+      detailTask?.id === taskId
+        ? { ...detailTask, attachments: (detailTask.attachments ?? []).filter((a) => a.name !== name) }
+        : detailTask;
+
+    set({ isMutating: true, tasks: optimisticTasks, detailTask: optimisticDetail });
+
+    try {
+      const { task: updated } = await api.deleteUserAttachment(activeSpaceId, taskId, name);
+
+      // Reconcile with server response.
+      const reconcile = (columnTasks: Task[]): Task[] =>
+        columnTasks.map((t) => (t.id === taskId ? updated : t));
+
+      set({
+        tasks: {
+          'todo':        reconcile(get().tasks['todo']),
+          'in-progress': reconcile(get().tasks['in-progress']),
+          'done':        reconcile(get().tasks['done']),
+        },
+        detailTask: get().detailTask?.id === taskId ? updated : get().detailTask,
+      });
+
+      showToast('Attachment removed', 'success');
+    } catch (err) {
+      // Roll back optimistic changes.
+      set({ tasks, detailTask });
+      const code = (err as { code?: string }).code;
+      const message =
+        code === 'FORBIDDEN'
+          ? 'Cannot delete agent artefacts'
+          : `Failed to remove attachment: ${(err as Error).message}`;
+      showToast(message, 'error');
     } finally {
       set({ isMutating: false });
     }
