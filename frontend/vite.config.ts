@@ -17,9 +17,6 @@ export default defineConfig({
     },
   },
   server: {
-    // host: true binds the dev server to 0.0.0.0 so it is reachable from other
-    // devices on the LAN (e.g. a phone at http://<mac-ip>:5173). Without this,
-    // Vite binds to localhost only and mobile devices cannot connect.
     host: true,
     port: 5173,
     proxy: {
