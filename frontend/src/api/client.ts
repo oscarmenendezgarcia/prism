@@ -1009,10 +1009,10 @@ export const getFsHome = (): Promise<HomeDirectoryResponse> =>
   apiFetch<HomeDirectoryResponse>('/fs/home');
 
 /** List subdirectories of the given path. */
-export const browseDirectory = (dirPath: string, includeHidden = false): Promise<DirectoryListing> =>
+export const browseDirectory = (dirPath: string, includeHidden = false, includeFiles = false): Promise<DirectoryListing> =>
   apiFetch<DirectoryListing>('/fs/browse', {
     method: 'POST',
-    body: JSON.stringify({ path: dirPath, includeHidden }),
+    body: JSON.stringify({ path: dirPath, includeHidden, includeFiles }),
   });
 
 /** Validate that a path is an accessible directory. */
