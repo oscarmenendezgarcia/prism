@@ -107,6 +107,36 @@ describe('setActiveSpace', () => {
     expect(useAppStore.getState().activeSpaceId).toBe('space-123');
     expect(localStorage.getItem('prism-active-space')).toBe('space-123');
   });
+
+  it('resets arc filter and grouping when switching space', () => {
+    useAppStore.setState({ arcFilter: 'AUTH', arcGrouping: true });
+    useAppStore.getState().setActiveSpace('space-456');
+    expect(useAppStore.getState().arcFilter).toBeNull();
+    expect(useAppStore.getState().arcGrouping).toBe(false);
+  });
+});
+
+describe('arc filter / grouping are mutually exclusive', () => {
+  it('setting a filter turns grouping off', () => {
+    useAppStore.setState({ arcFilter: null, arcGrouping: true });
+    useAppStore.getState().setArcFilter('AUTH');
+    expect(useAppStore.getState().arcFilter).toBe('AUTH');
+    expect(useAppStore.getState().arcGrouping).toBe(false);
+  });
+
+  it('turning grouping on clears the filter', () => {
+    useAppStore.setState({ arcFilter: 'AUTH', arcGrouping: false });
+    useAppStore.getState().toggleArcGrouping();
+    expect(useAppStore.getState().arcGrouping).toBe(true);
+    expect(useAppStore.getState().arcFilter).toBeNull();
+  });
+
+  it('clearing the filter (null) leaves grouping untouched', () => {
+    useAppStore.setState({ arcFilter: 'AUTH', arcGrouping: false });
+    useAppStore.getState().setArcFilter(null);
+    expect(useAppStore.getState().arcFilter).toBeNull();
+    expect(useAppStore.getState().arcGrouping).toBe(false);
+  });
 });
 
 describe('loadSpaces', () => {

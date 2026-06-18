@@ -21,7 +21,9 @@ import React, {
   useState,
 } from 'react';
 import { useAppStore, useActiveRun, useAvailableAgents, usePipelineStates } from '@/stores/useAppStore';
+import { distinctArcs } from '@/utils/arcs';
 import { Button } from '@/components/shared/Button';
+import { ArcAutocomplete } from '@/components/shared/ArcAutocomplete';
 import { ReferenceAutocomplete } from '@/components/folio/ReferenceAutocomplete';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
@@ -29,6 +31,18 @@ import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import { resolveAgentName } from '@/utils/agentName';
 import * as api from '@/api/client';
 import type { Column, Comment } from '@/types';
+
+// ---------------------------------------------------------------------------
+// Shared input style for the details column's editable fields (Assigned, Arc)
+// so they read as a set. The read-only ID box reuses the same surface tokens
+// (bg/border/radius/inset) inline since it's a <span>, not an <input>.
+// ---------------------------------------------------------------------------
+
+const DETAIL_FIELD_CLASS =
+  'w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary ' +
+  'placeholder:text-text-disabled/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 ' +
+  'disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[220ms] ease-spring ' +
+  'shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]';
 
 // ---------------------------------------------------------------------------
 // Copy-to-clipboard helper
@@ -430,6 +444,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const patchComment         = useAppStore((s) => s.patchComment);
   const isMutating           = useAppStore((s) => s.isMutating);
   const tasks                = useAppStore((s) => s.tasks);
+  const arcs                 = distinctArcs(tasks);
   const showToast            = useAppStore((s) => s.showToast);
   const loadAgents           = useAppStore((s) => s.loadAgents);
   const openAttachmentModal  = useAppStore((s) => s.openAttachmentModal);
@@ -444,6 +459,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const [localTitle, setLocalTitle]             = useState('');
   const [localAssigned, setLocalAssigned]       = useState('');
+  const [localArc, setLocalArc]                 = useState('');
   const [localDescription, setLocalDescription] = useState('');
   const [localType, setLocalType]               = useState<'feature' | 'bug' | 'tech-debt' | 'chore'>('chore');
   /** Mobile tab — shown only when viewport is <768px (two-column doesn't fit). */
@@ -455,6 +471,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   // Track initial values to detect actual changes on blur.
   const savedTitle       = useRef('');
   const savedAssigned    = useRef('');
+  const savedArc         = useRef('');
 
   // ── Refs for focus management ────────────────────────────────────────────
 
@@ -471,11 +488,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
     setLocalTitle(detailTask.title);
     setLocalAssigned(detailTask.assigned ?? '');
+    setLocalArc(detailTask.arc ?? '');
     setLocalDescription(detailTask.description ?? '');
     setLocalType(detailTask.type);
 
     savedTitle.current    = detailTask.title;
     savedAssigned.current = detailTask.assigned ?? '';
+    savedArc.current      = detailTask.arc ?? '';
 
     // Capture the currently focused element as the trigger before the panel
     // steals focus.
@@ -581,6 +600,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
     savedAssigned.current = trimmed;
     updateTask(detailTask.id, { assigned: trimmed });
   }, [detailTask, localAssigned, updateTask]);
+
+  const handleArcBlur = useCallback(() => {
+    if (!detailTask) return;
+    const trimmed = localArc.trim();
+    if (trimmed === savedArc.current) return;
+    savedArc.current = trimmed;
+    // Empty string clears the arc on the server
+    updateTask(detailTask.id, { arc: trimmed });
+  }, [detailTask, localArc, updateTask]);
 
   const handleTypeChange = useCallback(
     (newType: 'feature' | 'bug' | 'tech-debt' | 'chore') => {
@@ -840,7 +868,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               <div className="flex flex-col gap-2 pb-5 animate-fade-in-up [animation-delay:80ms]">
                 <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">ID</span>
                 <div className="flex items-center gap-2">
-                  <span className="flex-1 font-mono text-xs text-text-secondary bg-surface border border-border/40 rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap min-w-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                  <span className="flex-1 font-mono text-xs text-text-secondary bg-surface/60 border border-border/40 rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap min-w-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                     {detailTask.id}
                   </span>
                   <button
@@ -893,8 +921,29 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   onBlur={handleAssignedBlur}
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
-                  className="w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary placeholder:text-text-disabled/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[220ms] ease-spring shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+                  className={DETAIL_FIELD_CLASS}
                   placeholder="Assign to someone..."
+                />
+              </div>
+
+              {/* Arc */}
+              <div
+                className="flex flex-col gap-2 py-5 animate-fade-in-up [animation-delay:205ms]"
+                onBlur={(e) => {
+                  // Save when focus leaves the entire arc section (container + dropdown)
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    handleArcBlur();
+                  }
+                }}
+              >
+                <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">Arc</span>
+                <ArcAutocomplete
+                  value={localArc}
+                  onChange={setLocalArc}
+                  arcs={arcs}
+                  placeholder="Search or create an arc…"
+                  className="w-full"
+                  inputClassName={DETAIL_FIELD_CLASS}
                 />
               </div>
 

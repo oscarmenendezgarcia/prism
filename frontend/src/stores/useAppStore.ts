@@ -329,6 +329,15 @@ interface AppState {
     patch: { resolved?: boolean; text?: string },
   ) => Promise<void>;
 
+  // ── Arc filter / grouping (arc field feature) ─────────────────────────────
+
+  /** Active arc filter (null = show all). */
+  arcFilter: string | null;
+  /** Whether to group tasks by arc in columns. */
+  arcGrouping: boolean;
+  setArcFilter: (arc: string | null) => void;
+  toggleArcGrouping: () => void;
+
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 
   /** Whether the GlobalSearchModal is currently open. */
@@ -618,7 +627,9 @@ export const useAppStore = create<AppState>((set, get) => {
 
   setActiveSpace: (id: string) => {
     safeStorage.setItem(ACTIVE_SPACE_KEY, id);
-    set({ activeSpaceId: id });
+    // Arc filter/grouping are per-space: a label from the old space would hide
+    // every card in the new one. Reset them on switch.
+    set({ activeSpaceId: id, arcFilter: null, arcGrouping: false });
   },
 
   loadSpaces: async () => {
@@ -770,6 +781,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const { activeSpaceId, closeCreateModal, loadBoard, showToast } = get();
     set({ isMutating: true });
     try {
+      // arc is already included in the payload when provided by the caller
       await api.createTask(activeSpaceId, payload);
       closeCreateModal();
       await loadBoard();
@@ -1662,6 +1674,15 @@ export const useAppStore = create<AppState>((set, get) => {
       throw err;
     }
   },
+
+  // ── Arc filter / grouping (arc field feature) ─────────────────────────────
+
+  arcFilter:   null,
+  arcGrouping: false,
+  // Filtering to one arc and grouping by arc are mutually exclusive (a filter
+  // leaves a single group), so turning on one clears the other.
+  setArcFilter:      (arc) => set(arc ? { arcFilter: arc, arcGrouping: false } : { arcFilter: null }),
+  toggleArcGrouping: () => set((s) => (s.arcGrouping ? { arcGrouping: false } : { arcGrouping: true, arcFilter: null })),
 
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 

@@ -35,6 +35,7 @@ const FORMAT_SYSTEM_PROMPT = `Respond ONLY with a JSON object matching this exac
     {
       "id": "<string>",
       "inferredType": "feature" | "bug" | "tech-debt" | "chore",
+      "arc": "<string or null — optional narrative grouping label, e.g. QOL, AUTH, LOOP>",
       "confidence": "high" | "medium" | "low",
       "description": "<string, only present when improve_descriptions=true>"
     }
@@ -45,6 +46,7 @@ Rules:
 - Include ALL cards in either suggestions or skipped — do not silently drop any.
 - Set confidence to "high" if obvious, "medium" if ambiguous, "low" if guessing.
 - If you cannot classify a card, add its id to "skipped".
+- The "arc" field is optional. Assign an arc only when a clear thematic grouping is apparent from the card titles.
 - Be deterministic — same input always produces same output.`;
 
 // ---------------------------------------------------------------------------
@@ -338,6 +340,9 @@ async function handleTaggerRun(req, res, spaceId, store, dataDir) {
           currentType:  original ? original.type  : 'unknown',
           inferredType: s.inferredType,
           confidence:   s.confidence,
+          ...(s.arc != null && typeof s.arc === 'string' && s.arc.trim()
+            ? { arc: s.arc }
+            : {}),
           ...(improveDescriptions && s.description !== undefined
             ? { description: s.description }
             : {}),

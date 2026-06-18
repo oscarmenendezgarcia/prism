@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   pipeline    TEXT,
   attachments TEXT,
   comments    TEXT,
+  arc         TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
@@ -195,6 +196,7 @@ function rowToTask(row) {
   if (att !== undefined) task.attachments = att;
   const cmt = fromJson(row.comments);
   if (cmt !== undefined) task.comments = cmt;
+  if (row.arc != null) task.arc = row.arc;  // plain TEXT, no JSON.parse
   return task;
 }
 
@@ -229,7 +231,7 @@ function createStore(dataDir) {
     }
   }
 
-  // Additive migration: pinned + pinned_rank columns(space pinning).
+  // Additive migration: pinned + pinned_rank columns (space pinning).
   // Guarded by PRAGMA table_info; idempotent on existing DBs with the column.
   {
     const cols = db.pragma('table_info(spaces)');
@@ -237,6 +239,15 @@ function createStore(dataDir) {
       db.exec('ALTER TABLE spaces ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
       db.exec('ALTER TABLE spaces ADD COLUMN pinned_rank INTEGER');
       console.log('[store] migration: added pinned + pinned_rank columns to spaces');
+    }
+  }
+
+  // Additive migration: arc column (arc field on tasks).
+  {
+    const cols = db.pragma('table_info(tasks)');
+    if (!cols.some((c) => c.name === 'arc')) {
+      db.exec('ALTER TABLE tasks ADD COLUMN arc TEXT');
+      console.log('[store] migration: added arc column to tasks');
     }
   }
 
@@ -303,20 +314,20 @@ function createStore(dataDir) {
     ),
     insertTask: db.prepare(`
       INSERT INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     upsertTask: db.prepare(`
       INSERT OR IGNORE INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     updateTask: db.prepare(`
       UPDATE tasks
          SET title = ?, type = ?, description = ?, assigned = ?,
-             pipeline = ?, attachments = ?, comments = ?, updated_at = ?
+             pipeline = ?, attachments = ?, comments = ?, arc = ?, updated_at = ?
        WHERE space_id = ? AND id = ?
     `),
     moveTask: db.prepare(`
@@ -468,6 +479,7 @@ function createStore(dataDir) {
       task.pipeline    !== undefined ? JSON.stringify(task.pipeline)    : null,
       task.attachments !== undefined ? JSON.stringify(task.attachments) : null,
       task.comments    !== undefined ? JSON.stringify(task.comments)    : null,
+      task.arc ?? null,
       task.createdAt,
       task.updatedAt,
     ));
@@ -488,6 +500,7 @@ function createStore(dataDir) {
       task.pipeline    !== undefined ? JSON.stringify(task.pipeline)    : null,
       task.attachments !== undefined ? JSON.stringify(task.attachments) : null,
       task.comments    !== undefined ? JSON.stringify(task.comments)    : null,
+      task.arc ?? null,
       task.createdAt,
       task.updatedAt,
     );
@@ -516,6 +529,7 @@ function createStore(dataDir) {
       merged.pipeline    !== undefined ? JSON.stringify(merged.pipeline)    : null,
       merged.attachments !== undefined ? JSON.stringify(merged.attachments) : null,
       merged.comments    !== undefined ? JSON.stringify(merged.comments)    : null,
+      merged.arc ?? null,
       merged.updatedAt,
       spaceId,
       taskId,
