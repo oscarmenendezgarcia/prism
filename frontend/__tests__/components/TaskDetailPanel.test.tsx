@@ -27,6 +27,7 @@ vi.mock('../../src/api/client', () => ({
   deleteSpace:       vi.fn(),
   getAttachmentContent: vi.fn(),
   updateTask:        vi.fn(),
+  getArcs:           vi.fn().mockResolvedValue({ arcs: [] }),
   getAgents:         vi.fn(),
   generatePrompt:    vi.fn(),
   getSettings:       vi.fn().mockResolvedValue({}),

@@ -12,7 +12,7 @@
 'use strict';
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
-const { createApp }                      = require('../handlers/tasks');
+const { createApp }       = require('../handlers/tasks');
 const { handleStatic }                   = require('../handlers/static');
 const { handleGetSettings, handlePutSettings } = require('../handlers/settings');
 const {
@@ -483,6 +483,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
         `Method '${method}' is not allowed on this route`);
     }
+
 
     // -------------------------------------------------------------------------
     // Space-scoped task routes: /api/v1/spaces/:spaceId/tasks/*
