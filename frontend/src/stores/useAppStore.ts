@@ -1679,8 +1679,10 @@ export const useAppStore = create<AppState>((set, get) => {
 
   arcFilter:   null,
   arcGrouping: false,
-  setArcFilter:     (arc) => set({ arcFilter: arc }),
-  toggleArcGrouping: () => set((s) => ({ arcGrouping: !s.arcGrouping })),
+  // Filtering to one arc and grouping by arc are mutually exclusive (a filter
+  // leaves a single group), so turning on one clears the other.
+  setArcFilter:      (arc) => set(arc ? { arcFilter: arc, arcGrouping: false } : { arcFilter: null }),
+  toggleArcGrouping: () => set((s) => (s.arcGrouping ? { arcGrouping: false } : { arcGrouping: true, arcFilter: null })),
 
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 
