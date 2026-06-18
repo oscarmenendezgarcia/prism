@@ -65,22 +65,19 @@ export function ArcBar() {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Group toggle */}
+      {/* Organize toggle */}
       <button
         type="button"
         onClick={toggleArcGrouping}
         aria-pressed={arcGrouping}
-        title={arcGrouping ? 'Disable arc grouping' : 'Group cards by arc'}
-        className={`inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-full border transition-all duration-fast flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+        title={arcGrouping ? 'Stop organizing by arc' : 'Organize cards by arc'}
+        className={`inline-flex items-center text-[11px] font-medium px-2.5 py-1 rounded-full border transition-all duration-fast flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-primary/50 ${
           arcGrouping
             ? 'bg-primary/15 border-primary/40 text-primary'
             : 'bg-surface border-border text-text-secondary hover:border-primary/30 hover:text-text-primary'
         }`}
       >
-        <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden="true">
-          group_work
-        </span>
-        Group
+        Organize
       </button>
     </div>
   );

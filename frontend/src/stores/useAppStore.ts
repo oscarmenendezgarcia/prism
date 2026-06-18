@@ -627,7 +627,9 @@ export const useAppStore = create<AppState>((set, get) => {
 
   setActiveSpace: (id: string) => {
     safeStorage.setItem(ACTIVE_SPACE_KEY, id);
-    set({ activeSpaceId: id });
+    // Arc filter/grouping are per-space: a label from the old space would hide
+    // every card in the new one. Reset them on switch.
+    set({ activeSpaceId: id, arcFilter: null, arcGrouping: false });
   },
 
   loadSpaces: async () => {

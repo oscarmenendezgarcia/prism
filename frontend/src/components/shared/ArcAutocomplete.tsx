@@ -3,9 +3,15 @@
  * Existing arc labels are passed in via `arcs` (derived from the loaded tasks).
  * Accepts free-text input (user can create a new arc label not in the list).
  * Keyboard: ArrowDown/Up to navigate, Enter to select, Escape to close dropdown.
+ *
+ * The dropdown is rendered in a portal anchored to the input's rect (same pattern
+ * as Modal/ContextMenu) so it escapes the TaskDetailPanel's scroll container and
+ * positioned siblings — otherwise an `absolute` listbox gets clipped / trapped
+ * under later sections and its options can't be clicked.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 interface ArcAutocompleteProps {
   value: string;
@@ -14,35 +20,70 @@ interface ArcAutocompleteProps {
   arcs: string[];
   placeholder?: string;
   className?: string;
+  /** Override the input styling so it matches the host form (modal vs panel). */
+  inputClassName?: string;
 }
+
+/** Default input style — matches the create-task modal's field look. */
+const DEFAULT_INPUT_CLASS =
+  'w-full px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled ' +
+  'focus:outline-hidden focus:border-primary focus:ring-2 focus:ring-primary/40 transition-colors duration-150 h-12';
 
 export function ArcAutocomplete({
   value,
   onChange,
   arcs,
-  placeholder = 'e.g. QOL, AUTH, LOOP',
+  placeholder = 'Search or create an arc…',
   className,
+  inputClassName,
 }: ArcAutocompleteProps) {
   const [open, setOpen]               = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
+  const [rect, setRect]               = useState<{ left: number; top: number; width: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef     = useRef<HTMLInputElement>(null);
+  const listboxRef   = useRef<HTMLUListElement>(null);
+
+  const filtered = arcs.filter((o) =>
+    o.toLowerCase().includes(value.toLowerCase())
+  );
+  const showList = open && filtered.length > 0;
+
+  // Anchor the portal listbox to the input. Recompute while open so it tracks
+  // scrolling/resizing of any ancestor; close-on-blur is handled separately.
+  useLayoutEffect(() => {
+    if (!showList) return;
+    const measure = () => {
+      const r = inputRef.current?.getBoundingClientRect();
+      if (r) setRect({ left: r.left, top: r.bottom + 4, width: r.width });
+    };
+    measure();
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('scroll', measure, true);
+      window.removeEventListener('resize', measure);
+    };
+  }, [showList]);
+
+  // Keep the keyboard-highlighted option scrolled into view within the listbox.
+  useEffect(() => {
+    if (!showList || highlighted < 0) return;
+    const el = listboxRef.current?.children[highlighted] as HTMLElement | undefined;
+    el?.scrollIntoView?.({ block: 'nearest' });
+  }, [highlighted, showList]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const t = e.target as Node;
+      if (containerRef.current?.contains(t) || listboxRef.current?.contains(t)) return;
+      setOpen(false);
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  const filtered = arcs.filter((o) =>
-    o.toLowerCase().includes(value.toLowerCase())
-  );
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (!open && e.key === 'ArrowDown') {
       setOpen(true);
       setHighlighted(0);
@@ -63,11 +104,10 @@ export function ArcAutocomplete({
       setOpen(false);
       setHighlighted(-1);
     }
-  }, [open, filtered, highlighted, onChange]);
+  }
 
-  const inputClass =
-    'w-full px-3 py-2 border border-border rounded-md text-sm text-text-primary bg-surface-variant placeholder:text-text-disabled ' +
-    'focus:outline-hidden focus:border-primary focus:ring-2 focus:ring-primary/40 transition-colors duration-150 h-12 pr-8';
+  // pr-8 always reserves room for the clear button, regardless of host styling.
+  const inputClass = `${inputClassName ?? DEFAULT_INPUT_CLASS} pr-8`;
 
   return (
     <div ref={containerRef} className={`relative ${className ?? ''}`}>
@@ -104,11 +144,13 @@ export function ArcAutocomplete({
         )}
       </div>
 
-      {open && filtered.length > 0 && (
+      {showList && createPortal(
         <ul
+          ref={listboxRef}
           id="arc-autocomplete-listbox"
           role="listbox"
-          className="absolute z-50 left-0 right-0 top-full mt-1 bg-surface-elevated border border-border rounded-md shadow-md max-h-48 overflow-y-auto"
+          className="fixed z-[120] bg-surface-elevated border border-border rounded-md shadow-lg max-h-48 overflow-y-auto"
+          style={rect ? { left: rect.left, top: rect.top, width: rect.width } : { visibility: 'hidden' }}
         >
           {filtered.map((opt, i) => (
             <li
@@ -129,7 +171,8 @@ export function ArcAutocomplete({
               {opt}
             </li>
           ))}
-        </ul>
+        </ul>,
+        document.body,
       )}
     </div>
   );

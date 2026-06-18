@@ -107,6 +107,13 @@ describe('setActiveSpace', () => {
     expect(useAppStore.getState().activeSpaceId).toBe('space-123');
     expect(localStorage.getItem('prism-active-space')).toBe('space-123');
   });
+
+  it('resets arc filter and grouping when switching space', () => {
+    useAppStore.setState({ arcFilter: 'AUTH', arcGrouping: true });
+    useAppStore.getState().setActiveSpace('space-456');
+    expect(useAppStore.getState().arcFilter).toBeNull();
+    expect(useAppStore.getState().arcGrouping).toBe(false);
+  });
 });
 
 describe('loadSpaces', () => {

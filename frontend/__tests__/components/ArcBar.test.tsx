@@ -137,7 +137,7 @@ describe('ArcBar', () => {
   it('group_toggle_button_exists_with_aria_pressed', () => {
     setTasks({ todo: [{ arc: 'QOL' }], 'in-progress': [], done: [] });
     render(<ArcBar />);
-    const toggleBtn = screen.getByTitle(/group cards by arc|disable arc grouping/i);
+    const toggleBtn = screen.getByTitle(/organize cards by arc|stop organizing by arc/i);
     expect(toggleBtn).toBeInTheDocument();
     expect(toggleBtn).toHaveAttribute('aria-pressed', 'false');
   });
@@ -147,7 +147,7 @@ describe('ArcBar', () => {
     setTasks({ todo: [{ arc: 'QOL' }], 'in-progress': [], done: [] });
     setArcGrouping(true);
     render(<ArcBar />);
-    const toggleBtn = screen.getByTitle(/disable arc grouping/i);
+    const toggleBtn = screen.getByTitle(/stop organizing by arc/i);
     expect(toggleBtn).toHaveAttribute('aria-pressed', 'true');
   });
 
@@ -155,7 +155,7 @@ describe('ArcBar', () => {
   it('clicking_group_toggle_calls_toggleArcGrouping', () => {
     setTasks({ todo: [{ arc: 'QOL' }], 'in-progress': [], done: [] });
     render(<ArcBar />);
-    const toggleBtn = screen.getByTitle(/group cards by arc/i);
+    const toggleBtn = screen.getByTitle(/organize cards by arc/i);
     fireEvent.click(toggleBtn);
     expect((mockStore as any).toggleArcGrouping).toHaveBeenCalled();
   });
