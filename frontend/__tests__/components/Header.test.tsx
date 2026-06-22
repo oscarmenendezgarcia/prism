@@ -101,51 +101,45 @@ describe('Header', () => {
   describe('Search pill (QOL-4)', () => {
     it('renders search pill with aria-label', () => {
       renderHeader();
-      // There are two buttons with this label (desktop pill + mobile hamburger row — both in DOM)
+      // There are two buttons with this label (desktop pill + mobile icon button — both in DOM)
       const pills = screen.getAllByLabelText(/buscar tareas/i);
       expect(pills.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('search pill displays the ⌘K hint text', () => {
+    it('search pill displays a platform-appropriate shortcut hint (⌘K or Ctrl K)', () => {
       renderHeader();
-      expect(screen.getAllByText('⌘K').length).toBeGreaterThanOrEqual(1);
+      // The kbd label is platform-aware: ⌘K on macOS, "Ctrl K" elsewhere (jsdom → Ctrl K).
+      expect(screen.getByText(/⌘K|Ctrl\s*K/i)).toBeInTheDocument();
     });
 
     it('clicking the desktop search pill calls openGlobalSearch', () => {
       const mockOpenGlobalSearch = vi.fn();
       useAppStore.setState({ openGlobalSearch: mockOpenGlobalSearch } as any);
       renderHeader();
-      // The desktop pill is the first match
-      const pills = screen.getAllByLabelText(/buscar tareas/i);
-      fireEvent.click(pills[0]);
+      // The desktop pill is the entry point carrying the "Buscar…" label text.
+      const desktopPill = screen.getAllByLabelText(/buscar tareas/i)
+        .find((b) => b.textContent?.includes('Buscar…'))!;
+      fireEvent.click(desktopPill);
       expect(mockOpenGlobalSearch).toHaveBeenCalledTimes(1);
     });
 
-    it('clicking the mobile search row calls openGlobalSearch', () => {
+    it('clicking the mobile search icon button calls openGlobalSearch', () => {
       const mockOpenGlobalSearch = vi.fn();
       useAppStore.setState({ openGlobalSearch: mockOpenGlobalSearch } as any);
       renderHeader();
-      // Open hamburger menu first
-      const hamburger = screen.getByLabelText('Open menu');
-      fireEvent.click(hamburger);
-      // Click the mobile search row (last button with the search label)
-      const pills = screen.getAllByLabelText(/buscar tareas/i);
-      const mobileRow = pills[pills.length - 1];
-      fireEvent.click(mobileRow);
+      // Mobile entry point is the compact icon-only button (md:hidden) on the left —
+      // same aria-label but no "Buscar…" text. No hamburger needed.
+      const mobileIcon = screen.getAllByLabelText(/buscar tareas/i)
+        .find((b) => !b.textContent?.includes('Buscar…'))!;
+      fireEvent.click(mobileIcon);
       expect(mockOpenGlobalSearch).toHaveBeenCalledTimes(1);
     });
 
-    it('mobile search row closes the hamburger menu after click', () => {
-      const mockOpenGlobalSearch = vi.fn();
-      useAppStore.setState({ openGlobalSearch: mockOpenGlobalSearch } as any);
+    it('renders both desktop pill and mobile icon search entry points', () => {
       renderHeader();
-      const hamburger = screen.getByLabelText('Open menu');
-      fireEvent.click(hamburger);
-      // Menu is open — "close" icon visible means the menu is open
-      expect(hamburger).toHaveAttribute('aria-expanded', 'true');
+      // Two always-rendered entry points (CSS toggles visibility): desktop pill + mobile icon.
       const pills = screen.getAllByLabelText(/buscar tareas/i);
-      fireEvent.click(pills[pills.length - 1]);
-      expect(hamburger).toHaveAttribute('aria-expanded', 'false');
+      expect(pills.length).toBe(2);
     });
 
     it('search pill is keyboard-accessible (has accessible role button)', () => {
