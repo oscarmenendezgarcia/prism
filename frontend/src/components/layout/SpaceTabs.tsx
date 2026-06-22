@@ -180,12 +180,12 @@ export function SpaceTabs() {
       {/* Tab strip — invisible during measure pass to prevent flash */}
       <div
         className={[
-          // NOT flex-1: the strip is content-width so the trailing buttons (+N / +)
-          // sit immediately after the last tab instead of being pushed to the far
-          // right edge with a gap. min-w-0 lets it still yield width to the
-          // shrink-0 buttons in the rare overshoot (force-pin) so the + is never
-          // clipped past the nav's overflow-hidden edge.
-          'flex items-center min-w-0 gap-1 py-1.5',
+          // flex-1: the strip fills the remaining width so the trailing controls
+          // (+N / divider / +) are pushed to the far right edge — the bar reads as
+          // two anchors (nav left, actions right). min-w-0 lets it still yield
+          // width to the shrink-0 buttons in the rare overshoot (force-pin) so the
+          // + is never clipped past the nav's overflow-hidden edge.
+          'flex flex-1 items-center min-w-0 gap-1 py-1.5',
           measuring ? 'invisible' : '',
         ].join(' ')}
       >
