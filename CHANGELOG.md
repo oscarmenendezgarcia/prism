@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.2.0] — 2026-06-22
+
+Headline: **Arc** — narrative grouping for tasks, plus space pinning, per-run worktree
+isolation, and a working-directory file browser.
+
+### Added
+- **Arc field** — an optional narrative grouping label on tasks, independent of type.
+  - Per-arc tinted **strip** at the top of each card, coloured deterministically so
+    same-arc cards read as a group at a glance.
+  - **Arc bar** above the board to filter by arc or **Organize** (group cards by arc in
+    each column); filtering and grouping are mutually exclusive.
+  - Editable in the create modal and task detail via a combobox that suggests existing
+    arcs (derived client-side) and accepts free-text new labels.
+  - Inferable by the tagger; exposed on the REST API and `kanban_create_task` /
+    `kanban_update_task` MCP tools. (#146)
+- **Space pinning + responsive tab bar** — pin spaces, redesigned overflow, and tab-bar
+  actions (+N / +) anchored to the right edge. (#137, #151)
+- **Search pill in the header** — a visible ⌘K entry point for global search. (#142)
+- **Working-directory file browser** — inline file tree to pick a space's working
+  directory; `DirectoryPicker` gains file/directory modes. (#132, #136)
+- **Per-run worktree isolation** — every pipeline run executes in its own git worktree. (#140)
+
+### Changed
+- Pipeline PRs target the run's **base branch** instead of always `main`. (#141)
+- Pipeline prompt-block alignment + continuous folio compaction. (#133)
+- Test setup sweeps stale `prism-test-config-*` fixtures. (#148)
+- README: Folio demo GIF + layout redesign. (#134)
+
+### Fixed
+- Blank screen on mobile caused by `crypto.randomUUID` throwing outside secure contexts. (#138)
+- Docker build failing on npm package lifecycle hooks. (#135)
+
 ## [1.1.0] — 2026-06-07
 
 Headline: **Folio** — a navigable, augmentable knowledge base shared between you and your agents.
