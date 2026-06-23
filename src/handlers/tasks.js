@@ -554,6 +554,27 @@ function createApp(spaceId, store) {
         patch.arc = trimmed.length > 0 ? trimmed : undefined;
       }
 
+      // MODEL-1: per-stage model routing overrides.
+      if ('stageModels' in body) {
+        if (body.stageModels === null) {
+          patch.stageModels = null; // clear all task-level overrides
+        } else if (typeof body.stageModels === 'object' && !Array.isArray(body.stageModels)) {
+          const { validateStageModelConfig } = require('../services/modelConfigResolver');
+          for (const [agentId, config] of Object.entries(body.stageModels)) {
+            if (config === null) continue; // null = clear that agent's override
+            const { valid, errors } = validateStageModelConfig(config);
+            if (!valid) {
+              return sendError(res, 400, 'VALIDATION_ERROR',
+                `Invalid stageModels for '${agentId}': ${errors[0]}`,
+                { field: `stageModels.${agentId}` });
+            }
+          }
+          patch.stageModels = body.stageModels;
+        } else {
+          return sendError(res, 400, 'VALIDATION_ERROR', 'stageModels must be an object or null', { field: 'stageModels' });
+        }
+      }
+
       const updatedTask = store.updateTask(spaceId, taskId, patch);
       sendJSON(res, 200, stripAttachmentContent(updatedTask));
     } catch (err) {

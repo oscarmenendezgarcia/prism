@@ -18,6 +18,7 @@
 const crypto = require('crypto');
 const { createStore } = require('./store');
 const { validateFolioBackend } = require('./folioValidation');
+const { validateStageModelConfig } = require('./modelConfigResolver');
 
 const SPACE_NAME_MAX      = 100;
 const NICKNAME_VALUE_MAX  = 50;
@@ -189,7 +190,7 @@ function createSpaceManager(storeOrDataDir) {
    * @param {boolean} [pinned]           - Pin/unpin the space.
    * @param {number|null} [pinnedRank]   - Rank within the pinned zone.
    */
-  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames, folioBackend, pinned, pinnedRank) {
+  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames, folioBackend, pinned, pinnedRank, stageModels) {
     const existing = store.getSpace(id);
     if (!existing) {
       return {
@@ -226,6 +227,26 @@ function createSpaceManager(storeOrDataDir) {
       const nickResult = normaliseNicknames(agentNicknames);
       if (!nickResult.ok) return nickResult;
       normalisedNicknames = nickResult.nicknames;
+    }
+
+    // MODEL-1: validate and resolve stageModels if provided.
+    let resolvedStageModels;
+    if (stageModels !== undefined) {
+      if (stageModels === null) {
+        // null = clear all space-level overrides.
+        resolvedStageModels = null;
+      } else if (typeof stageModels !== 'object' || Array.isArray(stageModels)) {
+        return { ok: false, code: 'VALIDATION_ERROR', message: 'stageModels must be an object or null.' };
+      } else {
+        for (const [agentId, config] of Object.entries(stageModels)) {
+          if (config === null) continue; // null = clear that agent's override
+          const { valid, errors } = validateStageModelConfig(config);
+          if (!valid) {
+            return { ok: false, code: 'VALIDATION_ERROR', message: `Invalid stageModels for '${agentId}': ${errors[0]}` };
+          }
+        }
+        resolvedStageModels = stageModels;
+      }
     }
 
     // Validate folioBackend if provided.
@@ -293,6 +314,10 @@ function createSpaceManager(storeOrDataDir) {
       // Only update folioBackend when it was explicitly provided.
       ...(resolvedFolioBackend !== undefined
         ? { folioBackend: resolvedFolioBackend !== 'sqlite' ? resolvedFolioBackend : undefined }
+        : {}),
+      // MODEL-1: only update stageModels when explicitly provided.
+      ...(resolvedStageModels !== undefined
+        ? { stageModels: resolvedStageModels }
         : {}),
       // pin/rank fields — only update when explicitly provided.
       ...(pinned !== undefined ? { pinned } : {}),

@@ -151,6 +151,9 @@ function rowToSpace(row) {
   // pinned + pinnedRank (space pinning). Columns default to 0/NULL.
   space.pinned = row.pinned === 1;
   if (row.pinned_rank != null) space.pinnedRank = row.pinned_rank;
+  // MODEL-1: per-stage model routing overrides.
+  const sm = fromJson(row.stage_models);
+  if (sm !== undefined) space.stageModels = sm;
   return space;
 }
 
@@ -197,6 +200,9 @@ function rowToTask(row) {
   const cmt = fromJson(row.comments);
   if (cmt !== undefined) task.comments = cmt;
   if (row.arc != null) task.arc = row.arc;  // plain TEXT, no JSON.parse
+  // MODEL-1: per-stage model routing overrides.
+  const sm = fromJson(row.stage_models);
+  if (sm !== undefined) task.stageModels = sm;
   return task;
 }
 
@@ -251,6 +257,24 @@ function createStore(dataDir) {
     }
   }
 
+  // Additive migration: stage_models column on spaces (MODEL-1 per-stage model routing).
+  {
+    const cols = db.pragma('table_info(spaces)');
+    if (!cols.some((c) => c.name === 'stage_models')) {
+      db.exec('ALTER TABLE spaces ADD COLUMN stage_models TEXT');
+      console.log('[store] migration: added stage_models column to spaces');
+    }
+  }
+
+  // Additive migration: stage_models column on tasks (MODEL-1 per-stage model routing).
+  {
+    const cols = db.pragma('table_info(tasks)');
+    if (!cols.some((c) => c.name === 'stage_models')) {
+      db.exec('ALTER TABLE tasks ADD COLUMN stage_models TEXT');
+      console.log('[store] migration: added stage_models column to tasks');
+    }
+  }
+
   // Apply Folio core schema (space-agnostic) and Prism binding schema.
   applyFolioSchema(db);
   applyBindingSchema(db);
@@ -284,9 +308,9 @@ function createStore(dataDir) {
     getSpace:      db.prepare('SELECT * FROM spaces WHERE id = ?'),
     upsertSpace:   db.prepare(`
       INSERT INTO spaces
-        (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, folio_backend, pinned, pinned_rank, created_at, updated_at)
+        (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, folio_backend, stage_models, pinned, pinned_rank, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name              = excluded.name,
         working_directory = excluded.working_directory,
@@ -294,6 +318,7 @@ function createStore(dataDir) {
         project_claude_md = excluded.project_claude_md,
         agent_nicknames   = excluded.agent_nicknames,
         folio_backend     = excluded.folio_backend,
+        stage_models      = excluded.stage_models,
         pinned            = excluded.pinned,
         pinned_rank       = excluded.pinned_rank,
         updated_at        = excluded.updated_at
@@ -314,20 +339,20 @@ function createStore(dataDir) {
     ),
     insertTask: db.prepare(`
       INSERT INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     upsertTask: db.prepare(`
       INSERT OR IGNORE INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     updateTask: db.prepare(`
       UPDATE tasks
          SET title = ?, type = ?, description = ?, assigned = ?,
-             pipeline = ?, attachments = ?, comments = ?, arc = ?, updated_at = ?
+             pipeline = ?, attachments = ?, comments = ?, arc = ?, stage_models = ?, updated_at = ?
        WHERE space_id = ? AND id = ?
     `),
     moveTask: db.prepare(`
@@ -414,6 +439,8 @@ function createStore(dataDir) {
       space.agentNicknames    !== undefined ? JSON.stringify(space.agentNicknames)  : null,
       // folio_backend is a plain TEXT column — store as-is or NULL.
       space.folioBackend !== undefined ? space.folioBackend : null,
+      // MODEL-1: stage_models is a JSON column.
+      toJson(space.stageModels ?? null),
       // pinned: boolean → INTEGER (1/0); default false when absent.
       space.pinned ? 1 : 0,
       // pinned_rank: number or null.
@@ -480,6 +507,8 @@ function createStore(dataDir) {
       task.attachments !== undefined ? JSON.stringify(task.attachments) : null,
       task.comments    !== undefined ? JSON.stringify(task.comments)    : null,
       task.arc ?? null,
+      // MODEL-1: per-stage model routing overrides.
+      toJson(task.stageModels ?? null),
       task.createdAt,
       task.updatedAt,
     ));
@@ -501,6 +530,8 @@ function createStore(dataDir) {
       task.attachments !== undefined ? JSON.stringify(task.attachments) : null,
       task.comments    !== undefined ? JSON.stringify(task.comments)    : null,
       task.arc ?? null,
+      // MODEL-1: per-stage model routing overrides.
+      toJson(task.stageModels ?? null),
       task.createdAt,
       task.updatedAt,
     );
@@ -530,6 +561,8 @@ function createStore(dataDir) {
       merged.attachments !== undefined ? JSON.stringify(merged.attachments) : null,
       merged.comments    !== undefined ? JSON.stringify(merged.comments)    : null,
       merged.arc ?? null,
+      // MODEL-1: per-stage model routing overrides.
+      toJson(merged.stageModels ?? null),
       merged.updatedAt,
       spaceId,
       taskId,
@@ -646,6 +679,31 @@ function createStore(dataDir) {
     }
   }
 
+
+  // ---------------------------------------------------------------------------
+  // MODEL-1: stage model helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Return the stageModels map for a space, or null.
+   * @param {string} spaceId
+   * @returns {object|null}
+   */
+  function getSpaceStageModels(spaceId) {
+    const space = getSpace(spaceId);
+    return space ? (space.stageModels ?? null) : null;
+  }
+
+  /**
+   * Return the stageModels map for a task, or null.
+   * @param {string} spaceId
+   * @param {string} taskId
+   * @returns {object|null}
+   */
+  function getTaskStageModels(spaceId, taskId) {
+    const task = getTask(spaceId, taskId);
+    return task ? (task.stageModels ?? null) : null;
+  }
 
   // ---------------------------------------------------------------------------
   // Pipeline run operations
@@ -774,6 +832,9 @@ function createStore(dataDir) {
     searchTasks,
     searchAllTasks,
     rebuildFts,
+    // MODEL-1: stage model helpers
+    getSpaceStageModels,
+    getTaskStageModels,
     // Pipeline runs
     getRun,
     upsertRun,
