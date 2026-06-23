@@ -8,8 +8,12 @@
  *   frontmatter (agent .md file) → settings (global) → space → task
  */
 
-const VALID_PROVIDERS = ['claude', 'openai', 'ollama', 'custom'];
-const VALID_CLI_TOOLS = ['claude', 'opencode', 'custom'];
+// MODEL-1: only the claude provider/CLI is wired end-to-end. Accepting other
+// providers (openai, ollama) or CLI tools (opencode, custom) would let a user
+// configure a run that silently spawns claude anyway. Reject them at validation
+// until MODEL-2 implements per-tool binary resolution, then widen these lists.
+const VALID_PROVIDERS = ['claude'];
+const VALID_CLI_TOOLS = ['claude'];
 
 /**
  * Resolve effective model config for a stage.

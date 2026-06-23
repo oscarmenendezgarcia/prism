@@ -156,16 +156,18 @@ describe('validateStageModelConfig', () => {
 // ---------------------------------------------------------------------------
 
 describe('exported constants', () => {
-  it('VALID_PROVIDERS includes expected values', () => {
-    assert.ok(VALID_PROVIDERS.includes('claude'));
-    assert.ok(VALID_PROVIDERS.includes('openai'));
-    assert.ok(VALID_PROVIDERS.includes('ollama'));
-    assert.ok(VALID_PROVIDERS.includes('custom'));
+  // MODEL-1: only claude is wired end-to-end, so it is the only valid value.
+  // MODEL-2 will widen these lists once per-tool binary resolution exists.
+  it('VALID_PROVIDERS allows only claude in MODEL-1', () => {
+    assert.deepEqual(VALID_PROVIDERS, ['claude']);
   });
 
-  it('VALID_CLI_TOOLS includes expected values', () => {
-    assert.ok(VALID_CLI_TOOLS.includes('claude'));
-    assert.ok(VALID_CLI_TOOLS.includes('opencode'));
-    assert.ok(VALID_CLI_TOOLS.includes('custom'));
+  it('VALID_CLI_TOOLS allows only claude in MODEL-1', () => {
+    assert.deepEqual(VALID_CLI_TOOLS, ['claude']);
+  });
+
+  it('rejects not-yet-wired providers/CLI tools', () => {
+    assert.equal(validateStageModelConfig({ provider: 'openai', model: 'gpt-4o' }).valid, false);
+    assert.equal(validateStageModelConfig({ cliTool: 'opencode' }).valid, false);
   });
 });

@@ -13,6 +13,7 @@ const path = require('path');
 
 const { COLUMNS }                          = require('../constants');
 const { sendJSON, sendError, parseBody }   = require('../utils/http');
+const { validateStageModelConfig }         = require('../services/modelConfigResolver');
 
 // ---------------------------------------------------------------------------
 // Validation constraints
@@ -559,7 +560,6 @@ function createApp(spaceId, store) {
         if (body.stageModels === null) {
           patch.stageModels = null; // clear all task-level overrides
         } else if (typeof body.stageModels === 'object' && !Array.isArray(body.stageModels)) {
-          const { validateStageModelConfig } = require('../services/modelConfigResolver');
           for (const [agentId, config] of Object.entries(body.stageModels)) {
             if (config === null) continue; // null = clear that agent's override
             const { valid, errors } = validateStageModelConfig(config);

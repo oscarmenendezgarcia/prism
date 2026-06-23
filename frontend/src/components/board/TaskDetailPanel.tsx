@@ -30,7 +30,8 @@ import { formatTimestamp } from '@/utils/formatTimestamp';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import { resolveAgentName } from '@/utils/agentName';
 import * as api from '@/api/client';
-import type { Column, Comment, StageModelsMap } from '@/types';
+import type { Column, Comment } from '@/types';
+import { localModelsToStageModelsMap } from '@/utils/modelRouting';
 
 // ---------------------------------------------------------------------------
 // Shared input style for the details column's editable fields (Assigned, Arc)
@@ -649,13 +650,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
     if (!detailTask) return;
     setSavingStageModels(true);
     try {
-      const stageModels: StageModelsMap = {};
-      for (const [agentId, model] of Object.entries(localStageModels)) {
-        const trimmedModel = model.trim();
-        stageModels[agentId] = trimmedModel
-          ? { provider: 'claude', model: trimmedModel, cliTool: 'claude' }
-          : null; // null = clear override
-      }
+      const stageModels = localModelsToStageModelsMap(localStageModels);
       await updateTask(detailTask.id, { stageModels });
       showToast('Model overrides saved', 'success');
     } catch {

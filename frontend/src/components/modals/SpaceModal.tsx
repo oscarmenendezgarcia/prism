@@ -8,7 +8,7 @@ import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/compon
 import { Button } from '@/components/shared/Button';
 import { DirectoryPicker } from '@/components/shared/DirectoryPicker';
 import { useAppStore } from '@/stores/useAppStore';
-import type { StageModelsMap } from '@/types';
+import { localModelsToStageModelsMap } from '@/utils/modelRouting';
 
 const SPACE_NAME_MAX    = 100;
 const NICKNAME_MAX      = 50;
@@ -108,16 +108,7 @@ export function SpaceModal() {
         await createSpace(trimmed, wd, pl);
         closeModal();
       } else if (mode === 'rename' && space) {
-        // Convert model string map → StageModelsMap (provider/cliTool fixed to 'claude' in MODEL-1)
-        const stageModels: StageModelsMap = {};
-        for (const [agentId, model] of Object.entries(localStageModels)) {
-          const trimmedModel = model.trim();
-          if (trimmedModel) {
-            stageModels[agentId] = { provider: 'claude', model: trimmedModel, cliTool: 'claude' };
-          } else {
-            stageModels[agentId] = null; // null = clear override
-          }
-        }
+        const stageModels = localModelsToStageModelsMap(localStageModels);
         await renameSpace(space.id, trimmed, wd ?? '', pl ?? [], nicknames, stageModels);
         closeModal();
       }

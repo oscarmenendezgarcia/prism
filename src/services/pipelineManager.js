@@ -40,7 +40,6 @@ const {
 } = require('../utils/promptBuilder');
 const { readSettings }              = require('../handlers/settings');
 const { resolveStageModelConfig }   = require('./modelConfigResolver');
-const { buildUnixShellCommand, buildWindowsShellCommand } = require('./cliAdapter');
 
 // Resolve the claude binary path once at startup so caffeinate (and sh) can
 // find it even when the server was launched from a shell with a different PATH.
@@ -355,6 +354,42 @@ function shellEscape(s) {
 // Windows cmd.exe path quoting: wrap in double quotes, escape embedded double quotes.
 function cmdEscape(s) {
   return '"' + String(s).replace(/"/g, '""') + '"';
+}
+
+/**
+ * Build the Unix sh command that runs the CLI, captures its exit code, and
+ * writes the done-sentinel. An EXIT trap guarantees the sentinel is written
+ * even if the wrapper is terminated mid-shutdown (see spawn notes below).
+ *
+ * @param {{ binary: string, finalArgs: string[], promptPath: string, logPath: string, doneFile: string }} opts
+ * @returns {string}
+ */
+function buildUnixShellCommand({ binary, finalArgs, promptPath, logPath, doneFile }) {
+  const escapedArgs = finalArgs.map(shellEscape).join(' ');
+  return [
+    `_DONE=${shellEscape(doneFile)}`,
+    '_EXIT=1',
+    "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
+    `${binary} ${escapedArgs} < ${shellEscape(promptPath)} >> ${shellEscape(logPath)} 2>&1`,
+    '_EXIT=$?',
+  ].join('; ');
+}
+
+/**
+ * Build the Windows cmd.exe command that runs the CLI, captures its exit code,
+ * and writes the done-sentinel before exit.
+ *
+ * @param {{ binary: string, finalArgs: string[], promptPath: string, logPath: string, doneFile: string }} opts
+ * @returns {string}
+ */
+function buildWindowsShellCommand({ binary, finalArgs, promptPath, logPath, doneFile }) {
+  const escapedArgs = finalArgs.map(cmdEscape).join(' ');
+  return [
+    `${cmdEscape(binary)} ${escapedArgs} < ${cmdEscape(promptPath)} >> ${cmdEscape(logPath)} 2>&1`,
+    'set _EXIT=!ERRORLEVEL!',
+    `if not exist ${cmdEscape(doneFile)} echo !_EXIT! > ${cmdEscape(doneFile)}`,
+    'exit /B 0',
+  ].join(' & ');
 }
 
 // ---------------------------------------------------------------------------
@@ -1486,8 +1521,8 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   // MODEL-1: Resolve model config for this stage (settings → space → task priority).
   const settings    = readSettings(dataDir);
-  const spaceModels = _store ? _store.getSpaceStageModels(run.spaceId) : null;
-  const taskModels  = _store ? _store.getTaskStageModels(run.spaceId, run.taskId) : null;
+  const spaceModels = _store ? (_store.getSpace(run.spaceId)?.stageModels ?? null) : null;
+  const taskModels  = _store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null;
   const modelConfig = resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, taskModels);
 
   // Backend spawns always get --permission-mode bypassPermissions: there is no user
@@ -1557,8 +1592,8 @@ async function spawnStage(dataDir, run, stageIndex) {
   if (process.platform === 'win32') {
     // /V:ON enables delayed variable expansion so !ERRORLEVEL! is evaluated
     // after claude exits, not at parse time (the %VAR% behaviour).
-    // MODEL-2: replace CLAUDE_BIN with cliAdapter.resolveCliBinary(modelConfig.cliTool)
-    // to support opencode/custom binaries. In MODEL-1, only claude is wired end-to-end.
+    // MODEL-2: resolve the binary per modelConfig.cliTool (opencode/custom) here.
+    // In MODEL-1, only claude is wired end-to-end, so CLAUDE_BIN is always used.
     const windowsCmd = buildWindowsShellCommand({
       binary:     CLAUDE_BIN,
       finalArgs:  effectiveArgs,
@@ -1573,7 +1608,7 @@ async function spawnStage(dataDir, run, stageIndex) {
     });
   } else {
     const unixCmd = buildUnixShellCommand({
-      binary:     CLAUDE_BIN, // MODEL-2: use cliAdapter.resolveCliBinary(modelConfig.cliTool) here
+      binary:     CLAUDE_BIN, // MODEL-2: resolve per modelConfig.cliTool here
       finalArgs:  effectiveArgs,
       promptPath: promptFilePath,
       logPath,

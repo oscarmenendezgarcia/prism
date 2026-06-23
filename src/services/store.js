@@ -683,29 +683,6 @@ function createStore(dataDir) {
   // ---------------------------------------------------------------------------
   // MODEL-1: stage model helpers
   // ---------------------------------------------------------------------------
-
-  /**
-   * Return the stageModels map for a space, or null.
-   * @param {string} spaceId
-   * @returns {object|null}
-   */
-  function getSpaceStageModels(spaceId) {
-    const space = getSpace(spaceId);
-    return space ? (space.stageModels ?? null) : null;
-  }
-
-  /**
-   * Return the stageModels map for a task, or null.
-   * @param {string} spaceId
-   * @param {string} taskId
-   * @returns {object|null}
-   */
-  function getTaskStageModels(spaceId, taskId) {
-    const task = getTask(spaceId, taskId);
-    return task ? (task.stageModels ?? null) : null;
-  }
-
-  // ---------------------------------------------------------------------------
   // Pipeline run operations
   // ---------------------------------------------------------------------------
 
@@ -832,9 +809,6 @@ function createStore(dataDir) {
     searchTasks,
     searchAllTasks,
     rebuildFts,
-    // MODEL-1: stage model helpers
-    getSpaceStageModels,
-    getTaskStageModels,
     // Pipeline runs
     getRun,
     upsertRun,
