@@ -13,8 +13,9 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
-import { ConfigFileSidebar } from '@/components/config/ConfigFileSidebar';
+import { ConfigFileSidebar, MODEL_ROUTING_ID } from '@/components/config/ConfigFileSidebar';
 import { ConfigEditor } from '@/components/config/ConfigEditor';
+import { ModelRoutingSettings } from '@/components/config/ModelRoutingSettings';
 import { DiscardChangesDialog } from '@/components/config/DiscardChangesDialog';
 import { usePanelResize } from '@/hooks/usePanelResize';
 
@@ -24,6 +25,8 @@ export function ConfigPanel() {
   const activeSpaceId      = useAppStore((s) => s.activeSpaceId);
   const selectConfigFile   = useAppStore((s) => s.selectConfigFile);
   const configDirty        = useAppStore((s) => s.configDirty);
+  const activeConfigFileId = useAppStore((s) => s.activeConfigFileId);
+  const isModelRouting     = activeConfigFileId === MODEL_ROUTING_ID;
 
   const { width, handleMouseDown, minWidth, maxWidth } = usePanelResize({
     storageKey:   'prism:panel-width:config',
@@ -124,9 +127,9 @@ export function ConfigPanel() {
             <ConfigFileSidebar onRequestSwitch={handleRequestSwitch} />
           </div>
 
-          {/* Editor */}
+          {/* Editor or Model Routing panel */}
           <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-            <ConfigEditor />
+            {isModelRouting ? <ModelRoutingSettings /> : <ConfigEditor />}
           </div>
         </div>
       </aside>
