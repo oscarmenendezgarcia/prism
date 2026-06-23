@@ -1557,6 +1557,8 @@ async function spawnStage(dataDir, run, stageIndex) {
   if (process.platform === 'win32') {
     // /V:ON enables delayed variable expansion so !ERRORLEVEL! is evaluated
     // after claude exits, not at parse time (the %VAR% behaviour).
+    // MODEL-2: replace CLAUDE_BIN with cliAdapter.resolveCliBinary(modelConfig.cliTool)
+    // to support opencode/custom binaries. In MODEL-1, only claude is wired end-to-end.
     const windowsCmd = buildWindowsShellCommand({
       binary:     CLAUDE_BIN,
       finalArgs:  effectiveArgs,
@@ -1571,7 +1573,7 @@ async function spawnStage(dataDir, run, stageIndex) {
     });
   } else {
     const unixCmd = buildUnixShellCommand({
-      binary:     CLAUDE_BIN,
+      binary:     CLAUDE_BIN, // MODEL-2: use cliAdapter.resolveCliBinary(modelConfig.cliTool) here
       finalArgs:  effectiveArgs,
       promptPath: promptFilePath,
       logPath,

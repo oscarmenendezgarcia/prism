@@ -167,7 +167,7 @@ export function StageTabBar({
             {/* MODEL-1: model badge — shown when a model override was applied at spawn time. */}
             {statusObj?.model && (
               <span
-                className="text-[10px] font-mono bg-primary/15 text-primary px-1.5 py-0.5 rounded-full leading-none"
+                className="text-xs font-mono bg-primary/15 text-primary px-2 py-0.5 rounded-full leading-none"
                 aria-label={`Ran with model ${statusObj.model}`}
               >
                 {statusObj.model.replace('claude-', '')}
