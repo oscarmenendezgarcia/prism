@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Model Routing - Prism Pipeline</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-tint": "#c6bfff",
+                        "on-secondary-fixed-variant": "#454078",
+                        "inverse-on-surface": "#312f38",
+                        "primary-fixed-dim": "#c6bfff",
+                        "on-background": "#e5e0ed",
+                        "on-tertiary-fixed": "#2c1600",
+                        "error-container": "#93000a",
+                        "outline-variant": "#474554",
+                        "inverse-surface": "#e5e0ed",
+                        "on-secondary-fixed": "#19124a",
+                        "tertiary-fixed-dim": "#ffb86e",
+                        "on-primary-container": "#22008d",
+                        "error": "#ffb4ab",
+                        "tertiary-container": "#ce7e17",
+                        "on-surface-variant": "#c8c4d7",
+                        "surface-container-high": "#2a2932",
+                        "surface-container-highest": "#35343d",
+                        "surface-bright": "#3a3841",
+                        "surface-container-low": "#1c1b23",
+                        "on-secondary-container": "#b4aeee",
+                        "on-primary-fixed": "#160066",
+                        "surface-container-lowest": "#0e0d15",
+                        "outline": "#928ea0",
+                        "primary": "#c6bfff",
+                        "background": "#13121b",
+                        "on-tertiary-container": "#402300",
+                        "secondary-fixed-dim": "#c6bfff",
+                        "surface": "#13121b",
+                        "secondary": "#c6bfff",
+                        "on-tertiary-fixed-variant": "#693c00",
+                        "tertiary-fixed": "#ffdcbd",
+                        "secondary-container": "#454078",
+                        "on-secondary": "#2e295f",
+                        "on-tertiary": "#492900",
+                        "on-error-container": "#ffdad6",
+                        "on-surface": "#e5e0ed",
+                        "on-error": "#690005",
+                        "on-primary-fixed-variant": "#3f29bc",
+                        "surface-variant": "#35343d",
+                        "primary-container": "#8c80ff",
+                        "surface-dim": "#13121b",
+                        "primary-fixed": "#e4dfff",
+                        "tertiary": "#ffb86e",
+                        "on-primary": "#2800a0",
+                        "surface-container": "#201f27",
+                        "secondary-fixed": "#e4dfff",
+                        "inverse-primary": "#5846d4"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "12px",
+                        "space-sm": "8px",
+                        "sidebar-width": "240px",
+                        "space-xs": "4px",
+                        "space-lg": "24px",
+                        "space-md": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "mono-md": ["JetBrains Mono"],
+                        "headline-md": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-sm": ["Inter"],
+                        "label-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "mono-md": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-sm": ["11px", { "lineHeight": "16px", "letterSpacing": "0.03em", "fontWeight": "600" }],
+                        "label-md": ["13px", { "lineHeight": "18px", "letterSpacing": "0.01em", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #07070B; }
+        .text-violet-400 { color: #A78BFA; }
+        .text-pink-400 { color: #F472B6; }
+        .text-blue-400 { color: #60A5FA; }
+        .text-yellow-400 { color: #FBBF24; }
+        .text-emerald-400 { color: #34D399; }
+        .bg-violet-400 { background-color: #A78BFA; }
+        .bg-pink-400 { background-color: #F472B6; }
+        .bg-blue-400 { background-color: #60A5FA; }
+        .bg-yellow-400 { background-color: #FBBF24; }
+        .bg-emerald-400 { background-color: #34D399; }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden text-on-surface antialiased flex items-center justify-center">
+<!-- Top Navigation Placeholder (Workspace Context) -->
+<div class="fixed top-0 w-full h-14 bg-surface border-b border-outline-variant/30 flex items-center px-6 z-10 hidden md:flex">
+<span class="font-headline-md text-headline-md font-bold text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-weight="fill">route</span>
+            Prism Pipeline
+        </span>
+</div>
+<!-- Main Workspace Background -->
+<div class="absolute inset-0 bg-[#07070B] pt-14 flex items-center justify-center opacity-50">
+<div class="text-on-surface-variant font-mono-md text-mono-md">Select an item to view details...</div>
+</div>
+<!-- Slide-over Configuration Panel -->
+<div class="fixed right-0 top-0 h-full w-[740px] flex shadow-[-10px_0_30px_rgba(0,0,0,0.5)] z-20 translate-x-0 transition-transform duration-300">
+<!-- Left Navigation Sidebar -->
+<nav class="bg-surface-container-low dark:bg-surface-container-low docked left-0 h-full w-[140px] border-r border-outline-variant/30 flat no shadows flex flex-col py-space-md gap-space-sm">
+<div class="px-space-md mb-4 mt-14 md:mt-0">
+<h2 class="font-label-md text-label-md font-bold text-primary mb-1 uppercase tracking-wider">Configuration</h2>
+<p class="font-label-sm text-label-sm text-on-surface-variant opacity-70">Prism v1.2</p>
+</div>
+<div class="flex-1 px-2 space-y-1">
+<!-- Active Nav Item -->
+<button class="w-full flex flex-col items-center justify-center py-4 rounded-lg bg-secondary-container/20 text-primary font-bold transition-all">
+<span class="material-symbols-outlined mb-1" data-icon="route">route</span>
+<span class="font-label-md text-label-md">Model Routing</span>
+</button>
+<!-- Inactive Nav Items -->
+<button class="w-full flex flex-col items-center justify-center py-4 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest/50 transition-all">
+<span class="material-symbols-outlined mb-1" data-icon="description">description</span>
+<span class="font-label-md text-label-md">CLAUDE.md</span>
+</button>
+<button class="w-full flex flex-col items-center justify-center py-4 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest/50 transition-all">
+<span class="material-symbols-outlined mb-1" data-icon="settings">settings</span>
+<span class="font-label-md text-label-md">settings.json</span>
+</button>
+</div>
+</nav>
+<!-- Right Content Area -->
+<main class="flex-1 bg-[#1A1A24] h-full flex flex-col pt-14 md:pt-0">
+<!-- Header -->
+<div class="px-8 py-6 border-b border-outline-variant/20 flex-shrink-0">
+<div class="flex items-center gap-3 mb-2">
+<div class="w-10 h-10 rounded-lg bg-surface flex items-center justify-center border border-outline-variant/30 text-primary">
+<span class="material-symbols-outlined text-[20px]" data-icon="model_training">model_training</span>
+</div>
+<div>
+<div class="flex items-center gap-3">
+<h1 class="font-headline-lg text-headline-lg text-on-surface">Model Routing</h1>
+<span class="px-2 py-0.5 rounded-full bg-surface-container-highest text-on-surface-variant font-label-sm text-label-sm border border-outline-variant/20">GLOBAL</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Configure which AI model runs each pipeline stage.</p>
+</div>
+</div>
+</div>
+<!-- Scrollable Content -->
+<div class="flex-1 overflow-y-auto px-8 py-6 pb-24 space-y-4">
+<!-- Stage 1 (Expanded) -->
+<div class="bg-surface border border-outline-variant/30 rounded-xl overflow-hidden transition-all duration-200 ring-1 ring-primary/20">
+<div class="px-4 py-3 flex items-center justify-between border-b border-outline-variant/10 bg-surface-container-low/50">
+<div class="flex items-center gap-3">
+<div class="w-2 h-2 rounded-full bg-violet-400"></div>
+<span class="font-mono-md text-mono-md text-on-surface">senior-architect</span>
+</div>
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-error transition-colors px-2 py-1 rounded hover:bg-error/10">Clear</button>
+</div>
+<div class="p-4 space-y-4">
+<div class="flex gap-2">
+<button class="px-3 py-1.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md transition-colors flex items-center gap-1">
+                                opus-4-5
+                            </button>
+<button class="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant font-label-md text-label-md hover:bg-surface-container-high transition-colors border border-outline-variant/20">
+                                sonnet-4-5
+                            </button>
+<button class="px-3 py-1.5 rounded-lg bg-surface-container text-on-surface-variant font-label-md text-label-md hover:bg-surface-container-high transition-colors border border-outline-variant/20">
+                                haiku-4-5
+                            </button>
+</div>
+<div>
+<label class="block font-label-sm text-label-sm text-on-surface-variant mb-1">Custom Model Override</label>
+<input class="w-full bg-[#07070B] border border-primary/50 rounded-lg px-3 py-2 font-mono-md text-mono-md text-on-surface focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all" type="text" value="claude-opus-4-5"/>
+</div>
+</div>
+</div>
+<!-- Stage 2 -->
+<div class="bg-surface border border-outline-variant/30 rounded-xl overflow-hidden hover:bg-surface-container-low/30 transition-colors">
+<div class="px-4 py-3 flex items-center justify-between">
+<div class="flex items-center gap-3 w-1/3">
+<div class="w-2 h-2 rounded-full bg-pink-400"></div>
+<span class="font-mono-md text-mono-md text-on-surface truncate">ux-api-designer</span>
+</div>
+<div class="flex-1 flex gap-2 justify-end items-center">
+<div class="px-3 py-1 rounded-lg bg-surface-container-high text-on-surface font-label-sm text-label-sm border border-outline-variant/20 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary inline-block"></span> sonnet-4-5
+                            </div>
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-error transition-colors px-2 py-1 rounded hover:bg-error/10 ml-2">Clear</button>
+</div>
+</div>
+</div>
+<!-- Stage 3 -->
+<div class="bg-surface border border-outline-variant/30 rounded-xl overflow-hidden hover:bg-surface-container-low/30 transition-colors">
+<div class="px-4 py-3 flex items-center justify-between">
+<div class="flex items-center gap-3 w-1/3">
+<div class="w-2 h-2 rounded-full bg-blue-400"></div>
+<span class="font-mono-md text-mono-md text-on-surface truncate">developer-agent</span>
+</div>
+<div class="flex-1 flex gap-2 justify-end items-center">
+<div class="px-3 py-1 rounded-lg bg-surface-container-high text-on-surface font-label-sm text-label-sm border border-outline-variant/20 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary inline-block"></span> sonnet-4-5
+                            </div>
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-error transition-colors px-2 py-1 rounded hover:bg-error/10 ml-2">Clear</button>
+</div>
+</div>
+</div>
+<!-- Stage 4 -->
+<div class="bg-surface border border-outline-variant/30 rounded-xl overflow-hidden hover:bg-surface-container-low/30 transition-colors">
+<div class="px-4 py-3 flex items-center justify-between">
+<div class="flex items-center gap-3 w-1/3">
+<div class="w-2 h-2 rounded-full bg-yellow-400"></div>
+<span class="font-mono-md text-mono-md text-on-surface truncate">code-reviewer</span>
+</div>
+<div class="flex-1 flex gap-2 justify-end items-center">
+<div class="px-3 py-1 rounded-lg bg-surface-container-high text-on-surface font-label-sm text-label-sm border border-outline-variant/20 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary inline-block"></span> sonnet-4-5
+                            </div>
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-error transition-colors px-2 py-1 rounded hover:bg-error/10 ml-2">Clear</button>
+</div>
+</div>
+</div>
+<!-- Stage 5 -->
+<div class="bg-surface border border-outline-variant/30 rounded-xl overflow-hidden hover:bg-surface-container-low/30 transition-colors">
+<div class="px-4 py-3 flex items-center justify-between">
+<div class="flex items-center gap-3 w-1/3">
+<div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+<span class="font-mono-md text-mono-md text-on-surface truncate">qa-engineer-e2e</span>
+</div>
+<div class="flex-1 flex gap-2 justify-end items-center">
+<div class="px-3 py-1 rounded-lg bg-surface-container-high text-on-surface font-label-sm text-label-sm border border-outline-variant/20 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary inline-block"></span> sonnet-4-5
+                            </div>
+<button class="font-label-md text-label-md text-on-surface-variant hover:text-error transition-colors px-2 py-1 rounded hover:bg-error/10 ml-2">Clear</button>
+</div>
+</div>
+</div>
+<!-- Info Callout -->
+<div class="flex items-start gap-2 pt-4">
+<span class="material-symbols-outlined text-[18px] text-on-surface-variant/70 mt-0.5" data-icon="info">info</span>
+<p class="font-body-md text-body-md text-on-surface-variant/70">Changes apply to next run only. Existing runs are unaffected.</p>
+</div>
+</div>
+<!-- Footer Actions -->
+<div class="absolute bottom-0 left-[140px] right-0 p-6 bg-gradient-to-t from-[#1A1A24] via-[#1A1A24] to-transparent pointer-events-none"></div>
+<div class="px-8 py-4 bg-[#1A1A24] border-t border-outline-variant/20 flex items-center justify-between mt-auto z-10 flex-shrink-0">
+<button class="font-label-md text-label-md px-4 py-2 rounded-lg border border-outline-variant/30 text-on-surface hover:bg-surface-container transition-colors">Reset to defaults</button>
+<div class="flex gap-3">
+<button class="font-label-md text-label-md px-4 py-2 rounded-lg text-on-surface hover:bg-surface-container transition-colors">Cancel</button>
+<button class="font-label-md text-label-md px-6 py-2 rounded-lg bg-primary text-on-primary hover:bg-primary/90 transition-colors font-semibold shadow-[0_0_15px_rgba(198,191,255,0.2)]">Save changes</button>
+</div>
+</div>
+</main>
+</div>
+</body></html>
