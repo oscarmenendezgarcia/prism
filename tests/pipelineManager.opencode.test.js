@@ -21,6 +21,9 @@
  *     - opencode stage: stageStatuses[i].cliTool = 'opencode' in run.json
  *     - opencode stage: stage-N-oc-prompt.md written in run directory
  *
+ *   Integration (no PIPELINE_NO_SPAWN — binary-missing path):
+ *     - stageStatuses[i].failureReason === 'binary_missing' when opencode not found (AT-05)
+ *
  * Run with: node --test tests/pipelineManager.opencode.test.js
  */
 
@@ -417,5 +420,77 @@ describe('pipelineManager integration — opencode stage (PIPELINE_NO_SPAWN=1)',
     delete process.env.PIPELINE_MAX_CONCURRENT;
     fs.rmSync(dataDir,   { recursive: true, force: true });
     fs.rmSync(agentsDir, { recursive: true, force: true });
+  });
+
+  test('stageStatuses[i].failureReason is "binary_missing" when opencode binary not found', async () => {
+    // Binary resolution runs AFTER the PIPELINE_NO_SPAWN guard, so we must NOT
+    // set PIPELINE_NO_SPAWN — we need it to reach the resolveCliBinary() call.
+    // Binary resolution throws before any spawn attempt, so no process is launched.
+    const dataDir   = tmpDir();
+    const agentsDir = tmpDir();
+    writeAgentFile(agentsDir, 'developer-agent');
+
+    // Spoof PATH and HOME so neither 'which opencode' nor the fallback
+    // ~/.opencode/bin/opencode path resolves.
+    const emptyDir  = tmpDir();
+    const origPath  = process.env.PATH;
+    const origHome  = process.env.HOME;
+    process.env.PATH = emptyDir;
+    process.env.HOME = path.join(emptyDir, 'no-such-home');
+
+    process.env.PIPELINE_AGENTS_DIR    = agentsDir;
+    process.env.PIPELINE_AGENT_MODE    = 'subagent';
+    process.env.PIPELINE_MAX_CONCURRENT = '5';
+    // Note: PIPELINE_NO_SPAWN is intentionally NOT set here.
+
+    const { spaceId, taskId } = createSpaceWithTask(dataDir);
+
+    fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify({
+      pipeline: {
+        stageModels: {
+          'developer-agent': { cliTool: 'opencode', provider: 'vllm-local', model: 'vllm-local/model' },
+        },
+      },
+    }), 'utf8');
+
+    // Fresh PM so OPENCODE_BIN cache is not poisoned by a prior test that found the binary.
+    const pm = freshPM();
+    const run = await pm.createRun({
+      spaceId, taskId, stages: ['developer-agent'], dataDir,
+    });
+
+    // Give the pipeline time to attempt the stage and fail on binary resolution.
+    await new Promise(resolve => setTimeout(resolve, 400));
+
+    const persistedRun = JSON.parse(
+      fs.readFileSync(path.join(dataDir, 'runs', run.runId, 'run.json'), 'utf8'),
+    );
+
+    assert.equal(
+      persistedRun.stageStatuses[0].status,
+      'failed',
+      'stageStatuses[0].status should be failed',
+    );
+    assert.equal(
+      persistedRun.stageStatuses[0].failureReason,
+      'binary_missing',
+      'stageStatuses[0].failureReason should be binary_missing (AT-05)',
+    );
+    assert.equal(
+      persistedRun.stageStatuses[0].exitCode,
+      -1,
+      'stageStatuses[0].exitCode should be -1',
+    );
+    assert.equal(persistedRun.status, 'failed', 'run.status should be failed');
+
+    // Restore env.
+    process.env.PATH = origPath;
+    process.env.HOME = origHome;
+    delete process.env.PIPELINE_AGENTS_DIR;
+    delete process.env.PIPELINE_AGENT_MODE;
+    delete process.env.PIPELINE_MAX_CONCURRENT;
+    fs.rmSync(dataDir,   { recursive: true, force: true });
+    fs.rmSync(agentsDir, { recursive: true, force: true });
+    fs.rmSync(emptyDir,  { recursive: true, force: true });
   });
 });

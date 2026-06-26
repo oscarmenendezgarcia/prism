@@ -225,6 +225,13 @@ describe('validateStageModelConfig — opencode', () => {
     assert.ok(result.errors[0].includes('provider'));
   });
 
+  it('custom cliTool accepts any non-empty provider (not whitelisted)', () => {
+    // MINOR fix: 'custom' is a reserved placeholder — provider should be open-ended
+    // like opencode, not constrained to the claude whitelist.
+    const result = validateStageModelConfig({ cliTool: 'custom', provider: 'my-provider' });
+    assert.equal(result.valid, true, 'custom cliTool with non-claude provider should be valid');
+  });
+
   it('full valid opencode config from blueprint example', () => {
     const result = validateStageModelConfig({
       cliTool:  'opencode',

@@ -1713,9 +1713,10 @@ async function spawnStage(dataDir, run, stageIndex) {
     stageBinary = resolveCliBinary(modelConfig.cliTool);
     pipelineLog('stage.binary_resolved', { runId: run.runId, stageIndex, cliTool: modelConfig.cliTool, binary: stageBinary });
   } catch (binErr) {
-    run.stageStatuses[stageIndex].status    = 'failed';
-    run.stageStatuses[stageIndex].exitCode  = -1;
-    run.stageStatuses[stageIndex].finishedAt = new Date().toISOString();
+    run.stageStatuses[stageIndex].status        = 'failed';
+    run.stageStatuses[stageIndex].exitCode      = -1;
+    run.stageStatuses[stageIndex].finishedAt    = new Date().toISOString();
+    run.stageStatuses[stageIndex].failureReason = 'binary_missing';
     run.status = 'failed';
     writeRun(dataDir, run);
     pipelineLog('stage.binary_missing', { runId: run.runId, stageIndex, agentId, cliTool: modelConfig.cliTool });
@@ -2074,10 +2075,11 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
     stageStatuses: stageList.map((agentId, index) => ({
       index,
       agentId,
-      status:     'pending',
-      exitCode:   null,
-      startedAt:  null,
-      finishedAt: null,
+      status:        'pending',
+      exitCode:      null,
+      startedAt:     null,
+      finishedAt:    null,
+      failureReason: null,
     })),
     createdAt: now,
     updatedAt: now,

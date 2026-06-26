@@ -81,8 +81,9 @@ function validateStageModelConfig(config) {
   }
 
   if ('provider' in config) {
-    if (config.cliTool === 'opencode') {
-      // opencode providers are user-defined in opencode.jsonc — accept any non-empty string.
+    if (config.cliTool === 'opencode' || config.cliTool === 'custom') {
+      // opencode / custom: providers are user-defined — accept any non-empty string.
+      // 'custom' is a reserved placeholder; spawning is not yet implemented.
       if (typeof config.provider !== 'string' || config.provider.trim().length === 0) {
         errors.push('provider must be a non-empty string.');
       }
