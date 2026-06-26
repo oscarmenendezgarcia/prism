@@ -156,18 +156,81 @@ describe('validateStageModelConfig', () => {
 // ---------------------------------------------------------------------------
 
 describe('exported constants', () => {
-  // MODEL-1: only claude is wired end-to-end, so it is the only valid value.
-  // MODEL-2 will widen these lists once per-tool binary resolution exists.
-  it('VALID_PROVIDERS allows only claude in MODEL-1', () => {
-    assert.deepEqual(VALID_PROVIDERS, ['claude']);
+  it('VALID_PROVIDERS contains claude', () => {
+    assert.ok(VALID_PROVIDERS.includes('claude'));
   });
 
-  it('VALID_CLI_TOOLS allows only claude in MODEL-1', () => {
-    assert.deepEqual(VALID_CLI_TOOLS, ['claude']);
+  it('VALID_CLI_TOOLS contains claude, opencode, custom', () => {
+    assert.deepEqual(VALID_CLI_TOOLS, ['claude', 'opencode', 'custom']);
   });
 
-  it('rejects not-yet-wired providers/CLI tools', () => {
+  it('accepts opencode as a valid cliTool', () => {
+    assert.equal(validateStageModelConfig({ cliTool: 'opencode' }).valid, true);
+  });
+
+  it('rejects openai provider for claude cliTool (still whitelisted)', () => {
     assert.equal(validateStageModelConfig({ provider: 'openai', model: 'gpt-4o' }).valid, false);
-    assert.equal(validateStageModelConfig({ cliTool: 'opencode' }).valid, false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MODEL-2: opencode-specific validation
+// ---------------------------------------------------------------------------
+
+describe('validateStageModelConfig — opencode', () => {
+  it('accepts opencode with provider/model format', () => {
+    const result = validateStageModelConfig({
+      cliTool: 'opencode',
+      model:   'vllm-local/nvidia/Qwen3.6-35B',
+    });
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it('rejects opencode model without slash (not provider/model format)', () => {
+    const result = validateStageModelConfig({
+      cliTool: 'opencode',
+      model:   'no-slash-model',
+    });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].includes('provider>/<model'));
+  });
+
+  it('accepts opencode with any non-empty provider string', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'opencode',
+      provider: 'vllm-local',
+      model:    'vllm-local/nvidia/Qwen3.6-35B',
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it('rejects opencode with empty provider', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'opencode',
+      provider: '',
+      model:    'vllm-local/nvidia/Qwen3.6-35B',
+    });
+    assert.equal(result.valid, false);
+  });
+
+  it('accepts opencode without model (no format constraint)', () => {
+    const result = validateStageModelConfig({ cliTool: 'opencode' });
+    assert.equal(result.valid, true);
+  });
+
+  it('claude provider whitelist still applies for non-opencode cliTool', () => {
+    const result = validateStageModelConfig({ cliTool: 'claude', provider: 'gemini' });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].includes('provider'));
+  });
+
+  it('full valid opencode config from blueprint example', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'opencode',
+      provider: 'vllm-local',
+      model:    'vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4',
+    });
+    assert.equal(result.valid, true);
   });
 });
