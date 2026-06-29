@@ -28,7 +28,7 @@ const VALID_CLI_TOOLS = ['claude'];
 function resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, taskModels) {
   const base = {
     provider: 'claude',
-    model:    (agentSpec && agentSpec.model) ? agentSpec.model : 'claude-sonnet-4-5',
+    model:    (agentSpec && agentSpec.model) ? agentSpec.model : 'claude-sonnet-4-6',
     cliTool:  'claude',
   };
 

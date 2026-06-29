@@ -10,7 +10,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/shared/Button';
 import type { StageModelConfig, StageModelsMap } from '@/types';
 
-const CLAUDE_PRESETS = ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'];
+const CLAUDE_PRESETS = ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
 const DEFAULT_PROVIDER = 'claude' as const;
 const DEFAULT_CLI_TOOL = 'claude' as const;
 

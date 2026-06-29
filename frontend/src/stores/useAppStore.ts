@@ -921,6 +921,14 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   selectConfigFile: async (fileId: string) => {
+    // MODEL-1: '__model-routing__' (MODEL_ROUTING_ID in ConfigFileSidebar) is a
+    // virtual entry, not a real config file. ConfigPanel renders ModelRoutingSettings
+    // when activeConfigFileId matches it — so just select it, never fetch from the API
+    // (a backend GET would 404 with "Config file '__model-routing__' was not found").
+    if (fileId === '__model-routing__') {
+      set({ activeConfigFileId: fileId, configDirty: false });
+      return;
+    }
     set({ configLoading: true });
     try {
       const file = await api.getConfigFile(fileId, get().activeSpaceId);

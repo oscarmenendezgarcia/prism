@@ -33,7 +33,7 @@ describe('resolveStageModelConfig', () => {
 
   it('uses fallback model when agentSpec has no model', () => {
     const result = resolveStageModelConfig(agentId, null, null, null, null);
-    assert.equal(result.model,        'claude-sonnet-4-5');
+    assert.equal(result.model,        'claude-sonnet-4-6');
     assert.equal(result.resolvedFrom, 'frontmatter');
   });
 
