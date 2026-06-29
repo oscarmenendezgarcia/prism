@@ -395,26 +395,58 @@ function cmdEscape(s) {
 }
 
 /**
- * Build the Unix sh command that runs the CLI, captures its exit code, and
- * writes the done-sentinel. An EXIT trap guarantees the sentinel is written
- * even if the wrapper is terminated mid-shutdown (see spawn notes below).
+ * Wrap a CLI invocation line in the Unix sh done-sentinel scaffold. An EXIT trap
+ * guarantees the sentinel is written even if the wrapper is terminated mid-shutdown
+ * (see spawn notes below). `cliLine` is the full tool invocation including its
+ * stdin/stdout redirects.
+ *
+ * @param {string} cliLine
+ * @param {string} doneFile
+ * @returns {string}
+ */
+function wrapUnixSentinel(cliLine, doneFile) {
+  return [
+    `_DONE=${shellEscape(doneFile)}`,
+    '_EXIT=1',
+    "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
+    cliLine,
+    '_EXIT=$?',
+  ].join('; ');
+}
+
+/**
+ * Wrap a CLI invocation line in the Windows cmd.exe done-sentinel scaffold (no trap
+ * available; the sentinel is written before exit). `cliLine` is the full tool
+ * invocation including its redirects.
+ *
+ * @param {string} cliLine
+ * @param {string} doneFile
+ * @returns {string}
+ */
+function wrapWindowsSentinel(cliLine, doneFile) {
+  return [
+    cliLine,
+    'set _EXIT=!ERRORLEVEL!',
+    `if not exist ${cmdEscape(doneFile)} echo !_EXIT! > ${cmdEscape(doneFile)}`,
+    'exit /B 0',
+  ].join(' & ');
+}
+
+/**
+ * Build the Unix sh command that runs the claude CLI, captures its exit code, and
+ * writes the done-sentinel.
  *
  * @param {{ binary: string, finalArgs: string[], promptPath: string, logPath: string, doneFile: string }} opts
  * @returns {string}
  */
 function buildUnixShellCommand({ binary, finalArgs, promptPath, logPath, doneFile }) {
   const escapedArgs = finalArgs.map(shellEscape).join(' ');
-  return [
-    `_DONE=${shellEscape(doneFile)}`,
-    '_EXIT=1',
-    "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
-    `${binary} ${escapedArgs} < ${shellEscape(promptPath)} >> ${shellEscape(logPath)} 2>&1`,
-    '_EXIT=$?',
-  ].join('; ');
+  const cliLine = `${binary} ${escapedArgs} < ${shellEscape(promptPath)} >> ${shellEscape(logPath)} 2>&1`;
+  return wrapUnixSentinel(cliLine, doneFile);
 }
 
 /**
- * Build the Windows cmd.exe command that runs the CLI, captures its exit code,
+ * Build the Windows cmd.exe command that runs the claude CLI, captures its exit code,
  * and writes the done-sentinel before exit.
  *
  * @param {{ binary: string, finalArgs: string[], promptPath: string, logPath: string, doneFile: string }} opts
@@ -422,12 +454,8 @@ function buildUnixShellCommand({ binary, finalArgs, promptPath, logPath, doneFil
  */
 function buildWindowsShellCommand({ binary, finalArgs, promptPath, logPath, doneFile }) {
   const escapedArgs = finalArgs.map(cmdEscape).join(' ');
-  return [
-    `${cmdEscape(binary)} ${escapedArgs} < ${cmdEscape(promptPath)} >> ${cmdEscape(logPath)} 2>&1`,
-    'set _EXIT=!ERRORLEVEL!',
-    `if not exist ${cmdEscape(doneFile)} echo !_EXIT! > ${cmdEscape(doneFile)}`,
-    'exit /B 0',
-  ].join(' & ');
+  const cliLine = `${cmdEscape(binary)} ${escapedArgs} < ${cmdEscape(promptPath)} >> ${cmdEscape(logPath)} 2>&1`;
+  return wrapWindowsSentinel(cliLine, doneFile);
 }
 
 // ---------------------------------------------------------------------------
@@ -473,13 +501,8 @@ function buildOpencodePromptFile(agentSpec, taskPromptPath, runDirPath, stageInd
  * @returns {string}
  */
 function buildOpencodeUnixShellCommand({ binary, model, mergedPromptPath, logPath, doneFile }) {
-  return [
-    `_DONE=${shellEscape(doneFile)}`,
-    '_EXIT=1',
-    "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
-    `${shellEscape(binary)} run --model ${shellEscape(model)} --dangerously-skip-permissions --format default --file ${shellEscape(mergedPromptPath)} 'Proceed.' >> ${shellEscape(logPath)} 2>&1`,
-    '_EXIT=$?',
-  ].join('; ');
+  const cliLine = `${shellEscape(binary)} run --model ${shellEscape(model)} --dangerously-skip-permissions --format default --file ${shellEscape(mergedPromptPath)} 'Proceed.' >> ${shellEscape(logPath)} 2>&1`;
+  return wrapUnixSentinel(cliLine, doneFile);
 }
 
 /**
@@ -490,12 +513,8 @@ function buildOpencodeUnixShellCommand({ binary, model, mergedPromptPath, logPat
  * @returns {string}
  */
 function buildOpencodeWindowsShellCommand({ binary, model, mergedPromptPath, logPath, doneFile }) {
-  return [
-    `${cmdEscape(binary)} run --model ${cmdEscape(model)} --dangerously-skip-permissions --format default --file ${cmdEscape(mergedPromptPath)} "Proceed." >> ${cmdEscape(logPath)} 2>&1`,
-    'set _EXIT=!ERRORLEVEL!',
-    `if not exist ${cmdEscape(doneFile)} echo !_EXIT! > ${cmdEscape(doneFile)}`,
-    'exit /B 0',
-  ].join(' & ');
+  const cliLine = `${cmdEscape(binary)} run --model ${cmdEscape(model)} --dangerously-skip-permissions --format default --file ${cmdEscape(mergedPromptPath)} "Proceed." >> ${cmdEscape(logPath)} 2>&1`;
+  return wrapWindowsSentinel(cliLine, doneFile);
 }
 
 // ---------------------------------------------------------------------------
@@ -1592,31 +1611,29 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   const stageStartedAt = Date.now();
 
-  // MODEL-2: Resolve settings/space/task overrides early so cliTool is available
-  // before the PIPELINE_NO_SPAWN guard. This ensures stageStatuses[i].cliTool is
-  // always recorded in run.json even in test mode.
+  // MODEL-1/2: read settings/space/task overrides. Cheap and agentSpec-independent,
+  // so resolve them before the PIPELINE_NO_SPAWN guard; the full resolution (with the
+  // real agentSpec) happens exactly once after resolveAgent below.
   const settings    = readSettings(dataDir);
   const spaceModels = _store ? (_store.getSpace(run.spaceId)?.stageModels ?? null) : null;
   const taskModels  = _store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null;
-  // Null agentSpec here — frontmatter model will use the default. Full resolution with
-  // actual agentSpec happens after resolveAgent below (for non-test mode).
-  const earlyConfig = resolveStageModelConfig(agentId, null, settings, spaceModels, taskModels);
-  run.stageStatuses[stageIndex].cliTool      = earlyConfig.cliTool;
-  run.stageStatuses[stageIndex].provider     = earlyConfig.provider;
-  run.stageStatuses[stageIndex].resolvedFrom = earlyConfig.resolvedFrom;
-  writeRun(dataDir, run);
-
-  // MODEL-2: Write merged prompt file for opencode stages before PIPELINE_NO_SPAWN
-  // so it exists as a diagnostic artifact even in test mode (agentSpec is null here;
-  // the file will contain only the task prompt — no system prompt yet).
-  let mergedPromptPath = earlyConfig.cliTool === 'opencode'
-    ? buildOpencodePromptFile(null, promptFilePath, runDir(dataDir, run.runId), stageIndex)
-    : null;
+  let mergedPromptPath = null;
 
   // Test hook: when PIPELINE_NO_SPAWN=1, skip agent resolution and real spawning.
   // This allows unit/integration tests to exercise block/unblock flows without
   // needing real agent files on disk or launching actual claude processes.
   if (process.env.PIPELINE_NO_SPAWN === '1') {
+    // No agentSpec in test mode: resolve with the frontmatter default (null agentSpec)
+    // purely to record cliTool/provider in run.json and emit the opencode diagnostic
+    // prompt file the real path would write — both are asserted by the opencode tests.
+    const earlyConfig = resolveStageModelConfig(agentId, null, settings, spaceModels, taskModels);
+    run.stageStatuses[stageIndex].cliTool      = earlyConfig.cliTool;
+    run.stageStatuses[stageIndex].provider     = earlyConfig.provider;
+    run.stageStatuses[stageIndex].resolvedFrom = earlyConfig.resolvedFrom;
+    writeRun(dataDir, run);
+    if (earlyConfig.cliTool === 'opencode') {
+      buildOpencodePromptFile(null, promptFilePath, runDir(dataDir, run.runId), stageIndex);
+    }
     fs.writeFileSync(doneFile, '0', 'utf8');
     // null PID: no real process — deleteRun/abortAll will skip the kill() call
     // and avoid accidentally sending SIGTERM to the current process (e.g. test runner).
@@ -1699,9 +1716,8 @@ async function spawnStage(dataDir, run, stageIndex) {
     }
   }
 
-  // MODEL-2: if opencode stage, rewrite the merged prompt file with the actual
-  // agentSpec.systemPrompt now that we have it. Overwrites the task-prompt-only
-  // version written before PIPELINE_NO_SPAWN guard (which is never reached here).
+  // MODEL-2: for opencode stages, write the merged prompt file with the actual
+  // agentSpec.systemPrompt + task prompt (the real spawn path runs once here).
   if (modelConfig.cliTool === 'opencode') {
     mergedPromptPath = buildOpencodePromptFile(agentSpec, promptFilePath, runDir(dataDir, run.runId), stageIndex);
   }
