@@ -93,9 +93,37 @@ function validateStageModelConfig(config) {
   return { valid: errors.length === 0, errors };
 }
 
+/**
+ * Validate a full stageModels map (the value stored on settings/space/task).
+ * Accepts `null` (clear) or a plain object of agentId → StageModelConfig, where
+ * a `null` entry clears that agent's override.
+ *
+ * Returns a single result the caller maps to its own error shape:
+ *   { valid: true }
+ *   { valid: false, error, agentId? }   // agentId set when a specific entry failed
+ *
+ * @param {unknown} sm
+ * @returns {{ valid: boolean, error?: string, agentId?: string }}
+ */
+function validateStageModelsMap(sm) {
+  if (sm === null) return { valid: true };
+  if (typeof sm !== 'object' || Array.isArray(sm)) {
+    return { valid: false, error: 'stageModels must be a plain object or null.' };
+  }
+  for (const [agentId, config] of Object.entries(sm)) {
+    if (config === null) continue; // null = clear that agent's override
+    const { valid, errors } = validateStageModelConfig(config);
+    if (!valid) {
+      return { valid: false, agentId, error: `Invalid stageModels for '${agentId}': ${errors[0]}` };
+    }
+  }
+  return { valid: true };
+}
+
 module.exports = {
   resolveStageModelConfig,
   validateStageModelConfig,
+  validateStageModelsMap,
   VALID_PROVIDERS,
   VALID_CLI_TOOLS,
 };

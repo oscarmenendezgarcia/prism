@@ -18,7 +18,7 @@
 const crypto = require('crypto');
 const { createStore } = require('./store');
 const { validateFolioBackend } = require('./folioValidation');
-const { validateStageModelConfig } = require('./modelConfigResolver');
+const { validateStageModelsMap } = require('./modelConfigResolver');
 
 const SPACE_NAME_MAX      = 100;
 const NICKNAME_VALUE_MAX  = 50;
@@ -232,21 +232,11 @@ function createSpaceManager(storeOrDataDir) {
     // MODEL-1: validate and resolve stageModels if provided.
     let resolvedStageModels;
     if (stageModels !== undefined) {
-      if (stageModels === null) {
-        // null = clear all space-level overrides.
-        resolvedStageModels = null;
-      } else if (typeof stageModels !== 'object' || Array.isArray(stageModels)) {
-        return { ok: false, code: 'VALIDATION_ERROR', message: 'stageModels must be an object or null.' };
-      } else {
-        for (const [agentId, config] of Object.entries(stageModels)) {
-          if (config === null) continue; // null = clear that agent's override
-          const { valid, errors } = validateStageModelConfig(config);
-          if (!valid) {
-            return { ok: false, code: 'VALIDATION_ERROR', message: `Invalid stageModels for '${agentId}': ${errors[0]}` };
-          }
-        }
-        resolvedStageModels = stageModels;
+      const { valid, error } = validateStageModelsMap(stageModels);
+      if (!valid) {
+        return { ok: false, code: 'VALIDATION_ERROR', message: error };
       }
+      resolvedStageModels = stageModels; // null clears all; object sets per-agent
     }
 
     // Validate folioBackend if provided.

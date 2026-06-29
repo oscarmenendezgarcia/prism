@@ -13,7 +13,7 @@ const path = require('path');
 
 const { COLUMNS }                          = require('../constants');
 const { sendJSON, sendError, parseBody }   = require('../utils/http');
-const { validateStageModelConfig }         = require('../services/modelConfigResolver');
+const { validateStageModelsMap }           = require('../services/modelConfigResolver');
 
 // ---------------------------------------------------------------------------
 // Validation constraints
@@ -557,22 +557,13 @@ function createApp(spaceId, store) {
 
       // MODEL-1: per-stage model routing overrides.
       if ('stageModels' in body) {
-        if (body.stageModels === null) {
-          patch.stageModels = null; // clear all task-level overrides
-        } else if (typeof body.stageModels === 'object' && !Array.isArray(body.stageModels)) {
-          for (const [agentId, config] of Object.entries(body.stageModels)) {
-            if (config === null) continue; // null = clear that agent's override
-            const { valid, errors } = validateStageModelConfig(config);
-            if (!valid) {
-              return sendError(res, 400, 'VALIDATION_ERROR',
-                `Invalid stageModels for '${agentId}': ${errors[0]}`,
-                { field: `stageModels.${agentId}` });
-            }
-          }
-          patch.stageModels = body.stageModels;
-        } else {
-          return sendError(res, 400, 'VALIDATION_ERROR', 'stageModels must be an object or null', { field: 'stageModels' });
+        const { valid, error, agentId } = validateStageModelsMap(body.stageModels);
+        if (!valid) {
+          return sendError(res, 400, 'VALIDATION_ERROR', error, {
+            field: agentId ? `stageModels.${agentId}` : 'stageModels',
+          });
         }
+        patch.stageModels = body.stageModels; // null clears all; object sets per-agent
       }
 
       const updatedTask = store.updateTask(spaceId, taskId, patch);

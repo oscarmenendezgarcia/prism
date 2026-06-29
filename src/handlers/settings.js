@@ -14,7 +14,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
-const { validateStageModelConfig }       = require('../services/modelConfigResolver');
+const { validateStageModelsMap }         = require('../services/modelConfigResolver');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -206,22 +206,11 @@ async function handlePutSettings(req, res, dataDir) {
 
   // Validate pipeline.stageModels entries if present.
   if (body.pipeline && body.pipeline.stageModels !== undefined) {
-    const sm = body.pipeline.stageModels;
-    if (sm !== null && (typeof sm !== 'object' || Array.isArray(sm))) {
-      return sendError(res, 400, 'VALIDATION_ERROR', 'pipeline.stageModels must be a plain object or null.', {
-        field: 'pipeline.stageModels',
+    const { valid, error, agentId } = validateStageModelsMap(body.pipeline.stageModels);
+    if (!valid) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error, {
+        field: agentId ? `pipeline.stageModels.${agentId}` : 'pipeline.stageModels',
       });
-    }
-    if (sm && typeof sm === 'object') {
-      for (const [agentId, config] of Object.entries(sm)) {
-        if (config === null) continue; // null = remove override
-        const { valid, errors } = validateStageModelConfig(config);
-        if (!valid) {
-          return sendError(res, 400, 'VALIDATION_ERROR',
-            `Invalid stageModels for '${agentId}': ${errors[0]}`,
-            { field: `pipeline.stageModels.${agentId}` });
-        }
-      }
     }
   }
 
