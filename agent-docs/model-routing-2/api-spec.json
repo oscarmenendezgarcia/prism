@@ -1,0 +1,792 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Prism — Model Routing API (MODEL-2: opencode CLI Adapter)",
+    "version": "2.0.0",
+    "description": "MODEL-2 extends MODEL-1 (api-spec.json in agent-docs/model-routing/) with opencode CLI support. Changes: VALID_CLI_TOOLS now includes 'opencode'; provider validation is open-ended for opencode stages; a new model format constraint (provider/model) applies when cliTool=opencode; new structured log events surface in run artifacts. All MODEL-1 endpoints are unchanged — only schema constraints and examples are updated here."
+  },
+  "servers": [
+    { "url": "http://localhost:3000/api/v1", "description": "Local development" }
+  ],
+  "tags": [
+    { "name": "Settings", "description": "Global pipeline settings including stageModels" },
+    { "name": "Spaces", "description": "Space-level stageModels overrides" },
+    { "name": "Tasks", "description": "Task-level stageModels overrides (highest priority)" },
+    { "name": "Runs", "description": "Pipeline run status and stage logs" }
+  ],
+  "paths": {
+    "/settings": {
+      "get": {
+        "operationId": "getSettings",
+        "summary": "Get global settings (stageModels — now supports opencode)",
+        "tags": ["Settings"],
+        "responses": {
+          "200": {
+            "description": "Current settings",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Settings" },
+                "examples": {
+                  "mixedRouting": {
+                    "summary": "senior-architect on claude, developer-agent on opencode/GB10",
+                    "value": {
+                      "pipeline": {
+                        "stageModels": {
+                          "senior-architect": {
+                            "provider": "claude",
+                            "model": "claude-opus-4-5",
+                            "cliTool": "claude"
+                          },
+                          "developer-agent": {
+                            "provider": "vllm-local",
+                            "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+                            "cliTool": "opencode"
+                          },
+                          "qa-engineer-e2e": {
+                            "provider": "vllm-local",
+                            "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+                            "cliTool": "opencode"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "putSettings",
+        "summary": "Update global settings — MODEL-2: now accepts cliTool=opencode",
+        "tags": ["Settings"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SettingsUpdate" },
+              "examples": {
+                "routeDeveloperToOpencode": {
+                  "summary": "Route developer-agent to opencode/GB10, keep architect on claude",
+                  "value": {
+                    "pipeline": {
+                      "stageModels": {
+                        "senior-architect": {
+                          "provider": "claude",
+                          "model": "claude-opus-4-5",
+                          "cliTool": "claude"
+                        },
+                        "developer-agent": {
+                          "provider": "vllm-local",
+                          "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+                          "cliTool": "opencode"
+                        }
+                      }
+                    }
+                  }
+                },
+                "opencodeWithOrnith": {
+                  "summary": "Use ornith model on opencode",
+                  "value": {
+                    "pipeline": {
+                      "stageModels": {
+                        "developer-agent": {
+                          "provider": "ornith",
+                          "model": "ornith/ornith-35b",
+                          "cliTool": "opencode"
+                        }
+                      }
+                    }
+                  }
+                },
+                "clearStageModel": {
+                  "summary": "Remove opencode override for developer-agent (revert to default)",
+                  "value": {
+                    "pipeline": {
+                      "stageModels": {
+                        "developer-agent": null
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated settings",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Settings" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "examples": {
+                  "opencodeModelMissingSlash": {
+                    "summary": "opencode model missing provider/model separator",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "opencode model must be in <provider>/<model> format for stage 'developer-agent'.",
+                        "suggestion": "Use the format provider/model (e.g. vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4).",
+                        "field": "pipeline.stageModels.developer-agent.model"
+                      }
+                    }
+                  },
+                  "invalidCliTool": {
+                    "summary": "Unknown cliTool value",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Invalid cliTool 'figma' for stage 'developer-agent'.",
+                        "suggestion": "Valid CLI tools are: claude, opencode, custom.",
+                        "field": "pipeline.stageModels.developer-agent.cliTool"
+                      }
+                    }
+                  },
+                  "claudeProviderWhitelist": {
+                    "summary": "claude cliTool with non-claude provider still rejected",
+                    "value": {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Invalid provider 'gemini' for stage 'senior-architect'.",
+                        "suggestion": "When cliTool is 'claude', valid providers are: claude.",
+                        "field": "pipeline.stageModels.senior-architect.provider"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/spaces/{spaceId}": {
+      "put": {
+        "operationId": "updateSpace",
+        "summary": "Update a space — stageModels now accepts cliTool=opencode",
+        "tags": ["Spaces"],
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SpaceUpdate" },
+              "examples": {
+                "spaceOpencode": {
+                  "summary": "All non-architect stages in this space use opencode",
+                  "value": {
+                    "stageModels": {
+                      "developer-agent": {
+                        "provider": "vllm-local",
+                        "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+                        "cliTool": "opencode"
+                      },
+                      "qa-engineer-e2e": {
+                        "provider": "vllm-local",
+                        "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+                        "cliTool": "opencode"
+                      },
+                      "ux-api-designer": {
+                        "provider": "vllm-local",
+                        "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+                        "cliTool": "opencode"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated space",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Space" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error — invalid stageModels entry",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/spaces/{spaceId}/tasks/{taskId}": {
+      "put": {
+        "operationId": "updateTask",
+        "summary": "Update a task — stageModels task-level override now accepts cliTool=opencode",
+        "tags": ["Tasks"],
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" },
+          { "$ref": "#/components/parameters/taskId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TaskUpdate" },
+              "examples": {
+                "taskOpencodeOverride": {
+                  "summary": "Override one task to use opencode for developer-agent",
+                  "value": {
+                    "stageModels": {
+                      "developer-agent": {
+                        "provider": "vllm-local",
+                        "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+                        "cliTool": "opencode"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated task",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Task" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/runs/{runId}": {
+      "get": {
+        "operationId": "getRun",
+        "summary": "Get a pipeline run — stageStatuses show cliTool=opencode for opencode stages",
+        "tags": ["Runs"],
+        "parameters": [
+          { "$ref": "#/components/parameters/runId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run object with model info per stage",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Run" },
+                "examples": {
+                  "mixedRun": {
+                    "summary": "Run with architect on claude, developer on opencode",
+                    "value": {
+                      "runId": "a8b38f23-6c53-4577-b2df-3d0c2132bb08",
+                      "status": "completed",
+                      "stageStatuses": [
+                        {
+                          "index": 0,
+                          "agentId": "senior-architect",
+                          "status": "completed",
+                          "exitCode": 0,
+                          "startedAt": "2026-06-26T17:39:52.000Z",
+                          "finishedAt": "2026-06-26T17:48:47.000Z",
+                          "pid": 12345,
+                          "provider": "claude",
+                          "model": "claude-opus-4-5",
+                          "cliTool": "claude",
+                          "resolvedFrom": "settings",
+                          "failureReason": null
+                        },
+                        {
+                          "index": 1,
+                          "agentId": "developer-agent",
+                          "status": "completed",
+                          "exitCode": 0,
+                          "startedAt": "2026-06-26T17:50:00.000Z",
+                          "finishedAt": "2026-06-26T18:10:00.000Z",
+                          "pid": 12346,
+                          "provider": "vllm-local",
+                          "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+                          "cliTool": "opencode",
+                          "resolvedFrom": "settings",
+                          "failureReason": null
+                        }
+                      ]
+                    }
+                  },
+                  "binaryMissingRun": {
+                    "summary": "Run where opencode binary was not found",
+                    "value": {
+                      "runId": "b1c4f201-1234-5678-abcd-ef0123456789",
+                      "status": "failed",
+                      "stageStatuses": [
+                        {
+                          "index": 0,
+                          "agentId": "developer-agent",
+                          "status": "failed",
+                          "exitCode": -1,
+                          "startedAt": "2026-06-26T18:00:00.000Z",
+                          "finishedAt": "2026-06-26T18:00:01.000Z",
+                          "pid": null,
+                          "provider": "vllm-local",
+                          "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+                          "cliTool": "opencode",
+                          "resolvedFrom": "settings",
+                          "failureReason": "binary_missing"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "spaceId": {
+        "name": "spaceId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Space UUID"
+      },
+      "taskId": {
+        "name": "taskId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Task UUID"
+      },
+      "runId": {
+        "name": "runId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "Pipeline run UUID"
+      }
+    },
+    "schemas": {
+      "StageModelConfig": {
+        "type": "object",
+        "description": "MODEL-2 update: cliTool now accepts 'opencode'. When cliTool is 'opencode', provider is an open-ended string (user-defined in opencode.jsonc), and model MUST use provider/model format (e.g. 'vllm-local/nvidia/Qwen3.6-35B'). When cliTool is 'claude', provider must still be 'claude'.",
+        "required": ["provider", "model", "cliTool"],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "AI provider. For cliTool='claude': must be 'claude'. For cliTool='opencode': any non-empty string matching a key in opencode.jsonc (e.g. 'vllm-local', 'ornith', 'litellm-gb10'). Validation is open-ended for opencode providers — Prism does not maintain a fixed list.",
+            "examples": ["claude", "vllm-local", "ornith", "litellm-gb10"]
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Model identifier. For cliTool='claude': any valid Anthropic model string. For cliTool='opencode': MUST contain '/' (provider/model format) — e.g. 'vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4'. Validated at save time.",
+            "examples": [
+              "claude-opus-4-5",
+              "claude-sonnet-4-5",
+              "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+              "ornith/ornith-35b"
+            ]
+          },
+          "cliTool": {
+            "type": "string",
+            "enum": ["claude", "opencode", "custom"],
+            "description": "CLI binary to use for this stage. 'claude': use claude CLI (MODEL-1, unchanged). 'opencode': use ~/.opencode/bin/opencode with --dangerously-skip-permissions --format default --file <merged-prompt> (MODEL-2). 'custom': reserved for MODEL-3."
+          }
+        },
+        "examples": [
+          {
+            "summary": "claude (default)",
+            "value": {
+              "provider": "claude",
+              "model": "claude-opus-4-5",
+              "cliTool": "claude"
+            }
+          },
+          {
+            "summary": "opencode/GB10 — Qwen3.6",
+            "value": {
+              "provider": "vllm-local",
+              "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+              "cliTool": "opencode"
+            }
+          },
+          {
+            "summary": "opencode/GB10 — ornith",
+            "value": {
+              "provider": "ornith",
+              "model": "ornith/ornith-35b",
+              "cliTool": "opencode"
+            }
+          }
+        ]
+      },
+      "StageModelsMap": {
+        "type": "object",
+        "description": "Map from agentId to StageModelConfig. Keys are agent IDs. Null value for a key removes that override (inherits from lower-priority layer). Inheritance order: frontmatter < settings < space < task.",
+        "additionalProperties": {
+          "oneOf": [
+            { "$ref": "#/components/schemas/StageModelConfig" },
+            { "type": "null" }
+          ]
+        },
+        "example": {
+          "senior-architect": {
+            "provider": "claude",
+            "model": "claude-opus-4-5",
+            "cliTool": "claude"
+          },
+          "developer-agent": {
+            "provider": "vllm-local",
+            "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+            "cliTool": "opencode"
+          },
+          "qa-engineer-e2e": {
+            "provider": "vllm-local",
+            "model": "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4",
+            "cliTool": "opencode"
+          }
+        }
+      },
+      "StageStatus": {
+        "type": "object",
+        "description": "MODEL-2 update: adds 'failureReason' field to surface binary_missing error for opencode stages.",
+        "properties": {
+          "index": { "type": "integer", "description": "Stage index (0-based)" },
+          "agentId": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "completed", "failed", "cancelled"]
+          },
+          "exitCode": {
+            "type": ["integer", "null"],
+            "description": "-1 when stage failed before spawning (e.g. binary_missing). Null when not started."
+          },
+          "startedAt": { "type": ["string", "null"], "format": "date-time" },
+          "finishedAt": { "type": ["string", "null"], "format": "date-time" },
+          "pid": { "type": ["integer", "null"] },
+          "provider": {
+            "type": ["string", "null"],
+            "description": "Effective provider for this stage. For opencode stages: the opencode provider key (e.g. 'vllm-local').",
+            "examples": ["claude", "vllm-local", "ornith"]
+          },
+          "model": {
+            "type": ["string", "null"],
+            "description": "Effective model for this stage.",
+            "examples": ["claude-opus-4-5", "vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4"]
+          },
+          "cliTool": {
+            "type": ["string", "null"],
+            "description": "CLI binary used for this stage. MODEL-2: now includes 'opencode'.",
+            "enum": ["claude", "opencode", "custom", null]
+          },
+          "resolvedFrom": {
+            "type": ["string", "null"],
+            "enum": ["task", "space", "settings", "frontmatter", null],
+            "description": "Inheritance layer that provided the effective config."
+          },
+          "failureReason": {
+            "type": ["string", "null"],
+            "enum": ["binary_missing", null],
+            "description": "MODEL-2 new field. Set to 'binary_missing' when resolveCliBinary() failed to find the opencode (or custom) binary. Null for normal runs and claude-only runs.",
+            "example": "binary_missing"
+          }
+        }
+      },
+      "RunArtifacts": {
+        "type": "object",
+        "description": "MODEL-2: opencode stages produce additional diagnostic artifacts in the run directory.",
+        "properties": {
+          "stageLog": {
+            "type": "string",
+            "description": "Path to stage stdout+stderr log. Same for both claude and opencode stages.",
+            "example": "data/runs/{runId}/stage-1.log"
+          },
+          "stageDone": {
+            "type": "string",
+            "description": "Exit sentinel file. Written by EXIT trap on process exit.",
+            "example": "data/runs/{runId}/stage-1.done"
+          },
+          "stageMeta": {
+            "type": "string",
+            "description": "Stage metadata JSON (cliTool, model, etc.).",
+            "example": "data/runs/{runId}/stage-1.meta.json"
+          },
+          "ocPrompt": {
+            "type": "string",
+            "description": "MODEL-2 new: merged agent system prompt + task prompt, written before spawning opencode. Only present for opencode stages. Useful for debugging what the model received.",
+            "example": "data/runs/{runId}/stage-1-oc-prompt.md"
+          }
+        }
+      },
+      "PipelineLogEvent": {
+        "type": "object",
+        "description": "Structured log events emitted by pipelineManager. MODEL-2 adds three new event types.",
+        "properties": {
+          "event": {
+            "type": "string",
+            "description": "Event type identifier",
+            "enum": [
+              "stage.binary_missing",
+              "stage.binary_resolved",
+              "stage.opencode_prompt_written",
+              "stage.started",
+              "stage.completed",
+              "stage.failed"
+            ]
+          },
+          "runId": { "type": "string" },
+          "stageIndex": { "type": "integer" },
+          "agentId": { "type": "string" },
+          "cliTool": {
+            "type": "string",
+            "description": "Present on binary_missing, binary_resolved events."
+          },
+          "binary": {
+            "type": "string",
+            "description": "Resolved binary path. Present on binary_resolved event only.",
+            "example": "/Users/oscar/.opencode/bin/opencode"
+          },
+          "mergedPromptPath": {
+            "type": "string",
+            "description": "Absolute path of the written merged prompt file. Present on opencode_prompt_written event only.",
+            "example": "/path/to/data/runs/a8b38f23/stage-1-oc-prompt.md"
+          },
+          "bytes": {
+            "type": "integer",
+            "description": "Size of the merged prompt file in bytes. Present on opencode_prompt_written event only.",
+            "example": 8192
+          }
+        },
+        "examples": [
+          {
+            "summary": "stage.binary_missing — opencode not installed",
+            "value": {
+              "event": "stage.binary_missing",
+              "runId": "b1c4f201-1234-5678-abcd-ef01",
+              "stageIndex": 0,
+              "agentId": "developer-agent",
+              "cliTool": "opencode"
+            }
+          },
+          {
+            "summary": "stage.binary_resolved — opencode found",
+            "value": {
+              "event": "stage.binary_resolved",
+              "runId": "a8b38f23-6c53-4577-b2df-3d0c",
+              "stageIndex": 1,
+              "agentId": "developer-agent",
+              "cliTool": "opencode",
+              "binary": "/Users/oscar/.opencode/bin/opencode"
+            }
+          },
+          {
+            "summary": "stage.opencode_prompt_written — merged prompt file created",
+            "value": {
+              "event": "stage.opencode_prompt_written",
+              "runId": "a8b38f23-6c53-4577-b2df-3d0c",
+              "stageIndex": 1,
+              "agentId": "developer-agent",
+              "mergedPromptPath": "/Users/oscar/prism/data/runs/a8b38f23/stage-1-oc-prompt.md",
+              "bytes": 9420
+            }
+          }
+        ]
+      },
+      "Settings": {
+        "type": "object",
+        "properties": {
+          "pipeline": {
+            "type": "object",
+            "properties": {
+              "stageModels": { "$ref": "#/components/schemas/StageModelsMap" }
+            }
+          }
+        }
+      },
+      "SettingsUpdate": {
+        "type": "object",
+        "description": "Partial settings update. stageModels entries are merged key-by-key.",
+        "properties": {
+          "pipeline": {
+            "type": "object",
+            "properties": {
+              "stageModels": { "$ref": "#/components/schemas/StageModelsMap" }
+            }
+          }
+        }
+      },
+      "Space": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "pipeline": { "type": ["array", "null"], "items": { "type": "string" } },
+          "stageModels": {
+            "oneOf": [{ "$ref": "#/components/schemas/StageModelsMap" }, { "type": "null" }]
+          }
+        }
+      },
+      "SpaceUpdate": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "pipeline": { "type": ["array", "null"], "items": { "type": "string" } },
+          "stageModels": {
+            "oneOf": [{ "$ref": "#/components/schemas/StageModelsMap" }, { "type": "null" }]
+          }
+        }
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "type": { "type": "string" },
+          "pipeline": { "type": ["array", "null"], "items": { "type": "string" } },
+          "stageModels": {
+            "oneOf": [{ "$ref": "#/components/schemas/StageModelsMap" }, { "type": "null" }]
+          }
+        }
+      },
+      "TaskUpdate": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "stageModels": {
+            "oneOf": [{ "$ref": "#/components/schemas/StageModelsMap" }, { "type": "null" }]
+          }
+        }
+      },
+      "Run": {
+        "type": "object",
+        "properties": {
+          "runId": { "type": "string" },
+          "taskId": { "type": "string" },
+          "spaceId": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "completed", "failed", "cancelled"]
+          },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "stageStatuses": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/StageStatus" }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": ["VALIDATION_ERROR", "NOT_FOUND", "CONFLICT", "INTERNAL_ERROR"],
+                "description": "Machine-readable error code"
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable error description stating what went wrong"
+              },
+              "suggestion": {
+                "type": "string",
+                "description": "How to fix the error. Always present for VALIDATION_ERROR."
+              },
+              "field": {
+                "type": "string",
+                "description": "Dot-notation path to the invalid field. Present for field-level validation errors."
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": {
+                "code": "NOT_FOUND",
+                "message": "Run 'b1c4f201' not found.",
+                "suggestion": "Check the runId and try again."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-model2-changes": {
+    "summary": "Changes from MODEL-1 api-spec.json",
+    "changes": [
+      {
+        "component": "StageModelConfig.cliTool",
+        "type": "widened",
+        "from": "enum ['claude'] (runtime) / enum ['claude','opencode','custom'] (spec)",
+        "to": "enum ['claude','opencode','custom'] — 'opencode' now fully wired end-to-end"
+      },
+      {
+        "component": "StageModelConfig.provider",
+        "type": "widened",
+        "from": "whitelist ['claude'] for all cliTools",
+        "to": "whitelist ['claude'] when cliTool='claude'; open-ended string when cliTool='opencode'"
+      },
+      {
+        "component": "StageModelConfig — opencode model format",
+        "type": "new validation rule",
+        "description": "When cliTool='opencode' and model is provided, model must contain '/' (provider/model format). Returns VALIDATION_ERROR with suggestion."
+      },
+      {
+        "component": "StageStatus.failureReason",
+        "type": "new field",
+        "description": "Set to 'binary_missing' when resolveCliBinary() cannot find the opencode binary. Null otherwise."
+      },
+      {
+        "component": "PipelineLogEvent",
+        "type": "new schema + new events",
+        "newEvents": [
+          "stage.binary_missing — cliTool binary not found; stage fails with exitCode -1",
+          "stage.binary_resolved — binary found; includes resolved path",
+          "stage.opencode_prompt_written — merged prompt file created; includes path and byte count"
+        ]
+      },
+      {
+        "component": "RunArtifacts.ocPrompt",
+        "type": "new artifact",
+        "description": "stage-N-oc-prompt.md written to run directory before spawning opencode. Contains agent system prompt + task prompt separated by '---'."
+      }
+    ]
+  }
+}

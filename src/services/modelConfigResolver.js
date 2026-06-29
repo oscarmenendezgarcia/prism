@@ -8,12 +8,12 @@
  *   frontmatter (agent .md file) → settings (global) → space → task
  */
 
-// MODEL-1: only the claude provider/CLI is wired end-to-end. Accepting other
-// providers (openai, ollama) or CLI tools (opencode, custom) would let a user
-// configure a run that silently spawns claude anyway. Reject them at validation
-// until MODEL-2 implements per-tool binary resolution, then widen these lists.
+// MODEL-1: claude is the only wired CLI tool. MODEL-2 adds 'opencode'.
+// VALID_PROVIDERS is a whitelist for the 'claude' cliTool only.
+// For 'opencode', the provider string is open-ended (defined in opencode.jsonc)
+// and validated only for non-emptiness.
 const VALID_PROVIDERS = ['claude'];
-const VALID_CLI_TOOLS = ['claude'];
+const VALID_CLI_TOOLS = ['claude', 'opencode', 'custom'];
 
 /**
  * Resolve effective model config for a stage.
@@ -74,9 +74,24 @@ function validateStageModelConfig(config) {
   }
   const errors = [];
 
+  if ('cliTool' in config) {
+    if (!VALID_CLI_TOOLS.includes(config.cliTool)) {
+      errors.push(`Invalid cliTool '${config.cliTool}'. Valid CLI tools are: ${VALID_CLI_TOOLS.join(', ')}.`);
+    }
+  }
+
   if ('provider' in config) {
-    if (!VALID_PROVIDERS.includes(config.provider)) {
-      errors.push(`Invalid provider '${config.provider}'. Valid providers are: ${VALID_PROVIDERS.join(', ')}.`);
+    if (config.cliTool === 'opencode' || config.cliTool === 'custom') {
+      // opencode / custom: providers are user-defined — accept any non-empty string.
+      // 'custom' is a reserved placeholder; spawning is not yet implemented.
+      if (typeof config.provider !== 'string' || config.provider.trim().length === 0) {
+        errors.push('provider must be a non-empty string.');
+      }
+    } else {
+      // claude (or unspecified cliTool): strict whitelist.
+      if (!VALID_PROVIDERS.includes(config.provider)) {
+        errors.push(`Invalid provider '${config.provider}'. Valid providers are: ${VALID_PROVIDERS.join(', ')}.`);
+      }
     }
   }
   if ('model' in config) {
@@ -84,9 +99,11 @@ function validateStageModelConfig(config) {
       errors.push('model must be a non-empty string.');
     }
   }
-  if ('cliTool' in config) {
-    if (!VALID_CLI_TOOLS.includes(config.cliTool)) {
-      errors.push(`Invalid cliTool '${config.cliTool}'. Valid CLI tools are: ${VALID_CLI_TOOLS.join(', ')}.`);
+
+  // MODEL-2: opencode model must be in <provider>/<model> format.
+  if (config.cliTool === 'opencode' && 'model' in config) {
+    if (typeof config.model === 'string' && !config.model.includes('/')) {
+      errors.push('opencode model must be in <provider>/<model> format (e.g. vllm-local/nvidia/model-name).');
     }
   }
 
