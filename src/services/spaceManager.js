@@ -229,14 +229,12 @@ function createSpaceManager(storeOrDataDir) {
       normalisedNicknames = nickResult.nicknames;
     }
 
-    // MODEL-1: validate and resolve stageModels if provided.
-    let resolvedStageModels;
+    // MODEL-1: validate stageModels if provided (null clears all; object sets per-agent).
     if (stageModels !== undefined) {
       const { valid, error } = validateStageModelsMap(stageModels);
       if (!valid) {
         return { ok: false, code: 'VALIDATION_ERROR', message: error };
       }
-      resolvedStageModels = stageModels; // null clears all; object sets per-agent
     }
 
     // Validate folioBackend if provided.
@@ -306,8 +304,8 @@ function createSpaceManager(storeOrDataDir) {
         ? { folioBackend: resolvedFolioBackend !== 'sqlite' ? resolvedFolioBackend : undefined }
         : {}),
       // MODEL-1: only update stageModels when explicitly provided.
-      ...(resolvedStageModels !== undefined
-        ? { stageModels: resolvedStageModels }
+      ...(stageModels !== undefined
+        ? { stageModels }
         : {}),
       // pin/rank fields — only update when explicitly provided.
       ...(pinned !== undefined ? { pinned } : {}),

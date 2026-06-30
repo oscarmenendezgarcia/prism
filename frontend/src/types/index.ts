@@ -10,7 +10,7 @@ export type Column = 'todo' | 'in-progress' | 'done';
 // MODEL-1: per-stage model routing types
 // ---------------------------------------------------------------------------
 
-export type ModelProvider = 'claude' | 'openai' | 'ollama' | 'custom';
+export type ModelProvider = 'claude' | 'custom';
 export type ModelCliTool  = 'claude' | 'opencode' | 'custom';
 
 /** Per-stage model routing config stored in stageModels maps. */

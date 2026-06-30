@@ -15,7 +15,6 @@ const NICKNAME_MAX      = 50;
 const TITLE_ID          = 'space-modal-title';
 
 const DEFAULT_STAGES = ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e'];
-const STAGE_OPTIONS  = DEFAULT_STAGES;
 
 const NICKNAME_PLACEHOLDERS = ['e.g. The Architect', 'e.g. The Designer', 'e.g. The Builder', 'e.g. The Reviewer', 'e.g. The Tester'];
 
@@ -203,7 +202,7 @@ export function SpaceModal() {
                     setPipeline(next);
                   }}
                 >
-                  {STAGE_OPTIONS.map((s) => (
+                  {DEFAULT_STAGES.map((s) => (
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
@@ -217,13 +216,13 @@ export function SpaceModal() {
                 </button>
               </div>
             ))}
-            {pipeline.length < STAGE_OPTIONS.length && (
+            {pipeline.length < DEFAULT_STAGES.length && (
               <button
                 type="button"
                 className="text-sm text-primary hover:text-primary/80 text-left transition-colors"
                 onClick={() => {
                   const used = new Set(pipeline);
-                  const next = STAGE_OPTIONS.find((s) => !used.has(s));
+                  const next = DEFAULT_STAGES.find((s) => !used.has(s));
                   if (next) setPipeline([...pipeline, next]);
                 }}
               >

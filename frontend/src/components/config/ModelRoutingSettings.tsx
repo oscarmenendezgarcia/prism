@@ -11,8 +11,6 @@ import { Button } from '@/components/shared/Button';
 import type { StageModelConfig, StageModelsMap } from '@/types';
 
 const CLAUDE_PRESETS = ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5'];
-const DEFAULT_PROVIDER = 'claude' as const;
-const DEFAULT_CLI_TOOL = 'claude' as const;
 
 /** Agent color dots — match existing RunIndicator / StageTabBar color tokens. */
 const AGENT_COLORS: Record<string, string> = {
@@ -53,7 +51,7 @@ export function ModelRoutingSettings() {
     } else {
       setLocalStageModels((prev) => ({
         ...prev,
-        [agentId]: { provider: DEFAULT_PROVIDER, model: trimmed, cliTool: DEFAULT_CLI_TOOL } satisfies StageModelConfig,
+        [agentId]: { provider: 'claude', model: trimmed, cliTool: 'claude' } satisfies StageModelConfig,
       }));
     }
     setDirty(true);
