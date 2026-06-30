@@ -266,9 +266,9 @@ describe('AgentRoutingCard — CLI tool selector', () => {
     expect(screen.getByText('opencode')).toBeDefined();
   });
 
-  it('shows an example opencode model (not the inherited Claude model) when none is set', () => {
+  it('shows a "provider/model" hint (not the inherited Claude model) when none is set', () => {
     renderCard({ open: false, cliTool: 'opencode', localModel: '', effectiveModel: 'claude-opus-4-8' });
-    expect(screen.getByText('vllm-local/qwen2.5-coder')).toBeDefined();
+    expect(screen.getByText('provider/model')).toBeDefined();
     expect(screen.queryByText('claude-opus-4-8')).toBeNull();
   });
 

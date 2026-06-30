@@ -21,8 +21,7 @@ import type { ModelCliTool }     from '@/types';
 import type { AgentMetadataEntry } from '@/hooks/useAgentMetadata';
 
 const CLAUDE_PRESETS = ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'] as const;
-const OPENCODE_EXAMPLE = 'vllm-local/qwen2.5-coder';
-const OPENCODE_PLACEHOLDER = `provider/model  e.g. ${OPENCODE_EXAMPLE}`;
+const OPENCODE_HINT = 'provider/model';
 
 /** Dot color class per agent ID. */
 const AGENT_DOT: Record<string, string> = {
@@ -151,7 +150,7 @@ export function AgentRoutingCard({
             ].join(' ')}
             title={needsOpencodeModel ? 'No opencode model set yet — example shown' : undefined}
           >
-            {needsOpencodeModel ? OPENCODE_EXAMPLE : (displayModel || '—')}
+            {needsOpencodeModel ? OPENCODE_HINT : (displayModel || '—')}
           </span>
         )}
 
@@ -209,7 +208,7 @@ export function AgentRoutingCard({
                     ? 'No opencode model set yet — example shown; set it in the field below'
                     : 'Current model — change it with the presets or the input below'}
                 >
-                  {needsOpencodeModel ? OPENCODE_EXAMPLE : (displayModel || <span className="text-text-secondary">—</span>)}
+                  {needsOpencodeModel ? OPENCODE_HINT : (displayModel || <span className="text-text-secondary">—</span>)}
                 </span>
                 {hasOverride && (
                   <button
@@ -262,7 +261,7 @@ export function AgentRoutingCard({
                 aria-invalid={opencodeInvalid}
                 placeholder={
                   isOpencode
-                    ? OPENCODE_PLACEHOLDER
+                    ? OPENCODE_HINT
                     : (isPreset ? 'Custom model string…' : (displayModel || 'Custom model string…'))
                 }
                 value={isOpencode ? (localModel || '') : (!isPreset ? (localModel || '') : '')}
