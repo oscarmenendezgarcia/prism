@@ -21,6 +21,20 @@ export const STAGE_DISPLAY: Record<string, string> = {
   'code-reviewer':    'Code Reviewer',
 };
 
+/**
+ * Role subtitles for the Proposal D "Agents & Routing" view.
+ * One line, English, concise — distinct from STAGE_DISPLAY (full names).
+ * These appear as the secondary line inside each AgentRoutingCard.
+ */
+export const STAGE_ROLES: Record<string, string> = {
+  'senior-architect': 'Architecture · ADR + blueprint',
+  'ux-api-designer':  'UX + API spec',
+  'developer-agent':  'Implementation',
+  'code-reviewer':    'Code review',
+  'qa-engineer-e2e':  'QA E2E',
+  'orchestrator':     'Pipeline orchestration',
+};
+
 /** Short labels (≤ 8 chars) for well-known agent IDs. */
 export const STAGE_LABELS: Record<string, string> = {
   'senior-architect': 'Architect',
