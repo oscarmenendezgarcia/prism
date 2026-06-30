@@ -46,6 +46,32 @@ export const STAGE_LABELS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Agent dot colour — deterministic per agent ID (mirrors arcColor in utils/arcs)
+// ---------------------------------------------------------------------------
+
+/**
+ * Solid dot colours for the agent indicator. Full Tailwind class strings (not
+ * interpolated) so the JIT keeps them. Error red is excluded to avoid clashing
+ * with the bug/error semantic colour.
+ */
+const AGENT_DOT_COLORS: string[] = [
+  'bg-violet-500', 'bg-sky-500',   'bg-emerald-500', 'bg-amber-500',
+  'bg-pink-500',   'bg-blue-500',  'bg-teal-500',    'bg-fuchsia-500',
+  'bg-rose-400',   'bg-cyan-500',  'bg-lime-500',    'bg-indigo-500',
+];
+
+/**
+ * Deterministic dot colour for an agent — same agent ID always gets the same
+ * colour, unique-ish across agents (same djb2 hash as {@link arcColor}). No
+ * hardcoded per-agent map: add or rename an agent and it just gets a colour.
+ */
+export function agentDotColor(agentId: string): string {
+  let hash = 0;
+  for (let i = 0; i < agentId.length; i++) hash = agentId.charCodeAt(i) + ((hash << 5) - hash);
+  return AGENT_DOT_COLORS[Math.abs(hash) % AGENT_DOT_COLORS.length];
+}
+
+// ---------------------------------------------------------------------------
 // AgentInfo — minimal interface matching what useAvailableAgents() returns
 // ---------------------------------------------------------------------------
 

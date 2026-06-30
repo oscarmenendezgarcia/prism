@@ -15,6 +15,7 @@ import { ModelInheritanceBadge } from './ModelInheritanceBadge';
 import { EffortSegmented }       from './EffortSegmented';
 import { SkillsReadOnly }        from './SkillsReadOnly';
 import { CliToolSelector }       from './CliToolSelector';
+import { agentDotColor }         from '@/utils/agentName';
 import { isValidOpencodeModel }  from '@/utils/modelRouting';
 import type { ModelSource }      from '@/utils/modelRouting';
 import type { Scope }            from './ScopeSelector';
@@ -23,15 +24,6 @@ import type { AgentMetadataEntry } from '@/hooks/useAgentMetadata';
 
 const CLAUDE_PRESETS = ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'] as const;
 const OPENCODE_HINT = 'provider/model';
-
-/** Dot color class per agent ID. */
-const AGENT_DOT: Record<string, string> = {
-  'senior-architect': 'bg-agent-architect',
-  'ux-api-designer':  'bg-agent-ux',
-  'developer-agent':  'bg-agent-dev',
-  'code-reviewer':    'bg-agent-reviewer',
-  'qa-engineer-e2e':  'bg-agent-qa',
-};
 
 interface AgentRoutingCardProps {
   agentId:      string;
@@ -81,7 +73,7 @@ export function AgentRoutingCard({
   onChangeCliTool,
 }: AgentRoutingCardProps) {
   const detailId  = useId();
-  const dotClass  = AGENT_DOT[agentId] ?? 'bg-primary';
+  const dotClass  = agentDotColor(agentId);
 
   /** Model shown in the mini-pill and in the preset/input area. */
   const displayModel = localModel || effectiveModel;
