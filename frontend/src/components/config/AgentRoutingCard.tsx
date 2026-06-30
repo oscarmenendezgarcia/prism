@@ -188,27 +188,26 @@ export function AgentRoutingCard({
                   agentLabel={displayName}
                 />
               </div>
-              {/* Badge + current model pill */}
+              {/* Badge + current model (read-only display of the effective value) */}
               <div className="flex items-center gap-2 flex-wrap">
                 <ModelInheritanceBadge source={source} />
-                <span className={[
-                  'font-mono text-[11.5px] px-2.5 py-1 rounded-lg border',
-                  'flex items-center gap-1.5',
-                  isOverridden
-                    ? 'text-primary border-primary bg-primary-container'
-                    : 'text-text-primary border-border bg-surface',
-                ].join(' ')}>
+                <span
+                  className={[
+                    'font-mono text-[11.5px] px-2.5 py-1 rounded-lg border',
+                    isOverridden
+                      ? 'text-primary border-primary bg-primary-container'
+                      : 'text-text-primary border-border bg-surface',
+                  ].join(' ')}
+                  title="Current model — change it with the presets or the input below"
+                >
                   {displayModel || <span className="text-text-secondary">—</span>}
-                  <span className="material-symbols-outlined text-[15px] text-text-secondary leading-none" aria-hidden="true">
-                    expand_more
-                  </span>
                 </span>
                 {hasOverride && (
                   <button
                     type="button"
                     onClick={() => onClear(agentId)}
                     aria-label={`Clear model override for ${displayName}`}
-                    className="text-text-secondary hover:text-error text-[12px] transition-colors duration-fast"
+                    className="text-text-secondary hover:text-error text-[12px] transition-colors duration-fast ml-auto"
                   >
                     Clear
                   </button>
@@ -233,7 +232,7 @@ export function AgentRoutingCard({
                         aria-checked={selected}
                         onClick={() => onChange(agentId, preset)}
                         className={[
-                          'px-2.5 py-1 text-[11px] font-mono rounded-full border',
+                          'px-2.5 py-1 text-[11.5px] font-mono rounded-lg border',
                           'transition-all duration-fast active:scale-[0.97]',
                           selected
                             ? 'bg-primary text-white border-primary'
