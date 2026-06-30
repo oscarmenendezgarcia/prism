@@ -566,14 +566,16 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         const agentNicknames   = body && body.agentNicknames;
         const folioBackend     = body && body.folioBackend;
         // pin/rank fields (optional; name is also optional for pin-only updates).
-        const pinned     = body && body.pinned     !== undefined ? body.pinned     : undefined;
-        const pinnedRank = body && body.pinnedRank !== undefined ? body.pinnedRank : undefined;
+        const pinned      = body && body.pinned      !== undefined ? body.pinned      : undefined;
+        const pinnedRank  = body && body.pinnedRank  !== undefined ? body.pinnedRank  : undefined;
+        // MODEL-1: per-stage model routing overrides.
+        const stageModels = body && body.stageModels !== undefined ? body.stageModels : undefined;
 
         // Capture the prior working dir so we can detect a fresh repo activation.
         const prevSpace = spaceManager.getSpace(spaceId);
         const prevWd    = prevSpace.ok ? prevSpace.space.workingDirectory : undefined;
 
-        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames, folioBackend, pinned, pinnedRank);
+        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames, folioBackend, pinned, pinnedRank, stageModels);
 
         if (!result.ok) {
           const status = result.code === 'SPACE_NOT_FOUND' ? 404

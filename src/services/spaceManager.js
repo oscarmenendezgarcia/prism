@@ -18,6 +18,7 @@
 const crypto = require('crypto');
 const { createStore } = require('./store');
 const { validateFolioBackend } = require('./folioValidation');
+const { validateStageModelsMap } = require('./modelConfigResolver');
 
 const SPACE_NAME_MAX      = 100;
 const NICKNAME_VALUE_MAX  = 50;
@@ -189,7 +190,7 @@ function createSpaceManager(storeOrDataDir) {
    * @param {boolean} [pinned]           - Pin/unpin the space.
    * @param {number|null} [pinnedRank]   - Rank within the pinned zone.
    */
-  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames, folioBackend, pinned, pinnedRank) {
+  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames, folioBackend, pinned, pinnedRank, stageModels) {
     const existing = store.getSpace(id);
     if (!existing) {
       return {
@@ -226,6 +227,14 @@ function createSpaceManager(storeOrDataDir) {
       const nickResult = normaliseNicknames(agentNicknames);
       if (!nickResult.ok) return nickResult;
       normalisedNicknames = nickResult.nicknames;
+    }
+
+    // MODEL-1: validate stageModels if provided (null clears all; object sets per-agent).
+    if (stageModels !== undefined) {
+      const { valid, error } = validateStageModelsMap(stageModels);
+      if (!valid) {
+        return { ok: false, code: 'VALIDATION_ERROR', message: error };
+      }
     }
 
     // Validate folioBackend if provided.
@@ -293,6 +302,10 @@ function createSpaceManager(storeOrDataDir) {
       // Only update folioBackend when it was explicitly provided.
       ...(resolvedFolioBackend !== undefined
         ? { folioBackend: resolvedFolioBackend !== 'sqlite' ? resolvedFolioBackend : undefined }
+        : {}),
+      // MODEL-1: only update stageModels when explicitly provided.
+      ...(stageModels !== undefined
+        ? { stageModels }
         : {}),
       // pin/rank fields — only update when explicitly provided.
       ...(pinned !== undefined ? { pinned } : {}),

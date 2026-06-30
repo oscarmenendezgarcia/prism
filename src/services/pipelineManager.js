@@ -38,6 +38,8 @@ const {
   buildCompileGateBlock,
   buildResolvedQuestionsBlock,
 } = require('../utils/promptBuilder');
+const { readSettings }              = require('../handlers/settings');
+const { resolveStageModelConfig }   = require('./modelConfigResolver');
 
 // Resolve the claude binary path once at startup so caffeinate (and sh) can
 // find it even when the server was launched from a shell with a different PATH.
@@ -352,6 +354,42 @@ function shellEscape(s) {
 // Windows cmd.exe path quoting: wrap in double quotes, escape embedded double quotes.
 function cmdEscape(s) {
   return '"' + String(s).replace(/"/g, '""') + '"';
+}
+
+/**
+ * Build the Unix sh command that runs the CLI, captures its exit code, and
+ * writes the done-sentinel. An EXIT trap guarantees the sentinel is written
+ * even if the wrapper is terminated mid-shutdown (see spawn notes below).
+ *
+ * @param {{ binary: string, finalArgs: string[], promptPath: string, logPath: string, doneFile: string }} opts
+ * @returns {string}
+ */
+function buildUnixShellCommand({ binary, finalArgs, promptPath, logPath, doneFile }) {
+  const escapedArgs = finalArgs.map(shellEscape).join(' ');
+  return [
+    `_DONE=${shellEscape(doneFile)}`,
+    '_EXIT=1',
+    "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
+    `${binary} ${escapedArgs} < ${shellEscape(promptPath)} >> ${shellEscape(logPath)} 2>&1`,
+    '_EXIT=$?',
+  ].join('; ');
+}
+
+/**
+ * Build the Windows cmd.exe command that runs the CLI, captures its exit code,
+ * and writes the done-sentinel before exit.
+ *
+ * @param {{ binary: string, finalArgs: string[], promptPath: string, logPath: string, doneFile: string }} opts
+ * @returns {string}
+ */
+function buildWindowsShellCommand({ binary, finalArgs, promptPath, logPath, doneFile }) {
+  const escapedArgs = finalArgs.map(cmdEscape).join(' ');
+  return [
+    `${cmdEscape(binary)} ${escapedArgs} < ${cmdEscape(promptPath)} >> ${cmdEscape(logPath)} 2>&1`,
+    'set _EXIT=!ERRORLEVEL!',
+    `if not exist ${cmdEscape(doneFile)} echo !_EXIT! > ${cmdEscape(doneFile)}`,
+    'exit /B 0',
+  ].join(' & ');
 }
 
 // ---------------------------------------------------------------------------
@@ -1389,6 +1427,9 @@ async function spawnStage(dataDir, run, stageIndex) {
     const source    = agentMode === 'subagent' ? 'claude-code' : 'plain';
     const metaPath  = path.join(runDir(dataDir, run.runId), `stage-${stageIndex}.meta.json`);
     try {
+      // NOTE: model/provider/cliTool are not yet resolved at this point (agentSpec not loaded),
+      // so we write a placeholder and update it after model resolution below.
+      // The meta.json is rewritten after model resolution with the actual values.
       fs.writeFileSync(metaPath, JSON.stringify({
         source,
         schemaVersion: 1,
@@ -1478,13 +1519,61 @@ async function spawnStage(dataDir, run, stageIndex) {
     throw err;
   }
 
+  // MODEL-1: Resolve model config for this stage (settings → space → task priority).
+  const settings    = readSettings(dataDir);
+  const spaceModels = _store ? (_store.getSpace(run.spaceId)?.stageModels ?? null) : null;
+  const taskModels  = _store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null;
+  const modelConfig = resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, taskModels);
+
   // Backend spawns always get --permission-mode bypassPermissions: there is no user
   // present to respond to permission prompts, so any interactive pause would
   // hang the stage until the stall watchdog kills it.
   const hasPermissionMode = agentSpec.spawnArgs.includes('--permission-mode');
-  const finalArgs = hasPermissionMode
+  const baseArgs = hasPermissionMode
     ? agentSpec.spawnArgs
     : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
+
+  // MODEL-1: inject --model override if the resolved model differs from agent default.
+  const agentDefaultModel = agentSpec.model || null;
+  const effectiveArgs = [...baseArgs];
+  if (modelConfig.model && modelConfig.model !== agentDefaultModel) {
+    effectiveArgs.push('--model', modelConfig.model);
+  }
+
+  // MODEL-1: record model info in stageStatuses at spawn time.
+  run.stageStatuses[stageIndex].model        = modelConfig.model;
+  run.stageStatuses[stageIndex].provider     = modelConfig.provider;
+  run.stageStatuses[stageIndex].cliTool      = modelConfig.cliTool;
+  run.stageStatuses[stageIndex].resolvedFrom = modelConfig.resolvedFrom;
+  writeRun(dataDir, run);
+
+  pipelineLog('stage.model_resolved', {
+    runId: run.runId, stageIndex, agentId,
+    model:        modelConfig.model,
+    provider:     modelConfig.provider,
+    cliTool:      modelConfig.cliTool,
+    resolvedFrom: modelConfig.resolvedFrom,
+  });
+
+  // MODEL-1: rewrite meta.json now that model config is resolved.
+  {
+    const agentMode = process.env.PIPELINE_AGENT_MODE || 'subagent';
+    const source    = agentMode === 'subagent' ? 'claude-code' : 'plain';
+    const metaPath  = path.join(runDir(dataDir, run.runId), `stage-${stageIndex}.meta.json`);
+    try {
+      fs.writeFileSync(metaPath, JSON.stringify({
+        source,
+        schemaVersion: 1,
+        agentId,
+        startedAt: run.stageStatuses[stageIndex].startedAt,
+        model:    modelConfig.model,
+        provider: modelConfig.provider,
+        cliTool:  modelConfig.cliTool,
+      }), 'utf8');
+    } catch (metaErr) {
+      console.warn(`[pipelineManager] WARN: could not rewrite meta.json (model) for stage ${stageIndex}:`, metaErr.message);
+    }
+  }
 
   // Build the shell command that runs claude, captures its exit code, and
   // writes the done-sentinel. Two platform variants:
@@ -1501,29 +1590,30 @@ async function spawnStage(dataDir, run, stageIndex) {
   //   The polling-loop detection (Bug 2) covers the hanging case.
   let child;
   if (process.platform === 'win32') {
-    const escapedArgs  = finalArgs.map(cmdEscape).join(' ');
     // /V:ON enables delayed variable expansion so !ERRORLEVEL! is evaluated
     // after claude exits, not at parse time (the %VAR% behaviour).
-    const windowsCmd = [
-      `${cmdEscape(CLAUDE_BIN)} ${escapedArgs} < ${cmdEscape(promptFilePath)} >> ${cmdEscape(logPath)} 2>&1`,
-      `set _EXIT=!ERRORLEVEL!`,
-      `if not exist ${cmdEscape(doneFile)} echo !_EXIT! > ${cmdEscape(doneFile)}`,
-      `exit /B 0`,
-    ].join(' & ');
+    // MODEL-2: resolve the binary per modelConfig.cliTool (opencode/custom) here.
+    // In MODEL-1, only claude is wired end-to-end, so CLAUDE_BIN is always used.
+    const windowsCmd = buildWindowsShellCommand({
+      binary:     CLAUDE_BIN,
+      finalArgs:  effectiveArgs,
+      promptPath: promptFilePath,
+      logPath,
+      doneFile,
+    });
     child = spawn('cmd.exe', ['/V:ON', '/C', windowsCmd], {
       stdio:    'ignore',
       detached: true,
       env:      { ...process.env },
     });
   } else {
-    const escapedArgs  = finalArgs.map(shellEscape).join(' ');
-    const unixCmd = [
-      `_DONE=${shellEscape(doneFile)}`,
-      '_EXIT=1',
-      "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
-      `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1`,
-      '_EXIT=$?',
-    ].join('; ');
+    const unixCmd = buildUnixShellCommand({
+      binary:     CLAUDE_BIN, // MODEL-2: resolve per modelConfig.cliTool here
+      finalArgs:  effectiveArgs,
+      promptPath: promptFilePath,
+      logPath,
+      doneFile,
+    });
     child = spawn('sh', ['-c', unixCmd], {
       stdio:    'ignore',
       detached: true,

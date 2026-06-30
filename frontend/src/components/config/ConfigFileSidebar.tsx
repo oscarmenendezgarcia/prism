@@ -55,6 +55,9 @@ function FileItem({
   );
 }
 
+/** Virtual ID for the Model Routing settings panel (not a real file). */
+export const MODEL_ROUTING_ID = '__model-routing__';
+
 export function ConfigFileSidebar({ onRequestSwitch }: ConfigFileSidebarProps) {
   const configFiles        = useAppStore((s) => s.configFiles);
   const activeConfigFileId = useAppStore((s) => s.activeConfigFileId);
@@ -90,19 +93,34 @@ export function ConfigFileSidebar({ onRequestSwitch }: ConfigFileSidebarProps) {
       aria-label="Config files"
       className="flex flex-col overflow-y-auto h-full"
     >
-      {globalFiles.length > 0 && (
-        <div>
-          <ScopeHeading label="Global" />
-          {globalFiles.map((file) => (
-            <FileItem
-              key={file.id}
-              file={file}
-              isActive={file.id === activeConfigFileId}
-              onClick={() => onRequestSwitch(file.id)}
-            />
-          ))}
-        </div>
-      )}
+      {/* Global section always shown — includes hardcoded Model Routing entry */}
+      <div>
+        <ScopeHeading label="Global" />
+
+        {/* MODEL-1: Model Routing virtual item */}
+        <button
+          onClick={() => onRequestSwitch(MODEL_ROUTING_ID)}
+          aria-current={activeConfigFileId === MODEL_ROUTING_ID ? 'page' : undefined}
+          title="Per-stage model routing"
+          className={`w-full text-left px-3 py-2 flex flex-col gap-0.5 transition-colors duration-100 ${
+            activeConfigFileId === MODEL_ROUTING_ID
+              ? 'bg-primary/[0.12] text-primary'
+              : 'text-text-primary hover:bg-surface-variant'
+          }`}
+        >
+          <span className="text-xs font-medium leading-tight truncate">Model Routing</span>
+          <span className="text-[10px] text-text-secondary leading-tight truncate">per-stage</span>
+        </button>
+
+        {globalFiles.map((file) => (
+          <FileItem
+            key={file.id}
+            file={file}
+            isActive={file.id === activeConfigFileId}
+            onClick={() => onRequestSwitch(file.id)}
+          />
+        ))}
+      </div>
 
       {agentFiles.length > 0 && (
         <div>

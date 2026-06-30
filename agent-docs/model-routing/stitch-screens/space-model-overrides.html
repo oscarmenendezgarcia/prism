@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Edit Space - Prism</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Geist&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-secondary-container": "#b4aeee",
+                        "error": "#ffb4ab",
+                        "on-primary-fixed": "#160066",
+                        "on-primary": "#2800a0",
+                        "inverse-on-surface": "#312f38",
+                        "on-secondary": "#2e295f",
+                        "surface-tint": "#c6bfff",
+                        "on-secondary-fixed": "#19124a",
+                        "tertiary-fixed-dim": "#ffb86e",
+                        "on-tertiary": "#492900",
+                        "surface-container-highest": "#35343d",
+                        "surface-container": "#201f27",
+                        "secondary": "#c6bfff",
+                        "surface-variant": "#35343d",
+                        "surface-bright": "#3a3841",
+                        "error-container": "#93000a",
+                        "outline": "#928ea0",
+                        "secondary-fixed": "#e4dfff",
+                        "surface-dim": "#13121b",
+                        "primary-fixed-dim": "#c6bfff",
+                        "on-tertiary-container": "#402300",
+                        "tertiary": "#ffb86e",
+                        "inverse-primary": "#5846d4",
+                        "secondary-container": "#454078",
+                        "primary": "#c6bfff",
+                        "on-surface-variant": "#c8c4d7",
+                        "surface-container-low": "#1c1b23",
+                        "on-background": "#e5e0ed",
+                        "tertiary-fixed": "#ffdcbd",
+                        "on-error-container": "#ffdad6",
+                        "inverse-surface": "#e5e0ed",
+                        "surface": "#13121b",
+                        "tertiary-container": "#ce7e17",
+                        "on-primary-fixed-variant": "#3f29bc",
+                        "background": "#13121b",
+                        "secondary-fixed-dim": "#c6bfff",
+                        "primary-container": "#8c80ff",
+                        "primary-fixed": "#e4dfff",
+                        "on-secondary-fixed-variant": "#454078",
+                        "on-primary-container": "#22008d",
+                        "surface-container-high": "#2a2932",
+                        "on-tertiary-fixed": "#2c1600",
+                        "on-surface": "#e5e0ed",
+                        "on-error": "#690005",
+                        "on-tertiary-fixed-variant": "#693c00",
+                        "outline-variant": "#474554",
+                        "surface-container-lowest": "#0e0d15",
+                        "prism-violet": "#7C6DFA"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem",
+                        "modal": "1rem"
+                    },
+                    "spacing": {
+                        "xs": "4px",
+                        "margin-mobile": "16px",
+                        "sm": "8px",
+                        "gutter": "16px",
+                        "xl": "32px",
+                        "md": "16px",
+                        "lg": "24px",
+                        "base": "4px",
+                        "margin-desktop": "32px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Inter", "sans-serif"],
+                        "body-lg": ["Inter", "sans-serif"],
+                        "body-md": ["Inter", "sans-serif"],
+                        "code-md": ["Geist", "monospace"],
+                        "label-md": ["Inter", "sans-serif"],
+                        "headline-lg": ["Inter", "sans-serif"],
+                        "headline-sm": ["Inter", "sans-serif"],
+                        "body-sm": ["Inter", "sans-serif"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "code-md": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-md": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "500" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+                        "body-sm": ["12px", { "lineHeight": "18px", "fontWeight": "400" }]
+                    },
+                    "boxShadow": {
+                        "modal": "0 24px 48px -12px rgba(0, 0, 0, 0.4)"
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #0e0d15;
+            background-image: radial-gradient(circle at 50% 0%, #1A1A24 0%, #0e0d15 100%);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+        }
+        .input-focus:focus-within {
+            outline: 1px solid #7C6DFA;
+            box-shadow: 0 0 0 2px rgba(124, 109, 250, 0.2);
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body class="text-on-surface antialiased h-screen w-screen flex items-center justify-center overflow-hidden">
+<!-- Backdrop -->
+<div class="fixed inset-0 bg-black/40 backdrop-blur-[8px] z-40"></div>
+<!-- Modal Container -->
+<div class="relative z-50 w-full max-w-[480px] bg-[#111118] rounded-modal shadow-modal flex flex-col max-h-[921px] border border-white/10 mx-md">
+<!-- Header -->
+<div class="flex items-center justify-between px-lg py-md border-b border-white/10 shrink-0">
+<h2 class="font-headline-sm text-headline-sm text-[rgba(245,245,250,0.96)]">Edit Space</h2>
+<button class="text-on-surface-variant hover:text-on-surface transition-colors p-sm rounded-lg hover:bg-surface-variant">
+<span class="material-symbols-outlined text-[20px]" data-icon="close">close</span>
+</button>
+</div>
+<!-- Body -->
+<div class="p-lg overflow-y-auto flex flex-col gap-lg">
+<!-- Space Name Input -->
+<div class="flex flex-col gap-sm">
+<label class="font-label-md text-label-md text-[rgba(245,245,250,0.60)]">Space Name</label>
+<div class="input-focus bg-[#1A1A24] border border-white/10 rounded-xl px-md py-[10px] transition-all">
+<input class="bg-transparent border-none p-0 w-full font-body-md text-body-md text-[rgba(245,245,250,0.96)] focus:ring-0 placeholder:text-on-surface-variant/50" type="text" value="Prism"/>
+</div>
+</div>
+<!-- Pipeline Section -->
+<div class="flex flex-col gap-md">
+<div class="flex flex-col gap-xs">
+<h3 class="font-label-md text-label-md text-[rgba(245,245,250,0.60)]">Pipeline</h3>
+<p class="font-body-sm text-body-sm text-[rgba(245,245,250,0.60)]">Default agent stages configured for this space.</p>
+</div>
+<div class="flex flex-wrap gap-sm">
+<div class="flex items-center gap-xs px-sm py-[4px] bg-[#1A1A24] border border-white/10 rounded-md">
+<div class="w-2 h-2 rounded-full bg-purple-400"></div>
+<span class="font-code-md text-code-md text-[rgba(245,245,250,0.96)]">senior-architect</span>
+</div>
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant self-center" data-icon="arrow_right_alt">arrow_right_alt</span>
+<div class="flex items-center gap-xs px-sm py-[4px] bg-[#1A1A24] border border-white/10 rounded-md">
+<div class="w-2 h-2 rounded-full bg-blue-400"></div>
+<span class="font-code-md text-code-md text-[rgba(245,245,250,0.96)]">developer-agent</span>
+</div>
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant self-center" data-icon="arrow_right_alt">arrow_right_alt</span>
+<div class="flex items-center gap-xs px-sm py-[4px] bg-[#1A1A24] border border-white/10 rounded-md">
+<div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+<span class="font-code-md text-code-md text-[rgba(245,245,250,0.96)]">qa-engineer-e2e</span>
+</div>
+</div>
+</div>
+<hr class="border-white/10"/>
+<!-- Model Overrides Section (Expanded) -->
+<div class="flex flex-col gap-md">
+<!-- Header -->
+<button class="flex items-center justify-between w-full group">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-[20px] text-on-surface-variant group-hover:text-on-surface transition-colors" data-icon="expand_more">expand_more</span>
+<h3 class="font-headline-sm text-body-lg text-[rgba(245,245,250,0.96)]">Model Overrides</h3>
+<span class="px-2 py-[2px] bg-prism-violet/20 text-prism-violet font-label-md text-[10px] rounded-full border border-prism-violet/30">2 overrides</span>
+</div>
+</button>
+<p class="font-body-sm text-body-sm text-[rgba(245,245,250,0.60)] pl-[28px]">Override global model settings for this space. Inherited values shown as placeholders.</p>
+<!-- Table -->
+<div class="flex flex-col border border-white/10 rounded-xl bg-[#1A1A24] overflow-hidden ml-[28px]">
+<!-- Row 1 (Override) -->
+<div class="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-sm p-sm border-b border-white/10 hover:bg-white/[0.04] transition-colors">
+<div class="flex items-center gap-xs min-w-0">
+<div class="w-2 h-2 rounded-full bg-purple-400 shrink-0"></div>
+<span class="font-code-md text-code-md text-[rgba(245,245,250,0.96)] truncate">senior-architect</span>
+</div>
+<span class="font-body-sm text-body-sm text-[rgba(245,245,250,0.60)]">claude</span>
+<span class="font-code-md text-code-md text-[rgba(245,245,250,0.96)] truncate text-right">claude-opus-4-5</span>
+<button class="text-on-surface-variant hover:text-error transition-colors p-xs rounded hover:bg-white/5">
+<span class="material-symbols-outlined text-[16px]" data-icon="close">close</span>
+</button>
+</div>
+<!-- Row 2 (Inherited) -->
+<div class="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-sm p-sm border-b border-white/10 hover:bg-white/[0.04] transition-colors group">
+<div class="flex items-center gap-xs min-w-0">
+<div class="w-2 h-2 rounded-full bg-blue-400 shrink-0"></div>
+<span class="font-code-md text-code-md text-[rgba(245,245,250,0.96)] truncate">developer-agent</span>
+</div>
+<span class="font-body-sm text-body-sm text-[rgba(245,245,250,0.60)]">claude</span>
+<span class="font-code-md text-code-md text-[rgba(245,245,250,0.60)] italic truncate text-right">sonnet-4-5 (global)</span>
+<div class="w-[24px]"></div> <!-- Spacer for alignment -->
+</div>
+<!-- Row 3 (Inherited) -->
+<div class="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-sm p-sm hover:bg-white/[0.04] transition-colors group">
+<div class="flex items-center gap-xs min-w-0">
+<div class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></div>
+<span class="font-code-md text-code-md text-[rgba(245,245,250,0.96)] truncate">qa-engineer-e2e</span>
+</div>
+<span class="font-body-sm text-body-sm text-[rgba(245,245,250,0.60)]">claude</span>
+<span class="font-code-md text-code-md text-[rgba(245,245,250,0.60)] italic truncate text-right">haiku-4-5 (global)</span>
+<div class="w-[24px]"></div> <!-- Spacer for alignment -->
+</div>
+</div>
+<div class="ml-[28px]">
+<button class="flex items-center gap-xs font-label-md text-label-md text-[rgba(245,245,250,0.60)] hover:text-prism-violet transition-colors py-xs">
+<span class="material-symbols-outlined text-[16px]" data-icon="add">add</span>
+                        Add override
+                    </button>
+</div>
+</div>
+</div>
+<!-- Footer -->
+<div class="flex items-center justify-end gap-md px-lg py-md border-t border-white/10 shrink-0 bg-[#111118] rounded-b-modal">
+<button class="font-label-md text-label-md text-[rgba(245,245,250,0.96)] px-md py-[8px] rounded-lg border border-transparent hover:border-white/10 hover:bg-white/5 transition-all">
+                Cancel
+            </button>
+<button class="font-label-md text-label-md text-white px-lg py-[8px] rounded-lg bg-prism-violet hover:bg-[#6858e6] transition-colors shadow-[0_0_12px_rgba(124,109,250,0.3)]">
+                Save
+            </button>
+</div>
+</div>
+</body></html>

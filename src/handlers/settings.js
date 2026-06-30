@@ -14,6 +14,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
+const { validateStageModelsMap }         = require('../services/modelConfigResolver');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -30,6 +31,7 @@ const DEFAULT_SETTINGS = {
     confirmBetweenStages: true,
     stages: ['senior-architect', 'ux-api-designer', 'developer-agent', 'qa-engineer-e2e'],
     agentsDir:            '',
+    stageModels:          {},
   },
   prompts: {
     includeKanbanBlock: true,
@@ -73,7 +75,24 @@ function deepMergeSettings(base, partial) {
       // Second-level merge: for each sub-key that both base and partial have as plain objects,
       // spread base's sub-object under the partial's override so non-updated fields are preserved.
       for (const subKey of Object.keys(partial[key])) {
-        if (
+        if (subKey === 'stageModels' && key === 'pipeline') {
+          // Third-level merge for stageModels: merge per-agentId entries.
+          // partial value null = clear the agent's entry; otherwise replace/add.
+          const baseMap    = (base[key] && base[key].stageModels && typeof base[key].stageModels === 'object')
+            ? { ...base[key].stageModels }
+            : {};
+          const partialMap = partial[key].stageModels;
+          if (partialMap && typeof partialMap === 'object' && !Array.isArray(partialMap)) {
+            for (const [agentId, config] of Object.entries(partialMap)) {
+              if (config === null) {
+                delete baseMap[agentId]; // null = remove override
+              } else {
+                baseMap[agentId] = config;
+              }
+            }
+          }
+          merged.stageModels = baseMap;
+        } else if (
           partial[key][subKey] !== null &&
           typeof partial[key][subKey] === 'object' &&
           !Array.isArray(partial[key][subKey]) &&
@@ -183,6 +202,16 @@ async function handlePutSettings(req, res, dataDir) {
       suggestion: "Use one of: 'cat-subshell', 'stdin-redirect', 'flag-file'.",
       field: 'cli.fileInputMethod',
     });
+  }
+
+  // Validate pipeline.stageModels entries if present.
+  if (body.pipeline && body.pipeline.stageModels !== undefined) {
+    const { valid, error, agentId } = validateStageModelsMap(body.pipeline.stageModels);
+    if (!valid) {
+      return sendError(res, 400, 'VALIDATION_ERROR', error, {
+        field: agentId ? `pipeline.stageModels.${agentId}` : 'pipeline.stageModels',
+      });
+    }
   }
 
   try {

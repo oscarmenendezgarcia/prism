@@ -13,6 +13,7 @@ const path = require('path');
 
 const { COLUMNS }                          = require('../constants');
 const { sendJSON, sendError, parseBody }   = require('../utils/http');
+const { validateStageModelsMap }           = require('../services/modelConfigResolver');
 
 // ---------------------------------------------------------------------------
 // Validation constraints
@@ -552,6 +553,17 @@ function createApp(spaceId, store) {
       if ('arc' in body) {
         const trimmed = body.arc.trim();
         patch.arc = trimmed.length > 0 ? trimmed : undefined;
+      }
+
+      // MODEL-1: per-stage model routing overrides.
+      if ('stageModels' in body) {
+        const { valid, error, agentId } = validateStageModelsMap(body.stageModels);
+        if (!valid) {
+          return sendError(res, 400, 'VALIDATION_ERROR', error, {
+            field: agentId ? `stageModels.${agentId}` : 'stageModels',
+          });
+        }
+        patch.stageModels = body.stageModels; // null clears all; object sets per-agent
       }
 
       const updatedTask = store.updateTask(spaceId, taskId, patch);

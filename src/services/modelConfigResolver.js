@@ -1,0 +1,129 @@
+'use strict';
+
+/**
+ * MODEL-1 — ModelConfigResolver
+ *
+ * Resolves the effective model/provider/cliTool for a given pipeline stage.
+ * Inheritance order (lowest → highest priority):
+ *   frontmatter (agent .md file) → settings (global) → space → task
+ */
+
+// MODEL-1: only the claude provider/CLI is wired end-to-end. Accepting other
+// providers (openai, ollama) or CLI tools (opencode, custom) would let a user
+// configure a run that silently spawns claude anyway. Reject them at validation
+// until MODEL-2 implements per-tool binary resolution, then widen these lists.
+const VALID_PROVIDERS = ['claude'];
+const VALID_CLI_TOOLS = ['claude'];
+
+/**
+ * Resolve effective model config for a stage.
+ *
+ * @param {string}      agentId     - Agent ID (e.g. 'senior-architect').
+ * @param {object|null} agentSpec   - Parsed agent spec from agentResolver (may have .model).
+ * @param {object|null} settings    - Global settings object (may have .pipeline.stageModels).
+ * @param {object|null} spaceModels - Space-level stageModels map (agentId → config).
+ * @param {object|null} taskModels  - Task-level stageModels map (agentId → config).
+ * @returns {{ provider: string, model: string, cliTool: string, resolvedFrom: string }}
+ */
+function resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, taskModels) {
+  const base = {
+    provider: 'claude',
+    model:    (agentSpec && agentSpec.model) ? agentSpec.model : 'claude-sonnet-4-6',
+    cliTool:  'claude',
+  };
+
+  let resolvedFrom = 'frontmatter';
+  let current = { ...base };
+
+  // Layer 1: global settings
+  const settingsModels = settings && settings.pipeline && settings.pipeline.stageModels;
+  if (settingsModels && settingsModels[agentId] && typeof settingsModels[agentId] === 'object') {
+    current = { ...current, ...settingsModels[agentId] };
+    resolvedFrom = 'settings';
+  }
+
+  // Layer 2: space overrides
+  if (spaceModels && spaceModels[agentId] && typeof spaceModels[agentId] === 'object') {
+    current = { ...current, ...spaceModels[agentId] };
+    resolvedFrom = 'space';
+  }
+
+  // Layer 3: task overrides (highest priority)
+  if (taskModels && taskModels[agentId] && typeof taskModels[agentId] === 'object') {
+    current = { ...current, ...taskModels[agentId] };
+    resolvedFrom = 'task';
+  }
+
+  return {
+    provider:     current.provider || 'claude',
+    model:        current.model    || base.model,
+    cliTool:      current.cliTool  || 'claude',
+    resolvedFrom,
+  };
+}
+
+/**
+ * Validate a StageModelConfig entry.
+ *
+ * @param {unknown} config
+ * @returns {{ valid: boolean, errors: string[] }}
+ */
+function validateStageModelConfig(config) {
+  if (!config || typeof config !== 'object') {
+    return { valid: false, errors: ['stageModels entry must be a non-null object'] };
+  }
+  const errors = [];
+
+  if ('provider' in config) {
+    if (!VALID_PROVIDERS.includes(config.provider)) {
+      errors.push(`Invalid provider '${config.provider}'. Valid providers are: ${VALID_PROVIDERS.join(', ')}.`);
+    }
+  }
+  if ('model' in config) {
+    if (typeof config.model !== 'string' || config.model.trim().length === 0) {
+      errors.push('model must be a non-empty string.');
+    }
+  }
+  if ('cliTool' in config) {
+    if (!VALID_CLI_TOOLS.includes(config.cliTool)) {
+      errors.push(`Invalid cliTool '${config.cliTool}'. Valid CLI tools are: ${VALID_CLI_TOOLS.join(', ')}.`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * Validate a full stageModels map (the value stored on settings/space/task).
+ * Accepts `null` (clear) or a plain object of agentId → StageModelConfig, where
+ * a `null` entry clears that agent's override.
+ *
+ * Returns a single result the caller maps to its own error shape:
+ *   { valid: true }
+ *   { valid: false, error, agentId? }   // agentId set when a specific entry failed
+ *
+ * @param {unknown} sm
+ * @returns {{ valid: boolean, error?: string, agentId?: string }}
+ */
+function validateStageModelsMap(sm) {
+  if (sm === null) return { valid: true };
+  if (typeof sm !== 'object' || Array.isArray(sm)) {
+    return { valid: false, error: 'stageModels must be a plain object or null.' };
+  }
+  for (const [agentId, config] of Object.entries(sm)) {
+    if (config === null) continue; // null = clear that agent's override
+    const { valid, errors } = validateStageModelConfig(config);
+    if (!valid) {
+      return { valid: false, agentId, error: `Invalid stageModels for '${agentId}': ${errors[0]}` };
+    }
+  }
+  return { valid: true };
+}
+
+module.exports = {
+  resolveStageModelConfig,
+  validateStageModelConfig,
+  validateStageModelsMap,
+  VALID_PROVIDERS,
+  VALID_CLI_TOOLS,
+};

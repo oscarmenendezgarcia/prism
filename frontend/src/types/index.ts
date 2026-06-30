@@ -6,6 +6,23 @@
 /** The three canonical Kanban columns. */
 export type Column = 'todo' | 'in-progress' | 'done';
 
+// ---------------------------------------------------------------------------
+// MODEL-1: per-stage model routing types
+// ---------------------------------------------------------------------------
+
+export type ModelProvider = 'claude' | 'custom';
+export type ModelCliTool  = 'claude' | 'opencode' | 'custom';
+
+/** Per-stage model routing config stored in stageModels maps. */
+export interface StageModelConfig {
+  provider: ModelProvider;
+  model:    string;
+  cliTool:  ModelCliTool;
+}
+
+/** Map of agentId → StageModelConfig (null = clear override for that agent). */
+export type StageModelsMap = Record<string, StageModelConfig | null>;
+
 /** A space (project board). */
 export interface Space {
   id: string;
@@ -19,6 +36,8 @@ export interface Space {
   pinned?: boolean;
   /** zero-based position within the pinned zone. Absent for non-pinned spaces. */
   pinnedRank?: number;
+  /** MODEL-1: per-stage model routing overrides for this space. */
+  stageModels?: StageModelsMap | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +100,8 @@ export interface Task {
   pipeline?: string[];
   /** Optional narrative grouping label (e.g. "QOL", "AUTH", "LOOP"). */
   arc?: string;
+  /** MODEL-1: per-stage model routing overrides for this task. */
+  stageModels?: StageModelsMap | null;
   attachments?: Attachment[];
   /** Thread of comments (notes, questions, answers). Aditively returned by GET task. */
   comments?: Comment[];
@@ -124,6 +145,8 @@ export interface UpdateTaskPayload {
   pipeline?: string[];
   /** Empty string deletes the arc field on the server. */
   arc?: string;
+  /** MODEL-1: per-stage model routing overrides. null = clear all. */
+  stageModels?: StageModelsMap | null;
 }
 
 /** Response from PUT /spaces/:spaceId/tasks/:id/move */
@@ -222,6 +245,11 @@ export interface BackendStageStatus {
   startedAt: string | null;
   finishedAt: string | null;
   exitCode: number | null;
+  /** MODEL-1: model used to run this stage (set at spawn time). */
+  model?: string | null;
+  provider?: string | null;
+  cliTool?: string | null;
+  resolvedFrom?: string | null;
 }
 
 /** Reason a pipeline run is blocked (waiting for a question to be resolved). */
@@ -434,6 +462,8 @@ export interface PipelineSettings {
   autoAdvance: boolean;
   confirmBetweenStages: boolean;
   stages: PipelineStage[];
+  /** MODEL-1: per-stage model routing overrides (global, lowest priority). */
+  stageModels?: Record<string, StageModelConfig>;
 }
 
 /** Prompt content configuration. */
