@@ -90,7 +90,7 @@ export function AgentRoutingCard({
   return (
     <article
       className={[
-        'border rounded-[11px] mx-4 my-2 overflow-hidden',
+        'border rounded-[11px] mx-4 my-2.5 overflow-hidden',
         'transition-colors duration-fast',
         open ? 'border-primary' : 'border-border',
       ].join(' ')}
@@ -103,7 +103,7 @@ export function AgentRoutingCard({
         aria-expanded={open}
         aria-controls={detailId}
         className={[
-          'w-full flex items-center gap-2.5 px-3.5 py-3 text-left',
+          'w-full flex items-center gap-2.5 px-4 py-3 text-left',
           'transition-colors duration-fast',
           open ? 'bg-surface-variant/30' : 'hover:bg-surface-variant',
         ].join(' ')}
@@ -171,12 +171,12 @@ export function AgentRoutingCard({
       {open && (
         <div
           id={detailId}
-          className="bg-surface px-3.5 pb-3.5 flex flex-col gap-0"
+          className="bg-surface px-4 pt-1 pb-5 flex flex-col gap-0"
         >
           {/* Model + Effort row */}
-          <div className="flex items-start gap-6 py-3 border-b border-border/50">
+          <div className="flex items-start gap-10 py-5 border-b border-border/50">
             {/* Model section */}
-            <div className="flex flex-col gap-2 min-w-0">
+            <div className="flex flex-col gap-3 min-w-0">
               <div className="flex items-center justify-between gap-3">
                 <label className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
                   Model
@@ -217,7 +217,7 @@ export function AgentRoutingCard({
               {/* Preset chips — Claude only (opencode models are open-ended) */}
               {!isOpencode && (
                 <div
-                  className="flex flex-wrap gap-1.5 mt-1"
+                  className="flex flex-wrap gap-2"
                   role="radiogroup"
                   aria-label={`Model presets for ${displayName}`}
                 >
@@ -282,7 +282,7 @@ export function AgentRoutingCard({
             </div>
 
             {/* Effort section */}
-            <div className="flex flex-col gap-2 shrink-0">
+            <div className="flex flex-col gap-3 shrink-0">
               <label className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
                 Effort
               </label>
@@ -291,8 +291,8 @@ export function AgentRoutingCard({
           </div>
 
           {/* Skills section */}
-          <div className="pt-3">
-            <label className="block text-[11px] font-semibold uppercase tracking-widest text-text-secondary mb-2">
+          <div className="pt-5">
+            <label className="block text-[11px] font-semibold uppercase tracking-widest text-text-secondary mb-3">
               Skills
             </label>
             <SkillsReadOnly skills={metadata.skills} loading={metadata.loading} />
