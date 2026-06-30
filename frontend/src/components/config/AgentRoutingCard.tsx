@@ -17,6 +17,7 @@ import { SkillsReadOnly }        from './SkillsReadOnly';
 import { CliToolSelector }       from './CliToolSelector';
 import { isValidOpencodeModel }  from '@/utils/modelRouting';
 import type { ModelSource }      from '@/utils/modelRouting';
+import type { Scope }            from './ScopeSelector';
 import type { ModelCliTool }     from '@/types';
 import type { AgentMetadataEntry } from '@/hooks/useAgentMetadata';
 
@@ -40,6 +41,8 @@ interface AgentRoutingCardProps {
   effectiveModel: string;
   /** Source of the effective model — drives the badge and mini-pill tint. */
   source: ModelSource;
+  /** The scope currently being edited — a row is "overridden here" when source === scope. */
+  scope: Scope;
   /** Local override model string for the current scope (empty string = no local edit). */
   localModel: string;
   /** Parsed frontmatter metadata. */
@@ -66,6 +69,7 @@ export function AgentRoutingCard({
   roleSubtitle,
   effectiveModel,
   source,
+  scope,
   localModel,
   metadata,
   open,
@@ -84,6 +88,8 @@ export function AgentRoutingCard({
   const isOpencode   = cliTool === 'opencode';
   const isPreset     = !isOpencode && CLAUDE_PRESETS.includes(displayModel as typeof CLAUDE_PRESETS[number]);
   const isOverridden = source !== 'default';
+  /** True when the model is overridden at the scope being edited (the actionable deviation). */
+  const isScopeOverride = source === scope;
   /** opencode requires a `provider/model` string — flag an invalid local edit. */
   const opencodeInvalid = isOpencode && !!displayModel && !isValidOpencodeModel(displayModel);
   /** opencode selected but no valid provider/model yet → show an example, not the inherited Claude model. */
@@ -137,14 +143,14 @@ export function AgentRoutingCard({
           </span>
         )}
 
-        {/* Mini model pill — tinted when source ≠ default; placeholder example when opencode lacks a model */}
+        {/* Mini model pill — tinted only when overridden at the current scope; placeholder when opencode lacks a model */}
         {!open && (
           <span
             className={[
               'font-mono text-[10.5px] px-2 py-0.5 rounded-md border whitespace-nowrap',
               needsOpencodeModel
                 ? 'text-text-secondary/50 border-border border-dashed bg-transparent'
-                : isOverridden
+                : isScopeOverride
                   ? 'text-primary border-primary bg-primary-container'
                   : 'text-text-secondary border-border bg-surface',
             ].join(' ')}
@@ -154,8 +160,8 @@ export function AgentRoutingCard({
           </span>
         )}
 
-        {/* Inheritance badge — visible in collapsed row so source is always at a glance */}
-        {!open && <ModelInheritanceBadge source={source} />}
+        {/* Source badge — only when overridden at the current scope (inherited/default stay unlabelled to cut noise) */}
+        {!open && isScopeOverride && <ModelInheritanceBadge source={source} />}
 
         {/* Skill count */}
         {!open && (

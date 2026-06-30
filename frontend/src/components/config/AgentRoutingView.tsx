@@ -311,6 +311,7 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
                 roleSubtitle={roleSubtitle}
                 effectiveModel={effective.model}
                 source={localModel ? scope as typeof effective.source : effective.source}
+                scope={scope}
                 localModel={localModel}
                 metadata={meta}
                 open={expandedId === agentId}

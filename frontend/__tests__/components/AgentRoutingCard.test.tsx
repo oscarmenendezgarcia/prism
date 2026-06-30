@@ -37,6 +37,7 @@ function renderCard(overrides: Partial<Parameters<typeof AgentRoutingCard>[0]> =
     roleSubtitle:   'UX + API spec',
     effectiveModel: 'claude-sonnet-4-5',
     source:         'default' as const,
+    scope:          'global' as const,
     localModel:     '',
     metadata:       DEFAULT_META,
     open:            false,
@@ -95,15 +96,20 @@ describe('AgentRoutingCard — collapsed state', () => {
     expect(toggleBtn.getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('renders ModelInheritanceBadge in collapsed row when source is overridden', () => {
-    renderCard({ open: false, source: 'space' });
-    // Badge text should appear in the collapsed header button
+  it('shows the source badge in the collapsed row only when overridden at the current scope', () => {
+    renderCard({ open: false, source: 'space', scope: 'space' });
     expect(screen.getByText('space')).toBeDefined();
   });
 
-  it('renders ModelInheritanceBadge with "default" source in collapsed row', () => {
-    renderCard({ open: false, source: 'default' });
-    expect(screen.getByText('default')).toBeDefined();
+  it('hides the source badge in the collapsed row when the model is inherited (source ≠ scope)', () => {
+    // e.g. editing the Space scope but the model comes from Global — no badge, no noise
+    renderCard({ open: false, source: 'global', scope: 'space' });
+    expect(screen.queryByText('global')).toBeNull();
+  });
+
+  it('hides the source badge in the collapsed row for default (frontmatter) models', () => {
+    renderCard({ open: false, source: 'default', scope: 'global' });
+    expect(screen.queryByText('default')).toBeNull();
   });
 });
 
