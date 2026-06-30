@@ -39,11 +39,13 @@ function renderCard(overrides: Partial<Parameters<typeof AgentRoutingCard>[0]> =
     source:         'default' as const,
     localModel:     '',
     metadata:       DEFAULT_META,
-    open:           false,
-    onToggle:       vi.fn(),
-    onChange:       vi.fn(),
-    onClear:        vi.fn(),
-    hasOverride:    false,
+    open:            false,
+    onToggle:        vi.fn(),
+    onChange:        vi.fn(),
+    onClear:         vi.fn(),
+    hasOverride:     false,
+    cliTool:         'claude' as const,
+    onChangeCliTool: vi.fn(),
   };
   return render(<AgentRoutingCard {...defaults} {...overrides} />);
 }
@@ -141,7 +143,8 @@ describe('AgentRoutingCard — expanded state', () => {
 
   it('renders preset chips', () => {
     renderCard({ open: true });
-    expect(screen.getByRole('radiogroup')).toBeDefined();
+    // Disambiguate from the CLI-tool radiogroup added alongside the presets.
+    expect(screen.getByRole('radiogroup', { name: /Model presets/i })).toBeDefined();
     expect(screen.getByText('opus-4-5')).toBeDefined();
     expect(screen.getByText('sonnet-4-5')).toBeDefined();
     expect(screen.getByText('haiku-4-5')).toBeDefined();
@@ -212,5 +215,54 @@ describe('AgentRoutingCard — accessibility', () => {
     const controlId = btn.getAttribute('aria-controls');
     expect(controlId).toBeTruthy();
     expect(document.getElementById(controlId!)).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CLI tool (opencode) — MODEL-2
+// ---------------------------------------------------------------------------
+
+describe('AgentRoutingCard — CLI tool selector', () => {
+  it('renders the CLI tool radiogroup in the expanded card', () => {
+    renderCard({ open: true });
+    expect(screen.getByRole('radiogroup', { name: /CLI tool/i })).toBeDefined();
+    expect(screen.getByRole('radio', { name: 'Claude' })).toBeDefined();
+    expect(screen.getByRole('radio', { name: 'opencode' })).toBeDefined();
+  });
+
+  it('calls onChangeCliTool when opencode is selected', () => {
+    const onChangeCliTool = vi.fn();
+    renderCard({ open: true, onChangeCliTool });
+    fireEvent.click(screen.getByRole('radio', { name: 'opencode' }));
+    expect(onChangeCliTool).toHaveBeenCalledWith('ux-api-designer', 'opencode');
+  });
+
+  it('hides Claude preset chips when cliTool is opencode', () => {
+    renderCard({ open: true, cliTool: 'opencode' });
+    expect(screen.queryByRole('radiogroup', { name: /Model presets/i })).toBeNull();
+  });
+
+  it('shows the provider/model placeholder for opencode', () => {
+    renderCard({ open: true, cliTool: 'opencode' });
+    const input = screen.getByLabelText(/opencode model for/i) as HTMLInputElement;
+    expect(input.placeholder).toMatch(/provider\/model/i);
+  });
+
+  it('flags an invalid opencode model (missing slash) as aria-invalid', () => {
+    renderCard({ open: true, cliTool: 'opencode', localModel: 'claude-sonnet-4-5' });
+    const input = screen.getByLabelText(/opencode model for/i);
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(screen.getByText(/must contain/i)).toBeDefined();
+  });
+
+  it('accepts a valid provider/model opencode string', () => {
+    renderCard({ open: true, cliTool: 'opencode', localModel: 'vllm-local/qwen2.5-coder' });
+    const input = screen.getByLabelText(/opencode model for/i);
+    expect(input.getAttribute('aria-invalid')).toBe('false');
+  });
+
+  it('shows an "oc" tag in the collapsed row for opencode agents', () => {
+    renderCard({ open: false, cliTool: 'opencode' });
+    expect(screen.getByText('oc')).toBeDefined();
   });
 });

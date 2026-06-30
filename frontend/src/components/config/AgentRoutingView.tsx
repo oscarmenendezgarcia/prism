@@ -22,22 +22,23 @@ import { ScopeSelector }       from './ScopeSelector';
 import type { Scope }          from './ScopeSelector';
 import { useAgentMetadata }    from '@/hooks/useAgentMetadata';
 import { resolveEffectiveModel }  from '@/utils/modelRouting';
-import { localModelsToStageModelsMap } from '@/utils/modelRouting';
+import { localRoutingToStageModelsMap, isValidOpencodeModel } from '@/utils/modelRouting';
+import type { RoutingEntry }    from '@/utils/modelRouting';
 import { STAGE_ROLES }         from '@/utils/agentName';
 import { STAGE_DISPLAY }       from '@/utils/agentName';
-import type { StageModelsMap } from '@/types';
+import type { StageModelsMap, ModelCliTool } from '@/types';
 
 interface AgentRoutingViewProps {
   /** Notify parent whether any local edits exist (for the discard guard). */
   onDirtyChange: (dirty: boolean) => void;
 }
 
-/** Convert a StageModelsMap (server) → local Record<agentId, model string>. */
-function stageModelsToLocal(map: StageModelsMap | null | undefined): Record<string, string> {
+/** Convert a StageModelsMap (server) → local Record<agentId, {model, cliTool}>. */
+function stageModelsToLocal(map: StageModelsMap | null | undefined): Record<string, RoutingEntry> {
   if (!map) return {};
-  const result: Record<string, string> = {};
+  const result: Record<string, RoutingEntry> = {};
   for (const [id, cfg] of Object.entries(map)) {
-    if (cfg?.model) result[id] = cfg.model;
+    if (cfg?.model) result[id] = { model: cfg.model, cliTool: cfg.cliTool ?? 'claude' };
   }
   return result;
 }
@@ -56,8 +57,8 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
 
   // ── Local edit state (one map per scope) ────────────────────────────────
   const [scope, setScope] = useState<Scope>('global');
-  const [localGlobal, setLocalGlobal] = useState<Record<string, string>>({});
-  const [localSpace,  setLocalSpace]  = useState<Record<string, string>>({});
+  const [localGlobal, setLocalGlobal] = useState<Record<string, RoutingEntry>>({});
+  const [localSpace,  setLocalSpace]  = useState<Record<string, RoutingEntry>>({});
   const [dirtyGlobal, setDirtyGlobal] = useState(false);
   const [dirtySpace,  setDirtySpace]  = useState(false);
   const [expandedId,  setExpandedId]  = useState<string | null>(null);
@@ -95,10 +96,31 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
   const handleChange = useCallback((agentId: string, model: string) => {
     setLocal((prev) => {
       const next = { ...prev };
+      const cliTool = prev[agentId]?.cliTool ?? 'claude';
       if (model.trim()) {
-        next[agentId] = model.trim();
-      } else {
+        next[agentId] = { model: model.trim(), cliTool };
+      } else if (cliTool === 'claude') {
+        // claude + empty model = clear the override entirely
         delete next[agentId];
+      } else {
+        // keep a non-claude CLI selection even with an empty model (mid-edit)
+        next[agentId] = { model: '', cliTool };
+      }
+      return next;
+    });
+    setDirty(true);
+  }, [setLocal, setDirty]);
+
+  const handleChangeCliTool = useCallback((agentId: string, cliTool: ModelCliTool) => {
+    setLocal((prev) => {
+      const next = { ...prev };
+      const prevModel = prev[agentId]?.model ?? '';
+      // Drop a Claude model when switching to opencode (it can't be a provider/model string).
+      const model = (cliTool === 'opencode' && !isValidOpencodeModel(prevModel)) ? '' : prevModel;
+      if (cliTool === 'claude' && !model) {
+        delete next[agentId];
+      } else {
+        next[agentId] = { model, cliTool };
       }
       return next;
     });
@@ -115,9 +137,18 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
   }, [setLocal, setDirty]);
 
   const handleSave = useCallback(async () => {
+    // Guard: opencode overrides must carry a provider/model string.
+    const badOpencode = Object.entries(localMap).find(
+      ([, e]) => e.cliTool === 'opencode' && e.model.trim() !== '' && !isValidOpencodeModel(e.model),
+    );
+    if (badOpencode) {
+      showToast(`opencode model for "${badOpencode[0]}" must be in provider/model format`, 'error');
+      return;
+    }
+
     setSaving(true);
     try {
-      const stageModels = localModelsToStageModelsMap(localMap);
+      const stageModels = localRoutingToStageModelsMap(localMap);
       if (scope === 'global') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await saveSettings({ pipeline: { stageModels } } as any);
@@ -263,8 +294,14 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
             const displayName  = STAGE_DISPLAY[agentId] ?? agentId;
             const roleSubtitle = STAGE_ROLES[agentId]   ?? '';
             const effective    = resolveEffectiveModel(agentId, scope, globalStageModels, spaceStageModels, meta.model);
-            const localModel   = localMap[agentId] ?? '';
-            const hasOverride  = !!localMap[agentId];
+            const localEntry   = localMap[agentId];
+            const localModel   = localEntry?.model ?? '';
+            const hasOverride  = !!localEntry;
+            // Effective CLI tool: local edit → saved override (scope-resolved) → claude.
+            const serverEntry  = scope === 'space'
+              ? (spaceStageModels?.[agentId] ?? globalStageModels[agentId])
+              : globalStageModels[agentId];
+            const cliTool      = localEntry?.cliTool ?? serverEntry?.cliTool ?? 'claude';
 
             return (
               <AgentRoutingCard
@@ -281,6 +318,8 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
                 onChange={handleChange}
                 onClear={handleClear}
                 hasOverride={hasOverride}
+                cliTool={cliTool}
+                onChangeCliTool={handleChangeCliTool}
               />
             );
           })
