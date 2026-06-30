@@ -128,7 +128,7 @@ export function AgentRoutingCard({
         {!open && isOpencode && (
           <span
             className="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded bg-surface-variant text-text-secondary border border-border/60 whitespace-nowrap"
-            title="Runs via the opencode CLI (not Claude)"
+            title="Runs via the opencode CLI"
           >
             <span className="material-symbols-outlined text-[12px] leading-none" aria-hidden="true">terminal</span>
             opencode
