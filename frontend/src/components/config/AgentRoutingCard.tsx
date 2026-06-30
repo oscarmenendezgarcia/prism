@@ -124,13 +124,14 @@ export function AgentRoutingCard({
           </span>
         </span>
 
-        {/* opencode tag — surfaces the non-default CLI tool in the collapsed row */}
+        {/* CLI-tool tag — surfaces the non-default CLI (opencode) in the collapsed row */}
         {!open && isOpencode && (
           <span
-            className="font-mono text-[9.5px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-surface-variant text-text-secondary border border-border/60 whitespace-nowrap"
-            aria-label="runs via opencode"
+            className="inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.5 rounded bg-surface-variant text-text-secondary border border-border/60 whitespace-nowrap"
+            title="Runs via the opencode CLI (not Claude)"
           >
-            oc
+            <span className="material-symbols-outlined text-[12px] leading-none" aria-hidden="true">terminal</span>
+            opencode
           </span>
         )}
 

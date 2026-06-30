@@ -261,8 +261,8 @@ describe('AgentRoutingCard — CLI tool selector', () => {
     expect(input.getAttribute('aria-invalid')).toBe('false');
   });
 
-  it('shows an "oc" tag in the collapsed row for opencode agents', () => {
+  it('shows an "opencode" tag in the collapsed row for opencode agents', () => {
     renderCard({ open: false, cliTool: 'opencode' });
-    expect(screen.getByText('oc')).toBeDefined();
+    expect(screen.getByText('opencode')).toBeDefined();
   });
 });
