@@ -176,18 +176,16 @@ export function AgentRoutingCard({
           {/* Model + Effort row */}
           <div className="flex items-start gap-10 py-5 border-b border-border/50">
             {/* Model section */}
-            <div className="flex flex-col gap-3 min-w-0">
-              <div className="flex items-center justify-between gap-3">
-                <label className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
-                  Model
-                </label>
-                {/* CLI tool: Claude (managed) vs opencode (local/self-hosted via MODEL-2) */}
-                <CliToolSelector
-                  value={cliTool}
-                  onChange={(next) => onChangeCliTool(agentId, next)}
-                  agentLabel={displayName}
-                />
-              </div>
+            <div className="flex flex-col gap-3 min-w-0 flex-1">
+              <label className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
+                Model
+              </label>
+              {/* CLI tool: Claude (managed) vs opencode (local/self-hosted via MODEL-2) */}
+              <CliToolSelector
+                value={cliTool}
+                onChange={(next) => onChangeCliTool(agentId, next)}
+                agentLabel={displayName}
+              />
               {/* Badge + current model (read-only display of the effective value) */}
               <div className="flex items-center gap-2 flex-wrap">
                 <ModelInheritanceBadge source={source} />

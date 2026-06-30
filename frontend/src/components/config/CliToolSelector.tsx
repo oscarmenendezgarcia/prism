@@ -43,8 +43,9 @@ export function CliToolSelector({ value, onChange, agentLabel }: CliToolSelector
             aria-checked={isActive}
             onClick={() => onChange(opt)}
             className={[
-              'px-3 py-1 text-[11.5px] font-semibold font-mono rounded-md border-0 select-none',
+              'px-3 py-1 text-[11.5px] font-semibold rounded-md border-0 select-none',
               'transition-colors duration-fast active:scale-[0.97]',
+              'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
               isActive
                 ? 'bg-primary-container text-primary'
                 : 'bg-transparent text-text-secondary hover:text-text-primary',
