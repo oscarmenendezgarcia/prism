@@ -4,6 +4,10 @@
  * clicking a file calls selectConfigFile from the store.
  * Dirty guard: if configDirty is true, shows a discard confirmation before
  * switching to a different file (handled via onRequestSwitch callback from parent).
+ *
+ * Proposal D (Phase 1): the "Agents" group and the "Model Routing" virtual item
+ * are no longer shown here — they moved to the "Agents & Routing" tab.
+ * Only "Global" and "Project" file groups remain.
  */
 
 import React from 'react';
@@ -55,16 +59,13 @@ function FileItem({
   );
 }
 
-/** Virtual ID for the Model Routing settings panel (not a real file). */
-export const MODEL_ROUTING_ID = '__model-routing__';
-
 export function ConfigFileSidebar({ onRequestSwitch }: ConfigFileSidebarProps) {
   const configFiles        = useAppStore((s) => s.configFiles);
   const activeConfigFileId = useAppStore((s) => s.activeConfigFileId);
   const configLoading      = useAppStore((s) => s.configLoading);
 
   const globalFiles  = configFiles.filter((f) => f.scope === 'global');
-  const agentFiles   = configFiles.filter((f) => f.scope === 'agent' || f.scope === 'space-agent');
+  // Agent files moved to the "Agents & Routing" tab (Proposal D) — not shown here.
   const projectFiles = configFiles.filter((f) => f.scope === 'project' || f.scope === 'space-project');
 
   if (configLoading && configFiles.length === 0) {
@@ -93,39 +94,11 @@ export function ConfigFileSidebar({ onRequestSwitch }: ConfigFileSidebarProps) {
       aria-label="Config files"
       className="flex flex-col overflow-y-auto h-full"
     >
-      {/* Global section always shown — includes hardcoded Model Routing entry */}
-      <div>
-        <ScopeHeading label="Global" />
-
-        {/* MODEL-1: Model Routing virtual item */}
-        <button
-          onClick={() => onRequestSwitch(MODEL_ROUTING_ID)}
-          aria-current={activeConfigFileId === MODEL_ROUTING_ID ? 'page' : undefined}
-          title="Per-stage model routing"
-          className={`w-full text-left px-3 py-2 flex flex-col gap-0.5 transition-colors duration-100 ${
-            activeConfigFileId === MODEL_ROUTING_ID
-              ? 'bg-primary/[0.12] text-primary'
-              : 'text-text-primary hover:bg-surface-variant'
-          }`}
-        >
-          <span className="text-xs font-medium leading-tight truncate">Model Routing</span>
-          <span className="text-[10px] text-text-secondary leading-tight truncate">per-stage</span>
-        </button>
-
-        {globalFiles.map((file) => (
-          <FileItem
-            key={file.id}
-            file={file}
-            isActive={file.id === activeConfigFileId}
-            onClick={() => onRequestSwitch(file.id)}
-          />
-        ))}
-      </div>
-
-      {agentFiles.length > 0 && (
+      {/* Global section — Model Routing and Agents moved to "Agents & Routing" tab */}
+      {globalFiles.length > 0 && (
         <div>
-          <ScopeHeading label="Agents" />
-          {agentFiles.map((file) => (
+          <ScopeHeading label="Global" />
+          {globalFiles.map((file) => (
             <FileItem
               key={file.id}
               file={file}

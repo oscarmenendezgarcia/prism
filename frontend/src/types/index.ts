@@ -10,7 +10,9 @@ export type Column = 'todo' | 'in-progress' | 'done';
 // MODEL-1: per-stage model routing types
 // ---------------------------------------------------------------------------
 
-export type ModelProvider = 'claude' | 'openai' | 'ollama' | 'custom';
+// 'claude' is the managed provider (whitelisted backend-side). For opencode/custom
+// CLI tools the provider is open-ended (e.g. 'vllm-local'), so any string is allowed.
+export type ModelProvider = 'claude' | (string & {});
 export type ModelCliTool  = 'claude' | 'opencode' | 'custom';
 
 /** Per-stage model routing config stored in stageModels maps. */

@@ -21,6 +21,20 @@ export const STAGE_DISPLAY: Record<string, string> = {
   'code-reviewer':    'Code Reviewer',
 };
 
+/**
+ * Role subtitles for the Proposal D "Agents & Routing" view.
+ * One line, English, concise — distinct from STAGE_DISPLAY (full names).
+ * These appear as the secondary line inside each AgentRoutingCard.
+ */
+export const STAGE_ROLES: Record<string, string> = {
+  'senior-architect': 'Architecture · ADR + blueprint',
+  'ux-api-designer':  'UX + API spec',
+  'developer-agent':  'Implementation',
+  'code-reviewer':    'Code review',
+  'qa-engineer-e2e':  'QA E2E',
+  'orchestrator':     'Pipeline orchestration',
+};
+
 /** Short labels (≤ 8 chars) for well-known agent IDs. */
 export const STAGE_LABELS: Record<string, string> = {
   'senior-architect': 'Architect',
@@ -30,6 +44,32 @@ export const STAGE_LABELS: Record<string, string> = {
   'code-reviewer':    'Rev',
   'orchestrator':     'Orch',
 };
+
+// ---------------------------------------------------------------------------
+// Agent dot colour — deterministic per agent ID (mirrors arcColor in utils/arcs)
+// ---------------------------------------------------------------------------
+
+/**
+ * Solid dot colours for the agent indicator. Full Tailwind class strings (not
+ * interpolated) so the JIT keeps them. Error red is excluded to avoid clashing
+ * with the bug/error semantic colour.
+ */
+const AGENT_DOT_COLORS: string[] = [
+  'bg-violet-500', 'bg-sky-500',   'bg-emerald-500', 'bg-amber-500',
+  'bg-pink-500',   'bg-blue-500',  'bg-teal-500',    'bg-fuchsia-500',
+  'bg-rose-400',   'bg-cyan-500',  'bg-lime-500',    'bg-indigo-500',
+];
+
+/**
+ * Deterministic dot colour for an agent — same agent ID always gets the same
+ * colour, unique-ish across agents (same djb2 hash as {@link arcColor}). No
+ * hardcoded per-agent map: add or rename an agent and it just gets a colour.
+ */
+export function agentDotColor(agentId: string): string {
+  let hash = 0;
+  for (let i = 0; i < agentId.length; i++) hash = agentId.charCodeAt(i) + ((hash << 5) - hash);
+  return AGENT_DOT_COLORS[Math.abs(hash) % AGENT_DOT_COLORS.length];
+}
 
 // ---------------------------------------------------------------------------
 // AgentInfo — minimal interface matching what useAvailableAgents() returns
