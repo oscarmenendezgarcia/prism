@@ -92,6 +92,17 @@ describe('AgentRoutingCard — collapsed state', () => {
     expect(toggleBtn).toBeDefined();
     expect(toggleBtn.getAttribute('aria-expanded')).toBe('false');
   });
+
+  it('renders ModelInheritanceBadge in collapsed row when source is overridden', () => {
+    renderCard({ open: false, source: 'space' });
+    // Badge text should appear in the collapsed header button
+    expect(screen.getByText('space')).toBeDefined();
+  });
+
+  it('renders ModelInheritanceBadge with "default" source in collapsed row', () => {
+    renderCard({ open: false, source: 'default' });
+    expect(screen.getByText('default')).toBeDefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

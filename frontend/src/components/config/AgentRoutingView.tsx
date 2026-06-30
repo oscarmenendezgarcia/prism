@@ -208,7 +208,7 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
             search
           </span>
           <input
-            type="search"
+            type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search agent, model or skill…"
@@ -218,6 +218,18 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
               'text-[12.5px] text-text-primary placeholder:text-text-secondary/50',
             ].join(' ')}
           />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+              className="text-text-secondary hover:text-text-primary transition-colors duration-fast shrink-0"
+            >
+              <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
+                close
+              </span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -231,6 +243,19 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
             <p className="text-sm text-text-secondary">
               No agents match &ldquo;{search}&rdquo;
             </p>
+            <p className="text-[11px] text-text-secondary/70">
+              Try searching by agent name, model, or skill
+            </p>
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              className={[
+                'mt-1 text-[12px] font-medium text-primary',
+                'hover:underline transition-colors duration-fast',
+              ].join(' ')}
+            >
+              Clear search
+            </button>
           </div>
         ) : (
           filteredStages.map((agentId) => {

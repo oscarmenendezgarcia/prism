@@ -183,6 +183,20 @@ describe('ConfigPanel — discard guard on close', () => {
   });
 });
 
+describe('ConfigPanel — dirty indicator', () => {
+  it('does NOT show the dirty dot when panel is clean', () => {
+    resetStore({ configDirty: false });
+    render(<ConfigPanel />);
+    expect(document.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
+  });
+
+  it('shows the dirty dot in the header when configDirty is true', () => {
+    resetStore({ configDirty: true });
+    render(<ConfigPanel />);
+    expect(document.querySelector('[aria-label="Unsaved changes"]')).toBeInTheDocument();
+  });
+});
+
 describe('ConfigPanel — discard guard on view switch', () => {
   it('shows DiscardChangesDialog when switching views while file is dirty', () => {
     // Start on Agents & Routing (default), set file dirty, then try to switch to Files tab

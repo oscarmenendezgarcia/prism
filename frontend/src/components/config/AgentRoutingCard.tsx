@@ -125,6 +125,9 @@ export function AgentRoutingCard({
           </span>
         )}
 
+        {/* Inheritance badge — visible in collapsed row so source is always at a glance */}
+        {!open && <ModelInheritanceBadge source={source} />}
+
         {/* Skill count */}
         {!open && (
           <span className="flex items-center gap-0.5 text-[11px] text-text-secondary shrink-0">

@@ -156,7 +156,7 @@ describe('AgentRoutingView — search filter', () => {
 
   it('filters out non-matching cards', () => {
     renderView();
-    const search = screen.getByRole('searchbox');
+    const search = screen.getByRole('textbox', { name: /search agents/i });
     fireEvent.change(search, { target: { value: 'developer' } });
     expect(document.querySelector('[data-testid="agent-card-developer-agent"]')).toBeDefined();
     expect(document.querySelector('[data-testid="agent-card-ux-api-designer"]')).toBeNull();
@@ -164,16 +164,59 @@ describe('AgentRoutingView — search filter', () => {
 
   it('shows empty search state when nothing matches', () => {
     renderView();
-    const search = screen.getByRole('searchbox');
+    const search = screen.getByRole('textbox', { name: /search agents/i });
     fireEvent.change(search, { target: { value: 'zzz-no-match' } });
     expect(screen.getByText(/no agents match/i)).toBeDefined();
   });
 
   it('restores all cards when search is cleared', () => {
     renderView();
-    const search = screen.getByRole('searchbox');
+    const search = screen.getByRole('textbox', { name: /search agents/i });
     fireEvent.change(search, { target: { value: 'developer' } });
     fireEvent.change(search, { target: { value: '' } });
+    expect(document.querySelector('[data-testid="agent-card-ux-api-designer"]')).toBeDefined();
+  });
+
+  it('shows × clear button in search row when search has text', () => {
+    renderView();
+    const search = screen.getByRole('textbox', { name: /search agents/i });
+    fireEvent.change(search, { target: { value: 'developer' } });
+    expect(screen.getByRole('button', { name: /clear search/i })).toBeDefined();
+  });
+
+  it('hides × clear button when search is empty', () => {
+    renderView();
+    // No text typed — button should not be present
+    expect(screen.queryByRole('button', { name: /clear search/i })).toBeNull();
+  });
+
+  it('clicking × button clears the search and restores all cards', () => {
+    renderView();
+    const search = screen.getByRole('textbox', { name: /search agents/i });
+    fireEvent.change(search, { target: { value: 'developer' } });
+    expect(document.querySelector('[data-testid="agent-card-ux-api-designer"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /clear search/i }));
+    expect(document.querySelector('[data-testid="agent-card-ux-api-designer"]')).toBeDefined();
+  });
+
+  it('shows helper text in empty search state', () => {
+    renderView();
+    const search = screen.getByRole('textbox', { name: /search agents/i });
+    fireEvent.change(search, { target: { value: 'zzz-no-match' } });
+    expect(screen.getByText(/try searching by agent name, model, or skill/i)).toBeDefined();
+  });
+
+  it('shows "Clear search" link button in empty search state', () => {
+    renderView();
+    const search = screen.getByRole('textbox', { name: /search agents/i });
+    fireEvent.change(search, { target: { value: 'zzz-no-match' } });
+    // Both the × button (in search row) and the link button (in empty state) have name "Clear search"
+    const clearBtns = screen.getAllByRole('button', { name: /clear search/i });
+    expect(clearBtns.length).toBeGreaterThanOrEqual(1);
+    // Click the last one (the prominent "Clear search" in empty state)
+    fireEvent.click(clearBtns[clearBtns.length - 1]);
+    // Search should be cleared — all cards visible
     expect(document.querySelector('[data-testid="agent-card-ux-api-designer"]')).toBeDefined();
   });
 });

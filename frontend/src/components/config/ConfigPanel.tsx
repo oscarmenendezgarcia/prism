@@ -133,6 +133,12 @@ export function ConfigPanel() {
               settings
             </span>
             <span className="text-sm font-medium text-text-primary">Configuration</span>
+            {anyDirty && (
+              <span
+                className="w-1.5 h-1.5 rounded-full bg-primary shrink-0"
+                aria-label="Unsaved changes"
+              />
+            )}
           </div>
           <button
             onClick={handleRequestClose}
