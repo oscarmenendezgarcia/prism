@@ -127,9 +127,11 @@ export function AgentRoutingCard({
           <span className="text-[13px] font-medium text-text-primary leading-snug font-mono truncate">
             {displayName}
           </span>
-          <span className="text-[11px] text-text-secondary leading-tight truncate">
-            {roleSubtitle}
-          </span>
+          {roleSubtitle && (
+            <span className="text-[11px] text-text-secondary leading-tight truncate">
+              {roleSubtitle}
+            </span>
+          )}
         </span>
 
         {/* CLI-tool tag — surfaces the non-default CLI (opencode) in the collapsed row */}

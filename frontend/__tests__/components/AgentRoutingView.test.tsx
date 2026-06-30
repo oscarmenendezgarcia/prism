@@ -115,10 +115,26 @@ function renderView(onDirtyChange = vi.fn()) {
 // ---------------------------------------------------------------------------
 
 describe('AgentRoutingView — empty state', () => {
-  it('shows empty state when no stages are configured', () => {
+  it('shows empty state when there are no agents at all', () => {
+    // No pipeline stages AND no registry agents (getAgents mock returns [])
     setup({ stages: [] });
     renderView();
-    expect(screen.getByText(/no pipeline stages/i)).toBeDefined();
+    expect(screen.getByText(/no agents found/i)).toBeDefined();
+  });
+});
+
+describe('AgentRoutingView — non-pipeline agents (registry union)', () => {
+  it('renders a card for a registry agent that is not a pipeline stage', () => {
+    setup({ stages: ['developer-agent'] });
+    // Registry includes a non-pipeline agent — name comes from the registry, not a hardcoded map
+    useAppStore.setState({
+      availableAgents: [
+        { id: 'developer-agent',    name: 'developer-agent.md',    displayName: 'Developer Agent',    path: '/a/developer-agent.md',    sizeBytes: 1 },
+        { id: 'folio-consolidator', name: 'folio-consolidator.md', displayName: 'Folio Consolidator', path: '/a/folio-consolidator.md', sizeBytes: 1 },
+      ],
+    });
+    renderView();
+    expect(screen.getByText('Folio Consolidator')).toBeDefined();
   });
 });
 

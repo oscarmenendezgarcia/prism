@@ -51,9 +51,34 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
   const activeSpaceId  = useAppStore((s) => s.activeSpaceId);
   const renameSpace    = useAppStore((s) => s.renameSpace);
 
+  const availableAgents = useAppStore((s) => s.availableAgents);
+  const loadAgents       = useAppStore((s) => s.loadAgents);
+
   const activeSpace = spaces.find((sp) => sp.id === activeSpaceId) ?? null;
 
   const stages = agentSettings?.pipeline?.stages ?? [];
+
+  // Routing applies to ANY agent, not just pipeline stages — show the union:
+  // pipeline stages first (in order), then every other available agent.
+  const agentIds = useMemo(() => {
+    const inPipeline = new Set<string>(stages);
+    const extra = availableAgents.map((a) => a.id).filter((id) => !inPipeline.has(id));
+    return [...stages, ...extra];
+  }, [stages, availableAgents]);
+
+  // Human-readable names for non-pipeline agents come from the agent registry.
+  const agentDisplay = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const a of availableAgents) m[a.id] = a.displayName;
+    return m;
+  }, [availableAgents]);
+
+  // Registry (the agent's own .md) is the source of truth; STAGE_DISPLAY is only a
+  // fallback for the well-known pipeline agents when the registry hasn't loaded yet.
+  const displayNameFor = useCallback(
+    (id: string) => agentDisplay[id] ?? STAGE_DISPLAY[id] ?? id,
+    [agentDisplay],
+  );
 
   // ── Local edit state (one map per scope) ────────────────────────────────
   const [scope, setScope] = useState<Scope>('global');
@@ -65,8 +90,13 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
   const [search,      setSearch]      = useState('');
   const [saving,      setSaving]      = useState(false);
 
-  // ── Fetch agent metadata ─────────────────────────────────────────────────
-  const metadata = useAgentMetadata(stages);
+  // ── Ensure the full agent registry is loaded (panel doesn't load it) ──────
+  useEffect(() => {
+    if (availableAgents.length === 0) loadAgents(activeSpace?.workingDirectory);
+  }, [availableAgents.length, loadAgents, activeSpace?.workingDirectory]);
+
+  // ── Fetch agent metadata (model/effort/skills) for every agent ────────────
+  const metadata = useAgentMetadata(agentIds);
 
   // ── Sync from store when settings / space change ─────────────────────────
   useEffect(() => {
@@ -184,12 +214,12 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
   }, [scope, agentSettings?.pipeline?.stageModels, activeSpace?.stageModels]);
 
   // ── Search filter ────────────────────────────────────────────────────────
-  const filteredStages = useMemo(() => {
-    if (!search.trim()) return stages;
+  const filteredAgents = useMemo(() => {
+    if (!search.trim()) return agentIds;
     const q = search.toLowerCase().trim();
-    return stages.filter((agentId) => {
+    return agentIds.filter((agentId) => {
       const meta = metadata[agentId];
-      const displayName  = STAGE_DISPLAY[agentId] ?? agentId;
+      const displayName  = displayNameFor(agentId);
       const roleSubtitle = STAGE_ROLES[agentId]   ?? '';
       const effective    = resolveEffectiveModel(agentId, scope, globalStageModels, spaceStageModels, meta?.model);
       const skillMatch   = meta?.skills.some((s) => s.toLowerCase().includes(q)) ?? false;
@@ -201,18 +231,18 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
         skillMatch
       );
     });
-  }, [stages, search, metadata, scope, globalStageModels, spaceStageModels]);
+  }, [agentIds, search, metadata, scope, globalStageModels, spaceStageModels, displayNameFor]);
 
-  // ── Empty stages state ────────────────────────────────────────────────────
-  if (stages.length === 0) {
+  // ── Empty state (no agents at all) ────────────────────────────────────────
+  if (agentIds.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 py-12 px-6 text-center">
         <span className="material-symbols-outlined text-3xl text-text-secondary" aria-hidden="true">
           smart_toy
         </span>
         <p className="text-sm text-text-secondary">
-          No pipeline stages configured.<br />
-          Add agents to pipeline settings to see routing options here.
+          No agents found.<br />
+          Add agent definitions to ~/.claude/agents to configure routing.
         </p>
       </div>
     );
@@ -266,7 +296,7 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
 
       {/* ── Card list ───────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto pb-2">
-        {filteredStages.length === 0 ? (
+        {filteredAgents.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 gap-2 px-6 text-center">
             <span className="material-symbols-outlined text-2xl text-text-secondary" aria-hidden="true">
               search_off
@@ -289,9 +319,9 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
             </button>
           </div>
         ) : (
-          filteredStages.map((agentId) => {
+          filteredAgents.map((agentId) => {
             const meta         = metadata[agentId] ?? { skills: [], loading: true };
-            const displayName  = STAGE_DISPLAY[agentId] ?? agentId;
+            const displayName  = displayNameFor(agentId);
             const roleSubtitle = STAGE_ROLES[agentId]   ?? '';
             const effective    = resolveEffectiveModel(agentId, scope, globalStageModels, spaceStageModels, meta.model);
             const localEntry   = localMap[agentId];
