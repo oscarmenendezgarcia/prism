@@ -21,7 +21,8 @@ import type { ModelCliTool }     from '@/types';
 import type { AgentMetadataEntry } from '@/hooks/useAgentMetadata';
 
 const CLAUDE_PRESETS = ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'] as const;
-const OPENCODE_PLACEHOLDER = 'provider/model  e.g. vllm-local/qwen2.5-coder';
+const OPENCODE_EXAMPLE = 'vllm-local/qwen2.5-coder';
+const OPENCODE_PLACEHOLDER = `provider/model  e.g. ${OPENCODE_EXAMPLE}`;
 
 /** Dot color class per agent ID. */
 const AGENT_DOT: Record<string, string> = {
@@ -86,6 +87,8 @@ export function AgentRoutingCard({
   const isOverridden = source !== 'default';
   /** opencode requires a `provider/model` string — flag an invalid local edit. */
   const opencodeInvalid = isOpencode && !!displayModel && !isValidOpencodeModel(displayModel);
+  /** opencode selected but no valid provider/model yet → show an example, not the inherited Claude model. */
+  const needsOpencodeModel = isOpencode && !isValidOpencodeModel(displayModel);
 
   return (
     <article
@@ -135,17 +138,20 @@ export function AgentRoutingCard({
           </span>
         )}
 
-        {/* Mini model pill — tinted when source ≠ default */}
+        {/* Mini model pill — tinted when source ≠ default; placeholder example when opencode lacks a model */}
         {!open && (
           <span
             className={[
               'font-mono text-[10.5px] px-2 py-0.5 rounded-md border whitespace-nowrap',
-              isOverridden
-                ? 'text-primary border-primary bg-primary-container'
-                : 'text-text-secondary border-border bg-surface',
+              needsOpencodeModel
+                ? 'text-text-secondary/50 border-border border-dashed bg-transparent'
+                : isOverridden
+                  ? 'text-primary border-primary bg-primary-container'
+                  : 'text-text-secondary border-border bg-surface',
             ].join(' ')}
+            title={needsOpencodeModel ? 'No opencode model set yet — example shown' : undefined}
           >
-            {displayModel || '—'}
+            {needsOpencodeModel ? OPENCODE_EXAMPLE : (displayModel || '—')}
           </span>
         )}
 
@@ -193,13 +199,17 @@ export function AgentRoutingCard({
                 <span
                   className={[
                     'font-mono text-[11.5px] px-2.5 py-1 rounded-lg border',
-                    isOverridden
-                      ? 'text-primary border-primary bg-primary-container'
-                      : 'text-text-primary border-border bg-surface',
+                    needsOpencodeModel
+                      ? 'text-text-secondary/50 border-border border-dashed bg-transparent'
+                      : isOverridden
+                        ? 'text-primary border-primary bg-primary-container'
+                        : 'text-text-primary border-border bg-surface',
                   ].join(' ')}
-                  title="Current model — change it with the presets or the input below"
+                  title={needsOpencodeModel
+                    ? 'No opencode model set yet — example shown; set it in the field below'
+                    : 'Current model — change it with the presets or the input below'}
                 >
-                  {displayModel || <span className="text-text-secondary">—</span>}
+                  {needsOpencodeModel ? OPENCODE_EXAMPLE : (displayModel || <span className="text-text-secondary">—</span>)}
                 </span>
                 {hasOverride && (
                   <button
