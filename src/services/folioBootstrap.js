@@ -501,6 +501,26 @@ async function ensureBootstrapped(spaceId, workingDir, binding, opts = {}) {
       spaceId, cliTool: modelConfig.cliTool, model: modelConfig.model, resolvedFrom: modelConfig.resolvedFrom,
     });
 
+    // openFolioRun wrote stage-0.meta.json with source:'claude-code' before the
+    // model was resolved. opencode's plain-text/ANSI output isn't the claude-code
+    // stream-json format, so the log-metrics parser must be told 'plain' or the
+    // UI shows no events at all (silent per-line JSON.parse failures).
+    if (modelConfig.cliTool === 'opencode') {
+      const metaPath = path.join(tmpDir, opts.logFile ? `${path.basename(opts.logFile, '.log')}.meta.json` : 'bootstrap.meta.json');
+      try {
+        const existing = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+        fs.writeFileSync(metaPath, JSON.stringify({
+          ...existing,
+          source:   'plain',
+          model:    modelConfig.model,
+          provider: modelConfig.provider,
+          cliTool:  modelConfig.cliTool,
+        }), 'utf8');
+      } catch (metaErr) {
+        bootstrapLog('bootstrap.meta_rewrite_failed', { spaceId, error: metaErr.message });
+      }
+    }
+
     const shellEscapeLocal = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
 
     // claude reads the prompt from stdin; opencode has no system-prompt channel, so

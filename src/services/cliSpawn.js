@@ -118,7 +118,10 @@ function buildMergedPrompt(agentSpec, taskPromptContent) {
 function opencodeCliLine({ binary, model, mergedPromptPath, logPath, platform }) {
   const esc = platform === 'win32' ? cmdEscape : shellEscape;
   const proceed = platform === 'win32' ? '"Proceed."' : "'Proceed.'";
-  return `${esc(binary)} run --model ${esc(model)} --dangerously-skip-permissions --format default --file ${esc(mergedPromptPath)} ${proceed} >> ${esc(logPath)} 2>&1`;
+  // `--file` is a yargs array-type flag: a positional placed after it gets
+  // swallowed as another file path instead of reaching opencode as the
+  // message ("File not found: Proceed."). The message must come first.
+  return `${esc(binary)} run --model ${esc(model)} --dangerously-skip-permissions --format default ${proceed} --file ${esc(mergedPromptPath)} >> ${esc(logPath)} 2>&1`;
 }
 
 module.exports = {
