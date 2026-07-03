@@ -15,6 +15,12 @@ import type { ModelSource } from '@/utils/modelRouting';
 
 interface ModelInheritanceBadgeProps {
   source: ModelSource;
+  /**
+   * Optional text override. Defaults to the source name. Used to render an
+   * "inherited" pill (muted `default` styling) when a value is not set at the
+   * scope currently being edited — distinct from a value set here.
+   */
+  label?: string;
 }
 
 const SOURCE_CLASSES: Record<ModelSource, string> = {
@@ -24,10 +30,11 @@ const SOURCE_CLASSES: Record<ModelSource, string> = {
   task:    'text-warning bg-warning-container border-warning/30',
 };
 
-export function ModelInheritanceBadge({ source }: ModelInheritanceBadgeProps) {
+export function ModelInheritanceBadge({ source, label }: ModelInheritanceBadgeProps) {
+  const text = label ?? source;
   return (
     <span
-      aria-label={`model source: ${source} override`}
+      aria-label={`model source: ${text}`}
       className={[
         'inline-flex items-center px-1.5 py-0.5 rounded-md border',
         'text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap',
@@ -35,7 +42,7 @@ export function ModelInheritanceBadge({ source }: ModelInheritanceBadgeProps) {
         SOURCE_CLASSES[source],
       ].join(' ')}
     >
-      {source}
+      {text}
     </span>
   );
 }

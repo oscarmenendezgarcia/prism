@@ -24,13 +24,14 @@ import { useAgentMetadata }    from '@/hooks/useAgentMetadata';
 import { resolveEffectiveModel }  from '@/utils/modelRouting';
 import { localRoutingToStageModelsMap, isValidOpencodeModel } from '@/utils/modelRouting';
 import type { RoutingEntry }    from '@/utils/modelRouting';
-import { STAGE_ROLES }         from '@/utils/agentName';
 import { STAGE_DISPLAY }       from '@/utils/agentName';
 import type { StageModelsMap, ModelCliTool } from '@/types';
 
 interface AgentRoutingViewProps {
   /** Notify parent whether any local edits exist (for the discard guard). */
   onDirtyChange: (dirty: boolean) => void;
+  /** Open the agent's system prompt (.md) in the editor. */
+  onEditPrompt?: (agentId: string) => void;
 }
 
 /** Convert a StageModelsMap (server) → local Record<agentId, {model, cliTool}>. */
@@ -43,7 +44,7 @@ function stageModelsToLocal(map: StageModelsMap | null | undefined): Record<stri
   return result;
 }
 
-export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
+export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingViewProps) {
   const agentSettings  = useAppStore((s) => s.agentSettings);
   const saveSettings   = useAppStore((s) => s.saveSettings);
   const showToast      = useAppStore((s) => s.showToast);
@@ -220,13 +221,11 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
     return agentIds.filter((agentId) => {
       const meta = metadata[agentId];
       const displayName  = displayNameFor(agentId);
-      const roleSubtitle = STAGE_ROLES[agentId]   ?? '';
       const effective    = resolveEffectiveModel(agentId, scope, globalStageModels, spaceStageModels, meta?.model);
       const skillMatch   = meta?.skills.some((s) => s.toLowerCase().includes(q)) ?? false;
       return (
         agentId.toLowerCase().includes(q) ||
         displayName.toLowerCase().includes(q) ||
-        roleSubtitle.toLowerCase().includes(q) ||
         effective.model.toLowerCase().includes(q) ||
         skillMatch
       );
@@ -322,7 +321,6 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
           filteredAgents.map((agentId) => {
             const meta         = metadata[agentId] ?? { skills: [], loading: true };
             const displayName  = displayNameFor(agentId);
-            const roleSubtitle = STAGE_ROLES[agentId]   ?? '';
             const effective    = resolveEffectiveModel(agentId, scope, globalStageModels, spaceStageModels, meta.model);
             const localEntry   = localMap[agentId];
             const localModel   = localEntry?.model ?? '';
@@ -338,7 +336,6 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
                 key={agentId}
                 agentId={agentId}
                 displayName={displayName}
-                roleSubtitle={roleSubtitle}
                 effectiveModel={effective.model}
                 source={localModel ? scope as typeof effective.source : effective.source}
                 scope={scope}
@@ -351,6 +348,7 @@ export function AgentRoutingView({ onDirtyChange }: AgentRoutingViewProps) {
                 hasOverride={hasOverride}
                 cliTool={cliTool}
                 onChangeCliTool={handleChangeCliTool}
+                onEditPrompt={onEditPrompt}
               />
             );
           })

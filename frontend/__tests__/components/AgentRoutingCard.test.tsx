@@ -34,7 +34,6 @@ function renderCard(overrides: Partial<Parameters<typeof AgentRoutingCard>[0]> =
   const defaults = {
     agentId:        'ux-api-designer',
     displayName:    'UX / API Designer',
-    roleSubtitle:   'UX + API spec',
     effectiveModel: 'claude-sonnet-4-5',
     source:         'default' as const,
     scope:          'global' as const,
@@ -59,11 +58,6 @@ describe('AgentRoutingCard — collapsed state', () => {
   it('renders the agent display name', () => {
     renderCard();
     expect(screen.getByText('UX / API Designer')).toBeDefined();
-  });
-
-  it('renders the role subtitle', () => {
-    renderCard();
-    expect(screen.getByText('UX + API spec')).toBeDefined();
   });
 
   it('renders the mini model pill', () => {
@@ -147,6 +141,23 @@ describe('AgentRoutingCard — expanded state', () => {
     expect(screen.getByText('global')).toBeDefined();
   });
 
+  it('shows "inherited" (not the source) when the value is inherited at the space scope', () => {
+    renderCard({ open: true, scope: 'space', source: 'global' });
+    expect(screen.getByText('inherited')).toBeDefined();
+    expect(screen.queryByText('global')).toBeNull();
+  });
+
+  it('shows the scope badge when the model is overridden at the current scope', () => {
+    renderCard({ open: true, scope: 'space', source: 'space' });
+    expect(screen.getByText('space')).toBeDefined();
+    expect(screen.queryByText('inherited')).toBeNull();
+  });
+
+  it('shows "default" when no override exists anywhere', () => {
+    renderCard({ open: true, scope: 'global', source: 'default' });
+    expect(screen.getByText('default')).toBeDefined();
+  });
+
   it('renders preset chips', () => {
     renderCard({ open: true });
     // Disambiguate from the CLI-tool radiogroup added alongside the presets.
@@ -207,6 +218,19 @@ describe('AgentRoutingCard — expanded state', () => {
   it('renders "No skills configured" when skills is empty', () => {
     renderCard({ open: true, metadata: { ...DEFAULT_META, skills: [] } });
     expect(screen.getByText('No skills configured')).toBeDefined();
+  });
+
+  it('omits the system-prompt button when onEditPrompt is not provided', () => {
+    renderCard({ open: true });
+    expect(screen.queryByText('View / edit .md')).toBeNull();
+  });
+
+  it('renders the system-prompt button and calls onEditPrompt with the agentId', () => {
+    const onEditPrompt = vi.fn();
+    renderCard({ open: true, onEditPrompt });
+    const btn = screen.getByText('View / edit .md');
+    fireEvent.click(btn);
+    expect(onEditPrompt).toHaveBeenCalledWith('ux-api-designer');
   });
 });
 

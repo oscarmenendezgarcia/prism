@@ -20,13 +20,15 @@ import { AgentRoutingView }      from '@/components/config/AgentRoutingView';
 import { ConfigViewTabs }        from '@/components/config/ConfigViewTabs';
 import type { ConfigView }       from '@/components/config/ConfigViewTabs';
 import { DiscardChangesDialog }  from '@/components/config/DiscardChangesDialog';
+import { Modal, ModalHeader, ModalTitle } from '@/components/shared/Modal';
 import { usePanelResize }        from '@/hooks/usePanelResize';
 
 /** Shape of a pending navigation blocked by the dirty guard. */
 type PendingNav =
   | { type: 'close' }
   | { type: 'file'; fileId: string }
-  | { type: 'view'; view: ConfigView };
+  | { type: 'view'; view: ConfigView }
+  | { type: 'prompt'; fileId: string };
 
 export function ConfigPanel() {
   const setConfigPanelOpen = useAppStore((s) => s.setConfigPanelOpen);
@@ -34,6 +36,9 @@ export function ConfigPanel() {
   const activeSpaceId      = useAppStore((s) => s.activeSpaceId);
   const selectConfigFile   = useAppStore((s) => s.selectConfigFile);
   const configDirty        = useAppStore((s) => s.configDirty);
+  const configFiles        = useAppStore((s) => s.configFiles);
+  const activeConfigFileId = useAppStore((s) => s.activeConfigFileId);
+  const showToast          = useAppStore((s) => s.showToast);
 
   const { width, handleMouseDown, minWidth, maxWidth } = usePanelResize({
     storageKey:   'prism:panel-width:config',
@@ -45,8 +50,22 @@ export function ConfigPanel() {
   const [view, setView]                 = useState<ConfigView>('agents');
   const [routingDirty, setRoutingDirty] = useState(false);
   const [pendingNav, setPendingNav]     = useState<PendingNav | null>(null);
+  const [promptOpen, setPromptOpen]     = useState(false);
 
   const anyDirty = configDirty || routingDirty;
+
+  /** Resolve the config-file id for an agent's system-prompt .md. */
+  const agentFileId = useCallback(
+    (agentId: string): string | null => {
+      const match = configFiles.find(
+        (f) =>
+          (f.scope === 'agent' || f.scope === 'space-agent') &&
+          f.name.replace(/\.md$/i, '') === agentId
+      );
+      return match?.id ?? null;
+    },
+    [configFiles]
+  );
 
   // Reload the file list on mount and whenever the active space changes.
   useEffect(() => {
@@ -63,6 +82,30 @@ export function ConfigPanel() {
       }
     },
     [anyDirty, selectConfigFile]
+  );
+
+  /** Called from an agent card — open its system prompt (.md) in a modal editor. */
+  const handleEditPrompt = useCallback(
+    (agentId: string) => {
+      const fileId = agentFileId(agentId);
+      if (!fileId) {
+        showToast('No editable .md found for this agent', 'error');
+        return;
+      }
+      // Already loaded (possibly with unsaved edits) → reopen without reloading.
+      if (activeConfigFileId === fileId) {
+        setPromptOpen(true);
+        return;
+      }
+      // Switching to a different file while one is dirty → guard the discard.
+      if (configDirty) {
+        setPendingNav({ type: 'prompt', fileId });
+        return;
+      }
+      selectConfigFile(fileId);
+      setPromptOpen(true);
+    },
+    [agentFileId, activeConfigFileId, configDirty, selectConfigFile, showToast]
   );
 
   /** Called when the user clicks a view tab. */
@@ -96,6 +139,9 @@ export function ConfigPanel() {
     } else if (pendingNav.type === 'file') {
       setView('files');
       selectConfigFile(pendingNav.fileId);
+    } else if (pendingNav.type === 'prompt') {
+      selectConfigFile(pendingNav.fileId);
+      setPromptOpen(true);
     } else {
       setView(pendingNav.view);
     }
@@ -164,7 +210,7 @@ export function ConfigPanel() {
               aria-labelledby="config-tab-agents"
               className="flex flex-col flex-1 min-w-0 overflow-hidden"
             >
-              <AgentRoutingView onDirtyChange={setRoutingDirty} />
+              <AgentRoutingView onDirtyChange={setRoutingDirty} onEditPrompt={handleEditPrompt} />
             </div>
           ) : (
             /* Files — original sidebar + editor */
@@ -187,6 +233,22 @@ export function ConfigPanel() {
           )}
         </div>
       </aside>
+
+      {/* System-prompt editor — the agent's .md, opened from a routing card */}
+      <Modal
+        open={promptOpen}
+        onClose={() => setPromptOpen(false)}
+        maxWidth="max-w-3xl"
+        className="h-[80vh]"
+        labelId="agent-prompt-title"
+      >
+        <ModalHeader onClose={() => setPromptOpen(false)}>
+          <ModalTitle id="agent-prompt-title">System prompt</ModalTitle>
+        </ModalHeader>
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <ConfigEditor />
+        </div>
+      </Modal>
 
       {/* Discard-changes confirmation dialog */}
       <DiscardChangesDialog

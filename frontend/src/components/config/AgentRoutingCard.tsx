@@ -28,7 +28,6 @@ const OPENCODE_HINT = 'provider/model';
 interface AgentRoutingCardProps {
   agentId:      string;
   displayName:  string;
-  roleSubtitle: string;
   /** Effective model (resolved for the current scope). */
   effectiveModel: string;
   /** Source of the effective model — drives the badge and mini-pill tint. */
@@ -53,12 +52,13 @@ interface AgentRoutingCardProps {
   cliTool: ModelCliTool;
   /** Called when the user switches the CLI tool (claude ⇄ opencode). */
   onChangeCliTool: (agentId: string, cliTool: ModelCliTool) => void;
+  /** Called when the user wants to view/edit the agent's system prompt (.md). */
+  onEditPrompt?: (agentId: string) => void;
 }
 
 export function AgentRoutingCard({
   agentId,
   displayName,
-  roleSubtitle,
   effectiveModel,
   source,
   scope,
@@ -71,6 +71,7 @@ export function AgentRoutingCard({
   hasOverride,
   cliTool,
   onChangeCliTool,
+  onEditPrompt,
 }: AgentRoutingCardProps) {
   const detailId  = useId();
   const dotClass  = agentDotColor(agentId);
@@ -79,7 +80,6 @@ export function AgentRoutingCard({
   const displayModel = localModel || effectiveModel;
   const isOpencode   = cliTool === 'opencode';
   const isPreset     = !isOpencode && CLAUDE_PRESETS.includes(displayModel as typeof CLAUDE_PRESETS[number]);
-  const isOverridden = source !== 'default';
   /** True when the model is overridden at the scope being edited (the actionable deviation). */
   const isScopeOverride = source === scope;
   /** opencode requires a `provider/model` string — flag an invalid local edit. */
@@ -114,16 +114,11 @@ export function AgentRoutingCard({
           aria-hidden="true"
         />
 
-        {/* Name + role */}
-        <span className="flex flex-col gap-0 min-w-0 flex-1">
-          <span className="text-[13px] font-medium text-text-primary leading-snug font-mono truncate">
+        {/* Name */}
+        <span className="min-w-0 flex-1">
+          <span className="text-[13px] font-medium text-text-primary leading-snug font-mono truncate block">
             {displayName}
           </span>
-          {roleSubtitle && (
-            <span className="text-[11px] text-text-secondary leading-tight truncate">
-              {roleSubtitle}
-            </span>
-          )}
         </span>
 
         {/* CLI-tool tag — surfaces the non-default CLI (opencode) in the collapsed row */}
@@ -194,13 +189,21 @@ export function AgentRoutingCard({
               />
               {/* Badge + current model (read-only display of the effective value) */}
               <div className="flex items-center gap-2 flex-wrap">
-                <ModelInheritanceBadge source={source} />
+                {/* "Set here" → coloured scope badge; otherwise a muted inherited/default pill. */}
+                {isScopeOverride ? (
+                  <ModelInheritanceBadge source={source} />
+                ) : (
+                  <ModelInheritanceBadge
+                    source="default"
+                    label={source === 'default' ? undefined : 'inherited'}
+                  />
+                )}
                 <span
                   className={[
                     'font-mono text-[11.5px] px-2.5 py-1 rounded-lg border',
                     needsOpencodeModel
                       ? 'text-text-secondary/50 border-border border-dashed bg-transparent'
-                      : isOverridden
+                      : isScopeOverride
                         ? 'text-primary border-primary bg-primary-container'
                         : 'text-text-primary border-border bg-surface',
                   ].join(' ')}
@@ -215,7 +218,7 @@ export function AgentRoutingCard({
                     type="button"
                     onClick={() => onClear(agentId)}
                     aria-label={`Clear model override for ${displayName}`}
-                    className="text-text-secondary hover:text-error text-[12px] transition-colors duration-fast ml-auto"
+                    className="text-text-secondary hover:text-error text-[11.5px] transition-colors duration-fast ml-auto"
                   >
                     Clear
                   </button>
@@ -268,7 +271,7 @@ export function AgentRoutingCard({
                 onChange={(e) => onChange(agentId, e.target.value)}
                 className={[
                   'w-full bg-surface border rounded-lg px-3 py-1.5',
-                  'text-[12px] text-text-primary placeholder:text-text-secondary/50',
+                  'text-[11.5px] text-text-primary placeholder:text-text-secondary/50',
                   'focus:outline-none focus:ring-1 transition-all duration-fast font-mono',
                   opencodeInvalid
                     ? 'border-error focus:ring-error/50 focus:border-error'
@@ -305,6 +308,25 @@ export function AgentRoutingCard({
             </label>
             <SkillsReadOnly skills={metadata.skills} loading={metadata.loading} />
           </div>
+
+          {/* System prompt — opens the agent's .md in the editor */}
+          {onEditPrompt && (
+            <div className="pt-5">
+              <label className="block text-[11px] font-semibold uppercase tracking-widest text-text-secondary mb-3">
+                System prompt
+              </label>
+              <button
+                type="button"
+                onClick={() => onEditPrompt(agentId)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border bg-surface text-[11.5px] text-text-primary hover:border-primary/50 hover:text-primary transition-all duration-fast active:scale-[0.97]"
+              >
+                <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
+                  description
+                </span>
+                View / edit .md
+              </button>
+            </div>
+          )}
         </div>
       )}
     </article>
