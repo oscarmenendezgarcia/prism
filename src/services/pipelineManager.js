@@ -26,7 +26,7 @@
 const fs                        = require('fs');
 const path                      = require('path');
 const crypto                    = require('crypto');
-const { spawn, execSync }       = require('child_process');
+const { spawn }                 = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
@@ -40,66 +40,11 @@ const {
 } = require('../utils/promptBuilder');
 const { readSettings }              = require('../handlers/settings');
 const { resolveStageModelConfig }   = require('./modelConfigResolver');
+const cliSpawn                      = require('./cliSpawn');
 
-// Resolve the claude binary path once at startup so caffeinate (and sh) can
-// find it even when the server was launched from a shell with a different PATH.
-// Falls back through common install locations if `which` fails.
-let CLAUDE_BIN = 'claude';
-{
-  const home = process.env.HOME ?? '';
-  const candidates = [
-    // PATH lookup first (covers most cases)
-    () => execSync('which claude 2>/dev/null', { encoding: 'utf8', env: process.env }).trim(),
-    // Common install locations as fallback
-    () => `${home}/.local/bin/claude`,
-    () => '/usr/local/bin/claude',
-    () => '/opt/homebrew/bin/claude',
-  ];
-  for (const candidate of candidates) {
-    try {
-      const p = candidate();
-      if (p && fs.existsSync(p)) { CLAUDE_BIN = p; break; }
-    } catch { /* try next */ }
-  }
-}
-
-// MODEL-2: lazy-cached binary path for opencode (optional — resolved on first use).
-let OPENCODE_BIN = null;
-
-/**
- * Lazily resolve the absolute binary path for a given cliTool.
- * For 'claude', returns the already-resolved CLAUDE_BIN.
- * For 'opencode', probes PATH then the default install location; caches the result.
- *
- * @param {'claude'|'opencode'|'custom'} cliTool
- * @returns {string}  Absolute path to the binary.
- * @throws {Error}    If the binary cannot be found (message: 'BINARY_NOT_FOUND:<cliTool>').
- */
-function resolveCliBinary(cliTool) {
-  if (cliTool === 'claude') return CLAUDE_BIN;
-
-  if (cliTool === 'opencode') {
-    if (OPENCODE_BIN !== null) return OPENCODE_BIN;
-
-    const home = process.env.HOME ?? '';
-    const candidates = [
-      () => execSync('which opencode 2>/dev/null', { encoding: 'utf8', env: process.env }).trim(),
-      () => `${home}/.opencode/bin/opencode`,
-    ];
-    for (const candidate of candidates) {
-      try {
-        const p = candidate();
-        if (p && fs.existsSync(p)) {
-          OPENCODE_BIN = p;
-          return OPENCODE_BIN;
-        }
-      } catch { /* try next */ }
-    }
-    throw new Error('BINARY_NOT_FOUND:opencode');
-  }
-
-  throw new Error(`BINARY_NOT_FOUND:${cliTool}`);
-}
+// Binary resolution (claude/opencode) lives in cliSpawn.js — the single source
+// of truth shared with folioBootstrap.js.
+const resolveCliBinary = cliSpawn.resolveCliBinary;
 
 /**
  * Read a task from the kanban column files by ID.
@@ -475,11 +420,7 @@ function buildWindowsShellCommand({ binary, finalArgs, promptPath, logPath, done
  */
 function buildOpencodePromptFile(agentSpec, taskPromptPath, runDirPath, stageIndex) {
   const taskPromptContent = fs.readFileSync(taskPromptPath, 'utf8');
-  const systemPrompt = agentSpec && agentSpec.systemPrompt ? agentSpec.systemPrompt.trim() : '';
-
-  const merged = systemPrompt
-    ? `${systemPrompt}\n\n---\n\n${taskPromptContent}`
-    : taskPromptContent;
+  const merged = cliSpawn.buildMergedPrompt(agentSpec, taskPromptContent);
 
   const outPath = path.join(runDirPath, `stage-${stageIndex}-oc-prompt.md`);
   fs.writeFileSync(outPath, merged, 'utf8');
@@ -501,7 +442,7 @@ function buildOpencodePromptFile(agentSpec, taskPromptPath, runDirPath, stageInd
  * @returns {string}
  */
 function buildOpencodeUnixShellCommand({ binary, model, mergedPromptPath, logPath, doneFile }) {
-  const cliLine = `${shellEscape(binary)} run --model ${shellEscape(model)} --dangerously-skip-permissions --format default --file ${shellEscape(mergedPromptPath)} 'Proceed.' >> ${shellEscape(logPath)} 2>&1`;
+  const cliLine = cliSpawn.opencodeCliLine({ binary, model, mergedPromptPath, logPath, platform: 'unix' });
   return wrapUnixSentinel(cliLine, doneFile);
 }
 
@@ -513,7 +454,7 @@ function buildOpencodeUnixShellCommand({ binary, model, mergedPromptPath, logPat
  * @returns {string}
  */
 function buildOpencodeWindowsShellCommand({ binary, model, mergedPromptPath, logPath, doneFile }) {
-  const cliLine = `${cmdEscape(binary)} run --model ${cmdEscape(model)} --dangerously-skip-permissions --format default --file ${cmdEscape(mergedPromptPath)} "Proceed." >> ${cmdEscape(logPath)} 2>&1`;
+  const cliLine = cliSpawn.opencodeCliLine({ binary, model, mergedPromptPath, logPath, platform: 'win32' });
   return wrapWindowsSentinel(cliLine, doneFile);
 }
 
@@ -2997,8 +2938,44 @@ async function maybeConsolidate(dataDir, run) {
       ? agentSpec.spawnArgs
       : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
-    const escapedArgs = finalArgs.map(shellEscape).join(' ');
-    const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFile)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+    // MODEL-2: honour model routing for the consolidator (was hardcoded to claude).
+    const consSettings    = readSettings(dataDir);
+    const consSpaceModels = _store ? (_store.getSpace(run.spaceId)?.stageModels ?? null) : null;
+    const consTaskModels  = _store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null;
+    const consModelConfig = resolveStageModelConfig('folio-consolidator', agentSpec, consSettings, consSpaceModels, consTaskModels);
+
+    let consBinary;
+    try {
+      consBinary = resolveCliBinary(consModelConfig.cliTool);
+    } catch (binErr) {
+      pipelineLog('consolidation.binary_missing', { runId: run.runId, cliTool: consModelConfig.cliTool });
+      const freshRun = readRun(dataDir, run.runId);
+      if (freshRun) {
+        freshRun.consolidation = { status: 'error', reason: 'binary_missing', cliTool: consModelConfig.cliTool, startedAt, finishedAt: new Date().toISOString() };
+        writeRun(dataDir, freshRun);
+      }
+      closeFolioRun({
+        dataDir, runId: surfaceRunId, entryId: `${surfaceRunId}-${CONSOLIDATION_RUN.kind}`,
+        spaceId: run.spaceId, startedAt, drop: true, runStore: consolidationRunStore(),
+        kind: CONSOLIDATION_RUN.kind, taskTitle: CONSOLIDATION_RUN.taskTitle, agentId: CONSOLIDATION_RUN.agentId,
+      });
+      return;
+    }
+
+    pipelineLog('consolidation.model_resolved', {
+      runId: run.runId, cliTool: consModelConfig.cliTool, model: consModelConfig.model, resolvedFrom: consModelConfig.resolvedFrom,
+    });
+
+    let shellCmd;
+    if (consModelConfig.cliTool === 'opencode') {
+      const mergedPromptPath = path.join(runDir(dataDir, surfaceRunId), 'consolidation-oc-prompt.md');
+      fs.writeFileSync(mergedPromptPath, cliSpawn.buildMergedPrompt(agentSpec, fs.readFileSync(promptFile, 'utf8')), 'utf8');
+      const cliLine = cliSpawn.opencodeCliLine({ binary: consBinary, model: consModelConfig.model, mergedPromptPath, logPath, platform: 'unix' });
+      shellCmd = `${cliLine}; echo $? > ${shellEscape(doneFile)}`;
+    } else {
+      const escapedArgs = finalArgs.map(shellEscape).join(' ');
+      shellCmd = `${consBinary} ${escapedArgs} < ${shellEscape(promptFile)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+    }
 
     const child = spawn('sh', ['-c', shellCmd], {
       stdio:    'ignore',
@@ -3132,9 +3109,34 @@ function attemptCrossAgentResolution(dataDir, run, comment) {
     ? agentSpec.spawnArgs
     : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
-  const escapedArgs = finalArgs.map(shellEscape).join(' ');
+  // MODEL-2: honour model routing for the cross-agent resolver (was hardcoded to claude).
+  const resSettings    = readSettings(dataDir);
+  const resSpaceModels = _store ? (_store.getSpace(run.spaceId)?.stageModels ?? null) : null;
+  const resTaskModels  = _store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null;
+  const resModelConfig = resolveStageModelConfig(comment.targetAgent, agentSpec, resSettings, resSpaceModels, resTaskModels);
+
+  let resBinary;
+  try {
+    resBinary = resolveCliBinary(resModelConfig.cliTool);
+  } catch (binErr) {
+    pipelineLog('resolver.binary_missing', {
+      runId: run.runId, commentId: comment.id, targetAgent: comment.targetAgent, cliTool: resModelConfig.cliTool,
+    });
+    markCommentNeedsHuman(dataDir, run.spaceId, run.taskId, comment.id);
+    return;
+  }
+
   const _playwrightCleanup2 = `pkill -f 'ms-playwright' 2>/dev/null; true`;
-  const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; _EXIT=$?; ${_playwrightCleanup2}; echo $_EXIT > ${shellEscape(doneFile)}`;
+  let shellCmd;
+  if (resModelConfig.cliTool === 'opencode') {
+    const mergedPromptPath = path.join(runDir(dataDir, run.runId), `resolver-${comment.id}-oc-prompt.md`);
+    fs.writeFileSync(mergedPromptPath, cliSpawn.buildMergedPrompt(agentSpec, fs.readFileSync(promptFilePath, 'utf8')), 'utf8');
+    const cliLine = cliSpawn.opencodeCliLine({ binary: resBinary, model: resModelConfig.model, mergedPromptPath, logPath, platform: 'unix' });
+    shellCmd = `${cliLine}; _EXIT=$?; ${_playwrightCleanup2}; echo $_EXIT > ${shellEscape(doneFile)}`;
+  } else {
+    const escapedArgs = finalArgs.map(shellEscape).join(' ');
+    shellCmd = `${resBinary} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; _EXIT=$?; ${_playwrightCleanup2}; echo $_EXIT > ${shellEscape(doneFile)}`;
+  }
 
   const child = spawn('sh', ['-c', shellCmd], {
     stdio:    'ignore',

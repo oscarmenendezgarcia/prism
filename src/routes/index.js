@@ -380,6 +380,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       folioBootstrap.triggerBackgroundBootstrap({
         spaceId, workingDir: wd, binding, dataDir, spaceName: space.name,
         runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
+        spaceModels: space.stageModels ?? null,
         force: true, // explicit button press → re-run even if a stale one-shot mark exists
       });
       return sendJSON(res, 202, { started: true });
@@ -599,6 +600,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
                 folioBootstrap.triggerBackgroundBootstrap({
                   spaceId, workingDir: newWd, binding, dataDir, spaceName: result.space.name,
                   runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
+                  spaceModels: result.space.stageModels ?? null,
                 });
               }
             } else if (result.space.folioBackend !== 'file' && typeof binding.migrateSpaceToFile === 'function') {

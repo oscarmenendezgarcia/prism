@@ -64,11 +64,17 @@ function createSpaceWithTask(dataDir, spaceId = 'test-space-oc') {
   return { spaceId, taskId };
 }
 
-/** Fresh require of pipelineManager (avoid module cache pollution). */
+/**
+ * Fresh require of pipelineManager (avoid module cache pollution).
+ * cliSpawn.js owns the CLAUDE_BIN/OPENCODE_BIN caches (MODEL-2 — shared with
+ * folioBootstrap.js), so it must be cleared too or binary-resolution tests
+ * that rely on a fresh PATH/HOME probe will see a stale cached path.
+ */
 function freshPM() {
   delete require.cache[require.resolve('../src/services/pipelineManager')];
   delete require.cache[require.resolve('../src/services/agentResolver')];
   delete require.cache[require.resolve('../src/services/modelConfigResolver')];
+  delete require.cache[require.resolve('../src/services/cliSpawn')];
   return require('../src/services/pipelineManager');
 }
 

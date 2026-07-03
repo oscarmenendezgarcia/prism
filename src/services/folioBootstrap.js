@@ -28,31 +28,13 @@
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
-const { spawn, execSync } = require('child_process');
+const { spawn } = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { openFolioRun, closeFolioRun } = require('./folioRunSurface');
-
-// ---------------------------------------------------------------------------
-// CLAUDE_BIN — resolved once at module load (same pattern as pipelineManager)
-// ---------------------------------------------------------------------------
-
-let CLAUDE_BIN = 'claude';
-{
-  const home = process.env.HOME ?? '';
-  const candidates = [
-    () => execSync('which claude 2>/dev/null', { encoding: 'utf8', env: process.env }).trim(),
-    () => `${home}/.local/bin/claude`,
-    () => '/usr/local/bin/claude',
-    () => '/opt/homebrew/bin/claude',
-  ];
-  for (const candidate of candidates) {
-    try {
-      const p = candidate();
-      if (p && fs.existsSync(p)) { CLAUDE_BIN = p; break; }
-    } catch { /* try next */ }
-  }
-}
+const { resolveStageModelConfig } = require('./modelConfigResolver');
+const { readSettings } = require('../handlers/settings');
+const cliSpawn = require('./cliSpawn');
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -498,14 +480,47 @@ async function ensureBootstrapped(spaceId, workingDir, binding, opts = {}) {
     // run shows up as a single-stage run in the normal log viewer.
     const logPath = path.join(tmpDir, opts.logFile || 'bootstrap.log');
 
+    // MODEL-2: honour model routing for folio-bootstrapper. This activation-time
+    // spawn is OUTSIDE the pipeline and previously hardcoded the claude binary, so
+    // routing an agent to opencode had no effect here.
+    const settings    = opts.dataDir ? readSettings(opts.dataDir) : null;
+    const spaceModels = opts.spaceModels ?? null;
+    const modelConfig = resolveStageModelConfig('folio-bootstrapper', agentSpec, settings, spaceModels, null);
+
+    let binary;
+    try {
+      binary = cliSpawn.resolveCliBinary(modelConfig.cliTool);
+    } catch (binErr) {
+      // Do NOT silently fall back to claude — that is exactly the bug this fixes.
+      binding.setBootstrappedAt(spaceId, new Date().toISOString());
+      bootstrapLog('bootstrap.binary_missing', { spaceId, cliTool: modelConfig.cliTool });
+      return { status: 'error', reason: 'binary_missing', durationMs: Date.now() - t0 };
+    }
+
+    bootstrapLog('bootstrap.model_resolved', {
+      spaceId, cliTool: modelConfig.cliTool, model: modelConfig.model, resolvedFrom: modelConfig.resolvedFrom,
+    });
+
     const shellEscapeLocal = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
-    const escapedArgs = finalArgs.map(shellEscapeLocal).join(' ');
+
+    // claude reads the prompt from stdin; opencode has no system-prompt channel, so
+    // the agent's .md body is merged with the bootstrap prompt into a --file input.
+    let cliLine;
+    if (modelConfig.cliTool === 'opencode') {
+      const mergedPromptPath = path.join(tmpDir, 'bootstrap-oc-prompt.md');
+      fs.writeFileSync(mergedPromptPath, cliSpawn.buildMergedPrompt(agentSpec, promptText), 'utf8');
+      cliLine = cliSpawn.opencodeCliLine({ binary, model: modelConfig.model, mergedPromptPath, logPath, platform: 'unix' });
+    } else {
+      const escapedArgs = finalArgs.map(shellEscapeLocal).join(' ');
+      cliLine = `${binary} ${escapedArgs} < ${shellEscapeLocal(promptFile)} >> ${shellEscapeLocal(logPath)} 2>&1`;
+    }
+
     const shellCmd = [
       `_DONE=${shellEscapeLocal(doneFile)}`,
       `_SIGNAL=${shellEscapeLocal(signalPath)}`,
       '_EXIT=1',
       "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
-      `${CLAUDE_BIN} ${escapedArgs} < ${shellEscapeLocal(promptFile)} >> ${shellEscapeLocal(logPath)} 2>&1`,
+      cliLine,
       '_EXIT=$?',
     ].join('; ');
 
@@ -620,7 +635,7 @@ const BOOTSTRAP_RUN = {
  *   _testPages?: Array }} args
  * @returns {Promise<BootstrapResult>}
  */
-function triggerBackgroundBootstrap({ spaceId, workingDir, binding, dataDir, spaceName, runStore, force, _testPages }) {
+function triggerBackgroundBootstrap({ spaceId, workingDir, binding, dataDir, spaceName, runStore, force, spaceModels, _testPages }) {
   const runId     = `bootstrap-${spaceId}-${Date.now()}`;
   const startedAt = new Date().toISOString();
 
@@ -631,7 +646,7 @@ function triggerBackgroundBootstrap({ spaceId, workingDir, binding, dataDir, spa
   return (async () => {
     let result;
     try {
-      result = await ensureBootstrapped(spaceId, workingDir, binding, { dataDir, runId, logFile: 'stage-0.log', force, _testPages });
+      result = await ensureBootstrapped(spaceId, workingDir, binding, { dataDir, runId, logFile: 'stage-0.log', force, spaceModels, _testPages });
     } catch (err) {
       result = { status: 'error', reason: `unexpected: ${err.message}`, durationMs: Date.now() - Date.parse(startedAt) };
     }
