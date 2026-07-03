@@ -42,9 +42,10 @@ const { readSettings }              = require('../handlers/settings');
 const { resolveStageModelConfig }   = require('./modelConfigResolver');
 const cliSpawn                      = require('./cliSpawn');
 
-// Binary resolution (claude/opencode) lives in cliSpawn.js — the single source
-// of truth shared with folioBootstrap.js.
-const resolveCliBinary = cliSpawn.resolveCliBinary;
+// Binary resolution (claude/opencode) and shell escaping live in cliSpawn.js —
+// the single source of truth shared with folioBootstrap.js.
+const resolveCliBinary        = cliSpawn.resolveCliBinary;
+const { shellEscape, cmdEscape } = cliSpawn;
 
 /**
  * Read a task from the kanban column files by ID.
@@ -321,22 +322,6 @@ function consolidationSignalPath(dataDir, runId) {
  */
 function consolidationPromptPath(dataDir, runId) {
   return path.join(runDir(dataDir, runId), 'consolidation-prompt.md');
-}
-
-/**
- * POSIX single-quote escaping for shell arguments.
- * Wraps s in single quotes and escapes embedded single quotes as '\''
- *
- * @param {string} s
- * @returns {string}
- */
-function shellEscape(s) {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
-}
-
-// Windows cmd.exe path quoting: wrap in double quotes, escape embedded double quotes.
-function cmdEscape(s) {
-  return '"' + String(s).replace(/"/g, '""') + '"';
 }
 
 /**

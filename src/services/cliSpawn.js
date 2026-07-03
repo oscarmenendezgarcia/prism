@@ -21,7 +21,8 @@ const fs = require('fs');
 const { execSync } = require('child_process');
 
 // ---------------------------------------------------------------------------
-// Shell escaping (identical to pipelineManager's — kept here as the shared copy)
+// Shell escaping — single source of truth; pipelineManager.js imports these
+// rather than keeping its own copy.
 // ---------------------------------------------------------------------------
 
 function shellEscape(s) {
