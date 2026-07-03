@@ -222,7 +222,7 @@ export function AgentRoutingCard({
                     type="button"
                     onClick={() => onClear(agentId)}
                     aria-label={`Clear model override for ${displayName}`}
-                    className="text-text-secondary hover:text-error hover:bg-surface-variant text-[11.5px] rounded px-1.5 py-0.5 transition-colors duration-fast ml-auto"
+                    className="text-text-secondary hover:text-error hover:bg-surface-variant text-[11.5px] rounded px-1.5 py-0.5 transition-colors duration-fast"
                   >
                     Clear
                   </button>
