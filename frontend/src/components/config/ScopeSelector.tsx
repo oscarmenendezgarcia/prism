@@ -23,7 +23,7 @@ export function ScopeSelector({ scope, spaceName, onChange }: ScopeSelectorProps
     <div
       role="radiogroup"
       aria-label="Model routing scope"
-      className="inline-flex gap-[3px] bg-surface border border-border rounded-[9px] p-[3px]"
+      className="inline-flex gap-[3px] bg-surface border border-border rounded-sm p-[3px]"
     >
       <ScopeButton
         label="Global"

@@ -90,7 +90,7 @@ export function AgentRoutingCard({
   return (
     <article
       className={[
-        'border rounded-[11px] mx-4 my-2.5 overflow-hidden',
+        'border rounded-md mx-4 my-2.5 overflow-hidden',
         'transition-colors duration-fast',
         open ? 'border-primary' : 'border-border',
       ].join(' ')}
@@ -114,9 +114,13 @@ export function AgentRoutingCard({
           aria-hidden="true"
         />
 
-        {/* Name */}
-        <span className="min-w-0 flex-1">
-          <span className="text-[13px] font-medium text-text-primary leading-snug font-mono truncate block">
+        {/* Name — min-w floor so the CLI tag/model pill/badge siblings can never
+            squeeze it to zero width; title recovers the full name when truncated. */}
+        <span className="min-w-[64px] flex-1">
+          <span
+            className="text-[13px] font-medium text-text-primary leading-snug font-mono truncate block"
+            title={displayName}
+          >
             {displayName}
           </span>
         </span>
@@ -218,7 +222,7 @@ export function AgentRoutingCard({
                     type="button"
                     onClick={() => onClear(agentId)}
                     aria-label={`Clear model override for ${displayName}`}
-                    className="text-text-secondary hover:text-error text-[11.5px] transition-colors duration-fast ml-auto"
+                    className="text-text-secondary hover:text-error hover:bg-surface-variant text-[11.5px] rounded px-1.5 py-0.5 transition-colors duration-fast ml-auto"
                   >
                     Clear
                   </button>

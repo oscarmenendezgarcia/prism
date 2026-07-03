@@ -25,7 +25,7 @@ export function EffortSegmented({ value }: EffortSegmentedProps) {
       <div
         role="group"
         aria-label="Effort level (read-only)"
-        className="inline-flex gap-0.5 bg-surface border border-border rounded-[9px] p-[3px] cursor-not-allowed"
+        className="inline-flex gap-0.5 bg-surface border border-border rounded-sm p-[3px] cursor-not-allowed"
       >
         {EFFORTS.map((effort) => {
           const isActive = effort === active;
@@ -41,7 +41,7 @@ export function EffortSegmented({ value }: EffortSegmentedProps) {
                 'px-3 py-1 text-[11.5px] font-semibold rounded-md border-0',
                 'cursor-not-allowed select-none transition-colors duration-fast',
                 isActive
-                  ? 'bg-primary-container text-primary'
+                  ? 'bg-primary-container text-primary opacity-60'
                   : 'bg-transparent text-text-secondary opacity-50',
               ].join(' ')}
             >

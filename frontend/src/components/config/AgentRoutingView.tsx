@@ -263,7 +263,7 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
           onChange={setScope}
         />
         {/* Search */}
-        <div className="flex items-center gap-2 bg-surface border border-border rounded-[9px] px-3 py-2">
+        <div className="flex items-center gap-2 bg-surface border border-border rounded-sm px-3 py-2 focus-within:ring-1 focus-within:ring-primary focus-within:border-primary">
           <span className="material-symbols-outlined text-[17px] text-text-secondary leading-none shrink-0" aria-hidden="true">
             search
           </span>
@@ -275,7 +275,7 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
             aria-label="Search agents"
             className={[
               'flex-1 bg-transparent border-0 outline-none',
-              'text-[12.5px] text-text-primary placeholder:text-text-secondary/50',
+              'text-[12.5px] text-text-primary placeholder:text-text-secondary/70',
             ].join(' ')}
           />
           {search && (
