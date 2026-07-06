@@ -294,7 +294,15 @@ export interface PipelineState {
   spaceId: string;
   /** Main task anchor — never moved by the pipeline. */
   taskId: string;
-  stages: PipelineStage[];
+  /**
+   * Agent IDs for each stage. Widened from PipelineStage[] to string[]: a
+   * loop injection (e.g. code-reviewer sending work back to developer-agent)
+   * can append stages the backend supports but that aren't in the fixed
+   * 4-value picker union (code-reviewer, folio-consolidator, etc.), and the
+   * same agentId can repeat. Must stay in sync with the live BackendRun.stages
+   * (see startPollLoop in useAppStore.ts) so StageTabBar shows every stage.
+   */
+  stages: string[];
   currentStageIndex: number;
   startedAt: string;  // ISO timestamp
   /** ISO timestamp when the run finished (completed, aborted, or interrupted). */

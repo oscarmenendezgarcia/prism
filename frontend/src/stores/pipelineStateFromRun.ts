@@ -9,7 +9,7 @@
  * These functions are pure — no side effects, no store access.
  */
 
-import type { AgentRunRecord, PipelineState, PipelineStage, RunStatus } from '@/types';
+import type { AgentRunRecord, PipelineState, RunStatus } from '@/types';
 import { computeAggregateStatus } from '@/components/agent-run-history/groupRuns';
 
 // ---------------------------------------------------------------------------
@@ -81,7 +81,7 @@ export function buildSingleState(run: AgentRunRecord): PipelineState {
     spaceId:           run.spaceId,
     taskId:            run.taskId,
     taskTitle:         run.taskTitle,
-    stages:            [run.agentId as PipelineStage],
+    stages:            [run.agentId],
     currentStageIndex: 0,
     startedAt:         run.startedAt,
     finishedAt:        run.completedAt ?? undefined,
@@ -133,7 +133,7 @@ export function buildPipelineGroupState(
     spaceId:           first.spaceId,
     taskId:            first.taskId,
     taskTitle:         first.taskTitle,
-    stages:            sorted.map((s) => s.agentId as PipelineStage),
+    stages:            sorted.map((s) => s.agentId),
     currentStageIndex: lastNonPendingIndex(sorted),
     startedAt:         new Date(startMs).toISOString(),
     finishedAt,

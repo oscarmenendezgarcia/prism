@@ -461,10 +461,16 @@ export const useAppStore = create<AppState>((set, get) => {
     const pollId = setInterval(async () => {
       try {
         const run = await api.getBackendRun(runIdToWatch);
-        // Keep currentStageIndex in sync with backend.
+        // Keep currentStageIndex AND stages in sync with backend — a loop
+        // injection (e.g. code-reviewer sending work back to developer-agent)
+        // appends stages to run.stages after the pipeline started, and the
+        // tab bar needs those extra entries to show/select them.
         const ps = get().pipelineStates[runIdToWatch];
         if (ps && typeof run.currentStage === 'number') {
-          setPipelineStateById(runIdToWatch, { currentStageIndex: run.currentStage });
+          setPipelineStateById(runIdToWatch, {
+            currentStageIndex: run.currentStage,
+            ...(Array.isArray(run.stages) ? { stages: run.stages } : {}),
+          });
         }
         // Surface interrupted state so InterruptedBanner shows.
         if (run.status === 'interrupted') {
