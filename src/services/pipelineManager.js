@@ -2527,6 +2527,32 @@ If you decide to write nothing, still write { "pages": [] } and signal done.
 }
 
 /**
+ * Read + JSON.parse consolidation.json, retrying briefly on failure.
+ * Handles the sentinel-before-signal race described in applyConsolidation:
+ * a few short retries cover the gap between the sentinel appearing and the
+ * agent's Write of the actual signal file landing, without meaningfully
+ * delaying the (much more common) case where both are already present.
+ *
+ * @param {string} signalPath
+ * @returns {Promise<object>} parsed signal
+ * @throws the last read/parse error if every attempt fails
+ */
+async function readConsolidationSignalWithRetry(signalPath) {
+  const attempts = 4;
+  const delayMs  = 250;
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return JSON.parse(fs.readFileSync(signalPath, 'utf8'));
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
+/**
  * Read, validate, and apply the consolidation.json signal produced by the consolidator agent.
  *
  * Validation (server-side, authoritative — never trusts the agent):
@@ -2544,14 +2570,18 @@ If you decide to write nothing, still write { "pages": [] } and signal done.
 async function applyConsolidation(dataDir, run, startedAt) {
   const cfg        = resolveWritebackConfig();
   const signalPath = consolidationSignalPath(dataDir, run.runId);
-  const finishedAt = new Date().toISOString();
 
-  // Read and parse consolidation.json
+  // Read and parse consolidation.json. Retried briefly: the consolidator
+  // agent has been observed writing the done-sentinel before consolidation.json
+  // (e.g. via a bash `echo` for the sentinel, then a separate Write for the
+  // JSON moments later) — the poller can detect the sentinel and read the
+  // signal file in that gap, seeing ENOENT even though the agent's real,
+  // valid output lands a beat later.
   let signal;
   try {
-    const raw = fs.readFileSync(signalPath, 'utf8');
-    signal = JSON.parse(raw);
+    signal = await readConsolidationSignalWithRetry(signalPath);
   } catch (err) {
+    const finishedAt = new Date().toISOString();
     pipelineLog('consolidation.failed', {
       runId: run.runId,
       reason: 'signal_parse_error',
@@ -2571,6 +2601,7 @@ async function applyConsolidation(dataDir, run, startedAt) {
     }
     return;
   }
+  const finishedAt = new Date().toISOString();
 
   const SLUG_RE   = /^[a-z0-9-]+\/[a-z0-9-]+$/;
   const rawPages  = Array.isArray(signal && signal.pages) ? signal.pages : [];
@@ -3694,6 +3725,7 @@ module.exports = {
   hasActiveRunInDir,
   effectiveCwd,
   spawnCwd,
+  readConsolidationSignalWithRetry,
   finalizeRun,
   // Exported for testing and preview endpoint:
   runsDir,
