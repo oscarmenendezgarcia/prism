@@ -1027,6 +1027,27 @@ function effectiveCwd(run) {
 }
 
 /**
+ * Resolve settings/space/task model overrides and call resolveStageModelConfig
+ * for a single agent. Shared by the folio-consolidator and cross-agent resolver
+ * spawn sites, which each resolve a config for one fixed agentId/agentSpec pair
+ * (unlike spawnStage, which resolves twice — once early for PIPELINE_NO_SPAWN
+ * diagnostics, once with the real agentSpec — sharing one settings/spaceModels/
+ * taskModels fetch across both, so it is not a fit for this helper).
+ *
+ * @param {string} dataDir
+ * @param {object} run
+ * @param {string} agentId
+ * @param {object} agentSpec
+ * @returns {object} resolved model config
+ */
+function resolveModelForStage(dataDir, run, agentId, agentSpec) {
+  const settings    = readSettings(dataDir);
+  const spaceModels = _store ? (_store.getSpace(run.spaceId)?.stageModels ?? null) : null;
+  const taskModels  = _store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null;
+  return resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, taskModels);
+}
+
+/**
  * Resolve the cwd to actually spawn a child process in. Same as effectiveCwd,
  * but falls back to run.workingDirectory when the worktree path no longer
  * exists on disk (e.g. the folio-consolidator and resolver spawns run after
@@ -2950,10 +2971,7 @@ async function maybeConsolidate(dataDir, run) {
       : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
     // MODEL-2: honour model routing for the consolidator (was hardcoded to claude).
-    const consSettings    = readSettings(dataDir);
-    const consSpaceModels = _store ? (_store.getSpace(run.spaceId)?.stageModels ?? null) : null;
-    const consTaskModels  = _store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null;
-    const consModelConfig = resolveStageModelConfig('folio-consolidator', agentSpec, consSettings, consSpaceModels, consTaskModels);
+    const consModelConfig = resolveModelForStage(dataDir, run, 'folio-consolidator', agentSpec);
 
     let consBinary;
     try {
@@ -3122,10 +3140,7 @@ function attemptCrossAgentResolution(dataDir, run, comment) {
     : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
   // MODEL-2: honour model routing for the cross-agent resolver (was hardcoded to claude).
-  const resSettings    = readSettings(dataDir);
-  const resSpaceModels = _store ? (_store.getSpace(run.spaceId)?.stageModels ?? null) : null;
-  const resTaskModels  = _store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null;
-  const resModelConfig = resolveStageModelConfig(comment.targetAgent, agentSpec, resSettings, resSpaceModels, resTaskModels);
+  const resModelConfig = resolveModelForStage(dataDir, run, comment.targetAgent, agentSpec);
 
   let resBinary;
   try {

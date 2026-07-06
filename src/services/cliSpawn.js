@@ -40,23 +40,27 @@ function cmdEscape(s) {
 let CLAUDE_BIN = null;
 let OPENCODE_BIN = null;
 
+/** Return the first candidate whose resolved path exists on disk, or null. */
+function firstExistingPath(candidates) {
+  for (const candidate of candidates) {
+    try {
+      const p = candidate();
+      if (p && fs.existsSync(p)) return p;
+    } catch { /* try next */ }
+  }
+  return null;
+}
+
 /** Resolve (and cache) the claude binary path, falling back through common locations. */
 function claudeBinary() {
   if (CLAUDE_BIN) return CLAUDE_BIN;
-  CLAUDE_BIN = 'claude';
   const home = process.env.HOME ?? '';
-  const candidates = [
+  CLAUDE_BIN = firstExistingPath([
     () => execSync('which claude 2>/dev/null', { encoding: 'utf8', env: process.env }).trim(),
     () => `${home}/.local/bin/claude`,
     () => '/usr/local/bin/claude',
     () => '/opt/homebrew/bin/claude',
-  ];
-  for (const candidate of candidates) {
-    try {
-      const p = candidate();
-      if (p && fs.existsSync(p)) { CLAUDE_BIN = p; break; }
-    } catch { /* try next */ }
-  }
+  ]) ?? 'claude';
   return CLAUDE_BIN;
 }
 
@@ -74,16 +78,11 @@ function resolveCliBinary(cliTool) {
   if (cliTool === 'opencode') {
     if (OPENCODE_BIN !== null) return OPENCODE_BIN;
     const home = process.env.HOME ?? '';
-    const candidates = [
+    const found = firstExistingPath([
       () => execSync('which opencode 2>/dev/null', { encoding: 'utf8', env: process.env }).trim(),
       () => `${home}/.opencode/bin/opencode`,
-    ];
-    for (const candidate of candidates) {
-      try {
-        const p = candidate();
-        if (p && fs.existsSync(p)) { OPENCODE_BIN = p; return OPENCODE_BIN; }
-      } catch { /* try next */ }
-    }
+    ]);
+    if (found) { OPENCODE_BIN = found; return OPENCODE_BIN; }
     throw new Error('BINARY_NOT_FOUND:opencode');
   }
 

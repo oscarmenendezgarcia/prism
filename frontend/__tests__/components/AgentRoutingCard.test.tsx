@@ -7,7 +7,7 @@
  *   - model preset selection calls onChange
  *   - custom input calls onChange
  *   - clear button visibility (hasOverride guard)
- *   - effort segmented is disabled (aria-disabled)
+ *   - effort is rendered read-only
  *   - skills are rendered in expanded view
  *   - keyboard accessibility (aria-expanded, aria-controls)
  */
@@ -199,15 +199,10 @@ describe('AgentRoutingCard — expanded state', () => {
     expect(onClear).toHaveBeenCalledWith('ux-api-designer');
   });
 
-  it('renders EffortSegmented as disabled', () => {
+  it('renders EffortSegmented as a read-only label', () => {
     renderCard({ open: true, metadata: { ...DEFAULT_META, effort: 'medium' } });
-    const buttons = screen.getAllByRole('button');
-    // The effort buttons are inside the expanded detail area and are disabled
-    const effortButtons = buttons.filter((b) => ['low', 'medium', 'high'].includes(b.textContent ?? ''));
-    expect(effortButtons.length).toBe(3);
-    effortButtons.forEach((b) => {
-      expect(b.hasAttribute('disabled')).toBe(true);
-    });
+    // Read-only in this release (Phase 1) — a plain label, not an editable control.
+    expect(screen.getByText('medium')).toBeDefined();
   });
 
   it('renders skill chips in expanded view', () => {

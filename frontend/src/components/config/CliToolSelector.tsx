@@ -7,12 +7,11 @@
  *
  * `custom` is a reserved backend value (spawning not implemented) and is not
  * offered here.
- *
- * Accessibility: radiogroup semantics; each option is a radio with aria-checked.
  */
 
 import React from 'react';
 import type { ModelCliTool } from '@/types';
+import { SegmentedControl } from './SegmentedControl';
 
 const OPTIONS: ReadonlyArray<{ value: ModelCliTool; label: string }> = [
   { value: 'claude',   label: 'Claude' },
@@ -28,33 +27,11 @@ interface CliToolSelectorProps {
 
 export function CliToolSelector({ value, onChange, agentLabel }: CliToolSelectorProps) {
   return (
-    <div
-      role="radiogroup"
-      aria-label={`CLI tool for ${agentLabel}`}
-      className="inline-flex gap-0.5 bg-surface border border-border rounded-sm p-[3px]"
-    >
-      {OPTIONS.map(({ value: opt, label }) => {
-        const isActive = opt === value;
-        return (
-          <button
-            key={opt}
-            type="button"
-            role="radio"
-            aria-checked={isActive}
-            onClick={() => onChange(opt)}
-            className={[
-              'px-3 py-1 text-[12px] font-semibold rounded-md border-0 select-none',
-              'transition-colors duration-fast active:scale-[0.97]',
-              'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
-              isActive
-                ? 'bg-primary-container text-primary'
-                : 'bg-transparent text-text-secondary hover:text-text-primary',
-            ].join(' ')}
-          >
-            {label}
-          </button>
-        );
-      })}
-    </div>
+    <SegmentedControl<ModelCliTool>
+      ariaLabel={`CLI tool for ${agentLabel}`}
+      value={value}
+      onChange={onChange}
+      options={OPTIONS}
+    />
   );
 }
