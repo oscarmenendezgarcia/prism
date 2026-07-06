@@ -1,0 +1,85 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "cli-status",
+  "date": "2026-07-06",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Create bin/status.js with pure helpers and buildStatus()",
+      "description": "New file bin/status.js mirroring bin/stop.js structure. Import { readPidFile, isPidAlive } from ./stop.js (DRY). Implement pure helpers: resolvePort(flags, env) => (--port ▸ PORT ▸ 3000) as an integer; buildStatus({running, pid, port, version, activeRuns, dataDir}) => plain status object with fields { running, pid, port, version, activeRuns, dataDir, sqlitePath, api } where sqlitePath = path.join(dataDir,'prism.db') and api = 'reachable' when activeRuns is a number else 'unreachable'. No I/O in helpers. Re-export helpers for tests.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 points",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "bin/status.js exists and exports { run, readPidFile, isPidAlive, resolvePort, buildStatus, fetchActiveRunCount, formatText, formatJson }",
+        "resolvePort returns flags.port when set, else parseInt(env.PORT) when set, else 3000; always an integer",
+        "buildStatus is pure (no fs/http/process access) and sets sqlitePath to <dataDir>/prism.db and api based on activeRuns",
+        "readPidFile / isPidAlive are imported from ./stop.js, not re-implemented"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Implement fetchActiveRunCount() with time-boxed HTTP + client-side count",
+      "description": "Add async fetchActiveRunCount(port, deps={}) to bin/status.js. Uses globalThis.fetch (injectable via deps._fetch) to GET http://127.0.0.1:<port>/api/v1/runs?status=running with an AbortController 1500ms timeout. On 200 + JSON array, return { count: runs.filter(r => r && r.status === 'running').length }. On any failure (non-200, network error, timeout, non-array body), return { count: null, reason }. Never throws.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2 points",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "Sends GET to 127.0.0.1:<port>/api/v1/runs?status=running with a ~1.5s abort budget",
+        "Counts running client-side (status === 'running'); ignores non-running entries",
+        "Returns { count: null } (never throws) on connection refused, timeout, non-200, or non-array body",
+        "fetch is injectable via deps._fetch for tests (no real socket needed)"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Implement run(flags, deps), formatters, and exit-code contract",
+      "description": "Add run(flags={}, deps={}) orchestrator + formatText(status) + formatJson(status) to bin/status.js, following bin/stop.js DI conventions. DI seam: _readPidFile, _isPidAlive, _fetchActiveRunCount, _exit, _stdout, _stderr. Flow: resolve dataDir (flags.dataDir else resolveDataDir({env,packageRoot,homedir})); pid = _readPidFile(dataDir); if pid===null or !_isPidAlive(pid) => build stopped status, print (text or JSON via flags.json), _exit(1). Else port=resolvePort(flags,env); {count}=await _fetchActiveRunCount(port); build running status, print, _exit(0). formatJson = JSON.stringify(status)+'\\n'. formatText = aligned key/value block guarded by TTY/NO_COLOR like doctor.js; running-but-unreachable shows 'Active runs  unknown (API not responding on port <n>)'. Wrap direct invocation in a fatal guard writing to stderr + exit 1.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3 points",
+      "dependencies": ["T-001", "T-002"],
+      "acceptance_criteria": [
+        "Exit 0 when PID alive, exit 1 when no/stale PID (matches acceptance criteria)",
+        "No pid file OR pid not alive => graceful 'prism is not running' text / {running:false,...} JSON, no stack trace",
+        "PID alive + API reachable => text summary with pid/port/version/active-runs/dataDir/sqlite; JSON with activeRuns as integer and api:'reachable'",
+        "PID alive + API unreachable => running (exit 0), activeRuns null, api 'unreachable', text shows 'unknown'",
+        "All external effects injectable via deps (_readPidFile,_isPidAlive,_fetchActiveRunCount,_exit,_stdout,_stderr)"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Wire `status` into bin/cli.js (parser, switch, USAGE)",
+      "description": "Register the subcommand in bin/cli.js: add runStatus(flags) that requires ./status.js and calls run(flags).catch(err => { stderr.write; exit 1 }); add `case 'status': runStatus(flags); break;` to the switch; add the `prism status [--json] [--port <n>] [--data-dir <path>]` line to USAGE plus a short 'prism status:' options block. --json/--port/--data-dir are already parsed by parseArgv — no parser change needed beyond confirming.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1 point",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "`prism status` dispatches to bin/status.js run()",
+        "USAGE text lists `prism status` with its flags and a description block",
+        "`prism status --json` and `prism status --port N --data-dir P` route flags correctly",
+        "Unknown-subcommand and --help behaviour unchanged"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Unit tests: tests/cli.status.test.js (mock PID file + mock HTTP)",
+      "description": "New node:test suite mirroring tests/cli.stop.test.js. Use injected deps: fake _readPidFile/_isPidAlive (no real fs/process) and fake _fetchActiveRunCount (no real socket). Capture _stdout/_stderr writes and the _exit code. Cover: (1) no pid file -> stopped, exit 1, text + {running:false}; (2) stale pid (alive=false) -> stopped, exit 1; (3) alive + count=N -> running, exit 0, activeRuns=N, api reachable; (4) alive + count=null -> running, exit 0, activeRuns null, api unreachable, text 'unknown'; (5) --json key/shape for running & stopped; (6) resolvePort precedence flag>env>default; (7) buildStatus pure table incl sqlitePath; (8) malformed pid -> stopped. Run with `npm test` (foreground, never background).",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "3 points",
+      "dependencies": ["T-003", "T-004"],
+      "acceptance_criteria": [
+        "tests/cli.status.test.js passes under `npm test` (foreground)",
+        "PID file and HTTP are both mocked via DI — no real server or socket touched",
+        "Covers stopped / running-reachable / running-unreachable / --json / resolvePort / buildStatus / malformed-pid cases",
+        "Statement coverage of bin/status.js > 90%",
+        "Asserts exit codes: 0 for running, 1 for stopped"
+      ]
+    }
+  ]
+}
