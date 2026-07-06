@@ -7,6 +7,7 @@
  * Subcommands:
  *   prism start   [--port <n>] [--data-dir <path>] [--silent]
  *   prism stop    [--data-dir <path>] [--force]
+ *   prism status  [--json] [--port <n>] [--data-dir <path>]
  *   prism init    [--data-dir <path>] [--force]
  *   prism update  [--no-update-check]
  *   prism doctor  [--data-dir <path>] [--json]
@@ -32,6 +33,7 @@ prism — local-first kanban + agent pipeline runner
 Usage:
   prism start   [--port <n>] [--data-dir <path>] [--silent]
   prism stop    [--data-dir <path>] [--force]
+  prism status  [--json] [--port <n>] [--data-dir <path>]
   prism init    [--data-dir <path>] [--force]
   prism update
   prism doctor  [--data-dir <path>] [--json]
@@ -51,6 +53,14 @@ prism stop:
   Reads <dataDir>/prism.pid, sends SIGTERM, and waits up to 35s for the
   process to exit. Use --force to send SIGKILL immediately (bypasses graceful
   shutdown — use when the server is hung).
+
+prism status:
+  Reports whether the server is running (PID + signal-0), plus PID, port,
+  version, active pipeline-run count, data dir, and SQLite path. Exit 0 when
+  running, 1 when stopped (scriptable). The port is not persisted, so pass
+  --port (or set PORT) if the server runs on a non-default port.
+  --json                Print machine-readable JSON instead of text
+  --port <n>            Port to probe for the run count (default 3000, env: PORT)
 
 prism doctor:
   Checks Node.js version, node-pty spawn-helper, better-sqlite3, Claude CLI,
@@ -195,6 +205,13 @@ function runStop(flags) {
   });
 }
 
+function runStatus(flags) {
+  require(path.join(__dirname, 'status.js')).run(flags).catch(err => {
+    process.stderr.write(`Error: ${err.message}\n`);
+    process.exit(1);
+  });
+}
+
 function runUpdate(flags) {
   require(path.join(__dirname, 'update.js')).run(flags);
 }
@@ -236,6 +253,10 @@ function runDoctor(flags) {
 
     case 'stop':
       runStop(flags);
+      break;
+
+    case 'status':
+      runStatus(flags);
       break;
 
     case 'init':
