@@ -714,6 +714,8 @@ export interface FinalResultEvent extends BaseEvent {
   numTurns: number;
   costUsd: number;
   stopReason: string;
+  /** Raw log summary — only present for non-Claude ("plain") stages. */
+  summary?: string;
 }
 
 /** Discriminated union of all event kinds returned by GET /events. */

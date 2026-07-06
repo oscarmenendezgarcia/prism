@@ -20,6 +20,7 @@
 const INPUT_PREVIEW_CAP   = 200;
 const ASSISTANT_PREVIEW_CAP = 1_000;
 const ERROR_PREVIEW_CAP   = 500;
+const SUMMARY_CAP         = 4_000;
 const MAX_EVENTS_PER_PAGE = 1_000;
 
 /**
@@ -156,6 +157,7 @@ async function projectEvents(normalizedEvents, { since = 0 } = {}) {
           numTurns:   typeof ev.numTurns === 'number' ? ev.numTurns : 0,
           costUsd:    typeof ev.costUsd === 'number' ? ev.costUsd : 0,
           stopReason: String(ev.stopReason ?? 'unknown'),
+          ...(ev.summary ? { summary: capBytes(ev.summary, SUMMARY_CAP) } : {}),
         };
         break;
 
