@@ -489,6 +489,16 @@ describe('pipelineManager integration — opencode stage (PIPELINE_NO_SPAWN=1)',
     );
     assert.equal(persistedRun.status, 'failed', 'run.status should be failed');
 
+    // MODEL-2 regression: stage-N.meta.json's `source` must reflect cliTool, not just
+    // PIPELINE_AGENT_MODE — an opencode stage is plain text, never claude's stream-json,
+    // even in 'subagent' mode. Mislabeling it "claude-code" makes the log-metrics parser
+    // try to parse plain text as stream-json (0 tool calls, no final_result — everything
+    // reads as an "unknownEvent") even though the run itself succeeded.
+    const meta = JSON.parse(
+      fs.readFileSync(path.join(dataDir, 'runs', run.runId, 'stage-0.meta.json'), 'utf8'),
+    );
+    assert.equal(meta.source, 'plain', 'opencode stage meta.json source should be "plain", not "claude-code"');
+
     // Restore env.
     process.env.PATH = origPath;
     process.env.HOME = origHome;
@@ -498,5 +508,35 @@ describe('pipelineManager integration — opencode stage (PIPELINE_NO_SPAWN=1)',
     fs.rmSync(dataDir,   { recursive: true, force: true });
     fs.rmSync(agentsDir, { recursive: true, force: true });
     fs.rmSync(emptyDir,  { recursive: true, force: true });
+  });
+});
+
+describe('spawnCwd', () => {
+  test('returns the worktree path when it still exists on disk', () => {
+    const pm = freshPM();
+    const dir = tmpDir();
+    const run = { worktree: { path: dir }, workingDirectory: '/some/repo' };
+    assert.equal(pm.spawnCwd(run), dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('falls back to workingDirectory when the worktree was already torn down', () => {
+    const pm = freshPM();
+    const goneDir = path.join(os.tmpdir(), 'prism-oc-test-gone-' + crypto.randomUUID());
+    const run = { worktree: { path: goneDir }, workingDirectory: '/some/repo' };
+    assert.equal(pm.spawnCwd(run), '/some/repo');
+  });
+
+  test('returns undefined when the worktree is gone and there is no workingDirectory', () => {
+    const pm = freshPM();
+    const goneDir = path.join(os.tmpdir(), 'prism-oc-test-gone-' + crypto.randomUUID());
+    const run = { worktree: { path: goneDir } };
+    assert.equal(pm.spawnCwd(run), undefined);
+  });
+
+  test('matches effectiveCwd when there is no worktree at all (in-place run)', () => {
+    const pm = freshPM();
+    const run = { workingDirectory: '/some/repo' };
+    assert.equal(pm.spawnCwd(run), pm.effectiveCwd(run));
   });
 });

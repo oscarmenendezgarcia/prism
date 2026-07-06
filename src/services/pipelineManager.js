@@ -1027,6 +1027,23 @@ function effectiveCwd(run) {
 }
 
 /**
+ * Resolve the cwd to actually spawn a child process in. Same as effectiveCwd,
+ * but falls back to run.workingDirectory when the worktree path no longer
+ * exists on disk (e.g. the folio-consolidator and resolver spawns run after
+ * the run has reached a terminal state and its worktree has been torn down).
+ *
+ * @param {object|null|undefined} run
+ * @returns {string|undefined}
+ */
+function spawnCwd(run) {
+  const cwd = effectiveCwd(run);
+  if (cwd && run?.worktree?.path === cwd && !fs.existsSync(cwd)) {
+    return run.workingDirectory || undefined;
+  }
+  return cwd;
+}
+
+/**
  * Tear down the worktree for a run that has reached a terminal state.
  * No-op when the run has no worktree. Never throws.
  *
@@ -1623,9 +1640,14 @@ async function spawnStage(dataDir, run, stageIndex) {
   });
 
   // MODEL-1: rewrite meta.json now that model config is resolved.
+  // MODEL-2: source must also reflect cliTool — only a claude subagent spawn emits
+  // claude's stream-json event format. opencode's `--format default` output (or any
+  // other non-claude cliTool) is plain text; mislabeling it "claude-code" here made
+  // the log-metrics parser try to parse plain text as stream-json (0 tool calls, no
+  // final_result, every line an "unknownEvent") even though the run itself was fine.
   {
     const agentMode = process.env.PIPELINE_AGENT_MODE || 'subagent';
-    const source    = agentMode === 'subagent' ? 'claude-code' : 'plain';
+    const source    = (modelConfig.cliTool === 'claude' && agentMode === 'subagent') ? 'claude-code' : 'plain';
     const metaPath  = path.join(runDir(dataDir, run.runId), `stage-${stageIndex}.meta.json`);
     try {
       fs.writeFileSync(metaPath, JSON.stringify({
@@ -1677,6 +1699,8 @@ async function spawnStage(dataDir, run, stageIndex) {
   //
   // Windows (cmd.exe): no trap is available; the sentinel is written before
   //   exit so a forced termination is less likely to lose it.
+  const stageCwd = spawnCwd(run);
+
   let child;
   if (process.platform === 'win32') {
     // /V:ON enables delayed variable expansion so !ERRORLEVEL! is evaluated
@@ -1687,6 +1711,7 @@ async function spawnStage(dataDir, run, stageIndex) {
     child = spawn('cmd.exe', ['/V:ON', '/C', windowsCmd], {
       stdio:    'ignore',
       detached: true,
+      cwd:      stageCwd,
       env:      { ...process.env },
     });
   } else {
@@ -1696,6 +1721,7 @@ async function spawnStage(dataDir, run, stageIndex) {
     child = spawn('sh', ['-c', unixCmd], {
       stdio:    'ignore',
       detached: true,
+      cwd:      stageCwd,
       env:      { ...process.env },
     });
   }
@@ -2965,6 +2991,7 @@ async function maybeConsolidate(dataDir, run) {
     const child = spawn('sh', ['-c', shellCmd], {
       stdio:    'ignore',
       detached: true,
+      cwd:      spawnCwd(run),
       env:      { ...process.env },
     });
     child.unref();
@@ -3126,6 +3153,7 @@ function attemptCrossAgentResolution(dataDir, run, comment) {
   const child = spawn('sh', ['-c', shellCmd], {
     stdio:    'ignore',
     detached: true,
+    cwd:      spawnCwd(run),
     env:      { ...process.env },
   });
   child.unref();
@@ -3650,6 +3678,7 @@ module.exports = {
   // Parallel-worktrees helpers (exported for testing):
   hasActiveRunInDir,
   effectiveCwd,
+  spawnCwd,
   finalizeRun,
   // Exported for testing and preview endpoint:
   runsDir,
