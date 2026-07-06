@@ -162,16 +162,16 @@ describe('AgentRoutingCard — expanded state', () => {
     renderCard({ open: true });
     // Disambiguate from the CLI-tool radiogroup added alongside the presets.
     expect(screen.getByRole('radiogroup', { name: /Model presets/i })).toBeDefined();
-    expect(screen.getByText('opus-4-5')).toBeDefined();
-    expect(screen.getByText('sonnet-4-5')).toBeDefined();
-    expect(screen.getByText('haiku-4-5')).toBeDefined();
+    expect(screen.getByText('opus-4-8')).toBeDefined();
+    expect(screen.getByText('sonnet-5')).toBeDefined();
+    expect(screen.getByText('opus-4-7')).toBeDefined();
   });
 
   it('calls onChange when a preset chip is clicked', () => {
     const onChange = vi.fn();
     renderCard({ open: true, onChange });
-    fireEvent.click(screen.getByText('opus-4-5'));
-    expect(onChange).toHaveBeenCalledWith('ux-api-designer', 'claude-opus-4-5');
+    fireEvent.click(screen.getByText('opus-4-8'));
+    expect(onChange).toHaveBeenCalledWith('ux-api-designer', 'claude-opus-4-8');
   });
 
   it('calls onChange when custom input changes', () => {

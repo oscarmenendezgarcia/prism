@@ -31,7 +31,7 @@ export function CliToolSelector({ value, onChange, agentLabel }: CliToolSelector
     <div
       role="radiogroup"
       aria-label={`CLI tool for ${agentLabel}`}
-      className="inline-flex gap-0.5 bg-surface border border-border rounded-[9px] p-[3px]"
+      className="inline-flex gap-0.5 bg-surface border border-border rounded-sm p-[3px]"
     >
       {OPTIONS.map(({ value: opt, label }) => {
         const isActive = opt === value;
@@ -43,7 +43,7 @@ export function CliToolSelector({ value, onChange, agentLabel }: CliToolSelector
             aria-checked={isActive}
             onClick={() => onChange(opt)}
             className={[
-              'px-3 py-1 text-[11.5px] font-semibold rounded-md border-0 select-none',
+              'px-3 py-1 text-[12px] font-semibold rounded-md border-0 select-none',
               'transition-colors duration-fast active:scale-[0.97]',
               'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
               isActive

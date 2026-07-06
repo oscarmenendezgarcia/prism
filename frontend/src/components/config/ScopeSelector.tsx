@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import { Tooltip } from '@/components/shared/Tooltip';
 
 export type Scope = 'global' | 'space';
 
@@ -50,7 +51,7 @@ interface ScopeButtonProps {
 }
 
 function ScopeButton({ label, active, disabled, onClick, title }: ScopeButtonProps) {
-  return (
+  const button = (
     <button
       type="button"
       role="radio"
@@ -60,8 +61,9 @@ function ScopeButton({ label, active, disabled, onClick, title }: ScopeButtonPro
       title={title}
       onClick={onClick}
       className={[
-        'px-3 py-[5px] text-[11.5px] font-semibold rounded-md transition-all duration-fast',
+        'px-3 py-[5px] text-[12px] font-semibold rounded-md transition-all duration-fast',
         'whitespace-nowrap',
+        'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
         active
           ? 'bg-primary-container text-primary'
           : disabled
@@ -72,4 +74,11 @@ function ScopeButton({ label, active, disabled, onClick, title }: ScopeButtonPro
       {label}
     </button>
   );
+
+  // A native title tooltip needs a long hover and doesn't reach keyboard/touch users —
+  // the shared Tooltip surfaces the same explanation reliably for everyone.
+  if (disabled && title) {
+    return <Tooltip label={title}>{button}</Tooltip>;
+  }
+  return button;
 }

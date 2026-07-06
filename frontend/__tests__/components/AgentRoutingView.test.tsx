@@ -115,11 +115,20 @@ function renderView(onDirtyChange = vi.fn()) {
 // ---------------------------------------------------------------------------
 
 describe('AgentRoutingView — empty state', () => {
-  it('shows empty state when there are no agents at all', () => {
+  it('shows a loading skeleton (not the empty state) while the registry is still fetching', () => {
+    // No pipeline stages AND no registry agents yet — the panel is mid-fetch here, not empty.
+    setup({ stages: [] });
+    renderView();
+    expect(screen.queryByText(/no agents found/i)).toBeNull();
+  });
+
+  it('shows empty state once the registry has loaded and there are still no agents', async () => {
     // No pipeline stages AND no registry agents (getAgents mock returns [])
     setup({ stages: [] });
     renderView();
-    expect(screen.getByText(/no agents found/i)).toBeDefined();
+    await waitFor(() => {
+      expect(screen.getByText(/no agents found/i)).toBeDefined();
+    });
   });
 });
 
@@ -260,7 +269,7 @@ describe('AgentRoutingView — Save / Reset', () => {
     fireEvent.click(card!.querySelector('button')!);
 
     // Click a preset chip
-    const opusChip = screen.getByText('opus-4-5');
+    const opusChip = screen.getByText('opus-4-8');
     fireEvent.click(opusChip);
 
     // Save should now be enabled
@@ -281,7 +290,7 @@ describe('AgentRoutingView — Save / Reset', () => {
 
     const card = document.querySelector('[data-testid="agent-card-ux-api-designer"]');
     fireEvent.click(card!.querySelector('button')!);
-    fireEvent.click(screen.getByText('opus-4-5'));
+    fireEvent.click(screen.getByText('opus-4-8'));
 
     expect(onDirtyChange).toHaveBeenCalledWith(true);
   });
@@ -292,7 +301,7 @@ describe('AgentRoutingView — Save / Reset', () => {
 
     const card = document.querySelector('[data-testid="agent-card-ux-api-designer"]');
     fireEvent.click(card!.querySelector('button')!);
-    fireEvent.click(screen.getByText('opus-4-5'));
+    fireEvent.click(screen.getByText('opus-4-8'));
 
     const saveBtn = screen.getByRole('button', { name: /save/i });
     expect(saveBtn.hasAttribute('disabled')).toBe(false);

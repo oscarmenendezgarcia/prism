@@ -31,7 +31,7 @@ export function SkillsReadOnly({ skills, loading = false }: SkillsReadOnlyProps)
 
   if (skills.length === 0) {
     return (
-      <p className="text-[11.5px] text-text-secondary italic">
+      <p className="text-[12px] text-text-secondary italic">
         No skills configured
       </p>
     );
@@ -45,9 +45,9 @@ export function SkillsReadOnly({ skills, loading = false }: SkillsReadOnlyProps)
           className={[
             'inline-flex items-center gap-1.5',
             'px-2.5 py-1 rounded-lg',
-            'text-[11.5px] font-medium font-mono',
-            'bg-primary-container text-primary',
-            'border border-primary/30',
+            'text-[11px] font-medium font-mono',
+            'bg-surface-variant text-text-secondary',
+            'border border-border',
           ].join(' ')}
         >
           {skill}

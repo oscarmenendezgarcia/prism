@@ -36,22 +36,43 @@ export const STAGE_LABELS: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 /**
- * Solid dot colours for the agent indicator. Full Tailwind class strings (not
- * interpolated) so the JIT keeps them. Error red is excluded to avoid clashing
- * with the bug/error semantic colour.
+ * The five pipeline agents get their own semantic accent tokens (also used for
+ * badges/charts elsewhere), so their dot matches the rest of the app instead of
+ * a second, unrelated colour from the hash-based fallback below.
+ */
+const PIPELINE_AGENT_DOT_COLORS: Record<string, string> = {
+  'senior-architect': 'bg-agent-architect',
+  'ux-api-designer':  'bg-agent-ux',
+  'developer-agent':  'bg-agent-dev',
+  'code-reviewer':    'bg-agent-reviewer',
+  'qa-engineer-e2e':  'bg-agent-qa',
+};
+
+/**
+ * Solid dot colours for agents outside the five pipeline roles above. Full
+ * Tailwind class strings (not interpolated) so the JIT keeps them. Toned down
+ * to the 400 shade at 80% opacity — full-saturation 500 dots vibrated harder
+ * than anything else in a collapsed row and `violet-500`/`indigo-500` read as
+ * a second "primary" colour next to the actual brand accent. Error red is
+ * excluded to avoid clashing with the bug/error semantic colour.
  */
 const AGENT_DOT_COLORS: string[] = [
-  'bg-violet-500', 'bg-sky-500',   'bg-emerald-500', 'bg-amber-500',
-  'bg-pink-500',   'bg-blue-500',  'bg-teal-500',    'bg-fuchsia-500',
-  'bg-rose-400',   'bg-cyan-500',  'bg-lime-500',    'bg-indigo-500',
+  'bg-violet-400/80', 'bg-sky-400/80',   'bg-emerald-400/80', 'bg-amber-400/80',
+  'bg-pink-400/80',   'bg-blue-400/80',  'bg-teal-400/80',    'bg-fuchsia-400/80',
+  'bg-rose-400/80',   'bg-cyan-400/80',  'bg-lime-400/80',    'bg-indigo-400/80',
 ];
 
 /**
- * Deterministic dot colour for an agent — same agent ID always gets the same
- * colour, unique-ish across agents (same djb2 hash as {@link arcColor}). No
- * hardcoded per-agent map: add or rename an agent and it just gets a colour.
+ * Deterministic dot colour for an agent. The five known pipeline agents use
+ * their semantic `--color-agent-*` token (consistent with badges/charts
+ * elsewhere); every other agent falls back to a hash-based colour (same djb2
+ * hash as {@link arcColor}) so newly added agents just get a colour with no
+ * map to maintain.
  */
 export function agentDotColor(agentId: string): string {
+  const pipelineColor = PIPELINE_AGENT_DOT_COLORS[agentId];
+  if (pipelineColor) return pipelineColor;
+
   let hash = 0;
   for (let i = 0; i < agentId.length; i++) hash = agentId.charCodeAt(i) + ((hash << 5) - hash);
   return AGENT_DOT_COLORS[Math.abs(hash) % AGENT_DOT_COLORS.length];

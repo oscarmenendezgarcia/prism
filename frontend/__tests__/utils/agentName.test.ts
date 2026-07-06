@@ -211,8 +211,16 @@ describe('resolveAgentShortLabel', () => {
       expect(agentDotColor('folio-consolidator')).toBe(agentDotColor('folio-consolidator'));
     });
 
-    it('returns a solid bg-* Tailwind class', () => {
-      expect(agentDotColor('senior-architect')).toMatch(/^bg-[a-z]+-\d{3}$/);
+    it('returns a solid (toned-down) bg-* Tailwind class for non-pipeline agents', () => {
+      expect(agentDotColor('folio-consolidator')).toMatch(/^bg-[a-z]+-\d{3}\/\d+$/);
+    });
+
+    it('returns the semantic --color-agent-* token for pipeline agents', () => {
+      expect(agentDotColor('senior-architect')).toBe('bg-agent-architect');
+      expect(agentDotColor('ux-api-designer')).toBe('bg-agent-ux');
+      expect(agentDotColor('developer-agent')).toBe('bg-agent-dev');
+      expect(agentDotColor('code-reviewer')).toBe('bg-agent-reviewer');
+      expect(agentDotColor('qa-engineer-e2e')).toBe('bg-agent-qa');
     });
 
     it('does not collapse every id to one colour', () => {

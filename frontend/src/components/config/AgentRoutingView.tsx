@@ -20,12 +20,25 @@ import { useAppStore }         from '@/stores/useAppStore';
 import { AgentRoutingCard }    from './AgentRoutingCard';
 import { ScopeSelector }       from './ScopeSelector';
 import type { Scope }          from './ScopeSelector';
+import { Button }              from '@/components/shared/Button';
 import { useAgentMetadata }    from '@/hooks/useAgentMetadata';
 import { resolveEffectiveModel }  from '@/utils/modelRouting';
 import { localRoutingToStageModelsMap, isValidOpencodeModel } from '@/utils/modelRouting';
 import type { RoutingEntry }    from '@/utils/modelRouting';
 import { STAGE_DISPLAY }       from '@/utils/agentName';
 import type { StageModelsMap, ModelCliTool } from '@/types';
+
+/** Placeholder row height/shape while the agent registry is still loading — mirrors the
+ *  collapsed AgentRoutingCard layout so it doesn't jump when real cards replace it. */
+function AgentCardSkeleton() {
+  return (
+    <div className="border border-border rounded-md mx-4 my-2.5 px-4 py-3 flex items-center gap-2.5" aria-hidden="true">
+      <span className="w-2.5 h-2.5 rounded-full bg-surface-variant animate-pulse shrink-0" />
+      <span className="h-3 w-28 rounded bg-surface-variant animate-pulse" />
+      <span className="h-4 w-20 rounded-md bg-surface-variant animate-pulse ml-auto" />
+    </div>
+  );
+}
 
 interface AgentRoutingViewProps {
   /** Notify parent whether any local edits exist (for the discard guard). */
@@ -90,10 +103,20 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
   const [expandedId,  setExpandedId]  = useState<string | null>(null);
   const [search,      setSearch]      = useState('');
   const [saving,      setSaving]      = useState(false);
+  const [justSaved,   setJustSaved]   = useState(false);
+  const [agentsLoading, setAgentsLoading] = useState(availableAgents.length === 0);
 
   // ── Ensure the full agent registry is loaded (panel doesn't load it) ──────
+  // Tracks its own loading flag so the empty state below can tell "still fetching"
+  // apart from "genuinely no agents" — otherwise the empty state flashes on every mount.
   useEffect(() => {
-    if (availableAgents.length === 0) loadAgents(activeSpace?.workingDirectory);
+    if (availableAgents.length === 0) {
+      setAgentsLoading(true);
+      loadAgents(activeSpace?.workingDirectory).finally(() => setAgentsLoading(false));
+    } else {
+      setAgentsLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableAgents.length, loadAgents, activeSpace?.workingDirectory]);
 
   // ── Fetch agent metadata (model/effort/skills) for every agent ────────────
@@ -197,6 +220,10 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
         showToast('Space model routing saved', 'success');
         setDirtySpace(false);
       }
+      // Brief in-button confirmation — the toast is easy to miss since it's far from
+      // the button the user is looking at when they click Save.
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 1600);
     } catch {
       showToast('Failed to save model routing', 'error');
     } finally {
@@ -232,6 +259,16 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
     });
   }, [agentIds, search, metadata, scope, globalStageModels, spaceStageModels, displayNameFor]);
 
+  // ── Loading state — distinct from "genuinely no agents" (below), so the panel
+  // never flashes an error-looking empty state while the registry is still fetching.
+  if (agentIds.length === 0 && agentsLoading) {
+    return (
+      <div className="flex flex-col h-full overflow-hidden pt-2">
+        {[0, 1, 2, 3].map((i) => <AgentCardSkeleton key={i} />)}
+      </div>
+    );
+  }
+
   // ── Empty state (no agents at all) ────────────────────────────────────────
   if (agentIds.length === 0) {
     return (
@@ -249,9 +286,11 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
 
   const saveLabel = saving
     ? 'Saving…'
-    : scope === 'global'
-      ? 'Save · Global'
-      : `Save · ${activeSpace?.name ?? 'Space'}`;
+    : justSaved
+      ? 'Saved'
+      : scope === 'global'
+        ? 'Save · Global'
+        : `Save · ${activeSpace?.name ?? 'Space'}`;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -264,7 +303,7 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
         />
         {/* Search */}
         <div className="flex items-center gap-2 bg-surface border border-border rounded-sm px-3 py-2 focus-within:ring-1 focus-within:ring-primary focus-within:border-primary">
-          <span className="material-symbols-outlined text-[17px] text-text-secondary leading-none shrink-0" aria-hidden="true">
+          <span className="material-symbols-outlined text-base text-text-secondary leading-none shrink-0" aria-hidden="true">
             search
           </span>
           <input
@@ -275,7 +314,7 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
             aria-label="Search agents"
             className={[
               'flex-1 bg-transparent border-0 outline-none',
-              'text-[12.5px] text-text-primary placeholder:text-text-secondary/70',
+              'text-sm text-text-primary placeholder:text-text-disabled',
             ].join(' ')}
           />
           {search && (
@@ -283,9 +322,9 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
               type="button"
               onClick={() => setSearch('')}
               aria-label="Clear search"
-              className="text-text-secondary hover:text-text-primary transition-colors duration-fast shrink-0"
+              className="text-text-secondary hover:text-text-primary transition-colors duration-fast shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded"
             >
-              <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
+              <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
                 close
               </span>
             </button>
@@ -293,8 +332,9 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
         </div>
       </div>
 
-      {/* ── Card list ───────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto pb-2">
+      {/* ── Card list — key={scope} + a fade crossfades the list when Global/Space changes,
+           signalling "this is a different context" the same way tab switches do elsewhere. */}
+      <div key={scope} className="flex-1 overflow-y-auto pb-2 motion-safe:animate-tab-content-fade">
         {filteredAgents.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 gap-2 px-6 text-center">
             <span className="material-symbols-outlined text-2xl text-text-secondary" aria-hidden="true">
@@ -306,16 +346,9 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
             <p className="text-[11px] text-text-secondary/70">
               Try searching by agent name, model, or skill
             </p>
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              className={[
-                'mt-1 text-[12px] font-medium text-primary',
-                'hover:underline transition-colors duration-fast',
-              ].join(' ')}
-            >
+            <Button variant="ghost" size="sm" className="mt-1" onClick={() => setSearch('')}>
               Clear search
-            </button>
+            </Button>
           </div>
         ) : (
           filteredAgents.map((agentId) => {
@@ -330,6 +363,13 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
               ? (spaceStageModels?.[agentId] ?? globalStageModels[agentId])
               : globalStageModels[agentId];
             const cliTool      = localEntry?.cliTool ?? serverEntry?.cliTool ?? 'claude';
+            // A local edit that hasn't been persisted yet — the card shows the override badge
+            // immediately for feedback, but this flags it as not-yet-saved so it doesn't look
+            // like a decision that's already taken effect.
+            const isUnsaved    = !!localEntry && (
+              localEntry.model !== (serverEntry?.model ?? '') ||
+              localEntry.cliTool !== (serverEntry?.cliTool ?? 'claude')
+            );
 
             return (
               <AgentRoutingCard
@@ -340,6 +380,7 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
                 source={localModel ? scope as typeof effective.source : effective.source}
                 scope={scope}
                 localModel={localModel}
+                unsaved={isUnsaved}
                 metadata={meta}
                 open={expandedId === agentId}
                 onToggle={() => setExpandedId((prev) => (prev === agentId ? null : agentId))}
@@ -357,32 +398,24 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
       <div className="px-4 py-3 border-t border-border shrink-0 flex items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={handleReset}
-          disabled={saving}
-          className={[
-            'text-[12.5px] font-medium px-3 py-1.5 rounded-lg transition-colors duration-fast',
-            'text-text-secondary hover:text-text-primary hover:bg-surface-variant',
-            saving ? 'opacity-50 cursor-not-allowed' : '',
-          ].join(' ')}
-        >
+        <Button variant="ghost" size="sm" onClick={handleReset} disabled={saving}>
           Reset
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="primary"
+          size="sm"
           onClick={handleSave}
           disabled={saving || !isDirty}
           aria-busy={saving}
-          className={[
-            'text-[12.5px] font-semibold px-4 py-1.5 rounded-lg transition-all duration-fast',
-            isDirty && !saving
-              ? 'bg-primary text-white hover:bg-primary-hover'
-              : 'bg-primary/30 text-primary/50 cursor-not-allowed',
-          ].join(' ')}
+          className="min-w-[112px] justify-center"
         >
+          {justSaved && !saving && (
+            <span className="material-symbols-outlined text-[16px] leading-none" aria-hidden="true">
+              check
+            </span>
+          )}
           {saveLabel}
-        </button>
+        </Button>
       </div>
     </div>
   );
