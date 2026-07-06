@@ -66,7 +66,7 @@ export function FinalResultRow({ event }: { event: FinalResultEvent }) {
       <div className="min-w-0 flex-1 flex flex-col gap-1.5">
         <span className="text-xs font-semibold text-text-primary">Session Complete</span>
         {event.summary ? (
-          <pre className="text-xs font-mono text-text-secondary whitespace-pre-wrap break-words max-h-96 overflow-y-auto bg-surface-variant rounded-md px-2 py-1.5">
+          <pre className="text-xs font-mono text-text-secondary whitespace-pre-wrap break-words bg-surface-variant rounded-md px-2 py-1.5">
             {event.summary}
           </pre>
         ) : (
