@@ -159,7 +159,7 @@ export function AgentRoutingCard({
         {!open && (
           <span
             className={[
-              'inline-flex items-center gap-1 min-w-0 shrink max-w-[150px] font-mono text-[11px] px-2 py-0.5 rounded-md border',
+              'inline-flex items-center gap-1 min-w-0 shrink max-w-[110px] font-mono text-[11px] px-2 py-0.5 rounded-md border',
               needsOpencodeModel
                 ? 'text-text-secondary/50 border-border border-dashed bg-transparent'
                 : isScopeOverride
@@ -181,7 +181,7 @@ export function AgentRoutingCard({
                 {source}
               </span>
             )}
-            <span className="truncate">
+            <span className="truncate min-w-0">
               {needsOpencodeModel ? OPENCODE_HINT : (displayModel || '—')}
             </span>
           </span>
