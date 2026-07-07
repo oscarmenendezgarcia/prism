@@ -142,6 +142,19 @@ export function AgentRoutingCard({
           />
         )}
 
+        {/* CLI-tool tag — surfaces the non-default CLI (opencode) in the collapsed row.
+            Hidden below sm: at narrow/mobile widths there isn't room for it next to the
+            model pill without both garbling — the CLI tool is still fully visible and
+            editable via CliToolSelector in the expanded card. */}
+        {!open && isOpencode && (
+          <span
+            className="hidden sm:inline-flex items-center font-mono text-[11px] px-2 py-0.5 rounded-md bg-surface-variant text-text-secondary border border-border/60 whitespace-nowrap"
+            title="Runs via the opencode CLI"
+          >
+            opencode
+          </span>
+        )}
+
         {/* Mini model pill — tinted + labelled with the source when overridden at the current
             scope (one capsule, not two); dashed border (no label) when the value is inherited
             from a higher scope, so it never claims to be "set here"; placeholder when opencode

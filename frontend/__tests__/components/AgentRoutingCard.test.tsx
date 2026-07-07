@@ -286,6 +286,11 @@ describe('AgentRoutingCard — CLI tool selector', () => {
     expect(input.getAttribute('aria-invalid')).toBe('false');
   });
 
+  it('shows an "opencode" tag in the collapsed row for opencode agents (hidden below sm: via CSS)', () => {
+    renderCard({ open: false, cliTool: 'opencode' });
+    expect(screen.getByText('opencode')).toBeDefined();
+  });
+
   it('shows a "provider/model" hint (not the inherited Claude model) when none is set', () => {
     renderCard({ open: false, cliTool: 'opencode', localModel: '', effectiveModel: 'claude-opus-4-8' });
     expect(screen.getByText('provider/model')).toBeDefined();
