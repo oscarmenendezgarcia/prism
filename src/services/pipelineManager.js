@@ -1613,7 +1613,7 @@ async function spawnStage(dataDir, run, stageIndex) {
   const agentsDir = process.env.PIPELINE_AGENTS_DIR;
   let agentSpec;
   try {
-    agentSpec = resolveAgent(agentId, agentsDir);
+    agentSpec = resolveAgent(agentId, agentsDir, run.workingDirectory);
   } catch (err) {
     if (err instanceof AgentNotFoundError) {
       run.status = 'failed';
@@ -2028,7 +2028,7 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
   const agentsDir = process.env.PIPELINE_AGENTS_DIR;
   for (const agentId of stageList) {
     try {
-      resolveAgent(agentId, agentsDir);
+      resolveAgent(agentId, agentsDir, workingDirectory);
     } catch (err) {
       if (err instanceof AgentNotFoundError) throw err;
       throw err;
@@ -2969,7 +2969,7 @@ async function maybeConsolidate(dataDir, run) {
     const agentsDir = process.env.PIPELINE_AGENTS_DIR;
     let agentSpec;
     try {
-      agentSpec = resolveAgent('folio-consolidator', agentsDir);
+      agentSpec = resolveAgent('folio-consolidator', agentsDir, run.workingDirectory);
     } catch (err) {
       if (err instanceof AgentNotFoundError) {
         pipelineLog('consolidation.skipped', {
@@ -3135,7 +3135,7 @@ function attemptCrossAgentResolution(dataDir, run, comment) {
   const agentsDir = process.env.PIPELINE_AGENTS_DIR;
   let agentSpec;
   try {
-    agentSpec = resolveAgent(comment.targetAgent, agentsDir);
+    agentSpec = resolveAgent(comment.targetAgent, agentsDir, run.workingDirectory);
   } catch (err) {
     if (err instanceof AgentNotFoundError) {
       pipelineLog('resolver.skipped_invalid_agent', {
