@@ -475,11 +475,11 @@ async function ensureBootstrapped(spaceId, workingDir, binding, opts = {}) {
 
     // ── Real agent spawn ──────────────────────────────────────────────────────
 
-    // Resolve folio-bootstrapper agent spec
+    // Resolve folio-bootstrapper agent spec (project scope wins over global).
     const agentsDir = process.env.PIPELINE_AGENTS_DIR;
     let agentSpec;
     try {
-      agentSpec = resolveAgent('folio-bootstrapper', agentsDir);
+      agentSpec = resolveAgent('folio-bootstrapper', agentsDir, workingDir);
     } catch (err) {
       if (err instanceof AgentNotFoundError) {
         binding.setBootstrappedAt(spaceId, new Date().toISOString());
