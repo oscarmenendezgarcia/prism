@@ -13,7 +13,7 @@ and build up a shared knowledge base — all from a single interface you run loc
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-buy_me_a_coffee-FF5E5B?style=flat&logo=ko-fi&logoColor=white)](https://ko-fi.com/oscarmdzgarcia)
 
-**[Getting started](#getting-started)** · **[Folio](#folio--knowledge-that-grows-with-use)** · **[CLI](#cli)** · **[MCP](#mcp--let-claude-drive-prism)** · **[Docs](docs/)**
+**[Getting started](#getting-started)** · **[Folio](#folio--knowledge-that-grows-with-use)** · **[Routing](#agents--routing--bring-your-own-model)** · **[CLI](#cli)** · **[MCP](#mcp--let-your-agent-cli-drive-prism)** · **[Docs](docs/)**
 
 <br>
 
@@ -30,7 +30,8 @@ Most Kanban tools are built for humans tracking human work. **Prism is built for
 | | |
 |---|---|
 | **Agents manage the board** | Via MCP tools, agents create tasks, update status, and attach artifacts as they work. |
-| **Pipelines from any task** | One click launches a multi-stage pipeline (architect → UX → developer → QA) against a task card, with live stage-by-stage logs. |
+| **Pipelines from any task** | One click launches a multi-stage pipeline (architect → UX → developer → code review → QA) against a task card, with live stage-by-stage logs and automatic QA/review → developer feedback loops. |
+| **Per-stage model & CLI routing** | Every agent in the pipeline can run on a different model and CLI — mix Claude with **opencode** against any OpenAI-compatible endpoint (local, self-hosted, or a third-party provider), overridable at the global, space, or task level. [See below](#agents--routing--bring-your-own-model). |
 | **Folio — shared knowledge** | Agents stop starting every task from zero — [see below](#folio--knowledge-that-grows-with-use). |
 | **Global search** | <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> across all spaces, powered by SQLite FTS5. |
 | **Embedded terminal** | A full PTY shell inside the UI. |
@@ -55,6 +56,19 @@ On every new task, agents normally start from zero: they re-discover the stack, 
 - **Domain-agnostic** — neutral vocabulary works for code, on-call runbooks, research, or writing.
 
 Agents reach Folio through its own MCP server (`folio_search`, `folio_get_page`, `folio_create_page`, …). See the [`.folio/`](.folio) directory in this repo for the format itself — it is a working Folio describing Prism.
+
+---
+
+## Agents & Routing — bring your own model
+
+Prism doesn't just run pipelines on Claude. Every agent (`senior-architect`, `developer-agent`, `code-reviewer`, `qa-engineer-e2e`, …) has an independent **CLI tool + model** setting, resolved per stage in this order: task override → space override → global setting → the agent's own frontmatter default.
+
+- **Two CLI tools today**: `claude` (Claude Code) and [**opencode**](https://opencode.ai) — a model-agnostic coding CLI that can point at any OpenAI-compatible endpoint: local inference (e.g. vLLM on your own hardware), a self-hosted proxy, or a third-party provider.
+- **Configure it from the UI** — the *Agents & Routing* panel (⚙ → Agents & Routing) lists every agent with its resolved model, source (global/space/task), and CLI tool, editable inline.
+- **Mix and match** — keep the highest-stakes reasoning (architecture, irreversible decisions) on a frontier model while running implementation/QA stages on a local model, or vice versa.
+- **Isolated per run** — regardless of which CLI a stage runs on, it still executes inside its own git worktree ([see below](#parallel-pipeline-runs--git-worktree-isolation)), so a local model's mistakes never touch your working branch.
+
+opencode isn't bundled in the Docker image (only Claude Code is pre-installed) — install and configure it yourself, then point Prism's routing config at your endpoint. See [opencode's docs](https://opencode.ai/docs) for provider setup.
 
 ---
 
@@ -141,7 +155,7 @@ prism --help         # list all commands and flags
 
 ---
 
-## MCP — let Claude drive Prism
+## MCP — let your agent CLI drive Prism
 
 Prism ships two MCP servers:
 
@@ -150,7 +164,9 @@ Prism ships two MCP servers:
 | `mcp/mcp-server.js` | The full Kanban API — `kanban_list_tasks`, `kanban_create_task`, `kanban_update_task`, `kanban_move_task`, `kanban_start_pipeline`, `kanban_get_run_status`, and more. |
 | `mcp/folio-mcp-server.js` | Folio read/write — `folio_search`, `folio_get_page`, `folio_create_page`, `folio_update_page`, `folio_list_chapters`, … |
 
-> **Prerequisite:** the server (`prism start` or `docker compose up`) must be running before starting any Claude session.
+> **Prerequisite:** the server (`prism start` or `docker compose up`) must be running before starting any agent session.
+>
+> Registration is per CLI tool — an agent pipeline stage routed to opencode ([see above](#agents--routing--bring-your-own-model)) needs the `prism` MCP server registered in *opencode's own config*, separate from any Claude Code registration. Without it, that stage can't move tasks, leave comments, or attach artifacts, even though the model itself is running fine.
 
 **Claude Code** — one-liner from the project root:
 
@@ -176,6 +192,28 @@ Add to `.claude/settings.json` (or `claude_desktop_config.json`, using an absolu
   }
 }
 ```
+
+</details>
+
+<details>
+<summary><b>opencode</b> — manual JSON config (<code>opencode.jsonc</code>)</summary>
+
+<br>
+
+```jsonc
+{
+  "mcp": {
+    "prism": {
+      "type": "local",
+      "command": ["node", "/absolute/path/to/prism/mcp/mcp-server.js"],
+      "environment": { "KANBAN_API_URL": "http://localhost:3000/api/v1" },
+      "enabled": true
+    }
+  }
+}
+```
+
+opencode requires an absolute path (no relative `./` shorthand) and its own `node_modules` installed under `mcp/` — run `cd mcp && npm install` first if you haven't already.
 
 </details>
 
@@ -226,7 +264,7 @@ The worktree path and branch are git-ignored and never committed.
 | `PORT` | `3000` | HTTP server port |
 | `DATA_DIR` | `./data` | Directory where `prism.db` is stored |
 | `ALLOWED_ORIGINS` | `http://localhost:3000,...` | Allowed WebSocket origins — set to your public URL behind a reverse proxy |
-| `ANTHROPIC_API_KEY` | — | Required for agent pipelines and auto-task generation |
+| `ANTHROPIC_API_KEY` | — | Required for any stage/agent routed to Claude (the default). Not needed for stages routed to opencode against a local or self-hosted model — [see Agents & Routing](#agents--routing--bring-your-own-model). |
 
 ### Tests
 
