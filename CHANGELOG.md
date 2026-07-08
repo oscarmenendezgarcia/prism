@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.3.0] — 2026-07-08
+
+Headline: **Per-stage model & CLI routing** — every pipeline agent can now run on a
+different model and CLI, including **opencode** against any OpenAI-compatible endpoint
+(local, self-hosted, or third-party), not just Claude.
+
+### Added
+- **Agents & Routing panel** — configure each agent's CLI tool + model from the UI, with
+  resolved source shown (global / space / task) and inline editing. (#155)
+- **opencode support** — a second, model-agnostic CLI alongside Claude Code. Routing
+  resolves per stage: task override → space override → global setting → the agent's own
+  frontmatter default. (#155)
+- Isolated pipeline stages get the worktree as their actual process `cwd`, not just a
+  prompt instruction — fixes a stage on a non-Claude CLI silently operating on the base
+  checkout instead of its isolated branch. (#155)
+- Pipeline stage logs now render real content for non-Claude ("plain" source) stages
+  instead of an empty summary card, and update live instead of freezing at the first
+  poll. (#155)
+
+### Changed
+- `resolveAgent` now searches a project's `.claude/agents/` before falling back to the
+  global directory, so a project can override an agent definition without touching the
+  user's global config. (#159)
+- README rewritten to document per-stage routing and opencode setup — it previously
+  assumed Claude Code as the only CLI. (#160)
+
 ## [1.2.0] — 2026-06-22
 
 Headline: **Arc** — narrative grouping for tasks, plus space pinning, per-run worktree
