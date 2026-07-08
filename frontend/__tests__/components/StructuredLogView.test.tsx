@@ -84,6 +84,18 @@ describe('FinalResultRow', () => {
     expect(screen.getByText('7')).toBeTruthy();
     expect(screen.getByText('end_turn')).toBeTruthy();
   });
+
+  it('renders the raw summary instead of the metrics row for plain-text (opencode) stages', () => {
+    const ev: PublicEvent = {
+      idx: 11, kind: 'final_result', t: 11,
+      durationMs: 0, numTurns: 0, costUsd: 0, stopReason: 'unknown',
+      summary: 'All 75 tests pass.\nBuild succeeded.',
+    };
+    render(<FinalResultRow event={ev as any} />);
+    expect(screen.getByText('Session Complete')).toBeTruthy();
+    expect(screen.getByText(/All 75 tests pass/)).toBeTruthy();
+    expect(screen.queryByText('unknown')).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

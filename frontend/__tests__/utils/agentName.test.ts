@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAgentName, resolveAgentShortLabel } from '../../src/utils/agentName';
+import { resolveAgentName, resolveAgentShortLabel, agentDotColor } from '../../src/utils/agentName';
 import type { Space } from '../../src/types';
 
 // ---------------------------------------------------------------------------
@@ -203,6 +203,30 @@ describe('resolveAgentShortLabel', () => {
     it('nickname takes priority over static short label', () => {
       const space = makeSpace({ agentNicknames: { 'senior-architect': 'Chief' } });
       expect(resolveAgentShortLabel('senior-architect', space)).toBe('Chief');
+    });
+  });
+
+  describe('agentDotColor', () => {
+    it('is deterministic for the same agent id', () => {
+      expect(agentDotColor('folio-consolidator')).toBe(agentDotColor('folio-consolidator'));
+    });
+
+    it('returns a solid (toned-down) bg-* Tailwind class for non-pipeline agents', () => {
+      expect(agentDotColor('folio-consolidator')).toMatch(/^bg-[a-z]+-\d{3}\/\d+$/);
+    });
+
+    it('returns the semantic --color-agent-* token for pipeline agents', () => {
+      expect(agentDotColor('senior-architect')).toBe('bg-agent-architect');
+      expect(agentDotColor('ux-api-designer')).toBe('bg-agent-ux');
+      expect(agentDotColor('developer-agent')).toBe('bg-agent-dev');
+      expect(agentDotColor('code-reviewer')).toBe('bg-agent-reviewer');
+      expect(agentDotColor('qa-engineer-e2e')).toBe('bg-agent-qa');
+    });
+
+    it('does not collapse every id to one colour', () => {
+      const ids = ['senior-architect', 'ux-api-designer', 'developer-agent', 'code-reviewer', 'qa-engineer-e2e', 'folio-consolidator', 'tagger', 'orchestrator'];
+      const colors = new Set(ids.map(agentDotColor));
+      expect(colors.size).toBeGreaterThan(1);
     });
   });
 });

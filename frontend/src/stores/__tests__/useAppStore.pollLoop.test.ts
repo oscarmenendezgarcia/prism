@@ -219,6 +219,25 @@ describe('TC-006: poll tick updates currentStageIndex from backend', () => {
   });
 });
 
+describe('TC-006b: poll tick syncs stages when the backend injects a loop', () => {
+  it('extends pipelineState.stages when run.stages grows past the original list', async () => {
+    // A code-reviewer (or QA) loop injection appends stages to the backend run
+    // after the pipeline started — the tab bar needs those to show/select them.
+    vi.mocked(api.getBackendRun).mockResolvedValue({
+      ...backendRun('running', 3),
+      stages: ['developer-agent', 'qa-engineer-e2e', 'developer-agent', 'qa-engineer-e2e'],
+    });
+    useAppStore.setState(withPipelineState(interruptedState()));
+
+    await useAppStore.getState().resumeInterruptedRun();
+    await vi.advanceTimersByTimeAsync(5001);
+
+    expect(useAppStore.getState().pipelineState?.stages).toEqual([
+      'developer-agent', 'qa-engineer-e2e', 'developer-agent', 'qa-engineer-e2e',
+    ]);
+  });
+});
+
 // ── TC-007 ─────────────────────────────────────────────────────────────────────
 
 describe('TC-007: poll tick clears itself on completed status', () => {

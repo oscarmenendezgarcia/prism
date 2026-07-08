@@ -41,6 +41,7 @@ import type {
   TaggerSuggestion,
   TaggerResult,
   Comment,
+  StageModelsMap,
 } from '@/types';
 import { buildSingleState, buildPipelineGroupState } from '@/stores/pipelineStateFromRun';
 import { safeStorage } from '@/utils/safeStorage';
@@ -92,7 +93,7 @@ interface AppState {
   setActiveSpace: (id: string) => void;
   loadSpaces: () => Promise<void>;
   createSpace: (name: string, workingDirectory?: string, pipeline?: string[]) => Promise<void>;
-  renameSpace: (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>) => Promise<void>;
+  renameSpace: (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>, stageModels?: StageModelsMap | null) => Promise<void>;
   deleteSpace: (id: string) => Promise<void>;
   /** Pin a space — appends it to the pinned zone with the next available rank. */
   pinSpace: (id: string) => Promise<void>;
@@ -460,10 +461,16 @@ export const useAppStore = create<AppState>((set, get) => {
     const pollId = setInterval(async () => {
       try {
         const run = await api.getBackendRun(runIdToWatch);
-        // Keep currentStageIndex in sync with backend.
+        // Keep currentStageIndex AND stages in sync with backend — a loop
+        // injection (e.g. code-reviewer sending work back to developer-agent)
+        // appends stages to run.stages after the pipeline started, and the
+        // tab bar needs those extra entries to show/select them.
         const ps = get().pipelineStates[runIdToWatch];
         if (ps && typeof run.currentStage === 'number') {
-          setPipelineStateById(runIdToWatch, { currentStageIndex: run.currentStage });
+          setPipelineStateById(runIdToWatch, {
+            currentStageIndex: run.currentStage,
+            ...(Array.isArray(run.stages) ? { stages: run.stages } : {}),
+          });
         }
         // Surface interrupted state so InterruptedBanner shows.
         if (run.status === 'interrupted') {
@@ -658,7 +665,7 @@ export const useAppStore = create<AppState>((set, get) => {
     get().showToast('Space created.');
   },
 
-  renameSpace: async (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>) => {
+  renameSpace: async (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>, stageModels?: StageModelsMap | null) => {
     // Detect a freshly-added working directory. Invariant: a space with a repo keeps
     // its folio in the repo's .folio/. The backend handles both cases on save —
     // an existing sqlite folio is migrated into .folio/ synchronously; an absent one
@@ -666,7 +673,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const prev = get().spaces.find((s) => s.id === id);
     const wdAdded = !!workingDirectory && !prev?.workingDirectory;
 
-    await api.renameSpace(id, name, workingDirectory, pipeline, agentNicknames);
+    await api.renameSpace(id, name, workingDirectory, pipeline, agentNicknames, stageModels);
     await get().loadSpaces();
     get().showToast('Space updated.');
 

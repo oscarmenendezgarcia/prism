@@ -6,6 +6,25 @@
 /** The three canonical Kanban columns. */
 export type Column = 'todo' | 'in-progress' | 'done';
 
+// ---------------------------------------------------------------------------
+// MODEL-1: per-stage model routing types
+// ---------------------------------------------------------------------------
+
+// 'claude' is the managed provider (whitelisted backend-side). For opencode/custom
+// CLI tools the provider is open-ended (e.g. 'vllm-local'), so any string is allowed.
+export type ModelProvider = 'claude' | (string & {});
+export type ModelCliTool  = 'claude' | 'opencode' | 'custom';
+
+/** Per-stage model routing config stored in stageModels maps. */
+export interface StageModelConfig {
+  provider: ModelProvider;
+  model:    string;
+  cliTool:  ModelCliTool;
+}
+
+/** Map of agentId → StageModelConfig (null = clear override for that agent). */
+export type StageModelsMap = Record<string, StageModelConfig | null>;
+
 /** A space (project board). */
 export interface Space {
   id: string;
@@ -19,6 +38,8 @@ export interface Space {
   pinned?: boolean;
   /** zero-based position within the pinned zone. Absent for non-pinned spaces. */
   pinnedRank?: number;
+  /** MODEL-1: per-stage model routing overrides for this space. */
+  stageModels?: StageModelsMap | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +102,8 @@ export interface Task {
   pipeline?: string[];
   /** Optional narrative grouping label (e.g. "QOL", "AUTH", "LOOP"). */
   arc?: string;
+  /** MODEL-1: per-stage model routing overrides for this task. */
+  stageModels?: StageModelsMap | null;
   attachments?: Attachment[];
   /** Thread of comments (notes, questions, answers). Aditively returned by GET task. */
   comments?: Comment[];
@@ -124,6 +147,8 @@ export interface UpdateTaskPayload {
   pipeline?: string[];
   /** Empty string deletes the arc field on the server. */
   arc?: string;
+  /** MODEL-1: per-stage model routing overrides. null = clear all. */
+  stageModels?: StageModelsMap | null;
 }
 
 /** Response from PUT /spaces/:spaceId/tasks/:id/move */
@@ -222,6 +247,11 @@ export interface BackendStageStatus {
   startedAt: string | null;
   finishedAt: string | null;
   exitCode: number | null;
+  /** MODEL-1: model used to run this stage (set at spawn time). */
+  model?: string | null;
+  provider?: string | null;
+  cliTool?: string | null;
+  resolvedFrom?: string | null;
 }
 
 /** Reason a pipeline run is blocked (waiting for a question to be resolved). */
@@ -264,7 +294,15 @@ export interface PipelineState {
   spaceId: string;
   /** Main task anchor — never moved by the pipeline. */
   taskId: string;
-  stages: PipelineStage[];
+  /**
+   * Agent IDs for each stage. Widened from PipelineStage[] to string[]: a
+   * loop injection (e.g. code-reviewer sending work back to developer-agent)
+   * can append stages the backend supports but that aren't in the fixed
+   * 4-value picker union (code-reviewer, folio-consolidator, etc.), and the
+   * same agentId can repeat. Must stay in sync with the live BackendRun.stages
+   * (see startPollLoop in useAppStore.ts) so StageTabBar shows every stage.
+   */
+  stages: string[];
   currentStageIndex: number;
   startedAt: string;  // ISO timestamp
   /** ISO timestamp when the run finished (completed, aborted, or interrupted). */
@@ -434,6 +472,8 @@ export interface PipelineSettings {
   autoAdvance: boolean;
   confirmBetweenStages: boolean;
   stages: PipelineStage[];
+  /** MODEL-1: per-stage model routing overrides (global, lowest priority). */
+  stageModels?: Record<string, StageModelConfig>;
 }
 
 /** Prompt content configuration. */
@@ -682,6 +722,8 @@ export interface FinalResultEvent extends BaseEvent {
   numTurns: number;
   costUsd: number;
   stopReason: string;
+  /** Raw log summary — only present for non-Claude ("plain") stages. */
+  summary?: string;
 }
 
 /** Discriminated union of all event kinds returned by GET /events. */

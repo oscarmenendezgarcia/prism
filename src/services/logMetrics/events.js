@@ -20,6 +20,7 @@
 const INPUT_PREVIEW_CAP   = 200;
 const ASSISTANT_PREVIEW_CAP = 1_000;
 const ERROR_PREVIEW_CAP   = 500;
+const SUMMARY_CAP         = 4_000;
 const MAX_EVENTS_PER_PAGE = 1_000;
 
 /**
@@ -60,10 +61,16 @@ function inputToPreview(input) {
  *
  * @param {AsyncIterable<import('./types').NormalizedEvent>} normalizedEvents
  * @param {object} opts
- * @param {number} [opts.since=0]  - Skip events with idx < since.
+ * @param {number}  [opts.since=0]  - Skip events with idx < since.
+ * @param {boolean} [opts.livePlainSummary=false] - True when the source is
+ *   the plain-text adapter, whose single final_result event always reports
+ *   idx 0 and is re-derived (with fresher content) on every parse of a log
+ *   that may still be growing — unlike Claude Code's final_result, a true
+ *   one-time terminal event read from a JSON line that never changes once
+ *   written. Only in this case is that event exempt from the `since` cursor.
  * @returns {Promise<{ events: object[]; nextSince: number; complete: boolean }>}
  */
-async function projectEvents(normalizedEvents, { since = 0 } = {}) {
+async function projectEvents(normalizedEvents, { since = 0, livePlainSummary = false } = {}) {
   const result = [];
   let idx = 0;
   let complete = true;
@@ -156,6 +163,7 @@ async function projectEvents(normalizedEvents, { since = 0 } = {}) {
           numTurns:   typeof ev.numTurns === 'number' ? ev.numTurns : 0,
           costUsd:    typeof ev.costUsd === 'number' ? ev.costUsd : 0,
           stopReason: String(ev.stopReason ?? 'unknown'),
+          ...(ev.summary ? { summary: capBytes(ev.summary, SUMMARY_CAP) } : {}),
         };
         break;
 
@@ -166,8 +174,14 @@ async function projectEvents(normalizedEvents, { since = 0 } = {}) {
 
     if (!pub) continue;
 
-    // Skip events before the cursor.
-    if (currentIdx < since) continue;
+    // Skip events before the cursor — except the plain-text adapter's
+    // final_result (see livePlainSummary docs above): always include it so
+    // the frontend's idx-keyed merge (appendStageEvents) overwrites the same
+    // entry with fresh content on every poll instead of freezing at the
+    // first fetch. Every other case (including Claude Code's own
+    // final_result) stays gated exactly as before.
+    const isMutatingSummary = livePlainSummary && pub.kind === 'final_result';
+    if (!isMutatingSummary && currentIdx < since) continue;
 
     // Cap response at MAX_EVENTS_PER_PAGE.
     if (result.length >= MAX_EVENTS_PER_PAGE) {

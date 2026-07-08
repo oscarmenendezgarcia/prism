@@ -98,17 +98,43 @@ describe('ConfigPanel — structure', () => {
   });
 });
 
+describe('ConfigPanel — view tabs', () => {
+  it('renders the ConfigViewTabs with "Agents & Routing" and "Files" tabs', () => {
+    render(<ConfigPanel />);
+    expect(screen.getByRole('tab', { name: /agents & routing/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /files/i })).toBeInTheDocument();
+  });
+
+  it('defaults to the "Agents & Routing" view (agents tab selected)', () => {
+    render(<ConfigPanel />);
+    const agentsTab = screen.getByRole('tab', { name: /agents & routing/i });
+    expect(agentsTab.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('switches to Files view when Files tab is clicked', () => {
+    render(<ConfigPanel />);
+    fireEvent.click(screen.getByRole('tab', { name: /files/i }));
+    // Files tab should now be selected
+    const filesTab = screen.getByRole('tab', { name: /files/i });
+    expect(filesTab.getAttribute('aria-selected')).toBe('true');
+  });
+});
+
 describe('ConfigPanel — sidebar integration', () => {
-  it('renders the file sidebar (nav)', async () => {
+  it('renders the file sidebar (nav) when Files tab is active', async () => {
     mockGetConfigFiles.mockResolvedValue([GLOBAL_FILE]);
     render(<ConfigPanel />);
+    // Switch to Files tab first
+    fireEvent.click(screen.getByRole('tab', { name: /files/i }));
     await waitFor(() => {
       expect(screen.getByRole('navigation', { name: /config files/i })).toBeInTheDocument();
     });
   });
 
-  it('shows "Select a file to edit" in the editor when no file is active', () => {
+  it('shows "Select a file to edit" in the editor when Files tab is active and no file is selected', () => {
     render(<ConfigPanel />);
+    // Switch to Files tab first
+    fireEvent.click(screen.getByRole('tab', { name: /files/i }));
     expect(screen.getByText(/select a file to edit/i)).toBeInTheDocument();
   });
 });
@@ -157,44 +183,49 @@ describe('ConfigPanel — discard guard on close', () => {
   });
 });
 
-describe('ConfigPanel — discard guard on file switch', () => {
-  it('shows DiscardChangesDialog when switching files while dirty', async () => {
-    mockGetConfigFiles.mockResolvedValue([GLOBAL_FILE, PROJECT_FILE]);
+describe('ConfigPanel — dirty indicator', () => {
+  it('does NOT show the dirty dot when panel is clean', () => {
+    resetStore({ configDirty: false });
+    render(<ConfigPanel />);
+    expect(document.querySelector('[aria-label="Unsaved changes"]')).toBeNull();
+  });
+
+  it('shows the dirty dot in the header when configDirty is true', () => {
+    resetStore({ configDirty: true });
+    render(<ConfigPanel />);
+    expect(document.querySelector('[aria-label="Unsaved changes"]')).toBeInTheDocument();
+  });
+});
+
+describe('ConfigPanel — discard guard on view switch', () => {
+  it('shows DiscardChangesDialog when switching views while file is dirty', () => {
+    // Start on Agents & Routing (default), set file dirty, then try to switch to Files tab
     resetStore({ configDirty: true });
     render(<ConfigPanel />);
 
-    // Wait for files to load into store
-    await waitFor(() => {
-      expect(useAppStore.getState().configFiles.length).toBeGreaterThan(0);
-    });
+    // Default view is Agents & Routing — try to switch to Files while dirty
+    fireEvent.click(screen.getByRole('tab', { name: /files/i }));
 
-    // Manually set the config files in the store since loadConfigFiles is async
-    useAppStore.setState({ configFiles: [GLOBAL_FILE, PROJECT_FILE] });
+    // Dialog should appear since configDirty is true
+    expect(document.body.querySelector('[role="alertdialog"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[role="alertdialog"]')?.textContent).toMatch(/unsaved changes/i);
+  });
 
-    // Re-render with files in store
-    const { unmount } = render(<ConfigPanel />);
-    // Sidebar should appear
-    await waitFor(() => {
-      const nav = screen.getAllByRole('navigation', { name: /config files/i });
-      expect(nav.length).toBeGreaterThan(0);
-    });
+  it('performs the view switch after Discard is confirmed', () => {
+    const mockClose = vi.fn();
+    useAppStore.setState({ setConfigPanelOpen: mockClose, configDirty: true } as never);
+    render(<ConfigPanel />);
 
-    // Click a file in the sidebar while dirty
-    const rtkBtn = screen.queryByTitle('~/. claude')
-      || screen.queryAllByRole('button').find((b) => b.title?.includes('~/.claude'));
+    // Try to switch to Files
+    fireEvent.click(screen.getByRole('tab', { name: /files/i }));
+    // Confirm discard
+    const discardBtn = Array.from(document.body.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Discard'
+    );
+    fireEvent.click(discardBtn!);
 
-    // Click the global file button directly via store action mock
-    const mockSelectFile = vi.fn().mockResolvedValue(undefined);
-    useAppStore.setState({ selectConfigFile: mockSelectFile, configDirty: true } as any);
-
-    // Trigger the sidebar file click — get any file button from nav
-    const fileButtons = screen.getAllByRole('navigation')[0].querySelectorAll('button');
-    if (fileButtons.length > 0) {
-      fireEvent.click(fileButtons[0]);
-      // Dialog should appear since configDirty is true
-      expect(document.body.querySelector('[role="alertdialog"]')).toBeInTheDocument();
-    }
-
-    unmount();
+    // Files tab should now be selected
+    const filesTab = screen.getByRole('tab', { name: /files/i });
+    expect(filesTab.getAttribute('aria-selected')).toBe('true');
   });
 });
