@@ -201,6 +201,88 @@ describe('agentResolver', () => {
     fs.rmSync(agentsDir, { recursive: true, force: true });
   });
 
+  test('resolveAgent prefers project .claude/agents over global agentsDir', () => {
+    const workingDir = tmpDir();
+    const projectAgents = path.join(workingDir, '.claude', 'agents');
+    const globalAgents  = tmpDir();
+
+    // Same agentId in both — project version must win.
+    writeAgentFile(projectAgents, 'my-agent', 'opus',   'PROJECT scope agent body.');
+    writeAgentFile(globalAgents,  'my-agent', 'sonnet', 'GLOBAL scope agent body.');
+
+    delete process.env.PIPELINE_AGENT_MODE;
+    delete require.cache[require.resolve('../src/services/agentResolver')];
+    const { resolveAgent } = require('../src/services/agentResolver');
+
+    const spec = resolveAgent('my-agent', globalAgents, workingDir);
+
+    assert.equal(spec.model, 'opus', 'project-scope model should take precedence');
+    assert.ok(spec.systemPrompt.includes('PROJECT scope agent body.'));
+
+    fs.rmSync(workingDir,   { recursive: true, force: true });
+    fs.rmSync(globalAgents, { recursive: true, force: true });
+  });
+
+  test('resolveAgent falls back to global agentsDir when agent not in project', () => {
+    const workingDir = tmpDir();  // no .claude/agents/ inside
+    const globalAgents = tmpDir();
+    writeAgentFile(globalAgents, 'only-global', 'sonnet', 'GLOBAL only.');
+
+    delete process.env.PIPELINE_AGENT_MODE;
+    delete require.cache[require.resolve('../src/services/agentResolver')];
+    const { resolveAgent } = require('../src/services/agentResolver');
+
+    const spec = resolveAgent('only-global', globalAgents, workingDir);
+    assert.equal(spec.model, 'sonnet');
+    assert.ok(spec.systemPrompt.includes('GLOBAL only.'));
+
+    fs.rmSync(workingDir,   { recursive: true, force: true });
+    fs.rmSync(globalAgents, { recursive: true, force: true });
+  });
+
+  test('resolveAgent finds project-only agent when not present in global dir', () => {
+    // Repro of the reported bug: agent defined only in project's .claude/agents/,
+    // absent from ~/.claude/agents/. The pipeline used to fail with AgentNotFound.
+    const workingDir = tmpDir();
+    const projectAgents = path.join(workingDir, '.claude', 'agents');
+    const globalAgents  = tmpDir();  // empty
+
+    writeAgentFile(projectAgents, 'project-only', 'sonnet', 'Project-only agent.');
+
+    delete process.env.PIPELINE_AGENT_MODE;
+    delete require.cache[require.resolve('../src/services/agentResolver')];
+    const { resolveAgent } = require('../src/services/agentResolver');
+
+    const spec = resolveAgent('project-only', globalAgents, workingDir);
+    assert.equal(spec.agentId, 'project-only');
+    assert.ok(spec.systemPrompt.includes('Project-only agent.'));
+
+    fs.rmSync(workingDir,   { recursive: true, force: true });
+    fs.rmSync(globalAgents, { recursive: true, force: true });
+  });
+
+  test('resolveAgent AgentNotFoundError message lists every searched dir', () => {
+    const workingDir   = tmpDir();
+    const globalAgents = tmpDir();
+
+    delete process.env.PIPELINE_AGENT_MODE;
+    delete require.cache[require.resolve('../src/services/agentResolver')];
+    const { resolveAgent, AgentNotFoundError } = require('../src/services/agentResolver');
+
+    assert.throws(
+      () => resolveAgent('nope', globalAgents, workingDir),
+      (err) => {
+        assert.ok(err instanceof AgentNotFoundError);
+        assert.ok(err.message.includes(path.join(workingDir, '.claude', 'agents')));
+        assert.ok(err.message.includes(globalAgents));
+        return true;
+      }
+    );
+
+    fs.rmSync(workingDir,   { recursive: true, force: true });
+    fs.rmSync(globalAgents, { recursive: true, force: true });
+  });
+
   test('parseFrontmatter extracts model and body correctly', () => {
     const { parseFrontmatter } = require('../src/services/agentResolver');
 

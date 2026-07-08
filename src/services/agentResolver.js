@@ -102,20 +102,47 @@ function parseFrontmatter(content, defaultModel = 'sonnet') {
 /**
  * Resolve an agent specification from its definition file.
  *
- * Reads `<agentsDir>/<agentId>.md`, parses the frontmatter for `model:`,
- * and constructs the spawn argument list based on PIPELINE_AGENT_MODE.
+ * Search order (project scope takes precedence over global):
+ *   1. `<workingDirectory>/.claude/agents/<agentId>.md`  (when workingDirectory given)
+ *   2. `<agentsDir>/<agentId>.md`                        (explicit override, or default)
  *
- * @param {string}  agentId    - Kebab-case agent identifier (e.g. 'senior-architect').
- * @param {string}  [agentsDir] - Override agents directory. Defaults to ~/.claude/agents/.
+ * Default `agentsDir` is `~/.claude/agents/`.
+ *
+ * Parses the frontmatter for `model:` and constructs the spawn argument list
+ * based on PIPELINE_AGENT_MODE.
+ *
+ * @param {string}  agentId            - Kebab-case agent identifier (e.g. 'senior-architect').
+ * @param {string}  [agentsDir]        - Override global agents directory. Defaults to ~/.claude/agents/.
+ * @param {string}  [workingDirectory] - Project working directory; enables project-scoped lookup
+ *                                       under `<workingDirectory>/.claude/agents/` with higher precedence.
  * @returns {{ agentId: string, model: string, systemPrompt: string, spawnArgs: string[] }}
- * @throws {AgentNotFoundError} When the agent file does not exist.
+ * @throws {AgentNotFoundError} When the agent file does not exist in any search location.
  */
-function resolveAgent(agentId, agentsDir) {
-  const dir      = expandTilde(agentsDir) || path.join(os.homedir(), '.claude', 'agents');
-  const filePath = path.join(dir, `${agentId}.md`);
+function resolveAgent(agentId, agentsDir, workingDirectory) {
+  const globalDir = expandTilde(agentsDir) || path.join(os.homedir(), '.claude', 'agents');
 
-  if (!fs.existsSync(filePath)) {
-    throw new AgentNotFoundError(agentId, dir);
+  // Search order: project-scoped first, then global. Duplicate dirs are skipped
+  // so an explicit `agentsDir` equal to the project dir is not searched twice.
+  const searchDirs = [];
+  if (workingDirectory && typeof workingDirectory === 'string') {
+    searchDirs.push(path.join(workingDirectory, '.claude', 'agents'));
+  }
+  if (!searchDirs.includes(globalDir)) {
+    searchDirs.push(globalDir);
+  }
+
+  let filePath = null;
+  for (const dir of searchDirs) {
+    const candidate = path.join(dir, `${agentId}.md`);
+    if (fs.existsSync(candidate)) {
+      filePath = candidate;
+      break;
+    }
+  }
+
+  if (!filePath) {
+    // Report every searched location so callers can diagnose project vs. global misses.
+    throw new AgentNotFoundError(agentId, searchDirs.join(' or '));
   }
 
   const content = fs.readFileSync(filePath, 'utf8');

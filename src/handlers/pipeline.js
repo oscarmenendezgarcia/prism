@@ -528,10 +528,12 @@ async function handlePreviewPrompts(req, res, dataDir, spaceManager) {
   }
 
   // Validate all agent files exist before doing any work.
+  // Project-scoped agents under `<workingDirectory>/.claude/agents/` take precedence.
   const agentsDir = process.env.PIPELINE_AGENTS_DIR;
+  const workingDirectory = spaceResult.space.workingDirectory;
   for (const agentId of stages) {
     try {
-      resolveAgent(agentId, agentsDir);
+      resolveAgent(agentId, agentsDir, workingDirectory);
     } catch (err) {
       if (err instanceof AgentNotFoundError) {
         return sendError(res, 422, 'AGENT_NOT_FOUND', err.message);
