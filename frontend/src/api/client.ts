@@ -32,6 +32,7 @@ import type {
   DirectoryListing,
   ValidationResult,
   HomeDirectoryResponse,
+  StageModelsMap,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -99,13 +100,14 @@ export const createSpace = (name: string, workingDirectory?: string, pipeline?: 
     }),
   });
 
-/** Update a space (name, workingDirectory, pipeline, agentNicknames). */
+/** Update a space (name, workingDirectory, pipeline, agentNicknames, stageModels). */
 export const renameSpace = (
   id: string,
   name: string,
   workingDirectory?: string,
   pipeline?: string[],
   agentNicknames?: Record<string, string>,
+  stageModels?: StageModelsMap | null,
 ): Promise<Space> =>
   apiFetch<Space>(`/spaces/${id}`, {
     method: 'PUT',
@@ -114,6 +116,7 @@ export const renameSpace = (
       ...(workingDirectory !== undefined ? { workingDirectory } : {}),
       ...(pipeline !== undefined ? { pipeline } : {}),
       ...(agentNicknames !== undefined ? { agentNicknames } : {}),
+      ...(stageModels !== undefined ? { stageModels } : {}),
     }),
   });
 
@@ -121,6 +124,19 @@ export const renameSpace = (
 export const deleteSpace = (id: string): Promise<{ deleted: true; id: string }> =>
   apiFetch<{ deleted: true; id: string }>(`/spaces/${id}`, {
     method: 'DELETE',
+  });
+
+/**
+ * Partial update for a space. Accepts any subset of space fields.
+ * used for pin/unpin/reorder operations where only pinned/pinnedRank change.
+ */
+export const updateSpace = (
+  id: string,
+  patch: { name?: string; pinned?: boolean; pinnedRank?: number | null },
+): Promise<Space> =>
+  apiFetch<Space>(`/spaces/${id}`, {
+    method: 'PUT',
+    body:   JSON.stringify(patch),
   });
 
 // ---------------------------------------------------------------------------

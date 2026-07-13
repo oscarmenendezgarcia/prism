@@ -7,7 +7,7 @@
  *   - Kebab affordance: persistent at opacity-70 on active, hover-reveal on inactive
  *   - Accessibility: role="tab", aria-selected, data-space-id, title, focus-visible ring
  *
- * ADR-1 (space-tabs-overflow): extracted from SpaceTabs for single-responsibility
+ * Extracted from SpaceTabs for single-responsibility
  * and to expose a refCb for the useOverflowItems measurement hook.
  */
 
@@ -21,9 +21,32 @@ export interface SpaceTabProps {
   onKebab: (e: React.MouseEvent, spaceId: string) => void;
   /** ref callback forwarded from useOverflowItems for width measurement */
   refCb?: (el: HTMLElement | null) => void;
+  /** pinned tabs are draggable to reorder within the pinned block. */
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent, spaceId: string) => void;
+  onDragOver?: (e: React.DragEvent, spaceId: string) => void;
+  onDrop?: (e: React.DragEvent, spaceId: string) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
+  /** true while this tab is the one being dragged */
+  isDragging?: boolean;
+  /** true while a dragged tab is hovering over this one (drop target) */
+  isDragOver?: boolean;
 }
 
-export function SpaceTab({ space, active, onSelect, onKebab, refCb }: SpaceTabProps) {
+export function SpaceTab({
+  space,
+  active,
+  onSelect,
+  onKebab,
+  refCb,
+  draggable,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  isDragging,
+  isDragOver,
+}: SpaceTabProps) {
   const labelRef = useRef<HTMLSpanElement | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
 
@@ -62,18 +85,44 @@ export function SpaceTab({ space, active, onSelect, onKebab, refCb }: SpaceTabPr
       onClick={() => onSelect(space)}
       onKeyDown={handleKeyDown}
       aria-label={space.name}
+      draggable={draggable}
+      onDragStart={draggable ? (e) => onDragStart?.(e, space.id) : undefined}
+      onDragOver={draggable ? (e) => onDragOver?.(e, space.id) : undefined}
+      onDrop={draggable ? (e) => onDrop?.(e, space.id) : undefined}
+      onDragEnd={draggable ? onDragEnd : undefined}
       className={[
         // Base layout
         'group relative flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md',
-        'cursor-pointer transition-all duration-fast select-none whitespace-nowrap flex-shrink-0',
+        'transition-[color,background-color,opacity] duration-fast select-none whitespace-nowrap flex-shrink-0',
+        draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
         // Focus ring
         'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary',
         // Active vs inactive styling
         active
           ? 'bg-primary-container text-primary font-medium'
           : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant',
+        // Drag states
+        isDragging ? 'opacity-40' : '',
       ].join(' ')}
     >
+      {/* Drop-target insertion indicator — a primary bar on the tab's leading edge */}
+      {isDragOver && !isDragging && (
+        <span
+          className="absolute -left-0.5 top-1 bottom-1 w-0.5 rounded-full bg-primary"
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Pin indicator — shown for pinned spaces (which sort to the front) */}
+      {space.pinned && (
+        <span
+          className="material-symbols-outlined text-xs leading-none opacity-40 flex-shrink-0"
+          aria-hidden="true"
+        >
+          push_pin
+        </span>
+      )}
+
       {/* Truncated label — aria-label is on the outer button; no duplicate needed here */}
       <span
         ref={labelRef}

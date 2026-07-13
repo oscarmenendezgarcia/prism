@@ -622,6 +622,11 @@ html.dark {
 
 .xterm .xterm-viewport {
   background-color: var(--color-terminal-bg) !important;
+  /* Mobile: let the browser own vertical panning of the scrollback so touch
+     scrolling is smooth instead of janky, with iOS momentum. Without this,
+     xterm's own handlers make touch scroll the viewport poorly on phones. */
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .xterm .composition-view {

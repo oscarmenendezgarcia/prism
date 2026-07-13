@@ -44,6 +44,8 @@ const {
   runDir,
 } = require('../src/services/pipelineManager');
 
+const cliSpawn = require('../src/services/cliSpawn');
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -998,5 +1000,121 @@ describe('triggerBackgroundBootstrap — fire-and-forget, visible in Runs', () =
     });
     assert.equal(binding.hasFolio('space-1'), true, 'force should bootstrap despite the stale mark');
     assert.equal([...runStore.runs.values()][0]?.status, 'completed', 'store run completed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MODEL-2 — ensureBootstrapped honours model routing for folio-bootstrapper
+// ---------------------------------------------------------------------------
+//
+// These tests exercise the "real agent spawn" branch (no PIPELINE_NO_SPAWN),
+// but stop at binary resolution — cliSpawn.resolveCliBinary is monkey-patched
+// so no real `claude`/`opencode` process is ever spawned.
+
+describe('ensureBootstrapped — model routing (MODEL-2)', () => {
+  let db, binding, repoDir, dataDir, agentsDir;
+  let origNoSpawn, origBootstrap, origAgentsDir, origResolveCliBinary;
+
+  before(() => {
+    origNoSpawn          = process.env.PIPELINE_NO_SPAWN;
+    origBootstrap        = process.env.PRISM_FOLIO_BOOTSTRAP;
+    origAgentsDir        = process.env.PIPELINE_AGENTS_DIR;
+    origResolveCliBinary = cliSpawn.resolveCliBinary;
+  });
+
+  after(() => {
+    if (origNoSpawn   === undefined) delete process.env.PIPELINE_NO_SPAWN;
+    else process.env.PIPELINE_NO_SPAWN = origNoSpawn;
+    if (origBootstrap === undefined) delete process.env.PRISM_FOLIO_BOOTSTRAP;
+    else process.env.PRISM_FOLIO_BOOTSTRAP = origBootstrap;
+    if (origAgentsDir === undefined) delete process.env.PIPELINE_AGENTS_DIR;
+    else process.env.PIPELINE_AGENTS_DIR = origAgentsDir;
+    cliSpawn.resolveCliBinary = origResolveCliBinary;
+    try { if (repoDir)   fs.rmSync(repoDir, { recursive: true }); } catch {}
+    try { if (dataDir)   fs.rmSync(dataDir, { recursive: true }); } catch {}
+    try { if (agentsDir) fs.rmSync(agentsDir, { recursive: true }); } catch {}
+  });
+
+  beforeEach(() => {
+    db = openDb();
+    insertSpace(db, 'space-1');
+    const core = createFolioStore(db);
+    binding = createFolioBinding(db, core);
+    repoDir = makeRepoDir();
+    dataDir = makeTmpDir();
+
+    // A minimal folio-bootstrapper.md so resolveAgent() succeeds and we reach
+    // the model-routing branch instead of the agent_not_found early return.
+    agentsDir = makeTmpDir();
+    fs.writeFileSync(
+      path.join(agentsDir, 'folio-bootstrapper.md'),
+      '---\nmodel: sonnet\n---\nYou are the folio bootstrapper.\n',
+      'utf8'
+    );
+
+    delete process.env.PIPELINE_NO_SPAWN;
+    delete process.env.PRISM_FOLIO_BOOTSTRAP;
+    process.env.PIPELINE_AGENTS_DIR = agentsDir;
+    cliSpawn.resolveCliBinary = origResolveCliBinary;
+  });
+
+  it('returns status:error reason:binary_missing when the routed cliTool has no binary, without ever spawning', async () => {
+    cliSpawn.resolveCliBinary = (cliTool) => {
+      throw new Error(`BINARY_NOT_FOUND:${cliTool}`);
+    };
+    const opts = {
+      dataDir,
+      runId: crypto.randomUUID(),
+      spaceModels: { 'folio-bootstrapper': { cliTool: 'opencode', model: 'vllm-local/qwen3.6-35b' } },
+    };
+    fs.mkdirSync(path.join(dataDir, 'runs', opts.runId), { recursive: true });
+
+    const result = await ensureBootstrapped('space-1', repoDir, binding, opts);
+    assert.equal(result.status, 'error');
+    assert.equal(result.reason, 'binary_missing');
+  });
+
+  it('marks bootstrapped_at on binary_missing so a broken route does not retry forever', async () => {
+    cliSpawn.resolveCliBinary = () => { throw new Error('BINARY_NOT_FOUND:opencode'); };
+    const opts = {
+      dataDir,
+      runId: crypto.randomUUID(),
+      spaceModels: { 'folio-bootstrapper': { cliTool: 'opencode', model: 'vllm-local/qwen3.6-35b' } },
+    };
+    fs.mkdirSync(path.join(dataDir, 'runs', opts.runId), { recursive: true });
+
+    await ensureBootstrapped('space-1', repoDir, binding, opts);
+    const { bootstrappedAt } = binding.getBootstrapState('space-1');
+    assert.ok(bootstrappedAt, 'bootstrapped_at should be set even on binary_missing');
+  });
+
+  it('passes the routed cliTool through to resolveCliBinary (not hardcoded claude)', async () => {
+    const seenCliTools = [];
+    cliSpawn.resolveCliBinary = (cliTool) => {
+      seenCliTools.push(cliTool);
+      throw new Error(`BINARY_NOT_FOUND:${cliTool}`);
+    };
+    const opts = {
+      dataDir,
+      runId: crypto.randomUUID(),
+      spaceModels: { 'folio-bootstrapper': { cliTool: 'opencode', model: 'vllm-local/qwen3.6-35b' } },
+    };
+    fs.mkdirSync(path.join(dataDir, 'runs', opts.runId), { recursive: true });
+
+    await ensureBootstrapped('space-1', repoDir, binding, opts);
+    assert.deepEqual(seenCliTools, ['opencode'], 'cliSpawn.resolveCliBinary must be called with the routed cliTool');
+  });
+
+  it('defaults to claude when no spaceModels override is set', async () => {
+    const seenCliTools = [];
+    cliSpawn.resolveCliBinary = (cliTool) => {
+      seenCliTools.push(cliTool);
+      throw new Error(`BINARY_NOT_FOUND:${cliTool}`);
+    };
+    const opts = { dataDir, runId: crypto.randomUUID() };
+    fs.mkdirSync(path.join(dataDir, 'runs', opts.runId), { recursive: true });
+
+    await ensureBootstrapped('space-1', repoDir, binding, opts);
+    assert.deepEqual(seenCliTools, ['claude']);
   });
 });

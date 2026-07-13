@@ -21,7 +21,9 @@ import React, {
   useState,
 } from 'react';
 import { useAppStore, useActiveRun, useAvailableAgents, usePipelineStates } from '@/stores/useAppStore';
+import { distinctArcs } from '@/utils/arcs';
 import { Button } from '@/components/shared/Button';
+import { ArcAutocomplete } from '@/components/shared/ArcAutocomplete';
 import { ReferenceAutocomplete } from '@/components/folio/ReferenceAutocomplete';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
@@ -29,6 +31,19 @@ import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import { resolveAgentName } from '@/utils/agentName';
 import * as api from '@/api/client';
 import type { Column, Comment } from '@/types';
+import { localModelsToStageModelsMap } from '@/utils/modelRouting';
+
+// ---------------------------------------------------------------------------
+// Shared input style for the details column's editable fields (Assigned, Arc)
+// so they read as a set. The read-only ID box reuses the same surface tokens
+// (bg/border/radius/inset) inline since it's a <span>, not an <input>.
+// ---------------------------------------------------------------------------
+
+const DETAIL_FIELD_CLASS =
+  'w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary ' +
+  'placeholder:text-text-disabled/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 ' +
+  'disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[220ms] ease-spring ' +
+  'shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]';
 
 // ---------------------------------------------------------------------------
 // Copy-to-clipboard helper
@@ -430,6 +445,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const patchComment         = useAppStore((s) => s.patchComment);
   const isMutating           = useAppStore((s) => s.isMutating);
   const tasks                = useAppStore((s) => s.tasks);
+  const arcs                 = distinctArcs(tasks);
   const showToast            = useAppStore((s) => s.showToast);
   const loadAgents           = useAppStore((s) => s.loadAgents);
   const openAttachmentModal  = useAppStore((s) => s.openAttachmentModal);
@@ -444,6 +460,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const [localTitle, setLocalTitle]             = useState('');
   const [localAssigned, setLocalAssigned]       = useState('');
+  const [localArc, setLocalArc]                 = useState('');
   const [localDescription, setLocalDescription] = useState('');
   const [localType, setLocalType]               = useState<'feature' | 'bug' | 'tech-debt' | 'chore'>('chore');
   /** Mobile tab — shown only when viewport is <768px (two-column doesn't fit). */
@@ -451,10 +468,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [isCopied, setIsCopied]                 = useState(false);
   /** Index of attachment currently being fetched for direct .md → reader opening. */
   const [loadingAttachmentIndex, setLoadingAttachmentIndex] = useState<number | null>(null);
+  /** MODEL-1: per-stage model overrides for this task (agentId → model string). */
+  const [localStageModels, setLocalStageModels] = useState<Record<string, string>>({});
+  const [modelOverridesOpen, setModelOverridesOpen] = useState(false);
+  const [savingStageModels, setSavingStageModels] = useState(false);
 
   // Track initial values to detect actual changes on blur.
   const savedTitle       = useRef('');
   const savedAssigned    = useRef('');
+  const savedArc         = useRef('');
 
   // ── Refs for focus management ────────────────────────────────────────────
 
@@ -471,11 +493,23 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
     setLocalTitle(detailTask.title);
     setLocalAssigned(detailTask.assigned ?? '');
+    setLocalArc(detailTask.arc ?? '');
     setLocalDescription(detailTask.description ?? '');
     setLocalType(detailTask.type);
 
+    // MODEL-1: initialize local stageModels from task
+    const initModels: Record<string, string> = {};
+    if (detailTask.stageModels) {
+      for (const [agentId, cfg] of Object.entries(detailTask.stageModels)) {
+        if (cfg !== null) initModels[agentId] = cfg.model;
+      }
+    }
+    setLocalStageModels(initModels);
+    setModelOverridesOpen(false);
+
     savedTitle.current    = detailTask.title;
     savedAssigned.current = detailTask.assigned ?? '';
+    savedArc.current      = detailTask.arc ?? '';
 
     // Capture the currently focused element as the trigger before the panel
     // steals focus.
@@ -582,6 +616,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
     updateTask(detailTask.id, { assigned: trimmed });
   }, [detailTask, localAssigned, updateTask]);
 
+  const handleArcBlur = useCallback(() => {
+    if (!detailTask) return;
+    const trimmed = localArc.trim();
+    if (trimmed === savedArc.current) return;
+    savedArc.current = trimmed;
+    // Empty string clears the arc on the server
+    updateTask(detailTask.id, { arc: trimmed });
+  }, [detailTask, localArc, updateTask]);
+
   const handleTypeChange = useCallback(
     (newType: 'feature' | 'bug' | 'tech-debt' | 'chore') => {
       if (!detailTask || newType === localType) return;
@@ -601,6 +644,21 @@ export function TaskDetailPanel(): React.ReactElement | null {
     if (!detailTask) return;
     updateTask(detailTask.id, { pipeline });
   }, [detailTask, updateTask]);
+
+  // MODEL-1: save task-level stage model overrides
+  const handleStageModelsSave = useCallback(async () => {
+    if (!detailTask) return;
+    setSavingStageModels(true);
+    try {
+      const stageModels = localModelsToStageModelsMap(localStageModels);
+      await updateTask(detailTask.id, { stageModels });
+      showToast('Model overrides saved', 'success');
+    } catch {
+      showToast('Failed to save model overrides', 'error');
+    } finally {
+      setSavingStageModels(false);
+    }
+  }, [detailTask, localStageModels, updateTask, showToast]);
 
   // Comment handlers — delegate to the store so the board badge refreshes.
   const handleCommentCreated = useCallback(
@@ -840,7 +898,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               <div className="flex flex-col gap-2 pb-5 animate-fade-in-up [animation-delay:80ms]">
                 <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">ID</span>
                 <div className="flex items-center gap-2">
-                  <span className="flex-1 font-mono text-xs text-text-secondary bg-surface border border-border/40 rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap min-w-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+                  <span className="flex-1 font-mono text-xs text-text-secondary bg-surface/60 border border-border/40 rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap min-w-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
                     {detailTask.id}
                   </span>
                   <button
@@ -893,8 +951,29 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   onBlur={handleAssignedBlur}
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
-                  className="w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary placeholder:text-text-disabled/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[220ms] ease-spring shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+                  className={DETAIL_FIELD_CLASS}
                   placeholder="Assign to someone..."
+                />
+              </div>
+
+              {/* Arc */}
+              <div
+                className="flex flex-col gap-2 py-5 animate-fade-in-up [animation-delay:205ms]"
+                onBlur={(e) => {
+                  // Save when focus leaves the entire arc section (container + dropdown)
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    handleArcBlur();
+                  }
+                }}
+              >
+                <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">Arc</span>
+                <ArcAutocomplete
+                  value={localArc}
+                  onChange={setLocalArc}
+                  arcs={arcs}
+                  placeholder="Search or create an arc…"
+                  className="w-full"
+                  inputClassName={DETAIL_FIELD_CLASS}
                 />
               </div>
 
@@ -909,6 +988,126 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   currentStageIndex={taskPipelineState?.currentStageIndex}
                 />
               </div>
+
+              {/* Model Overrides — MODEL-1 */}
+              {(() => {
+                // Show overrides for the task's pipeline, or the space pipeline, or DEFAULT_STAGES
+                const effectivePipeline = detailTask.pipeline?.length
+                  ? detailTask.pipeline
+                  : (activeSpace?.pipeline?.length ? activeSpace.pipeline : ['senior-architect', 'ux-api-designer', 'developer-agent', 'code-reviewer', 'qa-engineer-e2e']);
+                const overrideCount = Object.values(localStageModels).filter(Boolean).length;
+                return (
+                  <div className="py-5 animate-fade-in-up [animation-delay:255ms] border-t border-border/20">
+                    <button
+                      type="button"
+                      onClick={() => setModelOverridesOpen((prev) => !prev)}
+                      aria-expanded={modelOverridesOpen}
+                      aria-controls="task-model-overrides-body"
+                      className="w-full flex items-center justify-between text-left"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
+                          Model Overrides
+                        </span>
+                        {overrideCount > 0 && (
+                          <span
+                            className="text-[10px] font-medium bg-primary/15 text-primary px-1.5 py-0.5 rounded-full"
+                            aria-label={`${overrideCount} model overrides active`}
+                          >
+                            {overrideCount}
+                          </span>
+                        )}
+                      </span>
+                      <span
+                        className={`material-symbols-outlined text-sm leading-none text-text-tertiary transition-transform duration-fast ${modelOverridesOpen ? 'rotate-180' : ''}`}
+                        aria-hidden="true"
+                      >
+                        expand_more
+                      </span>
+                    </button>
+
+                    {modelOverridesOpen && (
+                      <div id="task-model-overrides-body" className="mt-3 flex flex-col gap-2">
+                        <p className="text-[11px] text-text-disabled leading-relaxed">
+                          Override global + space model settings for this task only. Leave blank to inherit.
+                        </p>
+                        {effectivePipeline.map((agentId) => {
+                          const currentValue = localStageModels[agentId] ?? '';
+                          const hasOverride = agentId in localStageModels && !!currentValue;
+                          const inputId = `task-model-override-${agentId}`;
+                          return (
+                            <div key={agentId} className="flex items-center gap-1.5">
+                              <label
+                                htmlFor={inputId}
+                                className="text-[11px] font-mono text-text-disabled w-28 flex-shrink-0 truncate"
+                                title={agentId}
+                              >
+                                {agentId}
+                              </label>
+                              <input
+                                id={inputId}
+                                type="text"
+                                placeholder="(inherited)"
+                                value={currentValue}
+                                disabled={fieldDisabled}
+                                aria-label={`Model override for ${agentId}`}
+                                onChange={(e) => {
+                                  setLocalStageModels((prev) => ({ ...prev, [agentId]: e.target.value }));
+                                }}
+                                className={`flex-1 min-w-0 px-2 py-1.5 rounded-md bg-surface/60 border border-border/40 text-[11px] font-mono transition-all duration-fast focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 disabled:opacity-40 disabled:cursor-not-allowed placeholder:text-text-disabled/50 ${hasOverride ? 'text-text-primary' : 'text-text-secondary italic'}`}
+                              />
+                              {hasOverride && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setLocalStageModels((prev) => {
+                                      const next = { ...prev };
+                                      delete next[agentId];
+                                      return next;
+                                    });
+                                  }}
+                                  className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-text-disabled hover:text-error focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
+                                  aria-label={`Clear override for ${agentId}`}
+                                  title="Clear override"
+                                >
+                                  <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden="true">close</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        <div className="flex gap-2 justify-end mt-1">
+                          <Button
+                            variant="ghost"
+                            onClick={() => {
+                              // Reset local state from task
+                              const reset: Record<string, string> = {};
+                              if (detailTask.stageModels) {
+                                for (const [id, cfg] of Object.entries(detailTask.stageModels)) {
+                                  if (cfg !== null) reset[id] = cfg.model;
+                                }
+                              }
+                              setLocalStageModels(reset);
+                            }}
+                            className="text-[11px] px-2.5 py-1"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="primary"
+                            onClick={handleStageModelsSave}
+                            disabled={fieldDisabled || savingStageModels}
+                            aria-busy={savingStageModels}
+                            className="text-[11px] px-2.5 py-1"
+                          >
+                            {savingStageModels ? 'Saving...' : 'Save'}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Attachments */}
               {detailTask.attachments && detailTask.attachments.length > 0 && (

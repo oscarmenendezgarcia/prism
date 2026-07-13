@@ -1,0 +1,563 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Prism — Model Routing API (MODEL-1)",
+    "version": "1.0.0",
+    "description": "REST API extensions for per-stage model/provider routing. All endpoints are additive — existing endpoints continue to work unchanged when stageModels is absent."
+  },
+  "servers": [
+    { "url": "http://localhost:3000/api/v1", "description": "Local development" }
+  ],
+  "paths": {
+    "/settings": {
+      "get": {
+        "operationId": "getSettings",
+        "summary": "Get global settings (including stageModels)",
+        "tags": ["Settings"],
+        "responses": {
+          "200": {
+            "description": "Current settings object",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Settings" },
+                "example": {
+                  "pipeline": {
+                    "stageModels": {
+                      "senior-architect": {
+                        "provider": "claude",
+                        "model": "claude-opus-4-5",
+                        "cliTool": "claude"
+                      },
+                      "qa-engineer-e2e": {
+                        "provider": "claude",
+                        "model": "claude-haiku-4-5",
+                        "cliTool": "claude"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "putSettings",
+        "summary": "Update global settings (partial merge — stageModels are merged 3-levels deep)",
+        "tags": ["Settings"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SettingsUpdate" },
+              "examples": {
+                "setStageModel": {
+                  "summary": "Set opus for architect, haiku for QA",
+                  "value": {
+                    "pipeline": {
+                      "stageModels": {
+                        "senior-architect": {
+                          "provider": "claude",
+                          "model": "claude-opus-4-5",
+                          "cliTool": "claude"
+                        },
+                        "qa-engineer-e2e": {
+                          "provider": "claude",
+                          "model": "claude-haiku-4-5",
+                          "cliTool": "claude"
+                        }
+                      }
+                    }
+                  }
+                },
+                "clearStageModel": {
+                  "summary": "Remove override for a stage (set to null or omit key)",
+                  "value": {
+                    "pipeline": {
+                      "stageModels": {
+                        "senior-architect": null
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated settings",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Settings" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error — invalid provider, model, or cliTool",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Invalid provider 'opencode' for stage 'senior-architect'.",
+                    "suggestion": "Valid providers are: claude, openai, ollama, custom.",
+                    "field": "pipeline.stageModels.senior-architect.provider"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/spaces/{spaceId}": {
+      "get": {
+        "operationId": "getSpace",
+        "summary": "Get a space (now includes stageModels field)",
+        "tags": ["Spaces"],
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Space object",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Space" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "put": {
+        "operationId": "updateSpace",
+        "summary": "Update a space — accepts stageModels for per-space model override",
+        "tags": ["Spaces"],
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SpaceUpdate" },
+              "example": {
+                "stageModels": {
+                  "developer-agent": {
+                    "provider": "claude",
+                    "model": "claude-sonnet-4-5",
+                    "cliTool": "claude"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated space",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Space" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error — invalid stageModels entry",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Invalid cliTool 'figma' for stage 'developer-agent'.",
+                    "suggestion": "Valid CLI tools are: claude, opencode, custom.",
+                    "field": "stageModels.developer-agent.cliTool"
+                  }
+                }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/spaces/{spaceId}/tasks/{taskId}": {
+      "get": {
+        "operationId": "getTask",
+        "summary": "Get a task (now includes stageModels field)",
+        "tags": ["Tasks"],
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" },
+          { "$ref": "#/components/parameters/taskId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Task object",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Task" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "put": {
+        "operationId": "updateTask",
+        "summary": "Update a task — accepts stageModels for per-task model override",
+        "tags": ["Tasks"],
+        "parameters": [
+          { "$ref": "#/components/parameters/spaceId" },
+          { "$ref": "#/components/parameters/taskId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TaskUpdate" },
+              "example": {
+                "stageModels": {
+                  "senior-architect": {
+                    "provider": "claude",
+                    "model": "claude-opus-4-5",
+                    "cliTool": "claude"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated task",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Task" }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error — invalid stageModels entry",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/runs/{runId}": {
+      "get": {
+        "operationId": "getRun",
+        "summary": "Get a pipeline run — stageStatuses now include model/provider/cliTool",
+        "tags": ["Runs"],
+        "parameters": [
+          { "$ref": "#/components/parameters/runId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run object with model info per stage",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Run" }
+              }
+            }
+          },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "spaceId": {
+        "name": "spaceId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "The space UUID"
+      },
+      "taskId": {
+        "name": "taskId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "The task UUID"
+      },
+      "runId": {
+        "name": "runId",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" },
+        "description": "The pipeline run UUID"
+      }
+    },
+    "schemas": {
+      "StageModelConfig": {
+        "type": "object",
+        "description": "Model configuration for a single pipeline stage. All three fields must be provided together when setting an override.",
+        "required": ["provider", "model", "cliTool"],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": ["claude", "openai", "ollama", "custom"],
+            "description": "AI provider. Only 'claude' is fully supported in MODEL-1; others are validated but not wired end-to-end until MODEL-2."
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Model identifier string. Not validated against provider's model list — too dynamic. Example: 'claude-opus-4-5', 'gpt-4o', 'qwen2.5-coder:32b'."
+          },
+          "cliTool": {
+            "type": "string",
+            "enum": ["claude", "opencode", "custom"],
+            "description": "CLI binary to use. Only 'claude' is fully supported in MODEL-1."
+          }
+        },
+        "example": {
+          "provider": "claude",
+          "model": "claude-opus-4-5",
+          "cliTool": "claude"
+        }
+      },
+      "StageModelsMap": {
+        "type": "object",
+        "description": "Map from agentId to StageModelConfig. Keys are agent IDs (e.g. 'senior-architect'). Unknown agent IDs are accepted (future-proof for custom agents). Null value for a key removes that override.",
+        "additionalProperties": {
+          "oneOf": [
+            { "$ref": "#/components/schemas/StageModelConfig" },
+            { "type": "null" }
+          ]
+        },
+        "example": {
+          "senior-architect": {
+            "provider": "claude",
+            "model": "claude-opus-4-5",
+            "cliTool": "claude"
+          },
+          "qa-engineer-e2e": {
+            "provider": "claude",
+            "model": "claude-haiku-4-5",
+            "cliTool": "claude"
+          }
+        }
+      },
+      "StageStatus": {
+        "type": "object",
+        "description": "Status of a single pipeline stage within a run. MODEL-1 adds model/provider/cliTool/resolvedFrom fields.",
+        "properties": {
+          "index": { "type": "integer", "description": "Stage index (0-based)" },
+          "agentId": { "type": "string", "description": "Agent identifier" },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "running", "completed", "failed", "cancelled"]
+          },
+          "exitCode": { "type": ["integer", "null"] },
+          "startedAt": { "type": ["string", "null"], "format": "date-time" },
+          "finishedAt": { "type": ["string", "null"], "format": "date-time" },
+          "pid": { "type": ["integer", "null"] },
+          "model": {
+            "type": ["string", "null"],
+            "description": "Effective model used for this stage. Written at spawn time. Null for old runs pre-MODEL-1.",
+            "example": "claude-opus-4-5"
+          },
+          "provider": {
+            "type": ["string", "null"],
+            "description": "Effective provider. Null for old runs pre-MODEL-1.",
+            "example": "claude"
+          },
+          "cliTool": {
+            "type": ["string", "null"],
+            "description": "CLI binary used. Null for old runs pre-MODEL-1.",
+            "example": "claude"
+          },
+          "resolvedFrom": {
+            "type": ["string", "null"],
+            "enum": ["task", "space", "settings", "frontmatter", null],
+            "description": "Which inheritance layer provided the effective config. Null for old runs."
+          }
+        }
+      },
+      "Settings": {
+        "type": "object",
+        "description": "Global application settings",
+        "properties": {
+          "pipeline": {
+            "type": "object",
+            "properties": {
+              "stageModels": {
+                "allOf": [{ "$ref": "#/components/schemas/StageModelsMap" }],
+                "description": "Global defaults for per-stage model config. Override per space/task. Defaults to {} (empty map)."
+              }
+            }
+          }
+        }
+      },
+      "SettingsUpdate": {
+        "type": "object",
+        "description": "Partial settings update. Only provided fields are merged. stageModels entries are merged key-by-key (3-level deep merge) — a partial update does not wipe unmentioned agent IDs.",
+        "properties": {
+          "pipeline": {
+            "type": "object",
+            "properties": {
+              "stageModels": {
+                "$ref": "#/components/schemas/StageModelsMap"
+              }
+            }
+          }
+        }
+      },
+      "Space": {
+        "type": "object",
+        "description": "A Prism kanban space",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "pipeline": {
+            "type": ["array", "null"],
+            "items": { "type": "string" },
+            "description": "Ordered list of agent IDs for this space's pipeline. Null = use global default."
+          },
+          "stageModels": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/StageModelsMap" },
+              { "type": "null" }
+            ],
+            "description": "Per-stage model overrides for this space. Null when not set (inherit from global settings)."
+          }
+        }
+      },
+      "SpaceUpdate": {
+        "type": "object",
+        "description": "Partial space update. All fields are optional.",
+        "properties": {
+          "name": { "type": "string" },
+          "pipeline": {
+            "type": ["array", "null"],
+            "items": { "type": "string" }
+          },
+          "stageModels": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/StageModelsMap" },
+              { "type": "null" }
+            ],
+            "description": "Set to null to clear all space-level overrides. Set individual agent keys to null to clear that agent's override."
+          }
+        }
+      },
+      "Task": {
+        "type": "object",
+        "description": "A Prism kanban task",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "type": { "type": "string" },
+          "pipeline": {
+            "type": ["array", "null"],
+            "items": { "type": "string" }
+          },
+          "stageModels": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/StageModelsMap" },
+              { "type": "null" }
+            ],
+            "description": "Per-stage model overrides for this task (highest priority — overrides space and global). Null when not set."
+          }
+        }
+      },
+      "TaskUpdate": {
+        "type": "object",
+        "description": "Partial task update. All fields are optional.",
+        "properties": {
+          "title": { "type": "string" },
+          "assigned": { "type": "string" },
+          "stageModels": {
+            "oneOf": [
+              { "$ref": "#/components/schemas/StageModelsMap" },
+              { "type": "null" }
+            ]
+          }
+        }
+      },
+      "Run": {
+        "type": "object",
+        "description": "A pipeline run",
+        "properties": {
+          "id": { "type": "string" },
+          "spaceId": { "type": "string" },
+          "taskId": { "type": "string" },
+          "status": { "type": "string" },
+          "stageStatuses": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/StageStatus" },
+            "description": "Per-stage status. model/provider/cliTool fields are populated from MODEL-1 onwards. Absent (null) for runs started before MODEL-1."
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "User-friendly error response",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Machine-readable error code",
+                "enum": [
+                  "VALIDATION_ERROR",
+                  "NOT_FOUND",
+                  "INTERNAL_ERROR",
+                  "AGENT_SPAWN_ERROR"
+                ]
+              },
+              "message": {
+                "type": "string",
+                "description": "Human-readable description of what went wrong"
+              },
+              "suggestion": {
+                "type": "string",
+                "description": "How the user can fix the problem"
+              },
+              "field": {
+                "type": "string",
+                "description": "JSON path to the field that caused the error, if applicable"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": {
+                "code": "NOT_FOUND",
+                "message": "The requested space does not exist.",
+                "suggestion": "Check the spaceId and try again."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    { "name": "Settings", "description": "Global settings — includes pipeline.stageModels" },
+    { "name": "Spaces", "description": "Space management — includes per-space stageModels override" },
+    { "name": "Tasks", "description": "Task management — includes per-task stageModels override" },
+    { "name": "Runs", "description": "Pipeline run monitoring — stageStatuses now include model info" }
+  ]
+}

@@ -63,16 +63,22 @@ export function FinalResultRow({ event }: { event: FinalResultEvent }) {
       >
         ✓
       </span>
-      <div className="min-w-0 flex flex-col gap-0.5">
+      <div className="min-w-0 flex-1 flex flex-col gap-1.5">
         <span className="text-xs font-semibold text-text-primary">Session Complete</span>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-text-secondary">
-          <span>Duration: <span className="font-mono text-text-primary">{formatMs(event.durationMs)}</span></span>
-          <span>Turns: <span className="font-mono text-text-primary">{event.numTurns}</span></span>
-          <span>Cost: <span className="font-mono text-text-primary">{formatCost(event.costUsd)}</span></span>
-          {event.stopReason && (
-            <span>Stop: <span className="font-mono text-text-primary">{event.stopReason}</span></span>
-          )}
-        </div>
+        {event.summary ? (
+          <pre className="text-xs font-mono text-text-secondary whitespace-pre-wrap break-words bg-surface-variant rounded-md px-2 py-1.5">
+            {event.summary}
+          </pre>
+        ) : (
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-text-secondary">
+            <span>Duration: <span className="font-mono text-text-primary">{formatMs(event.durationMs)}</span></span>
+            <span>Turns: <span className="font-mono text-text-primary">{event.numTurns}</span></span>
+            <span>Cost: <span className="font-mono text-text-primary">{formatCost(event.costUsd)}</span></span>
+            {event.stopReason && (
+              <span>Stop: <span className="font-mono text-text-primary">{event.stopReason}</span></span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

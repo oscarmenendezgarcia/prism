@@ -10,6 +10,7 @@ import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import { createAgentRun, updateAgentRun, getAgentRuns } from '@/api/client';
 import type { AgentRunRecord, AgentRunPatchPayload, RunStatus } from '@/types';
+import { safeStorage } from '@/utils/safeStorage';
 
 /** localStorage key for panel open state persistence. */
 const HISTORY_PANEL_OPEN_KEY = 'prism:run-history:open';
@@ -31,7 +32,7 @@ interface RunHistoryState {
   /** True during the first fetch only. */
   loading: boolean;
 
-  /** Whether the Run History panel is open. Persisted to localStorage. */
+  /** Whether the Run History panel is open. Persisted to safeStorage. */
   historyPanelOpen: boolean;
 
   /** Fetch /api/v1/agent-runs and update runs[]. */
@@ -67,7 +68,7 @@ interface RunHistoryState {
   /** Clear the task ID filter and return to showing all runs. */
   clearTaskIdFilter: () => void;
 
-  /** Toggle historyPanelOpen and persist to localStorage. */
+  /** Toggle historyPanelOpen and persist to safeStorage. */
   toggleHistoryPanel: () => void;
 }
 
@@ -80,7 +81,7 @@ export const useRunHistoryStore = create<RunHistoryState>((set, get) => ({
   filter:       'all',
   taskIdFilter: null,
   loading:      false,
-  historyPanelOpen: localStorage.getItem(HISTORY_PANEL_OPEN_KEY) === '1',
+  historyPanelOpen: safeStorage.getItem(HISTORY_PANEL_OPEN_KEY) === '1',
 
   loadRuns: async () => {
     const { runs: currentRuns } = get();
@@ -160,7 +161,7 @@ export const useRunHistoryStore = create<RunHistoryState>((set, get) => ({
   setFilter: (filter) => set({ filter }),
 
   openPanelForTask: (taskId) => {
-    localStorage.setItem(HISTORY_PANEL_OPEN_KEY, '1');
+    safeStorage.setItem(HISTORY_PANEL_OPEN_KEY, '1');
     set({ historyPanelOpen: true, taskIdFilter: taskId, filter: 'all' });
   },
 
@@ -169,9 +170,9 @@ export const useRunHistoryStore = create<RunHistoryState>((set, get) => ({
   toggleHistoryPanel: () => {
     const next = !get().historyPanelOpen;
     if (next) {
-      localStorage.setItem(HISTORY_PANEL_OPEN_KEY, '1');
+      safeStorage.setItem(HISTORY_PANEL_OPEN_KEY, '1');
     } else {
-      localStorage.removeItem(HISTORY_PANEL_OPEN_KEY);
+      safeStorage.removeItem(HISTORY_PANEL_OPEN_KEY);
     }
     set({ historyPanelOpen: next });
   },

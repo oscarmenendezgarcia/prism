@@ -12,7 +12,7 @@
 'use strict';
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
-const { createApp }                      = require('../handlers/tasks');
+const { createApp }       = require('../handlers/tasks');
 const { handleStatic }                   = require('../handlers/static');
 const { handleGetSettings, handlePutSettings } = require('../handlers/settings');
 const {
@@ -380,6 +380,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       folioBootstrap.triggerBackgroundBootstrap({
         spaceId, workingDir: wd, binding, dataDir, spaceName: space.name,
         runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
+        spaceModels: space.stageModels ?? null,
         force: true, // explicit button press → re-run even if a stale one-shot mark exists
       });
       return sendJSON(res, 202, { started: true });
@@ -484,6 +485,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         `Method '${method}' is not allowed on this route`);
     }
 
+
     // -------------------------------------------------------------------------
     // Space-scoped task routes: /api/v1/spaces/:spaceId/tasks/*
     // -------------------------------------------------------------------------
@@ -564,12 +566,17 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         const pipeline         = body && body.pipeline;
         const agentNicknames   = body && body.agentNicknames;
         const folioBackend     = body && body.folioBackend;
+        // pin/rank fields (optional; name is also optional for pin-only updates).
+        const pinned      = body && body.pinned      !== undefined ? body.pinned      : undefined;
+        const pinnedRank  = body && body.pinnedRank  !== undefined ? body.pinnedRank  : undefined;
+        // MODEL-1: per-stage model routing overrides.
+        const stageModels = body && body.stageModels !== undefined ? body.stageModels : undefined;
 
         // Capture the prior working dir so we can detect a fresh repo activation.
         const prevSpace = spaceManager.getSpace(spaceId);
         const prevWd    = prevSpace.ok ? prevSpace.space.workingDirectory : undefined;
 
-        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames, folioBackend);
+        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames, folioBackend, pinned, pinnedRank, stageModels);
 
         if (!result.ok) {
           const status = result.code === 'SPACE_NOT_FOUND' ? 404
@@ -593,6 +600,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
                 folioBootstrap.triggerBackgroundBootstrap({
                   spaceId, workingDir: newWd, binding, dataDir, spaceName: result.space.name,
                   runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
+                  spaceModels: result.space.stageModels ?? null,
                 });
               }
             } else if (result.space.folioBackend !== 'file' && typeof binding.migrateSpaceToFile === 'function') {

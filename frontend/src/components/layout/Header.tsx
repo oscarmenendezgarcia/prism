@@ -17,8 +17,17 @@ import { RunsToggle } from '@/components/runs-panel/RunsToggle';
 import { FolioToggle } from '@/components/folio/FolioToggle';
 import { useAppStore } from '@/stores/useAppStore';
 
+// The global-search shortcut binds metaKey || ctrlKey (App.tsx), so it fires on both
+// platforms. Show the matching modifier label: ⌘K on macOS, Ctrl K elsewhere.
+const IS_MAC =
+  typeof navigator !== 'undefined' &&
+  /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+const SEARCH_HINT = IS_MAC ? '⌘K' : 'Ctrl K';
+const SEARCH_LABEL = `Buscar tareas (${SEARCH_HINT})`;
+
 export function Header() {
   const openCreateModal = useAppStore((s) => s.openCreateModal);
+  const openGlobalSearch = useAppStore((s) => s.openGlobalSearch);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -50,15 +59,68 @@ export function Header() {
         <h1 className="text-lg font-semibold text-text-primary tracking-tight">Prism</h1>
       </div>
 
-      {/* Centre: unified run indicator (ADR-1 run-indicator) — only takes space when active */}
-      <div className="flex items-center gap-3 justify-center px-4">
+      {/* Divider — separates the brand from the mobile search utility so the icon doesn't read as part of the logo.
+          Matches the actions-strip dividers (h-6, mx-2) for a consistent rhythm. */}
+      <div className="md:hidden w-px h-6 bg-border/60 mx-2 flex-shrink-0" aria-hidden="true" />
+
+      {/* Search — compact icon button on the left, only on mobile (md+ shows the full pill in the centre) */}
+      <button
+        type="button"
+        onClick={openGlobalSearch}
+        aria-label={SEARCH_LABEL}
+        className="md:hidden w-9 h-9 flex items-center justify-center rounded-lg flex-shrink-0
+          text-text-secondary hover:text-text-primary hover:bg-surface-variant
+          active:scale-95 motion-reduce:active:scale-100
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
+          transition-[color,background-color,transform] duration-fast ease-default"
+      >
+        <span className="material-symbols-outlined text-[20px] leading-none" aria-hidden="true">search</span>
+      </button>
+
+      {/* Centre: search pill + run indicator — flex-1 fills the free space; justify-center keeps
+          the capped pill centred once it hits its max-width on wide screens */}
+      <div className="flex flex-1 min-w-0 items-center justify-center gap-3 px-6 lg:px-8">
+        {/* Search pill — visible on md+, hidden on mobile (hamburger menu has the entry point) */}
+        <button
+          type="button"
+          onClick={openGlobalSearch}
+          aria-label={SEARCH_LABEL}
+          className="hidden md:flex flex-1 min-w-0 max-w-2xl items-center gap-2 px-3 h-9
+            bg-surface border border-border rounded-lg
+            hover:border-primary/40 hover:bg-surface-elevated
+            active:scale-[0.99] motion-reduce:active:scale-100
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary
+            transition-[background-color,border-color,transform] duration-fast ease-default cursor-pointer group"
+        >
+          <span
+            className="material-symbols-outlined text-[20px] leading-none text-text-secondary group-hover:text-text-primary shrink-0
+              transition-colors duration-fast ease-default"
+            aria-hidden="true"
+          >
+            search
+          </span>
+          <span className="flex-1 text-[13px] text-text-disabled group-hover:text-text-secondary text-left select-none
+            transition-colors duration-fast ease-default">
+            Buscar…
+          </span>
+          <kbd
+            className="inline-flex items-center px-1.5 py-0.5
+              text-[10px] font-mono text-text-disabled
+              border border-border rounded
+              bg-surface-variant shrink-0"
+            aria-hidden="true"
+          >
+            {SEARCH_HINT}
+          </kbd>
+        </button>
+
         <RunIndicator />
       </div>
 
       {/* Actions: Panel Toggles | New Task | Utility Strip */}
-      <div className="flex items-center">
-        {/* Panel Toggles — hidden on mobile */}
-        <div className="hidden sm:flex items-center gap-2">
+      <div className="flex items-center flex-shrink-0">
+        {/* Panel Toggles — collapse into the hamburger below lg so New Task always fits */}
+        <div className="hidden lg:flex items-center gap-2">
           <Tooltip label="Folio" description="Browse and edit the space knowledge base">
             <FolioToggle />
           </Tooltip>
@@ -76,10 +138,10 @@ export function Header() {
           </Tooltip>
         </div>
 
-        <div className="hidden sm:block w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
+        <div className="hidden lg:block w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
 
-        {/* New Task — hidden on mobile (FAB in Board handles it) */}
-        <div className="hidden sm:block">
+        {/* New Task — always visible; utility icons collapse around it */}
+        <div className="block">
           <Button
             variant="primary"
             onClick={openCreateModal}
@@ -92,15 +154,15 @@ export function Header() {
           </Button>
         </div>
 
-        <div className="hidden sm:block w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
+        <div className="hidden lg:block w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
 
-        {/* Utility Strip — hidden on mobile (lives in hamburger menu) */}
-        <div className="hidden sm:block">
+        {/* Theme — collapses into the hamburger below lg */}
+        <div className="hidden lg:block">
           <ThemeToggle />
         </div>
 
-        {/* Hamburger — mobile only */}
-        <div className="relative sm:hidden ml-2" ref={menuRef}>
+        {/* Hamburger — shows below lg (holds the collapsed utility icons) */}
+        <div className="relative lg:hidden ml-2" ref={menuRef}>
           <button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
@@ -119,18 +181,6 @@ export function Header() {
 
           {menuOpen && (
             <div className="absolute right-0 top-full mt-2 w-56 bg-surface-elevated border border-border rounded-xl shadow-lg py-2 z-[110]">
-              {/* New Task */}
-              <button
-                type="button"
-                onClick={() => { openCreateModal(); setMenuOpen(false); }}
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:bg-surface-variant transition-colors duration-fast"
-              >
-                <span className="material-symbols-outlined text-[18px] leading-none text-primary" aria-hidden="true">add_circle</span>
-                New Task
-              </button>
-
-              <div className="h-px bg-border mx-3 my-1" aria-hidden="true" />
-
               {/* Panel toggles — rendered as menu rows */}
               <div className="flex flex-col">
                 <MobileMenuRow label="Folio" icon="menu_book" toggle={<FolioToggle />} />

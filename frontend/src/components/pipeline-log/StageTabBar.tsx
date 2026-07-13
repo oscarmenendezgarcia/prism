@@ -22,6 +22,11 @@ export interface StageStatus {
   startedAt: string | null;
   finishedAt: string | null;
   exitCode: number | null;
+  /** MODEL-1: model used to run this stage (set at spawn time). */
+  model?: string | null;
+  provider?: string | null;
+  cliTool?: string | null;
+  resolvedFrom?: string | null;
 }
 
 export interface StageTabBarProps {
@@ -159,6 +164,15 @@ export function StageTabBar({
           >
             <StatusIcon status={status} />
             {label}
+            {/* MODEL-1: model badge — shown when a model override was applied at spawn time. */}
+            {statusObj?.model && (
+              <span
+                className="text-xs font-mono bg-primary/15 text-primary px-2 py-0.5 rounded-full leading-none"
+                aria-label={`Ran with model ${statusObj.model}`}
+              >
+                {statusObj.model.replace('claude-', '')}
+              </span>
+            )}
           </button>
         );
       })}

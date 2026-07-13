@@ -6,6 +6,7 @@
 
 import React, { memo } from 'react';
 import type { Task, Column as ColumnType } from '@/types';
+import { useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { TaskCard } from './TaskCard';
 import { EmptyState } from './EmptyState';
@@ -33,7 +34,39 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
 
   // Subscribe to column-level drag-over — re-renders only when this column's
   // active state changes (2 re-renders max per drag move: prev col + next col).
-  const isDragOver = useDragStore((s) => s.dragOverColumn === column && s.draggedTaskId !== null);
+  const isDragOver    = useDragStore((s) => s.dragOverColumn === column && s.draggedTaskId !== null);
+  const arcFilter     = useAppStore((s) => s.arcFilter);
+  const arcGrouping   = useAppStore((s) => s.arcGrouping);
+
+  // Filter tasks by arc if a filter is active
+  const visibleTasks = arcFilter !== null
+    ? tasks.filter((t) => t.arc === arcFilter)
+    : tasks;
+
+  // Build groups when grouping is on: tasks with an arc, grouped by arc, then ungrouped tasks last
+  const groups: { arc: string | null; tasks: Task[] }[] = arcGrouping
+    ? (() => {
+        const grouped = new Map<string, Task[]>();
+        const ungrouped: Task[] = [];
+        for (const t of visibleTasks) {
+          if (t.arc) {
+            if (!grouped.has(t.arc)) grouped.set(t.arc, []);
+            grouped.get(t.arc)!.push(t);
+          } else {
+            ungrouped.push(t);
+          }
+        }
+        const result: { arc: string | null; tasks: Task[] }[] = [];
+        for (const [arc, ts] of grouped) result.push({ arc, tasks: ts });
+        if (ungrouped.length > 0) result.push({ arc: null, tasks: ungrouped });
+        return result;
+      })()
+    : [{ arc: null, tasks: visibleTasks }];
+
+  // Stagger index is global across groups — precompute each group's start offset
+  // once instead of re-reducing all prior groups for every card.
+  const groupOffsets: number[] = [];
+  groups.reduce((acc, g, i) => { groupOffsets[i] = acc; return acc + g.tasks.length; }, 0);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -69,7 +102,7 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
           className="ml-2 px-2 py-0.5 text-xs font-mono bg-surface-elevated rounded-full text-text-secondary tabular-nums"
           aria-live="polite"
         >
-          {tasks.length}
+          {visibleTasks.length}
         </span>
       </div>
 
@@ -78,25 +111,42 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
         role="list"
         className="flex-1 p-3 flex flex-col gap-2 overflow-y-auto pb-20 sm:pb-3"
       >
-        {tasks.length === 0 ? (
+        {visibleTasks.length === 0 ? (
           <EmptyState column={column} />
         ) : (
-          tasks.map((task, cardIndex) => {
-            const staggerMs = tasks.length > 30
-              ? 0
-              : Math.min(COLUMN_META[column].colIndex * 100 + cardIndex * 35, 500);
-            return (
-              <TaskCard
-                key={task.id}
-                task={task}
-                column={column}
-                onDragStart={onDragStart}
-                onDragEnd={onDragEnd}
-                staggerDelayMs={staggerMs}
-                onDragOverTask={onDragOverTask}
-              />
-            );
-          })
+          groups.map((group, groupIdx) => (
+            <React.Fragment key={group.arc ?? '__ungrouped'}>
+              {/* Arc group header — only rendered when grouping is on and there's an arc label */}
+              {arcGrouping && group.arc && (
+                <div
+                  className="flex items-center gap-2 mt-2 mb-1 first:mt-0"
+                  aria-label={`Arc group: ${group.arc}`}
+                >
+                  <span className="text-[10px] font-mono font-semibold text-text-tertiary uppercase tracking-widest">
+                    {group.arc}
+                  </span>
+                  <div className="flex-1 h-px bg-border/50" />
+                </div>
+              )}
+              {group.tasks.map((task, cardIndex) => {
+                const globalIndex = groupOffsets[groupIdx] + cardIndex;
+                const staggerMs = tasks.length > 30
+                  ? 0
+                  : Math.min(COLUMN_META[column].colIndex * 100 + globalIndex * 35, 500);
+                return (
+                  <TaskCard
+                    key={task.id}
+                    task={task}
+                    column={column}
+                    onDragStart={onDragStart}
+                    onDragEnd={onDragEnd}
+                    staggerDelayMs={staggerMs}
+                    onDragOverTask={onDragOverTask}
+                  />
+                );
+              })}
+            </React.Fragment>
+          ))
         )}
       </div>
     </section>

@@ -20,8 +20,10 @@
  *                    { type: "error", code, message, timestamp }
  *                    { type: "pong" }
  *
- * Security model (unchanged from v1 — localhost dev tool):
- *   - Only localhost Origins are accepted.
+ * Security model (local/LAN dev tool):
+ *   - Same-origin upgrades are accepted (Origin host === Host header), plus any
+ *     Origin in the explicit allowlist. This works over localhost AND a LAN IP
+ *     (e.g. a phone) while still rejecting cross-site WebSocket attempts.
  *   - Max 2 concurrent WebSocket connections.
  *   - PTY cleanup on disconnect: pty.kill().
  *   - maxPayload: 131072 bytes (128 KB — increased for large paste operations).
@@ -60,6 +62,30 @@ const MAX_CONNECTIONS = 5;
 const LOCALHOST_ORIGINS = process.env.ALLOWED_ORIGINS
   ? new Set(process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean))
   : new Set(['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173']);
+
+/**
+ * Whether a WebSocket upgrade Origin is allowed.
+ * Accepts (1) Origins in the explicit allowlist (ALLOWED_ORIGINS env or the
+ * localhost defaults), and (2) same-origin requests where the Origin host
+ * equals the request Host header. The same-origin rule is what lets the
+ * terminal work over a LAN IP (e.g. a phone at http://192.168.1.32:3000)
+ * without opening to external sites — a cross-site page carries its own Origin
+ * and is still rejected. An absent Origin is rejected (browsers always send one
+ * for WebSocket upgrades).
+ *
+ * @param {string} origin - The Origin header value.
+ * @param {import('http').IncomingMessage} req - The upgrade request.
+ * @returns {boolean}
+ */
+function isAllowedOrigin(origin, req) {
+  if (!origin) return false;
+  if (LOCALHOST_ORIGINS.has(origin)) return true;
+  try {
+    return new URL(origin).host === req.headers['host'];
+  } catch {
+    return false;
+  }
+}
 
 /** Default PTY dimensions used until the client sends a resize message. */
 const DEFAULT_COLS = 80;
@@ -737,9 +763,9 @@ function setupTerminalWebSocket(httpServer) {
       return;
     }
 
-    // Security: reject non-localhost Origins.
+    // Security: accept allowlisted or same-origin upgrades (see isAllowedOrigin).
     const origin = req.headers['origin'] || '';
-    if (!LOCALHOST_ORIGINS.has(origin)) {
+    if (!isAllowedOrigin(origin, req)) {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
       socket.destroy();
       return;

@@ -9,6 +9,7 @@ import type { Column as ColumnType } from '@/types';
 import { useTasks, useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { Column } from './Column';
+import { ArcBar } from './ArcBar';
 import { ColumnTabBar } from './ColumnTabBar';
 import { BoardEmptyState } from './BoardEmptyState';
 
@@ -180,6 +181,9 @@ export function Board() {
           onSelect={setActiveColumn}
         />
       </div>
+
+      {/* Arc filter / grouping bar */}
+      <ArcBar />
 
       <main
         role="main"

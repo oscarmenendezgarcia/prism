@@ -35,13 +35,15 @@ const SEVEN_SPACES = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Clear localStorage so overflow-open state doesn't leak between tests.
+  localStorage.removeItem('prism:space-overflow-open');
 });
 
 // ---------------------------------------------------------------------------
 // Trigger button
 // ---------------------------------------------------------------------------
 describe('SpaceOverflowMenu — trigger button', () => {
-  it('renders "+N" with the correct overflow count', () => {
+  it('renders the overflow count next to the chevron', () => {
     render(
       <SpaceOverflowMenu
         spaces={THREE_SPACES}
@@ -49,7 +51,7 @@ describe('SpaceOverflowMenu — trigger button', () => {
         onSelect={vi.fn()}
       />,
     );
-    expect(screen.getByText('+3')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
   });
 
   it('has data-testid="space-overflow-btn"', () => {
@@ -141,6 +143,21 @@ describe('SpaceOverflowMenu — dropdown open/close', () => {
     expect(screen.getByText('ltr-empathyai')).toBeInTheDocument();
   });
 
+  it('toggles closed when the trigger is clicked again', () => {
+    render(
+      <SpaceOverflowMenu
+        spaces={THREE_SPACES}
+        activeSpaceId="s1"
+        onSelect={vi.fn()}
+      />,
+    );
+    const btn = screen.getByTestId('space-overflow-btn');
+    fireEvent.click(btn);
+    expect(document.body.querySelector('[role="menu"]')).toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(document.body.querySelector('[role="menu"]')).not.toBeInTheDocument();
+  });
+
   it('closes dropdown on Escape key', () => {
     render(
       <SpaceOverflowMenu
@@ -171,7 +188,7 @@ describe('SpaceOverflowMenu — filter input', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    expect(screen.queryByPlaceholderText('search spaces...')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Search spaces...')).not.toBeInTheDocument();
   });
 
   it('shows filter input when spaces count exceeds threshold', () => {
@@ -184,7 +201,7 @@ describe('SpaceOverflowMenu — filter input', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    expect(screen.getByPlaceholderText('search spaces...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search spaces...')).toBeInTheDocument();
   });
 
   it('shows filter input with a custom threshold', () => {
@@ -198,7 +215,7 @@ describe('SpaceOverflowMenu — filter input', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    expect(screen.getByPlaceholderText('search spaces...')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search spaces...')).toBeInTheDocument();
   });
 });
 
@@ -216,7 +233,7 @@ describe('SpaceOverflowMenu — filtering', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    const input = screen.getByPlaceholderText('search spaces...');
+    const input = screen.getByPlaceholderText('Search spaces...');
 
     fireEvent.change(input, { target: { value: 'mobile' } });
 
@@ -235,7 +252,7 @@ describe('SpaceOverflowMenu — filtering', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    const input = screen.getByPlaceholderText('search spaces...');
+    const input = screen.getByPlaceholderText('Search spaces...');
 
     fireEvent.change(input, { target: { value: 'ANALYTICS' } });
 
@@ -252,7 +269,7 @@ describe('SpaceOverflowMenu — filtering', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    const input = screen.getByPlaceholderText('search spaces...');
+    const input = screen.getByPlaceholderText('Search spaces...');
 
     fireEvent.change(input, { target: { value: 'xyznotfound123' } });
 
@@ -269,7 +286,7 @@ describe('SpaceOverflowMenu — filtering', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    const input = screen.getByPlaceholderText('search spaces...');
+    const input = screen.getByPlaceholderText('Search spaces...');
     fireEvent.change(input, { target: { value: 'mobile' } });
 
     expect(screen.getByLabelText('Clear filter')).toBeInTheDocument();
@@ -285,7 +302,7 @@ describe('SpaceOverflowMenu — filtering', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    const input = screen.getByPlaceholderText('search spaces...');
+    const input = screen.getByPlaceholderText('Search spaces...');
     fireEvent.change(input, { target: { value: 'mobile' } });
 
     // Only 1 item visible
@@ -377,7 +394,7 @@ describe('SpaceOverflowMenu — keyboard navigation', () => {
       />,
     );
     fireEvent.click(screen.getByTestId('space-overflow-btn'));
-    const input = screen.getByPlaceholderText('search spaces...');
+    const input = screen.getByPlaceholderText('Search spaces...');
 
     fireEvent.keyDown(input, { key: 'ArrowDown' });
 
@@ -403,5 +420,58 @@ describe('SpaceOverflowMenu — keyboard navigation', () => {
     // Escape on document
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(document.body.querySelector('[role="menu"]')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unpin from the dropdown (pinned spaces can collapse into overflow)
+// ---------------------------------------------------------------------------
+describe('SpaceOverflowMenu — unpin from dropdown', () => {
+  const MIXED_SPACES: Space[] = [
+    { ...makeSpace('s1', 'research-archive'), pinned: true, pinnedRank: 0 },
+    makeSpace('s2', 'related-tags-motive'),
+  ];
+
+  it('renders an Unpin button only for pinned spaces', () => {
+    render(
+      <SpaceOverflowMenu
+        spaces={MIXED_SPACES}
+        activeSpaceId="s2"
+        onSelect={vi.fn()}
+        onUnpin={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('space-overflow-btn'));
+    expect(screen.getByLabelText('Unpin research-archive')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Unpin related-tags-motive')).not.toBeInTheDocument();
+  });
+
+  it('calls onUnpin (and not onSelect) when the Unpin button is clicked', () => {
+    const onUnpin = vi.fn();
+    const onSelect = vi.fn();
+    render(
+      <SpaceOverflowMenu
+        spaces={MIXED_SPACES}
+        activeSpaceId="s2"
+        onSelect={onSelect}
+        onUnpin={onUnpin}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('space-overflow-btn'));
+    fireEvent.click(screen.getByLabelText('Unpin research-archive'));
+    expect(onUnpin).toHaveBeenCalledWith('s1');
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('does not render Unpin buttons when onUnpin is not provided', () => {
+    render(
+      <SpaceOverflowMenu
+        spaces={MIXED_SPACES}
+        activeSpaceId="s2"
+        onSelect={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('space-overflow-btn'));
+    expect(screen.queryByLabelText('Unpin research-archive')).not.toBeInTheDocument();
   });
 });

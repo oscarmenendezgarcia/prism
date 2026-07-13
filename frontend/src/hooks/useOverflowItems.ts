@@ -1,6 +1,6 @@
 /**
  * useOverflowItems — generic responsive overflow measurement hook.
- * ADR-1 (space-tabs-overflow): measures tab widths via DOM refs + ResizeObserver
+ * Measures tab widths via DOM refs + ResizeObserver
  * and returns which items fit the container vs. which overflow.
  *
  * Architecture:
@@ -23,6 +23,26 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 export interface OverflowOptions {
   /** id of an item that must never be placed in overflow (e.g., the active space). */
   pinnedId?: string;
+  /**
+   * ids that must never be placed in overflow (the active space + every pinned
+   * space). These win the visible slots over non-pinned items. Takes precedence
+   * over `pinnedId` when provided. Among forced ids, earlier list order wins if
+   * not all of them fit.
+   */
+  pinnedIds?: string[];
+  /**
+   * The active item id — always kept visible (highest priority), even if it has
+   * to overshoot in an extreme-narrow window. Defaults to `pinnedId` when omitted.
+   */
+  activeId?: string;
+  /**
+   * Extra signal that an item's *rendered width* may have changed even though the
+   * item id list is identical (e.g. a tab gains/loses a pin icon). When this value
+   * changes the hook re-measures, so cached widths never go stale. Active-item
+   * changes should NOT be folded in here — those only need a recompute, not a
+   * re-measure, and re-measuring on every tab switch would flash the strip.
+   */
+  measureKey?: string;
   /** px reserved on the trailing edge for the "+N" button + add button. Default: 72. */
   reservedTrailingPx?: number;
   /** px gap between items. Default: 2. */
@@ -39,15 +59,24 @@ export interface OverflowResult<T> {
 }
 
 /**
- * Greedy left-to-right fit: accumulate item widths until the available space is
- * exhausted, then collect the rest in overflow. After fitting, force the pinned
- * item into visible (bumping the last non-pinned visible item to overflow if needed).
+ * Priority left-to-right fit. Three tiers compete for the visible slots:
+ *
+ *   1. the active item (`always`) — ALWAYS visible (may overshoot in an extreme
+ *      narrow window; it's a single tab, like the original behaviour);
+ *   2. forced items (pinned spaces) — placed in order while they fit; the first
+ *      one that doesn't fit, and every forced item after it, falls to overflow
+ *      (with its pin marker) instead of overshooting and clipping the +N button;
+ *   3. the rest (non-pinned) — fill whatever space remains, in order.
+ *
+ * This guarantees pinned tabs beat non-pinned tabs for the visible slots WITHOUT
+ * ever overshooting the trailing buttons.
  */
 function computeSplit<T extends { id: string }>(
   items: T[],
   containerWidth: number,
   itemWidths: Map<string, number>,
-  pinnedId: string | undefined,
+  forced: Set<string>,
+  always: string | undefined,
   reservedTrailingPx: number,
   gapPx: number,
 ): { visible: T[]; overflow: T[] } {
@@ -56,42 +85,51 @@ function computeSplit<T extends { id: string }>(
   const available = Math.max(0, containerWidth - reservedTrailingPx);
   const visible: T[] = [];
   const overflow: T[] = [];
-  let used = 0;
 
-  for (const item of items) {
+  const widthOf = (arr: T[]) =>
+    arr.reduce((acc, it, idx) => acc + (itemWidths.get(it.id) ?? 0) + (idx > 0 ? gapPx : 0), 0);
+  const fits = (item: T) => {
     const w = itemWidths.get(item.id) ?? 0;
     const addition = visible.length > 0 ? w + gapPx : w;
-    if (used + addition <= available) {
-      visible.push(item);
-      used += addition;
+    return widthOf(visible) + addition <= available;
+  };
+
+  // Tier 1 + 2 — forced items (active first, then pinned in order).
+  const forcedItems = items.filter((i) => forced.has(i.id));
+  const orderedForced: T[] = [];
+  const activeItem = always ? forcedItems.find((i) => i.id === always) : undefined;
+  if (activeItem) orderedForced.push(activeItem);
+  for (const it of forcedItems) if (it.id !== always) orderedForced.push(it);
+
+  let forcedBlocked = false; // once a pinned tab doesn't fit, later pinned overflow too
+  for (const it of orderedForced) {
+    if (it.id === always) {
+      visible.push(it); // active is always visible
+    } else if (!forcedBlocked && fits(it)) {
+      visible.push(it);
     } else {
-      overflow.push(item);
+      forcedBlocked = true;
+      overflow.push(it);
     }
   }
 
-  // Force pinned item into visible if it ended up in overflow.
-  if (pinnedId && !visible.some((i) => i.id === pinnedId)) {
-    const overflowIdx = overflow.findIndex((i) => i.id === pinnedId);
-    if (overflowIdx >= 0) {
-      // Pull the pinned item out of overflow, then bump as many trailing visible
-      // items as needed so the pinned tab actually FITS the budget — a wide pinned
-      // tab can need more than one slot, otherwise the visible set overshoots and
-      // the trailing buttons end up overlapping/clipping the last tab.
-      const [pinned] = overflow.splice(overflowIdx, 1);
-      const pinnedW = itemWidths.get(pinned.id) ?? 0;
-      while (visible.length > 0) {
-        const pinnedAddition = visible.length > 0 ? pinnedW + gapPx : pinnedW;
-        if (used + pinnedAddition <= available) break;
-        const bumped = visible.pop()!;
-        const bw = itemWidths.get(bumped.id) ?? 0;
-        // Subtract the bumped item's contribution (it had a leading gap unless it
-        // was the first visible item, which is now decided by the new length).
-        used -= visible.length > 0 ? bw + gapPx : bw;
-        overflow.unshift(bumped);
-      }
-      visible.push(pinned);
+  // Tier 3 — non-forced fill the remaining space, in order.
+  let restBlocked = false;
+  for (const it of items) {
+    if (forced.has(it.id)) continue;
+    if (!restBlocked && fits(it)) {
+      visible.push(it);
+    } else {
+      restBlocked = true;
+      overflow.push(it);
     }
   }
+
+  // Restore original (pinned-first) order in both buckets.
+  const orderIndex = new Map(items.map((it, i) => [it.id, i]));
+  const byOrder = (a: T, b: T) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0);
+  visible.sort(byOrder);
+  overflow.sort(byOrder);
 
   return { visible, overflow };
 }
@@ -100,7 +138,15 @@ export function useOverflowItems<T extends { id: string }>(
   items: T[],
   opts: OverflowOptions = {},
 ): OverflowResult<T> {
-  const { pinnedId, reservedTrailingPx = 72, gapPx = 2 } = opts;
+  const { pinnedId, pinnedIds, activeId, measureKey, reservedTrailingPx = 72, gapPx = 2 } = opts;
+
+  // Forced-visible ids: explicit pinnedIds win; fall back to the single pinnedId.
+  const forcedList = pinnedIds ?? (pinnedId ? [pinnedId] : []);
+  // The always-visible (active) item — explicit activeId, else the single pinnedId.
+  const alwaysId = activeId ?? pinnedId;
+  // Stable key so effects/recompute only refresh when the *set* actually changes,
+  // not on every render (forcedList is a fresh array each time).
+  const pinnedKey = `${forcedList.join('\0')}|${alwaysId ?? ''}`;
 
   // Container is STATE so attaching it triggers a re-render (enabling the measure pass).
   const [container, setContainer] = useState<HTMLElement | null>(null);
@@ -113,9 +159,12 @@ export function useOverflowItems<T extends { id: string }>(
   const [visible, setVisible] = useState<T[]>([]);
   const [overflow, setOverflow] = useState<T[]>([]);
 
-  // Stable stringified key of items — used to detect identity changes
+  // Stable stringified key of items — used to detect identity changes. measureKey
+  // is folded in so a width-affecting change with the same ids (e.g. a tab gains a
+  // pin icon) also forces a fresh measure pass.
   const itemIds = items.map((i) => i.id).join('\0');
-  const prevItemIds = useRef('');
+  const remeasureKey = measureKey != null ? `${itemIds}${measureKey}` : itemIds;
+  const prevRemeasureKey = useRef('');
 
   // ---------------------------------------------------------------------------
   // Core split computation — called after measuring or on resize
@@ -126,14 +175,17 @@ export function useOverflowItems<T extends { id: string }>(
         items,
         containerWidth,
         itemWidths.current,
-        pinnedId,
+        new Set(forcedList),
+        alwaysId,
         reservedTrailingPx,
         gapPx,
       );
       setVisible(result.visible);
       setOverflow(result.overflow);
     },
-    [items, pinnedId, reservedTrailingPx, gapPx],
+    // forcedList is rebuilt each render; pinnedKey captures its content for memoization.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, pinnedKey, reservedTrailingPx, gapPx],
   );
 
   // Latest recompute, kept in a ref so the ResizeObserver effect can call the
@@ -178,14 +230,15 @@ export function useOverflowItems<T extends { id: string }>(
   });
 
   // ---------------------------------------------------------------------------
-  // Reset to measuring when items change (new space added / removed / renamed)
+  // Reset to measuring when items change (added / removed / renamed / reordered)
+  // or when measureKey signals a width-affecting change (pin icon toggled).
   // ---------------------------------------------------------------------------
   useLayoutEffect(() => {
-    if (itemIds !== prevItemIds.current) {
-      prevItemIds.current = itemIds;
+    if (remeasureKey !== prevRemeasureKey.current) {
+      prevRemeasureKey.current = remeasureKey;
       setMeasuring(true);
     }
-  }, [itemIds]);
+  }, [remeasureKey]);
 
   // ---------------------------------------------------------------------------
   // Recompute immediately when pinnedId changes (active space changes)
@@ -195,7 +248,7 @@ export function useOverflowItems<T extends { id: string }>(
     if (measuring || !container) return;
     recompute(container.getBoundingClientRect().width);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinnedId]);
+  }, [pinnedKey]);
 
   // ---------------------------------------------------------------------------
   // ResizeObserver — set up once per container; recompute on resize.

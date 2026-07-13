@@ -95,8 +95,8 @@ describe('SpaceModal', () => {
     await user.click(screen.getByRole('button', { name: /save/i }));
 
     await waitFor(() => {
-      // workingDirectory is empty → sent as ''; pipeline empty → []; nicknames empty → {}
-      expect(mockRename).toHaveBeenCalledWith('s1', 'New Name', '', [], {});
+      // workingDirectory is empty → sent as ''; pipeline empty → []; nicknames empty → {}; stageModels empty → {}
+      expect(mockRename).toHaveBeenCalledWith('s1', 'New Name', '', [], {}, {});
     });
   });
 

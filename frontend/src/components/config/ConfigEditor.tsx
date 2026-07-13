@@ -98,7 +98,7 @@ export function ConfigEditor() {
           <button
             onClick={() => setPreview(false)}
             aria-pressed={!preview}
-            className={`px-2 py-0.5 text-[10px] font-medium transition-colors duration-100 ${
+            className={`px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-100 ${
               !preview
                 ? 'bg-primary text-on-primary'
                 : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant'
@@ -109,7 +109,7 @@ export function ConfigEditor() {
           <button
             onClick={() => setPreview(true)}
             aria-pressed={preview}
-            className={`px-2 py-0.5 text-[10px] font-medium transition-colors duration-100 ${
+            className={`px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-100 ${
               preview
                 ? 'bg-primary text-on-primary'
                 : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant'
@@ -154,6 +154,7 @@ export function ConfigEditor() {
 
         <Button
           variant="primary"
+          size="sm"
           disabled={!configDirty || configSaving}
           onClick={saveConfigFile}
           aria-label="Save file"

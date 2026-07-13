@@ -256,7 +256,7 @@ async function parseStageEvents(runId, stageIndex, agentId, dataDir, opts = {}) 
   }
 
   const normalizedEvents = adapter.parse(lineStream);
-  return projectEvents(normalizedEvents, { since });
+  return projectEvents(normalizedEvents, { since, livePlainSummary: adapter.name === 'plain' });
 }
 
 module.exports = { parseStageLog, parseStageEvents, runDir, runsDir };

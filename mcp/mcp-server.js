@@ -205,10 +205,12 @@ server.tool(
       .array(z.string())
       .optional()
       .describe('Optional ordered list of agent IDs for this task\'s pipeline. Overrides the space default when set.'),
+    arc: z.string().max(60).optional()
+      .describe('Narrative grouping label (e.g. "QOL", "AUTH"). Omit to leave unset.'),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_create_task', async ({ title, type, description, assigned, pipeline, spaceId }) => {
-    return createTask({ title, type, description, assigned, pipeline }, spaceId);
+  withTiming('kanban_create_task', async ({ title, type, description, assigned, pipeline, arc, spaceId }) => {
+    return createTask({ title, type, description, assigned, pipeline, ...(arc !== undefined && { arc }) }, spaceId);
   })
 );
 
@@ -248,6 +250,8 @@ server.tool(
       .describe(
         'Replace the task attachments. An empty array clears all attachments.',
       ),
+    arc: z.string().max(60).optional()
+      .describe('Set or clear the arc. Pass "" (empty string) to clear the arc.'),
     mode: z
       .enum(['merge', 'replace'])
       .optional()
@@ -257,7 +261,7 @@ server.tool(
       ),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, pipeline, attachments, mode, spaceId }) => {
+  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, pipeline, arc, attachments, mode, spaceId }) => {
     const fields = {};
     if (title       !== undefined) fields.title       = title;
     if (type        !== undefined) fields.type        = type;
@@ -265,6 +269,7 @@ server.tool(
     if (assigned    !== undefined) fields.assigned    = assigned;
     // T-007: forward pipeline (including empty array = clear semantics)
     if (pipeline    !== undefined) fields.pipeline    = pipeline;
+    if (arc         !== undefined) fields.arc         = arc;
 
     let result;
     if (Object.keys(fields).length > 0) {

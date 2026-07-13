@@ -1,0 +1,113 @@
+{
+  "version": "1.0",
+  "project": "Prism — Config Panel redesign (Proposal D, Phase 1)",
+  "date": "2026-06-30",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Frontmatter parser + agent metadata hook",
+      "description": "Add parseAgentFrontmatter(content) → { model?, effort?, skills: string[] } (defensive, never throws). Add useAgentMetadata hook that fetches GET /agents/:id for each stage agent in parallel (lazy-on-expand fallback), parses frontmatter, and caches by agentId. No new endpoint.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1.5d",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "parseAgentFrontmatter returns correct {model,effort,skills} for a well-formed agent .md and never throws on missing keys / malformed YAML / no frontmatter (returns {skills:[]}).",
+        "useAgentMetadata exposes per-agent {model,effort,skills,loading} and dedupes concurrent fetches; uses existing getAgent() (no new endpoint).",
+        "Unit tests cover valid, partial, malformed, and empty frontmatter; coverage > 90% on the util."
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Routing resolution util + role/labels",
+      "description": "Extend utils/modelRouting.ts with resolveEffectiveModel(agentId, scope, { globalMap, spaceMap, frontmatterModel }) → { model, source: 'default'|'global'|'space'|'task' }. Extend utils/agentName.ts with STAGE_ROLES (agentId → English role subtitle).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "0.5d",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "resolveEffectiveModel returns correct {model,source} for scope=global and scope=space across override-present and override-absent cases (space inherits global then default).",
+        "STAGE_ROLES has entries for all five pipeline agents; resolver degrades to '' for unknown agents.",
+        "Unit tests cover every scope × override branch."
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "ModelInheritanceBadge + read-only Effort/Skills",
+      "description": "Build ModelInheritanceBadge (default|global|space|task → tokenized pill with aria-label), EffortSegmented (disabled segmented reflecting frontmatter, Tooltip 'Editing coming in Phase 2'), and SkillsReadOnly (static skill chips + empty state). Tailwind tokens only; reuse shared Tooltip.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1d",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "Badge renders the four sources with distinct tokenized styles and a text label (color is never the only signal); has aria-label.",
+        "EffortSegmented is non-interactive (aria-disabled), highlights the frontmatter value, shows the Phase-2 tooltip.",
+        "SkillsReadOnly renders chips for skills and a 'No skills configured' empty state; no add/remove affordance.",
+        "All use design-system tokens; no inline styles; dark theme correct."
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "AgentRoutingCard (collapsed ⇄ expanded)",
+      "description": "Build AgentRoutingCard reproducing the mockup: collapsed row (agent dot, name, role subtitle, mini model pill, skill count, chevron) and expanded detail (Model picker with inheritance badge + preset chips + custom input + Clear, EffortSegmented, SkillsReadOnly). Model edits flow up via callbacks; Clear visible only when an override exists at the current scope.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2d",
+      "dependencies": ["T-001", "T-003"],
+      "acceptance_criteria": [
+        "Collapsed row matches mockup layout/hierarchy: dot color from agent token, role subtitle from STAGE_ROLES, mini-pill tinted when source≠default, skill count from metadata.",
+        "Expanded detail shows Model picker (preset chips reuse ModelRoutingSettings mechanics) with the inheritance badge, plus read-only Effort and Skills.",
+        "Selecting a preset / typing a custom model calls onChange(agentId, model); Clear calls onClear(agentId) and only renders when an override exists at the active scope.",
+        "Header toggle is a button with aria-expanded/aria-controls; keyboard accessible.",
+        "RTL tests: collapsed render, expand, edit, clear-visibility."
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "ScopeSelector + AgentRoutingView (search, footer, save)",
+      "description": "Build ScopeSelector (segmented Global | Space · {name}; Space disabled when no active space). Build AgentRoutingView: header (title + ScopeSelector + search), card list for pipeline.stages, footer Save/Reset scoped to current scope. Local dirty stageModels map per scope; Save calls saveSettings (global) or renameSpace with stageModels (space) via localModelsToStageModelsMap; toast on result. Search filters by agent/model/skill.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2d",
+      "dependencies": ["T-004"],
+      "acceptance_criteria": [
+        "Scope switch recomputes every card's badge/effective model without losing unsaved edits within a scope.",
+        "Search filters cards by agentId, display name, role, effective/default model, or skill name; empty result shows an empty state.",
+        "Save (Global) calls saveSettings({pipeline:{stageModels}}); Save (Space) calls the renameSpace stageModels path; both show success/error toasts and clear dirty.",
+        "Reset clears the current scope's local overrides and marks dirty; footer Save disabled unless dirty.",
+        "Empty-stages state mirrors the existing ModelRoutingSettings empty state."
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "ConfigPanel view switch + Files tab refactor",
+      "description": "Add ConfigViewTabs (Agents & Routing | Files) to the ConfigPanel header; default to Agents & Routing rendering AgentRoutingView. Files tab renders the existing ConfigFileSidebar + ConfigEditor. Strip the 'Agents' group and the Model Routing virtual item from ConfigFileSidebar (now in the new view); keep Global + Project groups. Preserve the dirty/discard guard across both views and the close button. Remove ModelRoutingSettings wiring once cutover lands (no dead code).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1.5d",
+      "dependencies": ["T-005"],
+      "acceptance_criteria": [
+        "Header shows the two-option segmented control; Agents & Routing is the default view.",
+        "Files tab shows only Global + Project file groups and edits them via the unchanged ConfigEditor.",
+        "Dirty guard (DiscardChangesDialog) still blocks close and view/file switches when the routing map or a file is dirty.",
+        "MODEL_ROUTING_ID virtual item and ModelRoutingSettings are removed from the panel without leaving dead imports.",
+        "tablist/radiogroup a11y on the view switch; keyboard navigable."
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Visual QA vs mockup + a11y + coverage pass",
+      "description": "Verify the implemented Agents & Routing view against config-redesign.html (Propuesta D + Agent detail): spacing, hierarchy, dot/badge/pill styling, collapsed/expanded states, dark theme. Run axe checks on the panel; ensure > 90% coverage on new units. File any deviations.",
+      "role": "QA",
+      "priority": "Medium",
+      "estimate": "1d",
+      "dependencies": ["T-006"],
+      "acceptance_criteria": [
+        "Side-by-side parity with the mockup for collapsed and expanded card states (allowing English labels + token swatches).",
+        "No critical/serious axe violations on the Config Panel.",
+        "New unit/component tests pass with > 90% coverage; full frontend suite green.",
+        "Read-only effort/skills clearly read as intentional (tooltip/empty state), not broken."
+      ]
+    }
+  ]
+}

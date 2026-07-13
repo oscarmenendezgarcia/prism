@@ -13,6 +13,7 @@
 import React, { memo } from 'react';
 import type { Task, Column } from '@/types';
 import { Badge } from '@/components/shared/Badge';
+import { arcColor } from '@/utils/arcs';
 import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore, useActiveRun } from '@/stores/useAppStore';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
@@ -81,6 +82,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const isMutating        = useAppStore((s) => s.isMutating);
   const activeRun         = useActiveRun();
   const openDetailPanel   = useAppStore((s) => s.openDetailPanel);
+  const arcGrouping       = useAppStore((s) => s.arcGrouping);
   const openPanelForTask  = useRunHistoryStore((s) => s.openPanelForTask);
 
   const isDragging = useDragStore((s) => s.draggedTaskId === task.id);
@@ -98,6 +100,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
     task.comments?.filter((c) => c.type === 'question' && !c.resolved).length ?? 0;
 
   const hasMetadata =
+    !!task.arc ||
     !!task.assigned ||
     (task.attachments && task.attachments.length > 0) ||
     !!task.description ||
@@ -130,10 +133,13 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       data-column={column}
       data-testid="task-card"
       className={[
-        'group relative bg-surface rounded-xl border border-border p-4 pl-7 cursor-pointer',
+        'group relative bg-surface rounded-xl border border-border p-4 pl-7 cursor-pointer overflow-hidden',
         'animate-fade-in-up shrink-0',
-        'transition-all duration-fast ease-default',
+        // Animate only what changes (transform/shadow/ring/border) instead of `all`,
+        // and give a subtle tactile press — the card is clickable (opens the panel).
+        'transition-[transform,box-shadow,border-color] duration-fast ease-default',
         'hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(124,109,250,0.15)] hover:ring-1 hover:ring-primary/30',
+        'active:scale-[0.99] active:duration-100',
         isDone ? 'opacity-50 grayscale-[25%]' : '',
         isDragging ? 'rotate-1 scale-[0.97] shadow-xl ring-1 ring-primary/40 opacity-80' : '',
         isActiveTask ? 'border-primary/30 animate-glow-pulse' : '',
@@ -154,6 +160,23 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       >
         <span className="material-symbols-outlined text-base leading-none select-none">drag_indicator</span>
       </div>
+
+      {/* ── Arc strip (storyline banner) ──
+          Full-width tinted band titling the card with its arc, coloured per-arc
+          so same-arc cards read as a group at a glance. Hidden while grouping is
+          on, since the column's group header already carries the arc. Negative
+          margins bleed it to the card edges (article is overflow-hidden so it
+          respects the rounded top corners). Rides the card's fade-in entrance. */}
+      {task.arc && !arcGrouping && (
+        <div
+          data-testid="arc-strip"
+          className={`-mx-4 -mt-4 mb-3 px-4 py-1.5 text-[11px] font-mono font-semibold uppercase tracking-wider truncate ${arcColor(task.arc)}`}
+          title={task.arc}
+        >
+          {task.arc}
+        </div>
+      )}
+
       {/* ── Title ── */}
       <p className="text-sm font-medium text-text-primary leading-snug line-clamp-2">
         {task.title}
@@ -168,9 +191,6 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
           </span>
           {task.type}
         </span>
-
-        {/* Divider dot */}
-        <span className="w-1 h-1 rounded-full bg-border flex-shrink-0" aria-hidden="true" />
 
         {/* Assigned / Unassigned */}
         {task.assigned ? (
