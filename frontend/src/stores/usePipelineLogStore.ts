@@ -13,6 +13,7 @@
 
 import { create } from 'zustand';
 import type { StageMetrics, PublicEvent } from '@/types';
+import { safeStorage } from '@/utils/safeStorage';
 
 /** localStorage key for unified Runs panel open state. */
 const RUNS_PANEL_OPEN_KEY = 'prism:runs-panel:open';
@@ -169,9 +170,9 @@ interface PipelineLogState {
 // ---------------------------------------------------------------------------
 
 export const usePipelineLogStore = create<PipelineLogState>((set) => ({
-  runsPanelOpen:           localStorage.getItem(RUNS_PANEL_OPEN_KEY) === '1',
+  runsPanelOpen:           safeStorage.getItem(RUNS_PANEL_OPEN_KEY) === '1',
   // logPanelOpen mirrors runsPanelOpen (deprecated alias).
-  logPanelOpen:            localStorage.getItem(RUNS_PANEL_OPEN_KEY) === '1',
+  logPanelOpen:            safeStorage.getItem(RUNS_PANEL_OPEN_KEY) === '1',
   logPanelRunId:           null,
   unseenCount:             0,
   selectedStageIndex:      0,
@@ -193,9 +194,9 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
 
   setRunsPanelOpen: (open) => {
     if (open) {
-      localStorage.setItem(RUNS_PANEL_OPEN_KEY, '1');
+      safeStorage.setItem(RUNS_PANEL_OPEN_KEY, '1');
     } else {
-      localStorage.removeItem(RUNS_PANEL_OPEN_KEY);
+      safeStorage.removeItem(RUNS_PANEL_OPEN_KEY);
     }
     set({ runsPanelOpen: open, logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) });
   },
@@ -203,9 +204,9 @@ export const usePipelineLogStore = create<PipelineLogState>((set) => ({
   /** @deprecated Alias for setRunsPanelOpen — kept for backward compatibility. */
   setLogPanelOpen: (open) => {
     if (open) {
-      localStorage.setItem(RUNS_PANEL_OPEN_KEY, '1');
+      safeStorage.setItem(RUNS_PANEL_OPEN_KEY, '1');
     } else {
-      localStorage.removeItem(RUNS_PANEL_OPEN_KEY);
+      safeStorage.removeItem(RUNS_PANEL_OPEN_KEY);
     }
     set({ runsPanelOpen: open, logPanelOpen: open, ...(open ? { unseenCount: 0 } : {}) });
   },

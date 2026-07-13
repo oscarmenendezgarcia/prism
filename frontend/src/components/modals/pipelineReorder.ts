@@ -5,6 +5,8 @@
  * T-004: extract pure pipeline reorder helpers.
  */
 
+import { uuid } from '@/utils/uuid';
+
 /**
  * Move item at `fromIndex` to `toIndex`, shifting other items aside.
  * Returns the original array (same reference) when:
@@ -61,9 +63,9 @@ export function checkpointsToIndices(
 
 /**
  * Generate a stable row key for a single stage instance.
- * Uses `crypto.randomUUID()` so duplicate stage IDs in the same pipeline
+ * Uses `uuid()` so duplicate stage IDs in the same pipeline
  * each receive a distinct key.
  */
 export function generateRowKey(): string {
-  return crypto.randomUUID();
+  return uuid();
 }

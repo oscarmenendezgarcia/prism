@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Prism Pipeline - Run History</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-container-high": "#2a2932",
+                        "on-tertiary-fixed-variant": "#693c00",
+                        "on-secondary-container": "#b4aeee",
+                        "secondary-fixed": "#e4dfff",
+                        "surface-container-low": "#1c1b23",
+                        "tertiary-fixed": "#ffdcbd",
+                        "background": "#0A0A0F",
+                        "primary-container": "#8c80ff",
+                        "on-primary-container": "#22008d",
+                        "inverse-surface": "#e5e0ed",
+                        "error-container": "#93000a",
+                        "on-secondary-fixed": "#19124a",
+                        "surface-variant": "#35343d",
+                        "tertiary": "#ffb86e",
+                        "tertiary-fixed-dim": "#ffb86e",
+                        "on-primary-fixed": "#160066",
+                        "on-surface-variant": "#c8c4d7",
+                        "outline": "#928ea0",
+                        "on-tertiary-fixed": "#2c1600",
+                        "secondary-fixed-dim": "#c6bfff",
+                        "on-surface": "#e5e0ed",
+                        "on-secondary": "#2e295f",
+                        "on-tertiary-container": "#402300",
+                        "surface-tint": "#c6bfff",
+                        "surface-dim": "#0A0A0F",
+                        "surface": "#111118",
+                        "on-secondary-fixed-variant": "#454078",
+                        "surface-container": "#201f27",
+                        "error": "#ffb4ab",
+                        "on-error": "#690005",
+                        "surface-container-lowest": "#0e0d15",
+                        "inverse-on-surface": "#312f38",
+                        "primary-fixed-dim": "#c6bfff",
+                        "on-error-container": "#ffdad6",
+                        "on-background": "#e5e0ed",
+                        "on-primary-fixed-variant": "#3f29bc",
+                        "secondary-container": "#454078",
+                        "on-tertiary": "#492900",
+                        "primary": "#7C6DFA",
+                        "surface-container-highest": "#35343d",
+                        "primary-fixed": "#e4dfff",
+                        "outline-variant": "#474554",
+                        "tertiary-container": "#ce7e17",
+                        "surface-bright": "#3a3841",
+                        "inverse-primary": "#5846d4",
+                        "secondary": "#c6bfff",
+                        "on-primary": "#2800a0",
+                        "surface-elevated": "#1A1A24"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "md": "16px",
+                        "margin": "24px",
+                        "sm": "8px",
+                        "xl": "48px",
+                        "lg": "24px",
+                        "gutter": "16px",
+                        "base": "4px",
+                        "xs": "4px"
+                    },
+                    fontFamily: {
+                        "headline-lg": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "title-md": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "headline-lg-mobile": ["Inter"],
+                        "code-md": ["JetBrains Mono"],
+                        "label-caps": ["JetBrains Mono"]
+                    },
+                    fontSize: {
+                        "headline-lg": ["32px", { lineHeight: "40px", letterSpacing: "-0.01em", fontWeight: "600" }],
+                        "display-lg": ["48px", { lineHeight: "56px", letterSpacing: "-0.02em", fontWeight: "700" }],
+                        "title-md": ["20px", { lineHeight: "28px", fontWeight: "600" }],
+                        "body-sm": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                        "body-lg": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "headline-lg-mobile": ["24px", { lineHeight: "32px", fontWeight: "600" }],
+                        "code-md": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                        "label-caps": ["12px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .border-glass {
+            border-color: rgba(255, 255, 255, 0.08);
+        }
+        .spinner {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-sm h-screen flex overflow-hidden">
+<!-- Top Navigation (Auto-generated based on Context) -->
+<header class="fixed top-0 left-0 w-full h-16 border-b border-white/10 bg-background dark:bg-background z-50 flex justify-between items-center px-lg w-full max-w-full">
+<div class="flex items-center gap-md">
+<span class="font-headline-lg text-headline-lg font-bold text-primary">Prism Pipeline</span>
+</div>
+<div class="flex items-center gap-md">
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors text-on-surface-variant"><span class="material-symbols-outlined">notifications</span></button>
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors text-on-surface-variant"><span class="material-symbols-outlined">settings</span></button>
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors text-on-surface-variant"><span class="material-symbols-outlined">help</span></button>
+<div class="w-8 h-8 rounded-full bg-surface-variant border border-glass overflow-hidden ml-sm">
+<img alt="Developer Profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBm4YvopdILsKWUAU60rWa3ZGxAl-askybJK7UocJRCNNruQVCq4lZSXFjd-sD2j4XJxcqpBJiFAPq9-dBsbgG7lD_g2735qWA5rS6gWBKakZKS5g_MjyoDYvT3wBDvqkSsk38nEDyCSbu1hXSn48GrZ0whEybUWwf2sjfWl2YD4gCYtltd5bJLQTxX6ok6-X0f0T41f4sokjaIZa8SW-taY9uzEp_VJd8gT_HRARflm6xe6KKw2SgEIsLSYC2UByJLvChcmz4Yl2QC"/>
+</div>
+</div>
+</header>
+<!-- Side Navigation (Auto-generated based on Context) -->
+<nav class="hidden md:flex flex-col h-full py-md gap-sm bg-surface-container dark:bg-surface-container h-screen w-64 border-r border-white/10 mt-16 z-40">
+<div class="px-md pb-md mb-sm border-b border-glass">
+<div class="font-headline-lg text-headline-lg text-primary">Prism</div>
+<div class="text-on-surface-variant font-label-caps text-label-caps mt-xs">Precision CI/CD</div>
+</div>
+<a class="flex items-center gap-sm px-md py-sm text-on-surface-variant hover:text-on-surface transition-all duration-200 ease-in-out hover:bg-surface-container-highest cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-lg">account_tree</span>
+<span>Pipelines</span>
+</a>
+<a class="flex items-center gap-sm px-md py-sm text-on-surface-variant hover:text-on-surface transition-all duration-200 ease-in-out hover:bg-surface-container-highest cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-lg">schema</span>
+<span>Workflows</span>
+</a>
+<a class="flex items-center gap-sm px-md py-sm text-primary border-l-4 border-primary bg-primary/10 transition-all duration-200 ease-in-out cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-lg">history</span>
+<span>Execution</span>
+</a>
+<a class="flex items-center gap-sm px-md py-sm text-on-surface-variant hover:text-on-surface transition-all duration-200 ease-in-out hover:bg-surface-container-highest cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-lg">hub</span>
+<span>Models</span>
+</a>
+<a class="flex items-center gap-sm px-md py-sm text-on-surface-variant hover:text-on-surface transition-all duration-200 ease-in-out hover:bg-surface-container-highest cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-lg">inventory_2</span>
+<span>Artifacts</span>
+</a>
+<div class="mt-auto border-t border-glass pt-sm">
+<a class="flex items-center gap-sm px-md py-sm text-on-surface-variant hover:text-on-surface transition-all duration-200 ease-in-out hover:bg-surface-container-highest cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-lg">menu_book</span>
+<span>Documentation</span>
+</a>
+</div>
+</nav>
+<!-- Main Workspace Area -->
+<main class="flex-1 flex mt-16 h-[calc(100vh-64px)] overflow-hidden gap-gutter p-gutter">
+<!-- Canvas/Empty State Area (Implicit) -->
+<div class="flex-1 rounded border border-glass flex items-center justify-center text-on-surface-variant bg-surface relative overflow-hidden">
+<div class="absolute inset-0 pointer-events-none opacity-20" style="background-image: radial-gradient(circle at 50% 50%, rgba(124, 109, 250, 0.1) 0%, transparent 60%);"></div>
+<div class="flex flex-col items-center gap-sm">
+<span class="material-symbols-outlined text-4xl opacity-50">data_object</span>
+<span>Select a pipeline run or task to view details</span>
+</div>
+</div>
+<!-- LEFT PANEL: Run History -->
+<aside class="w-[320px] bg-surface border border-glass rounded flex flex-col flex-shrink-0 h-full overflow-hidden shadow-[0_0_20px_rgba(0,0,0,0.5)]">
+<div class="flex items-center justify-between p-md border-b border-glass">
+<h2 class="font-title-md text-title-md text-on-surface">Run History</h2>
+<button class="text-on-surface-variant hover:text-white transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-white/10">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto p-sm">
+<!-- Pipeline Run Group -->
+<div class="bg-surface-elevated rounded border border-glass overflow-hidden">
+<!-- Group Header -->
+<div class="flex items-center justify-between p-sm border-l-4 border-emerald-500 cursor-pointer hover:bg-white/5 transition-colors">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-emerald-500 text-[18px]">account_tree</span>
+<div class="flex flex-col">
+<span class="font-body-sm font-semibold text-white">MODEL-1 pipeline run</span>
+<div class="flex items-center gap-xs text-[11px] text-on-surface-variant">
+<span>Duration: 4:23</span>
+<span>•</span>
+<span>15 min ago</span>
+</div>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]">expand_less</span>
+</div>
+<!-- Expanded Stage Rows -->
+<div class="border-t border-glass flex flex-col">
+<!-- Stage 1 -->
+<div class="flex items-center justify-between px-sm py-2 hover:bg-white/5 transition-colors border-b border-glass/50">
+<div class="flex items-center gap-sm">
+<div class="w-2 h-2 rounded-full bg-violet-500"></div>
+<span class="font-body-sm text-on-surface">senior-architect</span>
+</div>
+<span class="font-label-caps text-label-caps bg-primary/15 text-primary px-2 py-0.5 rounded-full border border-primary/20">opus-4-5</span>
+</div>
+<!-- Stage 2 -->
+<div class="flex items-center justify-between px-sm py-2 hover:bg-white/5 transition-colors border-b border-glass/50">
+<div class="flex items-center gap-sm">
+<div class="w-2 h-2 rounded-full bg-pink-500"></div>
+<span class="font-body-sm text-on-surface">ux-api-designer</span>
+</div>
+<span class="font-label-caps text-label-caps bg-primary/15 text-primary px-2 py-0.5 rounded-full border border-primary/20">sonnet-4-5</span>
+</div>
+<!-- Stage 3 (In Progress) -->
+<div class="flex items-center justify-between px-sm py-2 bg-primary/5 hover:bg-primary/10 transition-colors border-b border-glass/50">
+<div class="flex items-center gap-sm">
+<div class="w-2 h-2 rounded-full bg-blue-500"></div>
+<span class="font-body-sm text-white font-medium">developer-agent</span>
+<span class="material-symbols-outlined text-blue-400 text-[14px] spinner ml-1">progress_activity</span>
+</div>
+<span class="font-label-caps text-label-caps bg-primary/15 text-primary px-2 py-0.5 rounded-full border border-primary/20">sonnet-4-5</span>
+</div>
+<!-- Stage 4 -->
+<div class="flex items-center justify-between px-sm py-2 hover:bg-white/5 transition-colors">
+<div class="flex items-center gap-sm">
+<div class="w-2 h-2 rounded-full bg-amber-500"></div>
+<span class="font-body-sm text-on-surface-variant">code-reviewer</span>
+</div>
+<span class="font-label-caps text-label-caps bg-primary/15 text-primary px-2 py-0.5 rounded-full border border-primary/20 opacity-70">haiku-4-5</span>
+</div>
+</div>
+</div>
+</div>
+</aside>
+<!-- RIGHT PANEL: Task Detail Drawer -->
+<aside class="w-[400px] bg-surface border border-glass rounded flex flex-col flex-shrink-0 h-full overflow-hidden shadow-[0_0_30px_rgba(0,0,0,0.6)]">
+<!-- Header -->
+<div class="p-md border-b border-glass bg-surface-elevated">
+<div class="flex items-start justify-between gap-sm mb-sm">
+<h2 class="font-title-md text-title-md text-white leading-tight">MODEL-1: Routing de modelo por etapa</h2>
+<span class="font-label-caps text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded border border-blue-500/30 uppercase tracking-wider mt-1">Feature</span>
+</div>
+<!-- Tabs -->
+<div class="flex items-center gap-md border-b border-glass/50 mt-sm">
+<button class="font-body-sm font-semibold text-primary border-b-2 border-primary pb-2 px-1">Details</button>
+<button class="font-body-sm text-on-surface-variant hover:text-on-surface pb-2 px-1 transition-colors">Comments</button>
+<button class="font-body-sm text-on-surface-variant hover:text-on-surface pb-2 px-1 transition-colors">Attachments</button>
+</div>
+</div>
+<!-- Content -->
+<div class="flex-1 overflow-y-auto p-md flex flex-col gap-lg">
+<!-- Collapsed Description -->
+<div class="flex items-center justify-between cursor-pointer group">
+<h3 class="font-body-sm font-semibold text-on-surface group-hover:text-white transition-colors">Description</h3>
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]">chevron_right</span>
+</div>
+<hr class="border-glass"/>
+<!-- Pipeline Stages List (Implicit representation) -->
+<div>
+<h3 class="font-body-sm font-semibold text-on-surface mb-sm">Pipeline Stages</h3>
+<div class="text-xs text-on-surface-variant italic">Stage configuration inherits from global template.</div>
+</div>
+<!-- Model Overrides Section -->
+<div class="bg-surface-elevated rounded border border-glass overflow-hidden">
+<div class="flex items-center justify-between p-sm border-b border-glass cursor-pointer bg-white/5">
+<div class="flex items-center gap-sm">
+<span class="font-body-sm font-semibold text-white">Model Overrides</span>
+<span class="font-label-caps text-[10px] bg-surface-variant text-on-surface px-1.5 py-0.5 rounded border border-glass">Task-level</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]">expand_more</span>
+</div>
+<div class="p-sm flex flex-col gap-2">
+<!-- Row 1 -->
+<div class="flex items-center justify-between bg-surface p-2 rounded border border-glass/50">
+<span class="font-body-sm text-on-surface text-[13px]">senior-architect</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-[14px]">arrow_forward</span>
+<span class="font-label-caps text-label-caps bg-primary/20 text-primary px-2 py-0.5 rounded-full border border-primary/30">claude-opus-4-5</span>
+</div>
+</div>
+<!-- Row 2 -->
+<div class="flex items-center justify-between bg-surface p-2 rounded border border-glass/50">
+<span class="font-body-sm text-on-surface text-[13px]">developer-agent</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-on-surface-variant text-[14px]">arrow_forward</span>
+<span class="font-code-md text-code-md text-on-surface-variant italic opacity-70">sonnet-4-5 (global)</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer Actions -->
+<div class="p-md border-t border-glass bg-surface-elevated flex items-center justify-end gap-sm">
+<button class="px-4 py-1.5 font-body-sm font-medium text-white border border-white/10 rounded hover:bg-white/5 transition-colors">Cancel</button>
+<button class="px-4 py-1.5 font-body-sm font-medium text-white bg-primary rounded hover:bg-primary-container transition-colors shadow-[0_0_10px_rgba(124,109,250,0.3)]">Save</button>
+</div>
+</aside>
+</main>
+</body></html>

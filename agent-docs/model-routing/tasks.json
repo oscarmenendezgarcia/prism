@@ -1,0 +1,151 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "model-routing",
+  "date": "2026-06-23",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "ModelConfigResolver: pure module + settings schema extension",
+      "description": "Create `src/services/modelConfigResolver.js` with two exports: `resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, taskModels) → { provider, model, cliTool }` and `validateStageModelConfig(config) → { valid, errors }`. Add `pipeline.stageModels` (empty object default) to `DEFAULT_SETTINGS` in `src/handlers/settings.js`. Extend `deepMergeSettings` to merge three levels deep for the `pipeline.stageModels` path (currently two levels — a partial stageModels update overwrites the whole map). Add validation in `handlePutSettings` that calls `validateStageModelConfig` for each entry. VALID_PROVIDERS = ['claude','openai','ollama','custom']. VALID_CLI_TOOLS = ['claude','opencode','custom'].",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "resolveStageModelConfig with no overrides returns { provider:'claude', model: agentSpec.model, cliTool:'claude' }",
+        "task override takes precedence over space override, which takes precedence over settings",
+        "deepMergeSettings with partial stageModels update merges into existing keys, not overwrites",
+        "PUT /api/v1/settings with invalid provider returns 400 VALIDATION_ERROR",
+        "100% unit test coverage on modelConfigResolver.js"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "CliAdapter: shell command abstraction + binary resolution",
+      "description": "Create `src/services/cliAdapter.js`. Extract the Unix and Windows shell command builders from `pipelineManager.spawnStage()` into `buildUnixShellCommand(opts)` and `buildWindowsShellCommand(opts)` where `opts = { binary, finalArgs, promptPath, logPath, doneFile }`. Add `resolveCliBinary(cliTool, customBinary)` that resolves the binary path for 'claude' (reuse existing CLAUDE_BIN resolution logic, now as a function), 'opencode' (probe PATH + ~/.local/bin/opencode + /usr/local/bin/opencode), and 'custom' (use customBinary param or throw). Export these three functions. The consolidator and resolver-agent spawn paths (lines ~2757 and ~2893 in pipelineManager.js) must also be updated to use CliAdapter.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "buildUnixShellCommand output contains the EXIT trap, the done-sentinel write, and the log redirect",
+        "resolveCliBinary('claude') returns the same path as the current CLAUDE_BIN resolution",
+        "resolveCliBinary('custom', undefined) throws with a clear error message",
+        "All three CLAUDE_BIN usages in pipelineManager.js are replaced by CliAdapter calls",
+        "Unit tests for buildUnixShellCommand and buildWindowsShellCommand (mock filesystem)"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "SQLite migration: stage_models column on spaces and tasks",
+      "description": "Add `stage_models TEXT` (nullable JSON) column to both the `spaces` and `tasks` tables in `src/services/store.js`. Follow the existing migration guard pattern (try ALTER TABLE + catch 'duplicate column' error or use a migration flag). Update `spaceFromRow()` to parse `fromJson(row.stage_models) ?? null` into `space.stageModels`. Update `taskFromRow()` similarly. Update `updateSpace()` and `updateTask()` to serialize `stageModels` when present. Add `getSpaceStageModels(spaceId)` and `getTaskStageModels(spaceId, taskId)` helper methods that return the parsed object or null.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "Server starts cleanly on an existing database (migration is backward-compatible)",
+        "PUT /api/v1/spaces/:spaceId with stageModels persists and is returned in GET",
+        "Existing spaces with no stage_models column value return stageModels: null",
+        "Task stageModels round-trips through create → update → read without loss",
+        "Backend tests cover the new column read/write path"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "pipelineManager: resolve and apply model config at spawn time",
+      "description": "In `spawnStage()`, after `resolveAgent()` returns `agentSpec`, add the model resolution block: (1) call `readSettings(dataDir)` to get `settings.pipeline.stageModels`; (2) call `store.getSpaceStageModels(spaceId)` and `store.getTaskStageModels(spaceId, taskId)`; (3) call `resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, taskModels)`; (4) if the resolved model differs from `agentSpec.model`, inject `--model <model>` into `finalArgs`; (5) if `cliTool !== 'claude'`, call `resolveCliBinary(cliTool, settings.cli.customBinary)` to get the binary; (6) write `{ model, provider, cliTool, resolvedFrom }` into `run.stageStatuses[stageIndex]` before `writeRun()`; (7) update `stage-N.meta.json` to include `model`, `provider`, `cliTool`; (8) replace the three inline shell command constructions with `CliAdapter.buildUnixShellCommand()` / `buildWindowsShellCommand()`. Log `stage.model_resolved` event. Also update resolver-agent and consolidator spawn paths similarly (they get `folio-consolidator` / `resolver` config if declared in stageModels).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-001", "T-002", "T-003"],
+      "acceptance_criteria": [
+        "A run with stageModels.developer-agent.model='claude-opus-4-5' spawns developer-agent with --model claude-opus-4-5 in the shell command",
+        "A run with no stageModels config produces identical behavior to pre-MODEL-1 (same shell command, same log)",
+        "stageStatuses[i].model and .provider are set in run.json at stage start time",
+        "stage-N.meta.json includes model and provider fields",
+        "stage.model_resolved log event is emitted with resolvedFrom field",
+        "Integration test: start run, check run.json after spawn, verify model field"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Space and Task API: expose stageModels in REST + MCP",
+      "description": "Ensure `PUT /api/v1/spaces/:spaceId` accepts and validates a `stageModels` field (use `validateStageModelConfig` per entry). Ensure `GET /api/v1/spaces/:spaceId` and the spaces list response include `stageModels` (null when not set). Do the same for the task update path (`PUT /api/v1/tasks/:spaceId/:taskId` if it exists, or via the kanban task update handler in `src/handlers/tasks.js`). Add `stageModels` to the MCP `kanban_update_task` tool schema documentation (the tool already accepts free-form fields via the `description` and `assigned` update path; confirm `stageModels` passes through). Validation: each entry must pass validateStageModelConfig.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "2",
+      "dependencies": ["T-001", "T-003"],
+      "acceptance_criteria": [
+        "PUT /api/v1/spaces/:spaceId with invalid stageModels entry returns 400",
+        "GET /api/v1/spaces/:spaceId includes stageModels in response",
+        "PUT task update with stageModels persists correctly and appears in GET task response",
+        "MCP kanban_update_task with stageModels field passes through to SQLite"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Frontend: ModelRoutingSettings component (global settings)",
+      "description": "Create `frontend/src/components/config/ModelRoutingSettings.tsx`. The component renders a table of pipeline stages (from `settings.pipeline.stages`) with per-row selectors: Provider (radio or dropdown: claude / openai / ollama / custom), Model (text input or dropdown of presets per provider), CLI Tool (dropdown: claude / opencode / custom). Presets per provider: claude → ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5']; openai → ['gpt-4o', 'gpt-4o-mini']; ollama → ['qwen2.5-coder:32b', 'llama3.3:70b', 'mistral-nemo'] (user can type any value). A 'Clear override' button per row resets to frontmatter default. Reads from `useAppStore.settings.pipeline.stageModels`. Writes via `PUT /api/v1/settings` with partial `{ pipeline: { stageModels: {...} } }`. Wire it into `ConfigFileSidebar` as a new 'Model Routing' item. Use existing design system: `bg-surface-elevated`, `text-text-primary`, shared `Button` component.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "ModelRoutingSettings renders a row per stage in settings.pipeline.stages",
+        "Selecting a model preset updates the store and issues PUT /api/v1/settings",
+        "Custom model text input is accepted (not constrained to presets)",
+        "Clear override removes the agentId key from stageModels and saves",
+        "Component is accessible: all inputs have labels, keyboard navigation works",
+        "Vitest snapshot test covers the rendered table structure"
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "Frontend: per-space stageModels override UI",
+      "description": "Add a 'Model Overrides' collapsible section to the existing Space settings / edit modal (wherever space details are currently editable). The section is identical in structure to ModelRoutingSettings but scoped to the space's pipeline stages (use space.pipeline if set, else settings.pipeline.stages). Reads/writes via PUT /api/v1/spaces/:spaceId with `{ stageModels: {...} }`. Shows inherited value (from global settings) as placeholder when no override is set. Use `text-text-secondary` italic label 'Inherited from global settings' to communicate the fallback.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "2",
+      "dependencies": ["T-005", "T-006"],
+      "acceptance_criteria": [
+        "Space edit modal shows Model Overrides section",
+        "Setting a model override for a space persists to SQLite via PUT /api/v1/spaces/:id",
+        "When no override: inherited value is shown as placeholder with italic label",
+        "Clearing the override removes the entry from space.stageModels"
+      ]
+    },
+    {
+      "id": "T-008",
+      "title": "Frontend: per-task stageModels override + run.json model display",
+      "description": "Two sub-tasks in one: (1) Add a 'Model Overrides' collapsible section to the task detail drawer/modal (wherever task fields are edited). Same selector as space override, writes via PUT task update with `{ stageModels: {...} }`. (2) In the RunPanel / stage status display (wherever stageStatuses are shown), add a small model badge per stage: e.g. 'claude-opus-4-5' chip next to the stage name, sourced from `stageStatuses[i].model`. Show nothing if `model` field is absent (backward compat with old runs). Use Badge or a small `text-xs text-text-secondary` chip.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "3",
+      "dependencies": ["T-004", "T-005", "T-006"],
+      "acceptance_criteria": [
+        "Task detail shows Model Overrides section with per-stage selectors",
+        "Task stageModels override persists and is reflected in next run (stageStatuses.model)",
+        "RunPanel shows model badge per stage for completed and running runs",
+        "Old runs without model field show no badge (no crash, no empty chip)"
+      ]
+    },
+    {
+      "id": "T-009",
+      "title": "Backend tests: ModelConfigResolver, CliAdapter, settings validation, pipelineManager integration",
+      "description": "Add test files: `tests/modelConfigResolver.test.js` (unit: all inheritance combinations, edge cases — null overrides, unknown agentId, partial configs), `tests/cliAdapter.test.js` (unit: shell command output format, binary resolution for each cliTool type), extend `tests/settings.test.js` with stageModels validation cases. Add one integration test in `tests/pipeline.test.js`: create a run with a stageModels override in the body, set PIPELINE_NO_SPAWN=1, check that run.json stageStatuses[0] has the expected model/provider/cliTool fields. All tests must pass with `npm run test:report`.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-001", "T-002", "T-004"],
+      "acceptance_criteria": [
+        "npm run test:report exits OK with no new failures",
+        "ModelConfigResolver: 100% branch coverage (task overrides space, space overrides settings, fallback to frontmatter)",
+        "CliAdapter: Unix and Windows command builders tested with mock paths",
+        "Settings handler: invalid stageModels provider rejects with 400",
+        "Pipeline integration: run.json stageStatuses[0].model = override value after spawn"
+      ]
+    }
+  ]
+}

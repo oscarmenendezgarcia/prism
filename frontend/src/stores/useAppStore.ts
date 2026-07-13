@@ -8,7 +8,7 @@
 
 import { create } from 'zustand';
 import * as api from '@/api/client';
-import { ApiError } from '@/api/client';
+import { ApiError, updateSpace as apiUpdateSpace } from '@/api/client';
 // Imported via getState() to avoid circular imports with useRunHistoryStore.
 // ADR-1 (Agent Run History) §5.1: all lifecycle calls use getState() boundary.
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
@@ -41,8 +41,10 @@ import type {
   TaggerSuggestion,
   TaggerResult,
   Comment,
+  StageModelsMap,
 } from '@/types';
 import { buildSingleState, buildPipelineGroupState } from '@/stores/pipelineStateFromRun';
+import { safeStorage } from '@/utils/safeStorage';
 
 // ---------------------------------------------------------------------------
 // openLogPanelForRun input type
@@ -91,8 +93,14 @@ interface AppState {
   setActiveSpace: (id: string) => void;
   loadSpaces: () => Promise<void>;
   createSpace: (name: string, workingDirectory?: string, pipeline?: string[]) => Promise<void>;
-  renameSpace: (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>) => Promise<void>;
+  renameSpace: (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>, stageModels?: StageModelsMap | null) => Promise<void>;
   deleteSpace: (id: string) => Promise<void>;
+  /** Pin a space — appends it to the pinned zone with the next available rank. */
+  pinSpace: (id: string) => Promise<void>;
+  /** Unpin a space — removes it from the pinned zone. */
+  unpinSpace: (id: string) => Promise<void>;
+  /** Persist a new order for the pinned zone. Optimistic local update first. */
+  reorderPinnedSpaces: (orderedIds: string[]) => Promise<void>;
 
   // Tasks
   tasks: BoardTasks;
@@ -322,6 +330,15 @@ interface AppState {
     patch: { resolved?: boolean; text?: string },
   ) => Promise<void>;
 
+  // ── Arc filter / grouping (arc field feature) ─────────────────────────────
+
+  /** Active arc filter (null = show all). */
+  arcFilter: string | null;
+  /** Whether to group tasks by arc in columns. */
+  arcGrouping: boolean;
+  setArcFilter: (arc: string | null) => void;
+  toggleArcGrouping: () => void;
+
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 
   /** Whether the GlobalSearchModal is currently open. */
@@ -444,10 +461,16 @@ export const useAppStore = create<AppState>((set, get) => {
     const pollId = setInterval(async () => {
       try {
         const run = await api.getBackendRun(runIdToWatch);
-        // Keep currentStageIndex in sync with backend.
+        // Keep currentStageIndex AND stages in sync with backend — a loop
+        // injection (e.g. code-reviewer sending work back to developer-agent)
+        // appends stages to run.stages after the pipeline started, and the
+        // tab bar needs those extra entries to show/select them.
         const ps = get().pipelineStates[runIdToWatch];
         if (ps && typeof run.currentStage === 'number') {
-          setPipelineStateById(runIdToWatch, { currentStageIndex: run.currentStage });
+          setPipelineStateById(runIdToWatch, {
+            currentStageIndex: run.currentStage,
+            ...(Array.isArray(run.stages) ? { stages: run.stages } : {}),
+          });
         }
         // Surface interrupted state so InterruptedBanner shows.
         if (run.status === 'interrupted') {
@@ -607,11 +630,13 @@ export const useAppStore = create<AppState>((set, get) => {
   // ── Spaces ──────────────────────────────────────────────────────────────
 
   spaces: [],
-  activeSpaceId: localStorage.getItem(ACTIVE_SPACE_KEY) || 'default',
+  activeSpaceId: safeStorage.getItem(ACTIVE_SPACE_KEY) || 'default',
 
   setActiveSpace: (id: string) => {
-    localStorage.setItem(ACTIVE_SPACE_KEY, id);
-    set({ activeSpaceId: id });
+    safeStorage.setItem(ACTIVE_SPACE_KEY, id);
+    // Arc filter/grouping are per-space: a label from the old space would hide
+    // every card in the new one. Reset them on switch.
+    set({ activeSpaceId: id, arcFilter: null, arcGrouping: false });
   },
 
   loadSpaces: async () => {
@@ -640,7 +665,7 @@ export const useAppStore = create<AppState>((set, get) => {
     get().showToast('Space created.');
   },
 
-  renameSpace: async (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>) => {
+  renameSpace: async (id: string, name: string, workingDirectory?: string, pipeline?: string[], agentNicknames?: Record<string, string>, stageModels?: StageModelsMap | null) => {
     // Detect a freshly-added working directory. Invariant: a space with a repo keeps
     // its folio in the repo's .folio/. The backend handles both cases on save —
     // an existing sqlite folio is migrated into .folio/ synchronously; an absent one
@@ -648,7 +673,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const prev = get().spaces.find((s) => s.id === id);
     const wdAdded = !!workingDirectory && !prev?.workingDirectory;
 
-    await api.renameSpace(id, name, workingDirectory, pipeline, agentNicknames);
+    await api.renameSpace(id, name, workingDirectory, pipeline, agentNicknames, stageModels);
     await get().loadSpaces();
     get().showToast('Space updated.');
 
@@ -687,6 +712,63 @@ export const useAppStore = create<AppState>((set, get) => {
     showToast(`Space "${spaceName}" deleted.`);
   },
 
+  // ── Space pinning ────────────────────────────────────────────────
+
+  pinSpace: async (id: string) => {
+    const { spaces, showToast } = get();
+    const maxRank = Math.max(
+      -1,
+      ...spaces.filter((s) => s.pinned).map((s) => s.pinnedRank ?? -1),
+    );
+    try {
+      await apiUpdateSpace(id, { pinned: true, pinnedRank: maxRank + 1 });
+      await get().loadSpaces();
+    } catch (err) {
+      showToast(`Failed to pin space: ${(err as Error).message}`, 'error');
+    }
+  },
+
+  unpinSpace: async (id: string) => {
+    const { showToast } = get();
+    try {
+      await apiUpdateSpace(id, { pinned: false, pinnedRank: null });
+      await get().loadSpaces();
+    } catch (err) {
+      showToast(`Failed to unpin space: ${(err as Error).message}`, 'error');
+    }
+  },
+
+  reorderPinnedSpaces: async (orderedIds: string[]) => {
+    const { showToast } = get();
+    // Snapshot for rollback if persistence fails after the optimistic update.
+    const prevSpaces = get().spaces;
+
+    // Optimistic: reorder local state immediately so the UI snaps without a
+    // round-trip. Non-pinned spaces retain their positions after the pinned block.
+    set((state) => {
+      const idxMap = new Map(orderedIds.map((id, i) => [id, i]));
+      const pinned    = orderedIds
+        .map((id) => state.spaces.find((s) => s.id === id))
+        .filter(Boolean) as Space[];
+      const nonPinned = state.spaces.filter((s) => !idxMap.has(s.id));
+      return { spaces: [...pinned, ...nonPinned] };
+    });
+
+    try {
+      // Persist each rank in parallel.
+      await Promise.all(
+        orderedIds.map((id, rank) =>
+          apiUpdateSpace(id, { pinned: true, pinnedRank: rank }),
+        ),
+      );
+      await get().loadSpaces();
+    } catch (err) {
+      // Roll back the optimistic reorder so the UI never diverges from the server.
+      set({ spaces: prevSpaces });
+      showToast(`Failed to reorder spaces: ${(err as Error).message}`, 'error');
+    }
+  },
+
   // ── Tasks ───────────────────────────────────────────────────────────────
 
   tasks: emptyBoard(),
@@ -706,6 +788,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const { activeSpaceId, closeCreateModal, loadBoard, showToast } = get();
     set({ isMutating: true });
     try {
+      // arc is already included in the payload when provided by the caller
       await api.createTask(activeSpaceId, payload);
       closeCreateModal();
       await loadBoard();
@@ -803,7 +886,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   // ── Config editor ─────────────────────────────────────────────────────────
 
-  configPanelOpen:     localStorage.getItem(CONFIG_OPEN_KEY) === '1',
+  configPanelOpen:     safeStorage.getItem(CONFIG_OPEN_KEY) === '1',
   configFiles:         [],
   activeConfigFileId:  null,
   activeConfigContent: '',
@@ -815,18 +898,18 @@ export const useAppStore = create<AppState>((set, get) => {
   toggleConfigPanel: () => {
     const next = !get().configPanelOpen;
     if (next) {
-      localStorage.setItem(CONFIG_OPEN_KEY, '1');
+      safeStorage.setItem(CONFIG_OPEN_KEY, '1');
     } else {
-      localStorage.removeItem(CONFIG_OPEN_KEY);
+      safeStorage.removeItem(CONFIG_OPEN_KEY);
     }
     set({ configPanelOpen: next });
   },
 
   setConfigPanelOpen: (open: boolean) => {
     if (open) {
-      localStorage.setItem(CONFIG_OPEN_KEY, '1');
+      safeStorage.setItem(CONFIG_OPEN_KEY, '1');
     } else {
-      localStorage.removeItem(CONFIG_OPEN_KEY);
+      safeStorage.removeItem(CONFIG_OPEN_KEY);
     }
     set({ configPanelOpen: open });
   },
@@ -1598,6 +1681,15 @@ export const useAppStore = create<AppState>((set, get) => {
       throw err;
     }
   },
+
+  // ── Arc filter / grouping (arc field feature) ─────────────────────────────
+
+  arcFilter:   null,
+  arcGrouping: false,
+  // Filtering to one arc and grouping by arc are mutually exclusive (a filter
+  // leaves a single group), so turning on one clears the other.
+  setArcFilter:      (arc) => set(arc ? { arcFilter: arc, arcGrouping: false } : { arcFilter: null }),
+  toggleArcGrouping: () => set((s) => (s.arcGrouping ? { arcGrouping: false } : { arcGrouping: true, arcFilter: null })),
 
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 

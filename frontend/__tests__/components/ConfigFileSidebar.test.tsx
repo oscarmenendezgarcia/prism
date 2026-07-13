@@ -185,35 +185,39 @@ const AGENT_FILE_2: ConfigFile = {
   modifiedAt: '2026-03-18T08:00:00.000Z',
 };
 
-describe('ConfigFileSidebar — agent-scope section', () => {
-  it('renders "Agents" section heading when agent-scope files exist', () => {
+// ---------------------------------------------------------------------------
+// Proposal D: agent-scope files are no longer shown in the Files sidebar.
+// They moved to the "Agents & Routing" tab in ConfigPanel.
+// ---------------------------------------------------------------------------
+
+describe('ConfigFileSidebar — agent-scope section (Proposal D)', () => {
+  it('does NOT render "Agents" section heading even when agent-scope files exist', () => {
     resetStore({ configFiles: [AGENT_FILE] });
     render(<ConfigFileSidebar onRequestSwitch={vi.fn()} />);
-    // getAllByText because the directory label (~/.claude/agents) also matches /agents/i
-    const matches = screen.getAllByText(/agents/i);
-    expect(matches.length).toBeGreaterThanOrEqual(1);
-    // The section heading renders the exact text "Agents"
-    expect(screen.getByText('Agents')).toBeInTheDocument();
+    // There is no "Agents" heading — agent files moved to the routing tab
+    expect(screen.queryByText('Agents')).not.toBeInTheDocument();
   });
 
-  it('renders agent file names under the Agents heading', () => {
+  it('does NOT render agent file names in the sidebar', () => {
     resetStore({ configFiles: [AGENT_FILE, AGENT_FILE_2] });
     render(<ConfigFileSidebar onRequestSwitch={vi.fn()} />);
-    expect(screen.getByText('developer-agent.md')).toBeInTheDocument();
-    expect(screen.getByText('senior-architect.md')).toBeInTheDocument();
+    expect(screen.queryByText('developer-agent.md')).not.toBeInTheDocument();
+    expect(screen.queryByText('senior-architect.md')).not.toBeInTheDocument();
   });
 
-  it('clicking an agent file calls onRequestSwitch with the correct fileId', () => {
-    resetStore({ configFiles: [AGENT_FILE, AGENT_FILE_2] });
-    const onSwitch = vi.fn();
-    render(<ConfigFileSidebar onRequestSwitch={onSwitch} />);
-    fireEvent.click(screen.getByText('developer-agent.md'));
-    expect(onSwitch).toHaveBeenCalledWith('agent-developer-agent-md');
+  it('renders an empty nav when only agent-scope files are provided (no Global/Project)', () => {
+    resetStore({ configFiles: [AGENT_FILE] });
+    render(<ConfigFileSidebar onRequestSwitch={vi.fn()} />);
+    // configFiles.length > 0 so the empty-state div is not shown; the nav renders empty
+    const nav = screen.getByRole('navigation', { name: /config files/i });
+    expect(nav).toBeInTheDocument();
+    // No section headings or file buttons inside
+    expect(nav.querySelectorAll('button').length).toBe(0);
   });
 
   it('does not render "Agents" heading when no agent-scope files exist', () => {
     resetStore({ configFiles: [GLOBAL_FILE, PROJECT_FILE] });
     render(<ConfigFileSidebar onRequestSwitch={vi.fn()} />);
-    expect(screen.queryByText(/agents/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Agents')).not.toBeInTheDocument();
   });
 });

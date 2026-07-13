@@ -26,7 +26,7 @@
 const fs                        = require('fs');
 const path                      = require('path');
 const crypto                    = require('crypto');
-const { spawn, execSync }       = require('child_process');
+const { spawn }                 = require('child_process');
 
 const { resolveAgent, AgentNotFoundError } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
@@ -38,28 +38,14 @@ const {
   buildCompileGateBlock,
   buildResolvedQuestionsBlock,
 } = require('../utils/promptBuilder');
+const { readSettings }              = require('../handlers/settings');
+const { resolveStageModelConfig }   = require('./modelConfigResolver');
+const cliSpawn                      = require('./cliSpawn');
 
-// Resolve the claude binary path once at startup so caffeinate (and sh) can
-// find it even when the server was launched from a shell with a different PATH.
-// Falls back through common install locations if `which` fails.
-let CLAUDE_BIN = 'claude';
-{
-  const home = process.env.HOME ?? '';
-  const candidates = [
-    // PATH lookup first (covers most cases)
-    () => execSync('which claude 2>/dev/null', { encoding: 'utf8', env: process.env }).trim(),
-    // Common install locations as fallback
-    () => `${home}/.local/bin/claude`,
-    () => '/usr/local/bin/claude',
-    () => '/opt/homebrew/bin/claude',
-  ];
-  for (const candidate of candidates) {
-    try {
-      const p = candidate();
-      if (p && fs.existsSync(p)) { CLAUDE_BIN = p; break; }
-    } catch { /* try next */ }
-  }
-}
+// Binary resolution (claude/opencode) and shell escaping live in cliSpawn.js —
+// the single source of truth shared with folioBootstrap.js.
+const resolveCliBinary        = cliSpawn.resolveCliBinary;
+const { shellEscape, cmdEscape } = cliSpawn;
 
 /**
  * Read a task from the kanban column files by ID.
@@ -339,19 +325,122 @@ function consolidationPromptPath(dataDir, runId) {
 }
 
 /**
- * POSIX single-quote escaping for shell arguments.
- * Wraps s in single quotes and escapes embedded single quotes as '\''
+ * Wrap a CLI invocation line in the Unix sh done-sentinel scaffold. An EXIT trap
+ * guarantees the sentinel is written even if the wrapper is terminated mid-shutdown
+ * (see spawn notes below). `cliLine` is the full tool invocation including its
+ * stdin/stdout redirects.
  *
- * @param {string} s
+ * @param {string} cliLine
+ * @param {string} doneFile
  * @returns {string}
  */
-function shellEscape(s) {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+function wrapUnixSentinel(cliLine, doneFile) {
+  return [
+    `_DONE=${shellEscape(doneFile)}`,
+    '_EXIT=1',
+    "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
+    cliLine,
+    '_EXIT=$?',
+  ].join('; ');
 }
 
-// Windows cmd.exe path quoting: wrap in double quotes, escape embedded double quotes.
-function cmdEscape(s) {
-  return '"' + String(s).replace(/"/g, '""') + '"';
+/**
+ * Wrap a CLI invocation line in the Windows cmd.exe done-sentinel scaffold (no trap
+ * available; the sentinel is written before exit). `cliLine` is the full tool
+ * invocation including its redirects.
+ *
+ * @param {string} cliLine
+ * @param {string} doneFile
+ * @returns {string}
+ */
+function wrapWindowsSentinel(cliLine, doneFile) {
+  return [
+    cliLine,
+    'set _EXIT=!ERRORLEVEL!',
+    `if not exist ${cmdEscape(doneFile)} echo !_EXIT! > ${cmdEscape(doneFile)}`,
+    'exit /B 0',
+  ].join(' & ');
+}
+
+/**
+ * Build the Unix sh command that runs the claude CLI, captures its exit code, and
+ * writes the done-sentinel.
+ *
+ * @param {{ binary: string, finalArgs: string[], promptPath: string, logPath: string, doneFile: string }} opts
+ * @returns {string}
+ */
+function buildUnixShellCommand({ binary, finalArgs, promptPath, logPath, doneFile }) {
+  const escapedArgs = finalArgs.map(shellEscape).join(' ');
+  const cliLine = `${binary} ${escapedArgs} < ${shellEscape(promptPath)} >> ${shellEscape(logPath)} 2>&1`;
+  return wrapUnixSentinel(cliLine, doneFile);
+}
+
+/**
+ * Build the Windows cmd.exe command that runs the claude CLI, captures its exit code,
+ * and writes the done-sentinel before exit.
+ *
+ * @param {{ binary: string, finalArgs: string[], promptPath: string, logPath: string, doneFile: string }} opts
+ * @returns {string}
+ */
+function buildWindowsShellCommand({ binary, finalArgs, promptPath, logPath, doneFile }) {
+  const escapedArgs = finalArgs.map(cmdEscape).join(' ');
+  const cliLine = `${cmdEscape(binary)} ${escapedArgs} < ${cmdEscape(promptPath)} >> ${cmdEscape(logPath)} 2>&1`;
+  return wrapWindowsSentinel(cliLine, doneFile);
+}
+
+// ---------------------------------------------------------------------------
+// MODEL-2: opencode helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Write the merged prompt file for an opencode stage.
+ * Content = agentSpec.systemPrompt + "\n\n---\n\n" + taskPromptContent.
+ * If agentSpec is absent/empty, writes only the task prompt (graceful fallback).
+ *
+ * @param {{ systemPrompt?: string }|null} agentSpec   - from agentResolver; systemPrompt is the .md body
+ * @param {string}                         taskPromptPath  - absolute path to stage-N-prompt.md
+ * @param {string}                         runDirPath  - absolute path to data/runs/<runId>/
+ * @param {number}                         stageIndex  - stage index (for file naming)
+ * @returns {string}  Absolute path to the written stage-N-oc-prompt.md
+ */
+function buildOpencodePromptFile(agentSpec, taskPromptPath, runDirPath, stageIndex) {
+  const taskPromptContent = fs.readFileSync(taskPromptPath, 'utf8');
+  const merged = cliSpawn.buildMergedPrompt(agentSpec, taskPromptContent);
+
+  const outPath = path.join(runDirPath, `stage-${stageIndex}-oc-prompt.md`);
+  fs.writeFileSync(outPath, merged, 'utf8');
+
+  pipelineLog('stage.opencode_prompt_written', {
+    stageIndex,
+    mergedPromptPath: outPath,
+    bytes: Buffer.byteLength(merged, 'utf8'),
+  });
+
+  return outPath;
+}
+
+/**
+ * Build the Unix sh command that runs opencode, captures its exit code, and
+ * writes the done-sentinel. Uses the same EXIT-trap sentinel pattern as buildUnixShellCommand.
+ *
+ * @param {{ binary: string, model: string, mergedPromptPath: string, logPath: string, doneFile: string }} opts
+ * @returns {string}
+ */
+function buildOpencodeUnixShellCommand({ binary, model, mergedPromptPath, logPath, doneFile }) {
+  const cliLine = cliSpawn.opencodeCliLine({ binary, model, mergedPromptPath, logPath, platform: 'unix' });
+  return wrapUnixSentinel(cliLine, doneFile);
+}
+
+/**
+ * Build the Windows cmd.exe command that runs opencode, captures its exit code,
+ * and writes the done-sentinel.
+ *
+ * @param {{ binary: string, model: string, mergedPromptPath: string, logPath: string, doneFile: string }} opts
+ * @returns {string}
+ */
+function buildOpencodeWindowsShellCommand({ binary, model, mergedPromptPath, logPath, doneFile }) {
+  const cliLine = cliSpawn.opencodeCliLine({ binary, model, mergedPromptPath, logPath, platform: 'win32' });
+  return wrapWindowsSentinel(cliLine, doneFile);
 }
 
 // ---------------------------------------------------------------------------
@@ -938,6 +1027,44 @@ function effectiveCwd(run) {
 }
 
 /**
+ * Resolve settings/space/task model overrides and call resolveStageModelConfig
+ * for a single agent. Shared by the folio-consolidator and cross-agent resolver
+ * spawn sites, which each resolve a config for one fixed agentId/agentSpec pair
+ * (unlike spawnStage, which resolves twice — once early for PIPELINE_NO_SPAWN
+ * diagnostics, once with the real agentSpec — sharing one settings/spaceModels/
+ * taskModels fetch across both, so it is not a fit for this helper).
+ *
+ * @param {string} dataDir
+ * @param {object} run
+ * @param {string} agentId
+ * @param {object} agentSpec
+ * @returns {object} resolved model config
+ */
+function resolveModelForStage(dataDir, run, agentId, agentSpec) {
+  const settings    = readSettings(dataDir);
+  const spaceModels = _store ? (_store.getSpace(run.spaceId)?.stageModels ?? null) : null;
+  const taskModels  = _store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null;
+  return resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, taskModels);
+}
+
+/**
+ * Resolve the cwd to actually spawn a child process in. Same as effectiveCwd,
+ * but falls back to run.workingDirectory when the worktree path no longer
+ * exists on disk (e.g. the folio-consolidator and resolver spawns run after
+ * the run has reached a terminal state and its worktree has been torn down).
+ *
+ * @param {object|null|undefined} run
+ * @returns {string|undefined}
+ */
+function spawnCwd(run) {
+  const cwd = effectiveCwd(run);
+  if (cwd && run?.worktree?.path === cwd && !fs.existsSync(cwd)) {
+    return run.workingDirectory || undefined;
+  }
+  return cwd;
+}
+
+/**
  * Tear down the worktree for a run that has reached a terminal state.
  * No-op when the run has no worktree. Never throws.
  *
@@ -1389,6 +1516,9 @@ async function spawnStage(dataDir, run, stageIndex) {
     const source    = agentMode === 'subagent' ? 'claude-code' : 'plain';
     const metaPath  = path.join(runDir(dataDir, run.runId), `stage-${stageIndex}.meta.json`);
     try {
+      // NOTE: model/provider/cliTool are not yet resolved at this point (agentSpec not loaded),
+      // so we write a placeholder and update it after model resolution below.
+      // The meta.json is rewritten after model resolution with the actual values.
       fs.writeFileSync(metaPath, JSON.stringify({
         source,
         schemaVersion: 1,
@@ -1445,10 +1575,29 @@ async function spawnStage(dataDir, run, stageIndex) {
 
   const stageStartedAt = Date.now();
 
+  // MODEL-1/2: read settings/space/task overrides. Cheap and agentSpec-independent,
+  // so resolve them before the PIPELINE_NO_SPAWN guard; the full resolution (with the
+  // real agentSpec) happens exactly once after resolveAgent below.
+  const settings    = readSettings(dataDir);
+  const spaceModels = _store ? (_store.getSpace(run.spaceId)?.stageModels ?? null) : null;
+  const taskModels  = _store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null;
+  let mergedPromptPath = null;
+
   // Test hook: when PIPELINE_NO_SPAWN=1, skip agent resolution and real spawning.
   // This allows unit/integration tests to exercise block/unblock flows without
   // needing real agent files on disk or launching actual claude processes.
   if (process.env.PIPELINE_NO_SPAWN === '1') {
+    // No agentSpec in test mode: resolve with the frontmatter default (null agentSpec)
+    // purely to record cliTool/provider in run.json and emit the opencode diagnostic
+    // prompt file the real path would write — both are asserted by the opencode tests.
+    const earlyConfig = resolveStageModelConfig(agentId, null, settings, spaceModels, taskModels);
+    run.stageStatuses[stageIndex].cliTool      = earlyConfig.cliTool;
+    run.stageStatuses[stageIndex].provider     = earlyConfig.provider;
+    run.stageStatuses[stageIndex].resolvedFrom = earlyConfig.resolvedFrom;
+    writeRun(dataDir, run);
+    if (earlyConfig.cliTool === 'opencode') {
+      buildOpencodePromptFile(null, promptFilePath, runDir(dataDir, run.runId), stageIndex);
+    }
     fs.writeFileSync(doneFile, '0', 'utf8');
     // null PID: no real process — deleteRun/abortAll will skip the kill() call
     // and avoid accidentally sending SIGTERM to the current process (e.g. test runner).
@@ -1464,7 +1613,7 @@ async function spawnStage(dataDir, run, stageIndex) {
   const agentsDir = process.env.PIPELINE_AGENTS_DIR;
   let agentSpec;
   try {
-    agentSpec = resolveAgent(agentId, agentsDir);
+    agentSpec = resolveAgent(agentId, agentsDir, run.workingDirectory);
   } catch (err) {
     if (err instanceof AgentNotFoundError) {
       run.status = 'failed';
@@ -1478,55 +1627,122 @@ async function spawnStage(dataDir, run, stageIndex) {
     throw err;
   }
 
+  // MODEL-1: Full model config resolution with actual agentSpec (overrides early resolution).
+  const modelConfig = resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, taskModels);
+
   // Backend spawns always get --permission-mode bypassPermissions: there is no user
   // present to respond to permission prompts, so any interactive pause would
   // hang the stage until the stall watchdog kills it.
   const hasPermissionMode = agentSpec.spawnArgs.includes('--permission-mode');
-  const finalArgs = hasPermissionMode
+  const baseArgs = hasPermissionMode
     ? agentSpec.spawnArgs
     : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
-  // Build the shell command that runs claude, captures its exit code, and
-  // writes the done-sentinel. Two platform variants:
+  // MODEL-1: inject --model override if the resolved model differs from agent default.
+  const agentDefaultModel = agentSpec.model || null;
+  const effectiveArgs = [...baseArgs];
+  if (modelConfig.model && modelConfig.model !== agentDefaultModel) {
+    effectiveArgs.push('--model', modelConfig.model);
+  }
+
+  // MODEL-1: record model info in stageStatuses at spawn time.
+  run.stageStatuses[stageIndex].model        = modelConfig.model;
+  run.stageStatuses[stageIndex].provider     = modelConfig.provider;
+  run.stageStatuses[stageIndex].cliTool      = modelConfig.cliTool;
+  run.stageStatuses[stageIndex].resolvedFrom = modelConfig.resolvedFrom;
+  writeRun(dataDir, run);
+
+  pipelineLog('stage.model_resolved', {
+    runId: run.runId, stageIndex, agentId,
+    model:        modelConfig.model,
+    provider:     modelConfig.provider,
+    cliTool:      modelConfig.cliTool,
+    resolvedFrom: modelConfig.resolvedFrom,
+  });
+
+  // MODEL-1: rewrite meta.json now that model config is resolved.
+  // MODEL-2: source must also reflect cliTool — only a claude subagent spawn emits
+  // claude's stream-json event format. opencode's `--format default` output (or any
+  // other non-claude cliTool) is plain text; mislabeling it "claude-code" here made
+  // the log-metrics parser try to parse plain text as stream-json (0 tool calls, no
+  // final_result, every line an "unknownEvent") even though the run itself was fine.
+  {
+    const agentMode = process.env.PIPELINE_AGENT_MODE || 'subagent';
+    const source    = (modelConfig.cliTool === 'claude' && agentMode === 'subagent') ? 'claude-code' : 'plain';
+    const metaPath  = path.join(runDir(dataDir, run.runId), `stage-${stageIndex}.meta.json`);
+    try {
+      fs.writeFileSync(metaPath, JSON.stringify({
+        source,
+        schemaVersion: 1,
+        agentId,
+        startedAt: run.stageStatuses[stageIndex].startedAt,
+        model:    modelConfig.model,
+        provider: modelConfig.provider,
+        cliTool:  modelConfig.cliTool,
+      }), 'utf8');
+    } catch (metaErr) {
+      console.warn(`[pipelineManager] WARN: could not rewrite meta.json (model) for stage ${stageIndex}:`, metaErr.message);
+    }
+  }
+
+  // MODEL-2: for opencode stages, write the merged prompt file with the actual
+  // agentSpec.systemPrompt + task prompt (the real spawn path runs once here).
+  if (modelConfig.cliTool === 'opencode') {
+    mergedPromptPath = buildOpencodePromptFile(agentSpec, promptFilePath, runDir(dataDir, run.runId), stageIndex);
+  }
+
+  // MODEL-2: Resolve the CLI binary for this stage.
+  // resolveCliBinary() throws 'BINARY_NOT_FOUND:<cliTool>' if the binary is missing.
+  let stageBinary;
+  try {
+    stageBinary = resolveCliBinary(modelConfig.cliTool);
+    pipelineLog('stage.binary_resolved', { runId: run.runId, stageIndex, cliTool: modelConfig.cliTool, binary: stageBinary });
+  } catch (binErr) {
+    run.stageStatuses[stageIndex].status        = 'failed';
+    run.stageStatuses[stageIndex].exitCode      = -1;
+    run.stageStatuses[stageIndex].finishedAt    = new Date().toISOString();
+    run.stageStatuses[stageIndex].failureReason = 'binary_missing';
+    run.status = 'failed';
+    writeRun(dataDir, run);
+    pipelineLog('stage.binary_missing', { runId: run.runId, stageIndex, agentId, cliTool: modelConfig.cliTool });
+    return;
+  }
+
+  // Build the shell command that runs the CLI, captures its exit code, and
+  // writes the done-sentinel. Two platform variants per cliTool:
   //
   // Unix (sh): an EXIT trap guarantees the sentinel is written even if the
-  //   wrapper receives SIGTERM while claude is shutting down (Bug 1).
+  //   wrapper receives SIGTERM while the CLI is shutting down.
   //   The trap is idempotent — skips the write if the polling loop already
-  //   wrote it via the completed-but-hanging detection (Bug 2).
-  //   NOTE: do NOT use `exec claude` — exec replaces sh, so the trap would
+  //   wrote it via the completed-but-hanging detection.
+  //   NOTE: do NOT use `exec <binary>` — exec replaces sh, so the trap would
   //   never fire and the sentinel would never be written.
   //
   // Windows (cmd.exe): no trap is available; the sentinel is written before
   //   exit so a forced termination is less likely to lose it.
-  //   The polling-loop detection (Bug 2) covers the hanging case.
+  const stageCwd = spawnCwd(run);
+
   let child;
   if (process.platform === 'win32') {
-    const escapedArgs  = finalArgs.map(cmdEscape).join(' ');
     // /V:ON enables delayed variable expansion so !ERRORLEVEL! is evaluated
-    // after claude exits, not at parse time (the %VAR% behaviour).
-    const windowsCmd = [
-      `${cmdEscape(CLAUDE_BIN)} ${escapedArgs} < ${cmdEscape(promptFilePath)} >> ${cmdEscape(logPath)} 2>&1`,
-      `set _EXIT=!ERRORLEVEL!`,
-      `if not exist ${cmdEscape(doneFile)} echo !_EXIT! > ${cmdEscape(doneFile)}`,
-      `exit /B 0`,
-    ].join(' & ');
+    // after the CLI exits, not at parse time (the %VAR% behaviour).
+    const windowsCmd = modelConfig.cliTool === 'opencode'
+      ? buildOpencodeWindowsShellCommand({ binary: stageBinary, model: modelConfig.model, mergedPromptPath, logPath, doneFile })
+      : buildWindowsShellCommand({ binary: stageBinary, finalArgs: effectiveArgs, promptPath: promptFilePath, logPath, doneFile });
     child = spawn('cmd.exe', ['/V:ON', '/C', windowsCmd], {
       stdio:    'ignore',
       detached: true,
+      cwd:      stageCwd,
       env:      { ...process.env },
     });
   } else {
-    const escapedArgs  = finalArgs.map(shellEscape).join(' ');
-    const unixCmd = [
-      `_DONE=${shellEscape(doneFile)}`,
-      '_EXIT=1',
-      "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
-      `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1`,
-      '_EXIT=$?',
-    ].join('; ');
+    const unixCmd = modelConfig.cliTool === 'opencode'
+      ? buildOpencodeUnixShellCommand({ binary: stageBinary, model: modelConfig.model, mergedPromptPath, logPath, doneFile })
+      : buildUnixShellCommand({ binary: stageBinary, finalArgs: effectiveArgs, promptPath: promptFilePath, logPath, doneFile });
     child = spawn('sh', ['-c', unixCmd], {
       stdio:    'ignore',
       detached: true,
+      cwd:      stageCwd,
       env:      { ...process.env },
     });
   }
@@ -1812,7 +2028,7 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
   const agentsDir = process.env.PIPELINE_AGENTS_DIR;
   for (const agentId of stageList) {
     try {
-      resolveAgent(agentId, agentsDir);
+      resolveAgent(agentId, agentsDir, workingDirectory);
     } catch (err) {
       if (err instanceof AgentNotFoundError) throw err;
       throw err;
@@ -1848,10 +2064,11 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
     stageStatuses: stageList.map((agentId, index) => ({
       index,
       agentId,
-      status:     'pending',
-      exitCode:   null,
-      startedAt:  null,
-      finishedAt: null,
+      status:        'pending',
+      exitCode:      null,
+      startedAt:     null,
+      finishedAt:    null,
+      failureReason: null,
     })),
     createdAt: now,
     updatedAt: now,
@@ -2310,6 +2527,32 @@ If you decide to write nothing, still write { "pages": [] } and signal done.
 }
 
 /**
+ * Read + JSON.parse consolidation.json, retrying briefly on failure.
+ * Handles the sentinel-before-signal race described in applyConsolidation:
+ * a few short retries cover the gap between the sentinel appearing and the
+ * agent's Write of the actual signal file landing, without meaningfully
+ * delaying the (much more common) case where both are already present.
+ *
+ * @param {string} signalPath
+ * @returns {Promise<object>} parsed signal
+ * @throws the last read/parse error if every attempt fails
+ */
+async function readConsolidationSignalWithRetry(signalPath) {
+  const attempts = 4;
+  const delayMs  = 250;
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return JSON.parse(fs.readFileSync(signalPath, 'utf8'));
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
+/**
  * Read, validate, and apply the consolidation.json signal produced by the consolidator agent.
  *
  * Validation (server-side, authoritative — never trusts the agent):
@@ -2327,14 +2570,18 @@ If you decide to write nothing, still write { "pages": [] } and signal done.
 async function applyConsolidation(dataDir, run, startedAt) {
   const cfg        = resolveWritebackConfig();
   const signalPath = consolidationSignalPath(dataDir, run.runId);
-  const finishedAt = new Date().toISOString();
 
-  // Read and parse consolidation.json
+  // Read and parse consolidation.json. Retried briefly: the consolidator
+  // agent has been observed writing the done-sentinel before consolidation.json
+  // (e.g. via a bash `echo` for the sentinel, then a separate Write for the
+  // JSON moments later) — the poller can detect the sentinel and read the
+  // signal file in that gap, seeing ENOENT even though the agent's real,
+  // valid output lands a beat later.
   let signal;
   try {
-    const raw = fs.readFileSync(signalPath, 'utf8');
-    signal = JSON.parse(raw);
+    signal = await readConsolidationSignalWithRetry(signalPath);
   } catch (err) {
+    const finishedAt = new Date().toISOString();
     pipelineLog('consolidation.failed', {
       runId: run.runId,
       reason: 'signal_parse_error',
@@ -2354,6 +2601,7 @@ async function applyConsolidation(dataDir, run, startedAt) {
     }
     return;
   }
+  const finishedAt = new Date().toISOString();
 
   const SLUG_RE   = /^[a-z0-9-]+\/[a-z0-9-]+$/;
   const rawPages  = Array.isArray(signal && signal.pages) ? signal.pages : [];
@@ -2721,7 +2969,7 @@ async function maybeConsolidate(dataDir, run) {
     const agentsDir = process.env.PIPELINE_AGENTS_DIR;
     let agentSpec;
     try {
-      agentSpec = resolveAgent('folio-consolidator', agentsDir);
+      agentSpec = resolveAgent('folio-consolidator', agentsDir, run.workingDirectory);
     } catch (err) {
       if (err instanceof AgentNotFoundError) {
         pipelineLog('consolidation.skipped', {
@@ -2753,12 +3001,46 @@ async function maybeConsolidate(dataDir, run) {
       ? agentSpec.spawnArgs
       : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
-    const escapedArgs = finalArgs.map(shellEscape).join(' ');
-    const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFile)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+    // MODEL-2: honour model routing for the consolidator (was hardcoded to claude).
+    const consModelConfig = resolveModelForStage(dataDir, run, 'folio-consolidator', agentSpec);
+
+    let consBinary;
+    try {
+      consBinary = resolveCliBinary(consModelConfig.cliTool);
+    } catch (binErr) {
+      pipelineLog('consolidation.binary_missing', { runId: run.runId, cliTool: consModelConfig.cliTool });
+      const freshRun = readRun(dataDir, run.runId);
+      if (freshRun) {
+        freshRun.consolidation = { status: 'error', reason: 'binary_missing', cliTool: consModelConfig.cliTool, startedAt, finishedAt: new Date().toISOString() };
+        writeRun(dataDir, freshRun);
+      }
+      closeFolioRun({
+        dataDir, runId: surfaceRunId, entryId: `${surfaceRunId}-${CONSOLIDATION_RUN.kind}`,
+        spaceId: run.spaceId, startedAt, drop: true, runStore: consolidationRunStore(),
+        kind: CONSOLIDATION_RUN.kind, taskTitle: CONSOLIDATION_RUN.taskTitle, agentId: CONSOLIDATION_RUN.agentId,
+      });
+      return;
+    }
+
+    pipelineLog('consolidation.model_resolved', {
+      runId: run.runId, cliTool: consModelConfig.cliTool, model: consModelConfig.model, resolvedFrom: consModelConfig.resolvedFrom,
+    });
+
+    let shellCmd;
+    if (consModelConfig.cliTool === 'opencode') {
+      const mergedPromptPath = path.join(runDir(dataDir, surfaceRunId), 'consolidation-oc-prompt.md');
+      fs.writeFileSync(mergedPromptPath, cliSpawn.buildMergedPrompt(agentSpec, fs.readFileSync(promptFile, 'utf8')), 'utf8');
+      const cliLine = cliSpawn.opencodeCliLine({ binary: consBinary, model: consModelConfig.model, mergedPromptPath, logPath, platform: 'unix' });
+      shellCmd = `${cliLine}; echo $? > ${shellEscape(doneFile)}`;
+    } else {
+      const escapedArgs = finalArgs.map(shellEscape).join(' ');
+      shellCmd = `${consBinary} ${escapedArgs} < ${shellEscape(promptFile)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
+    }
 
     const child = spawn('sh', ['-c', shellCmd], {
       stdio:    'ignore',
       detached: true,
+      cwd:      spawnCwd(run),
       env:      { ...process.env },
     });
     child.unref();
@@ -2853,7 +3135,7 @@ function attemptCrossAgentResolution(dataDir, run, comment) {
   const agentsDir = process.env.PIPELINE_AGENTS_DIR;
   let agentSpec;
   try {
-    agentSpec = resolveAgent(comment.targetAgent, agentsDir);
+    agentSpec = resolveAgent(comment.targetAgent, agentsDir, run.workingDirectory);
   } catch (err) {
     if (err instanceof AgentNotFoundError) {
       pipelineLog('resolver.skipped_invalid_agent', {
@@ -2888,13 +3170,36 @@ function attemptCrossAgentResolution(dataDir, run, comment) {
     ? agentSpec.spawnArgs
     : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
 
-  const escapedArgs = finalArgs.map(shellEscape).join(' ');
+  // MODEL-2: honour model routing for the cross-agent resolver (was hardcoded to claude).
+  const resModelConfig = resolveModelForStage(dataDir, run, comment.targetAgent, agentSpec);
+
+  let resBinary;
+  try {
+    resBinary = resolveCliBinary(resModelConfig.cliTool);
+  } catch (binErr) {
+    pipelineLog('resolver.binary_missing', {
+      runId: run.runId, commentId: comment.id, targetAgent: comment.targetAgent, cliTool: resModelConfig.cliTool,
+    });
+    markCommentNeedsHuman(dataDir, run.spaceId, run.taskId, comment.id);
+    return;
+  }
+
   const _playwrightCleanup2 = `pkill -f 'ms-playwright' 2>/dev/null; true`;
-  const shellCmd    = `${CLAUDE_BIN} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; _EXIT=$?; ${_playwrightCleanup2}; echo $_EXIT > ${shellEscape(doneFile)}`;
+  let shellCmd;
+  if (resModelConfig.cliTool === 'opencode') {
+    const mergedPromptPath = path.join(runDir(dataDir, run.runId), `resolver-${comment.id}-oc-prompt.md`);
+    fs.writeFileSync(mergedPromptPath, cliSpawn.buildMergedPrompt(agentSpec, fs.readFileSync(promptFilePath, 'utf8')), 'utf8');
+    const cliLine = cliSpawn.opencodeCliLine({ binary: resBinary, model: resModelConfig.model, mergedPromptPath, logPath, platform: 'unix' });
+    shellCmd = `${cliLine}; _EXIT=$?; ${_playwrightCleanup2}; echo $_EXIT > ${shellEscape(doneFile)}`;
+  } else {
+    const escapedArgs = finalArgs.map(shellEscape).join(' ');
+    shellCmd = `${resBinary} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; _EXIT=$?; ${_playwrightCleanup2}; echo $_EXIT > ${shellEscape(doneFile)}`;
+  }
 
   const child = spawn('sh', ['-c', shellCmd], {
     stdio:    'ignore',
     detached: true,
+    cwd:      spawnCwd(run),
     env:      { ...process.env },
   });
   child.unref();
@@ -3419,6 +3724,8 @@ module.exports = {
   // Parallel-worktrees helpers (exported for testing):
   hasActiveRunInDir,
   effectiveCwd,
+  spawnCwd,
+  readConsolidationSignalWithRetry,
   finalizeRun,
   // Exported for testing and preview endpoint:
   runsDir,
@@ -3445,4 +3752,9 @@ module.exports = {
   consolidationSignalPath,
   consolidationPromptPath,
   getStore: () => _store,
+  // MODEL-2: opencode adapter helpers — exported for testing only.
+  _resolveCliBinaryForTest:              resolveCliBinary,
+  _buildOpencodePromptFileForTest:       buildOpencodePromptFile,
+  _buildOpencodeUnixShellCommandForTest: buildOpencodeUnixShellCommand,
+  _buildOpencodeWindowsShellCommandForTest: buildOpencodeWindowsShellCommand,
 };

@@ -50,6 +50,7 @@ vi.mock('../../src/api/client', () => ({
   createSpace:          vi.fn(),
   renameSpace:          vi.fn(),
   deleteSpace:          vi.fn(),
+  updateSpace:          vi.fn(),
   getTasks:             vi.fn(),
   createTask:           vi.fn(),
   moveTask:             vi.fn(),
@@ -105,6 +106,36 @@ describe('setActiveSpace', () => {
     useAppStore.getState().setActiveSpace('space-123');
     expect(useAppStore.getState().activeSpaceId).toBe('space-123');
     expect(localStorage.getItem('prism-active-space')).toBe('space-123');
+  });
+
+  it('resets arc filter and grouping when switching space', () => {
+    useAppStore.setState({ arcFilter: 'AUTH', arcGrouping: true });
+    useAppStore.getState().setActiveSpace('space-456');
+    expect(useAppStore.getState().arcFilter).toBeNull();
+    expect(useAppStore.getState().arcGrouping).toBe(false);
+  });
+});
+
+describe('arc filter / grouping are mutually exclusive', () => {
+  it('setting a filter turns grouping off', () => {
+    useAppStore.setState({ arcFilter: null, arcGrouping: true });
+    useAppStore.getState().setArcFilter('AUTH');
+    expect(useAppStore.getState().arcFilter).toBe('AUTH');
+    expect(useAppStore.getState().arcGrouping).toBe(false);
+  });
+
+  it('turning grouping on clears the filter', () => {
+    useAppStore.setState({ arcFilter: 'AUTH', arcGrouping: false });
+    useAppStore.getState().toggleArcGrouping();
+    expect(useAppStore.getState().arcGrouping).toBe(true);
+    expect(useAppStore.getState().arcFilter).toBeNull();
+  });
+
+  it('clearing the filter (null) leaves grouping untouched', () => {
+    useAppStore.setState({ arcFilter: 'AUTH', arcGrouping: false });
+    useAppStore.getState().setArcFilter(null);
+    expect(useAppStore.getState().arcFilter).toBeNull();
+    expect(useAppStore.getState().arcGrouping).toBe(false);
   });
 });
 
@@ -1436,5 +1467,166 @@ describe('resumeInterruptedRun', () => {
     await useAppStore.getState().resumeInterruptedRun();
     expect(useAppStore.getState().toast?.type).toBe('error');
     expect(useAppStore.getState().toast?.message).toContain('resume');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Space pinning actions
+// ---------------------------------------------------------------------------
+
+const SAMPLE_SPACES = [
+  { id: 's1', name: 'Alpha',  pinned: false, createdAt: '', updatedAt: '' },
+  { id: 's2', name: 'Beta',   pinned: true,  pinnedRank: 0, createdAt: '', updatedAt: '' },
+  { id: 's3', name: 'Gamma',  pinned: true,  pinnedRank: 1, createdAt: '', updatedAt: '' },
+];
+
+describe('pinSpace', () => {
+  it('calls updateSpace with pinned=true and rank = max(existing ranks) + 1', async () => {
+    vi.mocked(api.updateSpace).mockResolvedValue({
+      id: 's1', name: 'Alpha', pinned: true, pinnedRank: 2, createdAt: '', updatedAt: '',
+    });
+    vi.mocked(api.getSpaces).mockResolvedValue(SAMPLE_SPACES);
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1' });
+
+    await useAppStore.getState().pinSpace('s1');
+
+    expect(api.updateSpace).toHaveBeenCalledWith('s1', { pinned: true, pinnedRank: 2 });
+  });
+
+  it('uses rank 0 when no spaces are currently pinned', async () => {
+    const noPinned = [
+      { id: 's1', name: 'A', pinned: false, createdAt: '', updatedAt: '' },
+    ];
+    vi.mocked(api.updateSpace).mockResolvedValue({
+      id: 's1', name: 'A', pinned: true, pinnedRank: 0, createdAt: '', updatedAt: '',
+    });
+    vi.mocked(api.getSpaces).mockResolvedValue(noPinned);
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+
+    useAppStore.setState({ spaces: noPinned, activeSpaceId: 's1' });
+
+    await useAppStore.getState().pinSpace('s1');
+
+    expect(api.updateSpace).toHaveBeenCalledWith('s1', { pinned: true, pinnedRank: 0 });
+  });
+
+  it('calls loadSpaces after pinning', async () => {
+    const updatedSpaces = [
+      ...SAMPLE_SPACES,
+      { id: 's1', name: 'Alpha', pinned: true, pinnedRank: 2, createdAt: '', updatedAt: '' },
+    ];
+    vi.mocked(api.updateSpace).mockResolvedValue(updatedSpaces[0] as any);
+    vi.mocked(api.getSpaces).mockResolvedValue(updatedSpaces);
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1' });
+
+    await useAppStore.getState().pinSpace('s1');
+
+    expect(api.getSpaces).toHaveBeenCalled();
+  });
+
+  it('shows an error toast and does not throw when the API fails', async () => {
+    vi.mocked(api.updateSpace).mockRejectedValue(new Error('boom'));
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1', toast: null });
+
+    await useAppStore.getState().pinSpace('s1');
+
+    expect(useAppStore.getState().toast?.type).toBe('error');
+  });
+});
+
+describe('unpinSpace', () => {
+  it('calls updateSpace with pinned=false and pinnedRank=null', async () => {
+    vi.mocked(api.updateSpace).mockResolvedValue({
+      id: 's2', name: 'Beta', pinned: false, createdAt: '', updatedAt: '',
+    });
+    vi.mocked(api.getSpaces).mockResolvedValue(SAMPLE_SPACES);
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's2' });
+
+    await useAppStore.getState().unpinSpace('s2');
+
+    expect(api.updateSpace).toHaveBeenCalledWith('s2', { pinned: false, pinnedRank: null });
+  });
+
+  it('calls loadSpaces after unpinning', async () => {
+    vi.mocked(api.updateSpace).mockResolvedValue({
+      id: 's2', name: 'Beta', pinned: false, createdAt: '', updatedAt: '',
+    });
+    vi.mocked(api.getSpaces).mockResolvedValue(SAMPLE_SPACES);
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's2' });
+
+    await useAppStore.getState().unpinSpace('s2');
+
+    expect(api.getSpaces).toHaveBeenCalled();
+  });
+
+  it('shows an error toast and does not throw when the API fails', async () => {
+    vi.mocked(api.updateSpace).mockRejectedValue(new Error('boom'));
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's2', toast: null });
+
+    await useAppStore.getState().unpinSpace('s2');
+
+    expect(useAppStore.getState().toast?.type).toBe('error');
+  });
+});
+
+describe('reorderPinnedSpaces', () => {
+  it('applies optimistic reorder before API calls resolve', () => {
+    vi.mocked(api.updateSpace).mockImplementation(
+      () => new Promise(() => {}), // never resolves
+    );
+
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1' });
+
+    // Don't await — check optimistic update synchronously after the set
+    useAppStore.getState().reorderPinnedSpaces(['s3', 's2']);
+
+    const { spaces } = useAppStore.getState();
+    // s3 and s2 should now be first (in that order), s1 last
+    expect(spaces[0].id).toBe('s3');
+    expect(spaces[1].id).toBe('s2');
+  });
+
+  it('calls updateSpace for each id with its new rank', async () => {
+    vi.mocked(api.updateSpace).mockResolvedValue({} as any);
+    vi.mocked(api.getSpaces).mockResolvedValue(SAMPLE_SPACES);
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1' });
+
+    await useAppStore.getState().reorderPinnedSpaces(['s3', 's2']);
+
+    expect(api.updateSpace).toHaveBeenCalledWith('s3', { pinned: true, pinnedRank: 0 });
+    expect(api.updateSpace).toHaveBeenCalledWith('s2', { pinned: true, pinnedRank: 1 });
+  });
+
+  it('calls loadSpaces after all updates resolve', async () => {
+    vi.mocked(api.updateSpace).mockResolvedValue({} as any);
+    vi.mocked(api.getSpaces).mockResolvedValue(SAMPLE_SPACES);
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1' });
+
+    await useAppStore.getState().reorderPinnedSpaces(['s3', 's2']);
+
+    expect(api.getSpaces).toHaveBeenCalled();
+  });
+
+  it('rolls back the optimistic order and shows an error toast when persistence fails', async () => {
+    vi.mocked(api.updateSpace).mockRejectedValue(new Error('boom'));
+    useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1', toast: null });
+
+    await useAppStore.getState().reorderPinnedSpaces(['s3', 's2']);
+
+    // Order restored to the original; UI must not diverge from the server.
+    expect(useAppStore.getState().spaces.map((s) => s.id)).toEqual(SAMPLE_SPACES.map((s) => s.id));
+    expect(useAppStore.getState().toast?.type).toBe('error');
   });
 });

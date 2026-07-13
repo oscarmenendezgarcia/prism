@@ -8,6 +8,7 @@ import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/compon
 import { Button } from '@/components/shared/Button';
 import { DirectoryPicker } from '@/components/shared/DirectoryPicker';
 import { useAppStore } from '@/stores/useAppStore';
+import { localModelsToStageModelsMap } from '@/utils/modelRouting';
 
 const SPACE_NAME_MAX    = 100;
 const NICKNAME_MAX      = 50;
@@ -33,6 +34,9 @@ export function SpaceModal() {
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
   const [nicknamesOpen, setNicknamesOpen] = useState(false);
   const [nicknameErrors, setNicknameErrors] = useState<Record<string, string>>({});
+  /** MODEL-1: per-stage model overrides for this space (agentId → model string). */
+  const [localStageModels, setLocalStageModels] = useState<Record<string, string>>({});
+  const [modelOverridesOpen, setModelOverridesOpen] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -55,6 +59,15 @@ export function SpaceModal() {
       setNicknames(mode === 'rename' && space ? (space.agentNicknames ?? {}) : {});
       setNicknamesOpen(false);
       setNicknameErrors({});
+      // MODEL-1: initialize model overrides from existing space config
+      const existingModels: Record<string, string> = {};
+      if (mode === 'rename' && space?.stageModels) {
+        for (const [agentId, cfg] of Object.entries(space.stageModels)) {
+          if (cfg !== null) existingModels[agentId] = cfg.model;
+        }
+      }
+      setLocalStageModels(existingModels);
+      setModelOverridesOpen(false);
       setError('');
       setSubmitting(false);
       setTimeout(() => inputRef.current?.focus(), 50);
@@ -95,7 +108,8 @@ export function SpaceModal() {
         await createSpace(trimmed, wd, pl);
         closeModal();
       } else if (mode === 'rename' && space) {
-        await renameSpace(space.id, trimmed, wd ?? '', pl ?? [], nicknames);
+        const stageModels = localModelsToStageModelsMap(localStageModels);
+        await renameSpace(space.id, trimmed, wd ?? '', pl ?? [], nicknames, stageModels);
         closeModal();
       }
     } catch (err) {
@@ -230,6 +244,100 @@ export function SpaceModal() {
             Override the default agent pipeline for tasks in this space.
           </span>
         </div>
+
+        {/* Model Overrides — rename mode only (MODEL-1) */}
+        {mode === 'rename' && (
+          <div className="border border-border rounded-lg [contain:paint]">
+            <button
+              type="button"
+              onClick={() => setModelOverridesOpen((prev) => !prev)}
+              aria-expanded={modelOverridesOpen}
+              aria-controls="space-model-overrides-body"
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-text-primary hover:bg-surface-variant rounded-t-lg transition-colors duration-fast"
+            >
+              <span className="flex items-center gap-2">
+                Model Overrides
+                <span className="text-text-disabled font-normal">(optional)</span>
+                {Object.keys(localStageModels).length > 0 && (
+                  <span
+                    className="text-xs font-medium bg-primary/15 text-primary px-2 py-0.5 rounded-full"
+                    aria-label={`${Object.keys(localStageModels).length} model overrides active`}
+                  >
+                    {Object.keys(localStageModels).length} override{Object.keys(localStageModels).length !== 1 ? 's' : ''}
+                  </span>
+                )}
+              </span>
+              <span
+                className={`material-symbols-outlined text-base leading-none text-text-secondary transition-transform duration-fast ${modelOverridesOpen ? 'rotate-180' : ''}`}
+                aria-hidden="true"
+              >
+                expand_more
+              </span>
+            </button>
+
+            {modelOverridesOpen && (
+              <div id="space-model-overrides-body" className="px-4 pb-4 flex flex-col gap-3 border-t border-border pt-3">
+                <p className="text-xs text-text-disabled">
+                  Override global model settings for this space. Leave blank to inherit from global settings.
+                </p>
+
+                {(pipeline.length > 0 ? pipeline : DEFAULT_STAGES).map((agentId) => {
+                  const currentValue = localStageModels[agentId] ?? '';
+                  const hasOverride = agentId in localStageModels;
+                  const inputId = `model-override-${agentId}`;
+                  return (
+                    <div key={agentId} className="flex flex-col gap-1">
+                      <label htmlFor={inputId} className="block text-xs font-medium text-text-secondary">
+                        <span className="font-mono text-text-disabled">{agentId}</span>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          id={inputId}
+                          type="text"
+                          placeholder="(global default)"
+                          value={currentValue}
+                          onChange={(e) => {
+                            setLocalStageModels((prev) => ({ ...prev, [agentId]: e.target.value }));
+                          }}
+                          className={`${inputClass} py-2 flex-1 font-mono text-sm ${!hasOverride || !currentValue ? 'italic text-text-disabled' : 'text-text-primary'}`}
+                          autoComplete="off"
+                          aria-label={`Model override for ${agentId}`}
+                        />
+                        {hasOverride && currentValue && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLocalStageModels((prev) => {
+                                const next = { ...prev };
+                                delete next[agentId];
+                                return next;
+                              });
+                            }}
+                            className="flex-shrink-0 text-text-secondary hover:text-error transition-colors px-2 py-1 text-sm"
+                            aria-label={`Clear override for ${agentId}`}
+                            title="Clear override"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {Object.keys(localStageModels).length > 0 && (
+                  <button
+                    type="button"
+                    className="text-xs text-text-disabled hover:text-text-secondary text-left transition-colors self-start"
+                    onClick={() => setLocalStageModels({})}
+                  >
+                    Clear all overrides
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Agent Nicknames — rename mode only */}
         {mode === 'rename' && (

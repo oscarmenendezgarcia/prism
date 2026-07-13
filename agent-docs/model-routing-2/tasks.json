@@ -1,0 +1,112 @@
+{
+  "version": "1.0",
+  "project": "prism",
+  "feature": "model-routing-2",
+  "date": "2026-06-26",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Widen VALID_CLI_TOOLS and VALID_PROVIDERS in modelConfigResolver.js",
+      "description": "Add 'opencode' to VALID_CLI_TOOLS. For VALID_PROVIDERS, keep the existing claude-only whitelist but change the validation logic: when cliTool === 'opencode', provider is accepted as any non-empty string (open-ended). Also add a new validation rule: when cliTool === 'opencode' and model is provided, the model must contain '/' (enforcing provider/model format). Update the existing tests in tests/modelConfigResolver.test.js: replace the 'MODEL-1 only' assertions with MODEL-2 ones; add tests for the opencode-specific model format validation.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "VALID_CLI_TOOLS exports ['claude', 'opencode', 'custom']",
+        "validateStageModelConfig({ cliTool: 'opencode', model: 'vllm-local/nvidia/Qwen3.6-35B' }) returns valid: true",
+        "validateStageModelConfig({ cliTool: 'opencode', model: 'no-slash-model' }) returns valid: false with an error mentioning provider/model format",
+        "validateStageModelConfig({ cliTool: 'claude', provider: 'gemini' }) still returns valid: false (claude provider whitelist unchanged)",
+        "All existing MODEL-1 tests in modelConfigResolver.test.js pass (updated assertions for widened constants)",
+        "npm test passes"
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Add resolveCliBinary() helper and lazy OPENCODE_BIN resolution to pipelineManager.js",
+      "description": "Add a module-level let OPENCODE_BIN = null and a resolveCliBinary(cliTool) function. For 'claude', return the already-resolved CLAUDE_BIN. For 'opencode', lazily probe: (1) which opencode via execSync, (2) ~/.opencode/bin/opencode via fs.existsSync, (3) throw Error('BINARY_NOT_FOUND:opencode'). Cache the result in OPENCODE_BIN after first successful resolution. Emit pipelineLog('stage.binary_resolved', ...) on success.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "1",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "resolveCliBinary('claude') returns the existing CLAUDE_BIN value",
+        "resolveCliBinary('opencode') returns '~/.opencode/bin/opencode' (or PATH-resolved path) when opencode is installed",
+        "resolveCliBinary('opencode') throws with message containing 'BINARY_NOT_FOUND:opencode' when neither PATH nor the default path finds the binary (test with PIPELINE_NO_SPAWN guard using a fake environment)",
+        "Second call to resolveCliBinary('opencode') returns the cached value (no second probe)",
+        "npm test passes"
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "Add buildOpencodePromptFile() helper to pipelineManager.js",
+      "description": "Add function buildOpencodePromptFile(agentSpec, taskPromptPath, runDir, stageIndex). It reads agentSpec.rawContent (the full .md body, available from agentResolver) and the task prompt file, concatenates them with a '---' separator, and writes the result to path.join(runDir, `stage-${stageIndex}-oc-prompt.md`). Returns the written path. If agentSpec.rawContent is absent or empty, use only the task prompt content (graceful fallback). Emit pipelineLog('stage.opencode_prompt_written', { runId, stageIndex, bytes }) after writing.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "Written file starts with agent system prompt content, contains '---' separator, ends with task prompt content",
+        "If agentSpec.rawContent is empty/null, the file contains only the task prompt content (no crash)",
+        "File is named stage-N-oc-prompt.md where N is the stageIndex",
+        "Function returns the absolute path of the written file",
+        "pipelineLog emits 'stage.opencode_prompt_written' with correct bytes count",
+        "npm test passes"
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "Add buildOpencodeUnixShellCommand() and buildOpencodeWindowsShellCommand() to pipelineManager.js",
+      "description": "Add two new shell command builders following the same style as the existing buildUnixShellCommand and buildWindowsShellCommand. Unix: use the EXIT-trap sentinel pattern; inner command is: `<binary> run --model <model> --dangerously-skip-permissions --format default --file <mergedPromptPath> 'Proceed.'`. Windows: use the cmd.exe pattern from the existing Windows builder. Both accept opts: { binary, model, mergedPromptPath, logPath, doneFile }. The binary and all paths must be passed through shellEscape (Unix) or cmdEscape (Windows) — reuse the existing escape helpers.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-003"],
+      "acceptance_criteria": [
+        "buildOpencodeUnixShellCommand returns a string containing the opencode binary path, --model flag, --dangerously-skip-permissions, --format default, --file flag with the merged prompt path, and the 'Proceed.' message",
+        "All path arguments in the Unix command are shell-escaped via shellEscape",
+        "The Unix command uses the EXIT-trap sentinel pattern (same as buildUnixShellCommand)",
+        "buildOpencodeWindowsShellCommand returns a cmd.exe compatible command string",
+        "Unit tests for both builders (check output structure, not exact bytes) pass",
+        "npm test passes"
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Wire opencode path into pipelineManager.spawnStage() at the two MODEL-2 TODOs",
+      "description": "Modify pipelineManager.spawnStage() at lines ~1591-1622. Before the platform branch, compute mergedPromptPath (call buildOpencodePromptFile only when cliTool === 'opencode', else null). Then resolve the binary (call resolveCliBinary(modelConfig.cliTool)) with error handling: on BinaryNotFoundError, set stageStatuses[i].status = 'failed', write run.json, emit stage.binary_missing log event, and return. Inside the platform branch, pick the correct shell command builder based on modelConfig.cliTool (opencode vs claude). The claude path (buildUnixShellCommand / buildWindowsShellCommand) must be unchanged — only the binary and command are selected dynamically. Also update the resolver agent spawn at line ~2847 to use resolveCliBinary('claude') instead of the bare CLAUDE_BIN constant (consistency).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-004"],
+      "acceptance_criteria": [
+        "A stage with stageModels[agentId] = { cliTool: 'opencode', model: 'vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4' } spawns opencode (not claude)",
+        "A stage with cliTool: 'claude' (or no override) spawns claude — identical behavior to MODEL-1",
+        "When opencode binary is not found, the stage fails with status 'failed', exitCode -1, and a 'stage.binary_missing' log event — server does not crash",
+        "stageStatuses[i].cliTool is 'opencode' for opencode stages in run.json",
+        "stage-N-oc-prompt.md is created in the run directory before spawn",
+        "caffeinate is still spawned on macOS for opencode stages (existing behavior, no change needed)",
+        "PIPELINE_NO_SPAWN=true skips actual spawn for both claude and opencode (existing test guard still works)",
+        "npm test passes with no regressions in pipeline.test.js"
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Tests — opencode adapter unit and integration tests",
+      "description": "Add a new test file tests/pipelineManager.opencode.test.js. Cover: (1) resolveCliBinary with opencode when binary exists (stub fs.existsSync or use a temp file), (2) resolveCliBinary when opencode is missing (throws BINARY_NOT_FOUND), (3) buildOpencodePromptFile writes correct content and returns the path, (4) buildOpencodeUnixShellCommand output structure (contains expected flags), (5) buildOpencodeWindowsShellCommand output structure, (6) integration: a full pipeline start with a space/task stageModels override of cliTool=opencode using PIPELINE_NO_SPAWN=true — verify stageStatuses[i].cliTool=opencode and stage-N-oc-prompt.md file exists in run dir. Also update tests/modelConfigResolver.test.js to replace MODEL-1-only constant assertions with MODEL-2 assertions.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-005"],
+      "acceptance_criteria": [
+        "tests/pipelineManager.opencode.test.js exists with at least 6 test cases",
+        "All 6 categories listed in description are covered",
+        "resolveCliBinary caching is tested (call twice, probe runs once)",
+        "PIPELINE_NO_SPAWN integration test creates a run with cliTool=opencode in stageStatuses and stage-N-oc-prompt.md on disk",
+        "All new tests pass",
+        "All existing tests pass (no regressions)",
+        "npm test exits with code 0"
+      ]
+    }
+  ]
+}

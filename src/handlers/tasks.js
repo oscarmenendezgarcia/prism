@@ -13,6 +13,7 @@ const path = require('path');
 
 const { COLUMNS }                          = require('../constants');
 const { sendJSON, sendError, parseBody }   = require('../utils/http');
+const { validateStageModelConfig }         = require('../services/modelConfigResolver');
 
 // ---------------------------------------------------------------------------
 // Validation constraints
@@ -25,6 +26,7 @@ const ASSIGNED_MAX_LEN     = 50;
 const PIPELINE_MAX_STAGES  = 20;
 const PIPELINE_STAGE_MAX_LEN = 50;
 const PIPELINE_STAGE_ID_RE = /^[a-z0-9-]+$/;
+const ARC_MAX_LEN          = 60;
 
 const ATTACHMENT_MAX_COUNT         = 20;
 const ATTACHMENT_NAME_MAX_LEN      = 100;
@@ -215,6 +217,12 @@ function createApp(spaceId, store) {
       errors.push(`assigned must not exceed ${ASSIGNED_MAX_LEN} characters`);
     }
 
+    if (body.arc !== undefined && typeof body.arc !== 'string') {
+      errors.push('arc must be a string when provided');
+    } else if (typeof body.arc === 'string' && body.arc.trim().length > ARC_MAX_LEN) {
+      errors.push(`arc must not exceed ${ARC_MAX_LEN} characters`);
+    }
+
     const pipelineResult = validatePipelineField(body.pipeline);
     if (!pipelineResult.valid) {
       errors.push(pipelineResult.error);
@@ -223,6 +231,8 @@ function createApp(spaceId, store) {
     if (errors.length > 0) {
       return { valid: false, errors, data: null };
     }
+
+    const arcTrimmed = typeof body.arc === 'string' ? body.arc.trim() : undefined;
 
     return {
       valid:  true,
@@ -235,6 +245,7 @@ function createApp(spaceId, store) {
                        ? assigned.trim()
                        : undefined,
         pipeline:    pipelineResult.data,
+        arc:         arcTrimmed && arcTrimmed.length > 0 ? arcTrimmed : undefined,
       },
     };
   }
@@ -358,6 +369,7 @@ function createApp(spaceId, store) {
       ...(data.description !== undefined && { description: data.description }),
       ...(data.assigned    !== undefined && { assigned:    data.assigned }),
       ...(data.pipeline    !== undefined && { pipeline:    data.pipeline }),
+      ...(data.arc         !== undefined && { arc:         data.arc }),
       ...(attachmentResult.data.length > 0 && { attachments: attachmentResult.data }),
       createdAt: now,
       updatedAt: now,
@@ -447,7 +459,7 @@ function createApp(spaceId, store) {
       return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
     }
 
-    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline'];
+    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline', 'arc'];
     const provided         = UPDATABLE_FIELDS.filter((f) => f in body);
 
     if (provided.length === 0) {
@@ -495,6 +507,14 @@ function createApp(spaceId, store) {
       }
     }
 
+    if ('arc' in body) {
+      if (typeof body.arc !== 'string') {
+        errors.push('arc must be a string when provided');
+      } else if (body.arc.trim().length > ARC_MAX_LEN) {
+        errors.push(`arc must not exceed ${ARC_MAX_LEN} characters`);
+      }
+    }
+
     if (errors.length > 0) {
       return sendError(res, 400, 'VALIDATION_ERROR', errors.join('; '));
     }
@@ -527,6 +547,31 @@ function createApp(spaceId, store) {
             event: 'task.pipeline_field_set', taskId,
             stages: pipelineUpdateResult.data, source: 'api',
           }) + '\n');
+        }
+      }
+
+      if ('arc' in body) {
+        const trimmed = body.arc.trim();
+        patch.arc = trimmed.length > 0 ? trimmed : undefined;
+      }
+
+      // MODEL-1: per-stage model routing overrides.
+      if ('stageModels' in body) {
+        if (body.stageModels === null) {
+          patch.stageModels = null; // clear all task-level overrides
+        } else if (typeof body.stageModels === 'object' && !Array.isArray(body.stageModels)) {
+          for (const [agentId, config] of Object.entries(body.stageModels)) {
+            if (config === null) continue; // null = clear that agent's override
+            const { valid, errors } = validateStageModelConfig(config);
+            if (!valid) {
+              return sendError(res, 400, 'VALIDATION_ERROR',
+                `Invalid stageModels for '${agentId}': ${errors[0]}`,
+                { field: `stageModels.${agentId}` });
+            }
+          }
+          patch.stageModels = body.stageModels;
+        } else {
+          return sendError(res, 400, 'VALIDATION_ERROR', 'stageModels must be an object or null', { field: 'stageModels' });
         }
       }
 

@@ -4,8 +4,12 @@
  * Auto-task handler — POST /api/v1/spaces/:spaceId/autotask/generate
  *
  * Accepts a natural-language prompt and generates Kanban tasks via the
- * configured AI CLI (`TAGGER_CLI`, default: `claude`), then persists them
- * directly to the target column JSON file.
+ * configured AI CLI, then persists them directly to the target column JSON file.
+ *
+ * Model resolved via resolveStageModelConfig('autotask', ...) — same resolver as
+ * the pipeline and tagger — so a per-agent override set for 'autotask' in the
+ * Agents & Routing panel (global or space scope) takes effect here. Only the
+ * 'claude' cliTool is supported today (see AUTOTASK_CLI_ERROR below).
  *
  * Request body:
  *   { prompt: string, column?: string }
@@ -18,17 +22,21 @@
  *   400 VALIDATION_ERROR     — missing/invalid prompt or column
  *   404 SPACE_NOT_FOUND      — spaceId does not exist (checked by caller)
  *   409 AUTOTASK_RUNNING     — concurrent run for same spaceId
- *   502 AUTOTASK_CLI_ERROR   — CLI spawn failed or returned invalid JSON
+ *   502 AUTOTASK_CLI_ERROR   — CLI spawn failed, returned invalid JSON, or an
+ *                              unsupported cliTool is routed for 'autotask'
  */
 
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 
-const { sendJSON, sendError, parseBody } = require('../utils/http');
-const { COLUMNS }                        = require('../constants');
-const { validatePipelineField }          = require('./tasks');
-const { readSettings }                   = require('./settings');
+const { sendJSON, sendError, parseBody }   = require('../utils/http');
+const { COLUMNS }                          = require('../constants');
+const { validatePipelineField }            = require('./tasks');
+const { readSettings }                     = require('./settings');
+const { resolveAgent, AgentNotFoundError } = require('../services/agentResolver');
+const { resolveStageModelConfig }          = require('../services/modelConfigResolver');
+const { resolveCliBinary }                 = require('../services/cliSpawn');
 
 // ---------------------------------------------------------------------------
 // System prompt (loaded once at module init)
@@ -284,10 +292,31 @@ async function handleAutoTaskGenerate(req, res, spaceId, store, workingDirectory
 
   runningSpaces.add(spaceId);
 
-  // 5. Resolve CLI binary and model from settings (TAGGER_CLI env var overrides for compat)
+  // 5. Resolve the effective model/cliTool for the 'autotask' agent — same resolver
+  // used by the pipeline and tagger, so a per-agent override in Agents & Routing
+  // takes effect. TAGGER_CLI / TAGGER_MODEL env vars still win when set, for
+  // backward-compat/test overrides (shared with tagger.js by convention).
   const settings = readSettings(dataDir);
-  const cli      = process.env.TAGGER_CLI || settings.cli.binary || settings.cli.tool || 'claude';
-  const model    = process.env.TAGGER_MODEL || 'haiku';
+
+  let agentSpec;
+  try {
+    agentSpec = resolveAgent('autotask', process.env.PIPELINE_AGENTS_DIR);
+  } catch (err) {
+    if (!(err instanceof AgentNotFoundError)) throw err;
+    agentSpec = { model: 'haiku' }; // preserves the pre-routing default when no agent .md exists
+  }
+
+  const spaceModels = store.getSpace(spaceId)?.stageModels ?? null;
+  const modelConfig = resolveStageModelConfig('autotask', agentSpec, settings, spaceModels, null);
+
+  if (!process.env.TAGGER_CLI && modelConfig.cliTool !== 'claude') {
+    runningSpaces.delete(spaceId);
+    return sendError(res, 502, 'AUTOTASK_CLI_ERROR',
+      `Generate Tasks only supports the 'claude' CLI tool today — '${modelConfig.cliTool}' is routed for this agent in Agents & Routing. Clear its override or set it back to a Claude preset.`);
+  }
+
+  const cli   = process.env.TAGGER_CLI || resolveCliBinary(modelConfig.cliTool);
+  const model = process.env.TAGGER_MODEL || modelConfig.model;
 
   try {
     // 6. Call CLI (inject known agent IDs into system prompt)

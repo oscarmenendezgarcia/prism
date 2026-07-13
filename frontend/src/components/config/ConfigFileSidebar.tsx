@@ -4,6 +4,10 @@
  * clicking a file calls selectConfigFile from the store.
  * Dirty guard: if configDirty is true, shows a discard confirmation before
  * switching to a different file (handled via onRequestSwitch callback from parent).
+ *
+ * Proposal D (Phase 1): the "Agents" group and the "Model Routing" virtual item
+ * are no longer shown here — they moved to the "Agents & Routing" tab.
+ * Only "Global" and "Project" file groups remain.
  */
 
 import React from 'react';
@@ -61,7 +65,7 @@ export function ConfigFileSidebar({ onRequestSwitch }: ConfigFileSidebarProps) {
   const configLoading      = useAppStore((s) => s.configLoading);
 
   const globalFiles  = configFiles.filter((f) => f.scope === 'global');
-  const agentFiles   = configFiles.filter((f) => f.scope === 'agent' || f.scope === 'space-agent');
+  // Agent files moved to the "Agents & Routing" tab (Proposal D) — not shown here.
   const projectFiles = configFiles.filter((f) => f.scope === 'project' || f.scope === 'space-project');
 
   if (configLoading && configFiles.length === 0) {
@@ -90,24 +94,11 @@ export function ConfigFileSidebar({ onRequestSwitch }: ConfigFileSidebarProps) {
       aria-label="Config files"
       className="flex flex-col overflow-y-auto h-full"
     >
+      {/* Global section — Model Routing and Agents moved to "Agents & Routing" tab */}
       {globalFiles.length > 0 && (
         <div>
           <ScopeHeading label="Global" />
           {globalFiles.map((file) => (
-            <FileItem
-              key={file.id}
-              file={file}
-              isActive={file.id === activeConfigFileId}
-              onClick={() => onRequestSwitch(file.id)}
-            />
-          ))}
-        </div>
-      )}
-
-      {agentFiles.length > 0 && (
-        <div>
-          <ScopeHeading label="Agents" />
-          {agentFiles.map((file) => (
             <FileItem
               key={file.id}
               file={file}

@@ -9,6 +9,7 @@
 
 import { create } from 'zustand';
 import type { TerminalStatus } from '@/types';
+import { uuid } from '@/utils/uuid';
 
 /** Maximum concurrent PTY sessions (server MAX_CONNECTIONS = 5, we cap at 4). */
 export const MAX_SESSIONS = 4;
@@ -62,8 +63,8 @@ interface TerminalSessionState {
 // ---------------------------------------------------------------------------
 
 function generateId(): string {
-  // crypto.randomUUID() is available in all modern browsers and Node 15+.
-  return crypto.randomUUID();
+  // uuid() is available in all modern browsers and Node 15+.
+  return uuid();
 }
 
 function readPanelOpenFromStorage(): boolean {

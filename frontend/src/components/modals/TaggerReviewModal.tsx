@@ -155,6 +155,16 @@ function SuggestionRow({ suggestion, accepted, onToggle, error }: SuggestionRowP
             <TypeBadge type={suggestion.inferredType} />
           </div>
 
+          {/* Arc chip — only when tagger inferred an arc */}
+          {suggestion.arc && (
+            <span
+              data-testid="tagger-arc-chip"
+              className="inline-flex items-center text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded border border-border bg-surface-elevated text-text-secondary self-start"
+            >
+              {suggestion.arc}
+            </span>
+          )}
+
           {/* Description diff — only when improveDescriptions was true */}
           {hasImproved && (
             <p className="text-[12px] text-text-secondary mt-1 line-clamp-2">
@@ -229,6 +239,7 @@ export function TaggerReviewModal() {
       try {
         await api.updateTask(activeSpaceId, s.id, {
           type: s.inferredType,
+          ...(s.arc !== undefined ? { arc: s.arc } : {}),
           ...(s.description !== undefined ? { description: s.description } : {}),
         });
       } catch (err) {

@@ -18,6 +18,7 @@
 const crypto = require('crypto');
 const { createStore } = require('./store');
 const { validateFolioBackend } = require('./folioValidation');
+const { validateStageModelConfig } = require('./modelConfigResolver');
 
 const SPACE_NAME_MAX      = 100;
 const NICKNAME_VALUE_MAX  = 50;
@@ -176,13 +177,20 @@ function createSpaceManager(storeOrDataDir) {
 
   /**
    * Rename a space (also updates optional fields).
+   *
+   * @param {string}  id                - Space ID.
+   * @param {string|null|undefined} newName - New display name. When null/undefined/'',
+   *   falls back to the existing name so callers can do pin-only updates without
+   *   providing a name. (partial PUT support.)
+   * @param {string}  [workingDirectory]
+   * @param {string[]} [pipeline]
+   * @param {string}  [projectClaudeMdPath]
+   * @param {object}  [agentNicknames]
+   * @param {string}  [folioBackend]
+   * @param {boolean} [pinned]           - Pin/unpin the space.
+   * @param {number|null} [pinnedRank]   - Rank within the pinned zone.
    */
-  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames, folioBackend) {
-    const validation = validateName(newName);
-    if (!validation.valid) {
-      return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
-    }
-
+  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames, folioBackend, pinned, pinnedRank, stageModels) {
     const existing = store.getSpace(id);
     if (!existing) {
       return {
@@ -190,6 +198,16 @@ function createSpaceManager(storeOrDataDir) {
         code:    'SPACE_NOT_FOUND',
         message: `No space with ID "${id}" was found.`,
       };
+    }
+
+    // `name` is optional: fall back to the existing name when not supplied (null/undefined).
+    // An explicit empty string is still a validation error — callers who want a pin-only
+    // update should omit the name field entirely (the route passes undefined in that case).
+    const nameToUse = (newName != null) ? newName : existing.name;
+
+    const validation = validateName(nameToUse);
+    if (!validation.valid) {
+      return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
     }
 
     const normalised = validation.name.toLowerCase();
@@ -209,6 +227,26 @@ function createSpaceManager(storeOrDataDir) {
       const nickResult = normaliseNicknames(agentNicknames);
       if (!nickResult.ok) return nickResult;
       normalisedNicknames = nickResult.nicknames;
+    }
+
+    // MODEL-1: validate and resolve stageModels if provided.
+    let resolvedStageModels;
+    if (stageModels !== undefined) {
+      if (stageModels === null) {
+        // null = clear all space-level overrides.
+        resolvedStageModels = null;
+      } else if (typeof stageModels !== 'object' || Array.isArray(stageModels)) {
+        return { ok: false, code: 'VALIDATION_ERROR', message: 'stageModels must be an object or null.' };
+      } else {
+        for (const [agentId, config] of Object.entries(stageModels)) {
+          if (config === null) continue; // null = clear that agent's override
+          const { valid, errors } = validateStageModelConfig(config);
+          if (!valid) {
+            return { ok: false, code: 'VALIDATION_ERROR', message: `Invalid stageModels for '${agentId}': ${errors[0]}` };
+          }
+        }
+        resolvedStageModels = stageModels;
+      }
     }
 
     // Validate folioBackend if provided.
@@ -277,6 +315,13 @@ function createSpaceManager(storeOrDataDir) {
       ...(resolvedFolioBackend !== undefined
         ? { folioBackend: resolvedFolioBackend !== 'sqlite' ? resolvedFolioBackend : undefined }
         : {}),
+      // MODEL-1: only update stageModels when explicitly provided.
+      ...(resolvedStageModels !== undefined
+        ? { stageModels: resolvedStageModels }
+        : {}),
+      // pin/rank fields — only update when explicitly provided.
+      ...(pinned !== undefined ? { pinned } : {}),
+      ...(pinnedRank !== undefined ? { pinnedRank: pinnedRank ?? undefined } : {}),
     };
 
     // Remove undefined keys to keep DB storage clean.

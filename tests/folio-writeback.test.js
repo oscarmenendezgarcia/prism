@@ -35,6 +35,7 @@ const {
   consolidationDonePath,
   consolidationSignalPath,
   consolidationPromptPath,
+  readConsolidationSignalWithRetry,
   runDir,
   init,
 } = require('../src/services/pipelineManager');
@@ -410,6 +411,38 @@ describe('applyConsolidation — missing or invalid signal file', () => {
     const run = makeRun();
     writeRunFile(dataDir, run);
     await assert.doesNotReject(() => applyConsolidation(dataDir, run, new Date().toISOString()));
+  });
+});
+
+describe('readConsolidationSignalWithRetry — sentinel-before-signal race', () => {
+  // Observed live: the consolidator agent wrote the done-sentinel via a bash
+  // `echo` before writing consolidation.json via a separate Write call a
+  // moment later. The poller detects the sentinel and reads the signal file
+  // immediately (2 s poll tick) — without a retry, that race reads ENOENT
+  // even though the agent's real, valid output lands a beat after.
+  let signalPath;
+
+  beforeEach(() => {
+    signalPath = path.join(makeTmpDir(), 'consolidation.json');
+  });
+
+  it('succeeds immediately when the file already exists', async () => {
+    fs.writeFileSync(signalPath, JSON.stringify({ pages: [] }), 'utf8');
+    const signal = await readConsolidationSignalWithRetry(signalPath);
+    assert.deepEqual(signal, { pages: [] });
+  });
+
+  it('succeeds when the file appears shortly after the first read attempt', async () => {
+    setTimeout(() => {
+      fs.writeFileSync(signalPath, JSON.stringify({ pages: [{ slug: 'a/b', title: 't', content: 'c', reason: 'decision' }] }), 'utf8');
+    }, 300);
+
+    const signal = await readConsolidationSignalWithRetry(signalPath);
+    assert.equal(signal.pages.length, 1);
+  });
+
+  it('throws the last error when the file never appears', async () => {
+    await assert.rejects(() => readConsolidationSignalWithRetry(signalPath));
   });
 });
 

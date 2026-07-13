@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   pipeline    TEXT,
   attachments TEXT,
   comments    TEXT,
+  arc         TEXT,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
@@ -147,6 +148,12 @@ function rowToSpace(row) {
   if (an !== undefined) space.agentNicknames = an;
   // folio_backend is a plain TEXT column (not JSON) — treat NULL as undefined.
   if (row.folio_backend != null) space.folioBackend = row.folio_backend;
+  // pinned + pinnedRank (space pinning). Columns default to 0/NULL.
+  space.pinned = row.pinned === 1;
+  if (row.pinned_rank != null) space.pinnedRank = row.pinned_rank;
+  // MODEL-1: per-stage model routing overrides.
+  const sm = fromJson(row.stage_models);
+  if (sm !== undefined) space.stageModels = sm;
   return space;
 }
 
@@ -192,6 +199,10 @@ function rowToTask(row) {
   if (att !== undefined) task.attachments = att;
   const cmt = fromJson(row.comments);
   if (cmt !== undefined) task.comments = cmt;
+  if (row.arc != null) task.arc = row.arc;  // plain TEXT, no JSON.parse
+  // MODEL-1: per-stage model routing overrides.
+  const sm = fromJson(row.stage_models);
+  if (sm !== undefined) task.stageModels = sm;
   return task;
 }
 
@@ -226,6 +237,44 @@ function createStore(dataDir) {
     }
   }
 
+  // Additive migration: pinned + pinned_rank columns (space pinning).
+  // Guarded by PRAGMA table_info; idempotent on existing DBs with the column.
+  {
+    const cols = db.pragma('table_info(spaces)');
+    if (!cols.some((c) => c.name === 'pinned')) {
+      db.exec('ALTER TABLE spaces ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0');
+      db.exec('ALTER TABLE spaces ADD COLUMN pinned_rank INTEGER');
+      console.log('[store] migration: added pinned + pinned_rank columns to spaces');
+    }
+  }
+
+  // Additive migration: arc column (arc field on tasks).
+  {
+    const cols = db.pragma('table_info(tasks)');
+    if (!cols.some((c) => c.name === 'arc')) {
+      db.exec('ALTER TABLE tasks ADD COLUMN arc TEXT');
+      console.log('[store] migration: added arc column to tasks');
+    }
+  }
+
+  // Additive migration: stage_models column on spaces (MODEL-1 per-stage model routing).
+  {
+    const cols = db.pragma('table_info(spaces)');
+    if (!cols.some((c) => c.name === 'stage_models')) {
+      db.exec('ALTER TABLE spaces ADD COLUMN stage_models TEXT');
+      console.log('[store] migration: added stage_models column to spaces');
+    }
+  }
+
+  // Additive migration: stage_models column on tasks (MODEL-1 per-stage model routing).
+  {
+    const cols = db.pragma('table_info(tasks)');
+    if (!cols.some((c) => c.name === 'stage_models')) {
+      db.exec('ALTER TABLE tasks ADD COLUMN stage_models TEXT');
+      console.log('[store] migration: added stage_models column to tasks');
+    }
+  }
+
   // Apply Folio core schema (space-agnostic) and Prism binding schema.
   applyFolioSchema(db);
   applyBindingSchema(db);
@@ -255,13 +304,13 @@ function createStore(dataDir) {
   // ---------------------------------------------------------------------------
 
   const stmts = {
-    listSpaces:    db.prepare('SELECT * FROM spaces ORDER BY created_at ASC'),
+    listSpaces:    db.prepare('SELECT * FROM spaces ORDER BY pinned DESC, pinned_rank ASC, created_at ASC'),
     getSpace:      db.prepare('SELECT * FROM spaces WHERE id = ?'),
     upsertSpace:   db.prepare(`
       INSERT INTO spaces
-        (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, folio_backend, created_at, updated_at)
+        (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, folio_backend, stage_models, pinned, pinned_rank, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name              = excluded.name,
         working_directory = excluded.working_directory,
@@ -269,6 +318,9 @@ function createStore(dataDir) {
         project_claude_md = excluded.project_claude_md,
         agent_nicknames   = excluded.agent_nicknames,
         folio_backend     = excluded.folio_backend,
+        stage_models      = excluded.stage_models,
+        pinned            = excluded.pinned,
+        pinned_rank       = excluded.pinned_rank,
         updated_at        = excluded.updated_at
     `),
     deleteSpace:   db.prepare('DELETE FROM spaces WHERE id = ?'),
@@ -287,20 +339,20 @@ function createStore(dataDir) {
     ),
     insertTask: db.prepare(`
       INSERT INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     upsertTask: db.prepare(`
       INSERT OR IGNORE INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     updateTask: db.prepare(`
       UPDATE tasks
          SET title = ?, type = ?, description = ?, assigned = ?,
-             pipeline = ?, attachments = ?, comments = ?, updated_at = ?
+             pipeline = ?, attachments = ?, comments = ?, arc = ?, stage_models = ?, updated_at = ?
        WHERE space_id = ? AND id = ?
     `),
     moveTask: db.prepare(`
@@ -387,6 +439,12 @@ function createStore(dataDir) {
       space.agentNicknames    !== undefined ? JSON.stringify(space.agentNicknames)  : null,
       // folio_backend is a plain TEXT column — store as-is or NULL.
       space.folioBackend !== undefined ? space.folioBackend : null,
+      // MODEL-1: stage_models is a JSON column.
+      toJson(space.stageModels ?? null),
+      // pinned: boolean → INTEGER (1/0); default false when absent.
+      space.pinned ? 1 : 0,
+      // pinned_rank: number or null.
+      space.pinnedRank !== undefined ? space.pinnedRank : null,
       space.createdAt,
       space.updatedAt,
     );
@@ -448,6 +506,9 @@ function createStore(dataDir) {
       task.pipeline    !== undefined ? JSON.stringify(task.pipeline)    : null,
       task.attachments !== undefined ? JSON.stringify(task.attachments) : null,
       task.comments    !== undefined ? JSON.stringify(task.comments)    : null,
+      task.arc ?? null,
+      // MODEL-1: per-stage model routing overrides.
+      toJson(task.stageModels ?? null),
       task.createdAt,
       task.updatedAt,
     ));
@@ -468,6 +529,9 @@ function createStore(dataDir) {
       task.pipeline    !== undefined ? JSON.stringify(task.pipeline)    : null,
       task.attachments !== undefined ? JSON.stringify(task.attachments) : null,
       task.comments    !== undefined ? JSON.stringify(task.comments)    : null,
+      task.arc ?? null,
+      // MODEL-1: per-stage model routing overrides.
+      toJson(task.stageModels ?? null),
       task.createdAt,
       task.updatedAt,
     );
@@ -496,6 +560,9 @@ function createStore(dataDir) {
       merged.pipeline    !== undefined ? JSON.stringify(merged.pipeline)    : null,
       merged.attachments !== undefined ? JSON.stringify(merged.attachments) : null,
       merged.comments    !== undefined ? JSON.stringify(merged.comments)    : null,
+      merged.arc ?? null,
+      // MODEL-1: per-stage model routing overrides.
+      toJson(merged.stageModels ?? null),
       merged.updatedAt,
       spaceId,
       taskId,
@@ -613,6 +680,8 @@ function createStore(dataDir) {
   }
 
 
+  // ---------------------------------------------------------------------------
+  // MODEL-1: stage model helpers
   // ---------------------------------------------------------------------------
   // Pipeline run operations
   // ---------------------------------------------------------------------------

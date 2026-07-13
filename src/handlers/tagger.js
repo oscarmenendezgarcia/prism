@@ -7,11 +7,17 @@
  * (default: `claude`). No API key required — uses the CLI's own auth.
  * Returns classification suggestions for user review before any mutation.
  *
- * Config env vars:
+ * Model resolved via resolveStageModelConfig('tagger', ...) — same resolver as the
+ * pipeline and folio-bootstrapper/consolidator — so a per-agent override set for
+ * 'tagger' in the Agents & Routing panel (global or space scope) takes effect here.
+ * Only the 'claude' cliTool is supported today (see TAGGER_CLI_ERROR below).
+ *
+ * Config env vars (override resolved routing — compat/testing escape hatch):
  *   TAGGER_CLI   — CLI binary to use (default: 'claude'). Any tool supporting
  *                  `<cmd> -p <systemPrompt>` with cards JSON on stdin works.
  *                  Examples: 'claude', 'opencode', 'aider'.
- *   TAGGER_MODEL — Model override (default: 'haiku').
+ *   TAGGER_MODEL — Model override (default: the routed model, or 'haiku' with no
+ *                  agent/override configured).
  *
  * Error codes:
  *   404 SPACE_NOT_FOUND         — spaceId does not exist
@@ -20,9 +26,12 @@
  *   502 TAGGER_CLI_ERROR        — CLI spawn failed, non-zero exit, or invalid JSON response
  */
 
-const { sendJSON, sendError, parseBody } = require('../utils/http');
-const { COLUMNS }                        = require('../constants');
-const { readSettings }                   = require('./settings');
+const { sendJSON, sendError, parseBody }      = require('../utils/http');
+const { COLUMNS }                             = require('../constants');
+const { readSettings }                        = require('./settings');
+const { resolveAgent, AgentNotFoundError }    = require('../services/agentResolver');
+const { resolveStageModelConfig }             = require('../services/modelConfigResolver');
+const { resolveCliBinary }                    = require('../services/cliSpawn');
 
 // ---------------------------------------------------------------------------
 // Format-only system prompt — defines output schema, NOT classification rules.
@@ -35,6 +44,7 @@ const FORMAT_SYSTEM_PROMPT = `Respond ONLY with a JSON object matching this exac
     {
       "id": "<string>",
       "inferredType": "feature" | "bug" | "tech-debt" | "chore",
+      "arc": "<string or null — optional narrative grouping label, e.g. QOL, AUTH, LOOP>",
       "confidence": "high" | "medium" | "low",
       "description": "<string, only present when improve_descriptions=true>"
     }
@@ -45,6 +55,7 @@ Rules:
 - Include ALL cards in either suggestions or skipped — do not silently drop any.
 - Set confidence to "high" if obvious, "medium" if ambiguous, "low" if guessing.
 - If you cannot classify a card, add its id to "skipped".
+- The "arc" field is optional. Assign an arc only when a clear thematic grouping is apparent from the card titles.
 - Be deterministic — same input always produces same output.`;
 
 // ---------------------------------------------------------------------------
@@ -275,10 +286,31 @@ async function handleTaggerRun(req, res, spaceId, store, dataDir) {
 
   runningSpaces.add(spaceId);
 
-  // 5. Resolve CLI binary and model from settings (TAGGER_CLI env var overrides settings for compat)
+  // 5. Resolve the effective model/cliTool for the 'tagger' agent — same resolver used by
+  // the pipeline, folio-bootstrapper and folio-consolidator, so a per-agent override set in
+  // the Agents & Routing panel actually takes effect here instead of being silently ignored.
+  // TAGGER_CLI / TAGGER_MODEL env vars still win when set, for backward-compat/test overrides.
   const settings = readSettings(dataDir);
-  const cli      = process.env.TAGGER_CLI || settings.cli.binary || settings.cli.tool || 'claude';
-  const model    = process.env.TAGGER_MODEL || 'haiku';
+
+  let agentSpec;
+  try {
+    agentSpec = resolveAgent('tagger', process.env.PIPELINE_AGENTS_DIR);
+  } catch (err) {
+    if (!(err instanceof AgentNotFoundError)) throw err;
+    agentSpec = { model: 'haiku' }; // preserves the pre-routing default when no agent .md exists
+  }
+
+  const spaceModels = store.getSpace(spaceId)?.stageModels ?? null;
+  const modelConfig = resolveStageModelConfig('tagger', agentSpec, settings, spaceModels, null);
+
+  if (!process.env.TAGGER_CLI && modelConfig.cliTool !== 'claude') {
+    runningSpaces.delete(spaceId);
+    return sendError(res, 502, 'TAGGER_CLI_ERROR',
+      `Tagger only supports the 'claude' CLI tool today — '${modelConfig.cliTool}' is routed for this agent in Agents & Routing. Clear its override or set it back to a Claude preset.`);
+  }
+
+  const cli   = process.env.TAGGER_CLI || resolveCliBinary(modelConfig.cliTool);
+  const model = process.env.TAGGER_MODEL || modelConfig.model;
 
   try {
     // 6. Read tasks via store
@@ -338,6 +370,9 @@ async function handleTaggerRun(req, res, spaceId, store, dataDir) {
           currentType:  original ? original.type  : 'unknown',
           inferredType: s.inferredType,
           confidence:   s.confidence,
+          ...(s.arc != null && typeof s.arc === 'string' && s.arc.trim()
+            ? { arc: s.arc }
+            : {}),
           ...(improveDescriptions && s.description !== undefined
             ? { description: s.description }
             : {}),
