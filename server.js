@@ -65,9 +65,10 @@ const DEFAULT_DATA_DIR = _dataDirResult.path;
  * Create and start an HTTP server.
  *
  * @param {object}  [options]
- * @param {number}  [options.port]    - Port to listen on. Pass 0 for OS-assigned port.
- * @param {string}  [options.dataDir] - Absolute path to data directory.
- * @param {boolean} [options.silent]  - Suppress startup log.
+ * @param {number}  [options.port]      - Port to listen on. Pass 0 for OS-assigned port.
+ * @param {string}  [options.dataDir]   - Absolute path to data directory.
+ * @param {boolean} [options.silent]    - Suppress startup log.
+ * @param {string}  [options.agentsDir] - Absolute path to agents dir (overrides env/default).
  * @returns {import('http').Server}
  */
 function startServer(options = {}) {
@@ -120,6 +121,43 @@ function startServer(options = {}) {
       process.env.PIPELINE_AGENTS_DIR = startupSettings.pipeline.agentsDir;
     }
   }
+
+  // ── Agent auto-sync ─────────────────────────────────────────────────────────
+  // Sync Prism-managed agent definitions to the runtime agents directory on
+  // every startup. Safe-sync: never overwrites user-customised files.
+  try {
+    const { syncAgents } = require('./src/services/agentSync');
+    const _agentsDir = options.agentsDir
+      || process.env.PIPELINE_AGENTS_DIR
+      || path.join(os.homedir(), '.claude', 'agents');
+    const { version: _prismVersion } = require('./package.json');
+    const _syncLog = options.silent ? () => {} : (msg) => console.log(msg);
+
+    const _syncResult = syncAgents({
+      packageRoot:  __dirname,
+      agentsDir:    _agentsDir,
+      prismVersion: _prismVersion,
+      log:          _syncLog,
+    });
+
+    if (!options.silent) {
+      const parts = [];
+      if (_syncResult.synced.length)   parts.push(`synced ${_syncResult.synced.length}`);
+      if (_syncResult.skipped.length)  parts.push(`skipped (user-modified) ${_syncResult.skipped.length}`);
+      if (_syncResult.errors.length)   parts.push(`errors ${_syncResult.errors.length}`);
+      if (parts.length > 0) {
+        console.log(`[agent-sync] ${parts.join(', ')}`);
+      }
+    }
+    // Always log errors, even in silent mode
+    if (_syncResult.errors.length > 0) {
+      console.error(`[agent-sync] errors syncing: ${_syncResult.errors.join(', ')}`);
+    }
+  } catch (err) {
+    // Never let sync failure bring down the server
+    console.error(`[agent-sync] sync failed (non-fatal): ${err.message}`);
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   // Step 3: Build a Map-based cache of createApp instances by spaceId.
   /** @type {Map<string, ReturnType<import('./src/handlers/tasks').createApp>>} */
