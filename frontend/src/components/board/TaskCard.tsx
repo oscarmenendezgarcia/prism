@@ -18,6 +18,7 @@ import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore, useActiveRun } from '@/stores/useAppStore';
 import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
 import { useDragStore } from '@/stores/useDragStore';
+import { COLUMNS } from '@/constants/columns';
 
 // ---------------------------------------------------------------------------
 // Avatar helpers — deterministic gradient + initials from an assigned name
@@ -45,12 +46,6 @@ function getGradient(name: string): string {
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
 }
-
-// ---------------------------------------------------------------------------
-// Column metadata
-// ---------------------------------------------------------------------------
-
-const COLUMNS: Column[] = ['todo', 'in-progress', 'done'];
 
 // ---------------------------------------------------------------------------
 // Props

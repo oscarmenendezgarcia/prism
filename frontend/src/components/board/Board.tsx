@@ -12,8 +12,7 @@ import { Column } from './Column';
 import { ArcBar } from './ArcBar';
 import { ColumnTabBar } from './ColumnTabBar';
 import { BoardEmptyState } from './BoardEmptyState';
-
-const COLUMNS: ColumnType[] = ['todo', 'in-progress', 'done'];
+import { COLUMNS } from '@/constants/columns';
 
 function computeDropRank(
   tasks: import('@/types').Task[],

@@ -1,4 +1,5 @@
 import type { BoardTasks } from '@/types';
+import { COLUMNS } from '@/constants/columns';
 
 /**
  * Distinct, sorted arc labels present on the loaded board tasks.
@@ -8,7 +9,7 @@ import type { BoardTasks } from '@/types';
  */
 export function distinctArcs(tasks: BoardTasks): string[] {
   const seen = new Set<string>();
-  for (const col of ['todo', 'in-progress', 'done'] as const) {
+  for (const col of COLUMNS) {
     for (const t of tasks[col] ?? []) {
       if (t.arc) seen.add(t.arc);
     }

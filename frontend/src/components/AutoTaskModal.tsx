@@ -29,6 +29,7 @@ import { Button } from '@/components/shared/Button';
 import { useAppStore } from '@/stores/useAppStore';
 import { generateAutoTasks, confirmAutoTasks, runTagger } from '@/api/client';
 import type { Column, Task } from '@/types';
+import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
 
 type Mode = 'generate' | 'autotag';
 type Step = 'form' | 'review';
@@ -37,14 +38,6 @@ interface AutoTaskModalProps {
   open: boolean;
   onClose: () => void;
 }
-
-const COLUMN_LABELS: Record<Column, string> = {
-  'todo':        'Todo',
-  'in-progress': 'In Progress',
-  'done':        'Done',
-};
-
-const COLUMNS: Column[] = ['todo', 'in-progress', 'done'];
 
 export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
   const spaces             = useAppStore((s) => s.spaces);

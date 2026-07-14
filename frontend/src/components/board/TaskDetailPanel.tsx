@@ -32,6 +32,7 @@ import { resolveAgentName } from '@/utils/agentName';
 import * as api from '@/api/client';
 import type { Column, Comment } from '@/types';
 import { localModelsToStageModelsMap } from '@/utils/modelRouting';
+import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
 
 // ---------------------------------------------------------------------------
 // Shared input style for the details column's editable fields (Assigned, Arc)
@@ -69,19 +70,12 @@ async function copyToClipboard(text: string): Promise<void> {
 // Constants
 // ---------------------------------------------------------------------------
 
-const COLUMN_LABELS: Record<Column, string> = {
-  'todo': 'Todo',
-  'in-progress': 'In Progress',
-  'done': 'Done',
-};
-
 /** Find which column a task lives in from the board tasks. */
 function findTaskColumn(
   tasks: Record<Column, { id: string }[]>,
   taskId: string,
 ): Column | undefined {
-  const columns: Column[] = ['todo', 'in-progress', 'done'];
-  return columns.find((col) =>
+  return COLUMNS.find((col) =>
     tasks[col].some((t) => t.id === taskId),
   );
 }
