@@ -32,6 +32,20 @@ export interface CardActionMenuProps {
   activeRun: AgentRun | null;
   onMoveLeft?: () => void;
   onMoveRight?: () => void;
+  /**
+   * ADR-1 (touch-reorder): in-column move UP by one rank position.
+   * Omit to hide the button entirely.
+   */
+  onMoveUp?: () => void;
+  /**
+   * ADR-1 (touch-reorder): in-column move DOWN by one rank position.
+   * Omit to hide the button entirely.
+   */
+  onMoveDown?: () => void;
+  /** True when this card is already the first in its column — disables move-up. */
+  canMoveUp?: boolean;
+  /** True when this card is already the last in its column — disables move-down. */
+  canMoveDown?: boolean;
   onDelete: () => void;
 }
 
@@ -50,12 +64,21 @@ export function CardActionMenu({
   activeRun,
   onMoveLeft,
   onMoveRight,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp = true,
+  canMoveDown = true,
   onDelete,
 }: CardActionMenuProps) {
   const showLeft = column !== 'todo';
   const showRight = column !== 'done';
   const showRunAgent = column === 'todo';
   const deleteDisabled = isMutating || activeRun !== null;
+  // ADR-1 (touch-reorder): render up/down only when parent wires the handlers.
+  const showUp = typeof onMoveUp === 'function';
+  const showDown = typeof onMoveDown === 'function';
+  const showReorderGroup = showUp || showDown;
+  const showColumnMoveGroup = showLeft || showRight;
 
   return (
     <div
@@ -63,6 +86,44 @@ export function CardActionMenu({
       aria-label="Card actions"
       className="flex items-center gap-0.5 px-1 py-0.5"
     >
+      {showUp && (
+        <button
+          type="button"
+          onClick={onMoveUp}
+          disabled={isMutating || !canMoveUp}
+          aria-label="Move up"
+          title="Move up"
+          className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+        >
+          <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+            arrow_upward
+          </span>
+        </button>
+      )}
+
+      {showDown && (
+        <button
+          type="button"
+          onClick={onMoveDown}
+          disabled={isMutating || !canMoveDown}
+          aria-label="Move down"
+          title="Move down"
+          className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+        >
+          <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+            arrow_downward
+          </span>
+        </button>
+      )}
+
+      {/* Thin divider between vertical reorder (↑↓) and horizontal column-move (←→) */}
+      {showReorderGroup && showColumnMoveGroup && (
+        <div
+          aria-hidden="true"
+          className="w-px h-4 mx-0.5 bg-border/70"
+        />
+      )}
+
       {showLeft && (
         <button
           type="button"
