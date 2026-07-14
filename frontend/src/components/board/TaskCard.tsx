@@ -61,7 +61,7 @@ interface TaskCardProps {
   column: Column;
   onDragStart?: (e: React.DragEvent, taskId: string, sourceColumn: Column) => void;
   onDragEnd?: () => void;
-  onDragOverTask?: (taskId: string, insertBefore: boolean) => void;
+  onDragOverTask?: (taskId: string | null, insertBefore: boolean) => void;
   /** A-1: stagger delay in ms for the entrance animation. EXCEPTION: only inline style allowed. */
   staggerDelayMs?: number;
 }

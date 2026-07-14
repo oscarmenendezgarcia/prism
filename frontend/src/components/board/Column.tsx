@@ -26,7 +26,7 @@ interface ColumnProps {
   onDragLeave?: (e: React.DragEvent, targetColumn: ColumnType) => void;
   onDragEnd?: () => void;
   onDrop?: (e: React.DragEvent, targetColumn: ColumnType) => void;
-  onDragOverTask?: (taskId: string, insertBefore: boolean) => void;
+  onDragOverTask?: (taskId: string | null, insertBefore: boolean) => void;
 }
 
 export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, onDragOverTask }: ColumnProps) {
@@ -71,6 +71,13 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     onDragOver?.(e, column);
+    // BUG-003 fix: TaskCard.handleDragOver calls stopPropagation, so this
+    // column-level handler only fires when the cursor is in empty column space
+    // (below the last card, or briefly in the gap between cards). Clear
+    // dragOverTaskId so the drop indicator does not stay pinned to the last
+    // card the cursor passed over; a subsequent card-level dragover will
+    // re-set it. Prevents mispositioned drops in the empty area below all cards.
+    onDragOverTask?.(null, true);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
