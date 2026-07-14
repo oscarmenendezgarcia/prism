@@ -634,6 +634,34 @@ function createStore(dataDir) {
     return getTask(spaceId, taskId);
   }
 
+  /**
+   * Atomically re-rank multiple tasks in a single space. All-or-nothing: if any
+   * task id is not found in the space, the entire transaction is rolled back
+   * and null is returned. On success returns the list of updated tasks (same
+   * order as `updates`).
+   *
+   * @param {string} spaceId
+   * @param {Array<{ id: string, rank: number }>} updates
+   * @returns {Array<object>|null}
+   */
+  function reorderTasks(spaceId, updates) {
+    const now = new Date().toISOString();
+    const apply = db.transaction((items) => {
+      for (const { id, rank } of items) {
+        const info = stmts.reorderTask.run(rank, now, spaceId, id);
+        if (info.changes === 0) {
+          // Abort the whole batch — better-sqlite3 rolls back on throw.
+          const err = new Error(`Task '${id}' not found in space '${spaceId}'`);
+          err.code = 'TASK_NOT_FOUND';
+          err.taskId = id;
+          throw err;
+        }
+      }
+      return items.map((u) => getTask(spaceId, u.id));
+    });
+    return apply(updates);
+  }
+
   function rebuildFts() {
     db.exec("INSERT INTO tasks_fts(tasks_fts) VALUES('rebuild')");
     console.warn('[store] FTS index rebuilt after SQLITE_CORRUPT_VTAB');
@@ -852,6 +880,7 @@ function createStore(dataDir) {
     updateTask,
     moveTask,
     reorderTask,
+    reorderTasks,
     deleteTask,
     clearSpace,
     searchTasks,

@@ -110,6 +110,13 @@ interface AppState {
   moveTask: (taskId: string, direction: 'left' | 'right', currentColumn: Column) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
   reorderTask: (taskId: string, column: Column, newRank: number) => Promise<void>;
+  /**
+   * Atomically re-rank multiple tasks in a single column. All updates are sent
+   * in one server request wrapped in a SQLite transaction: either every rank
+   * lands or none do. On failure the entire column is rolled back to the
+   * pre-batch snapshot — never a mixed old/new state.
+   */
+  reorderTasks: (column: Column, updates: Array<{ id: string; rank: number }>) => Promise<void>;
 
   // Create task modal
   createModalOpen: boolean;
@@ -833,6 +840,27 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   },
 
+
+  reorderTasks: async (column: Column, updates: Array<{ id: string; rank: number }>) => {
+    if (updates.length === 0) return;
+    const { activeSpaceId, tasks, showToast } = get();
+    // Snapshot the entire column for all-or-nothing rollback.
+    const prevColumnTasks = [...tasks[column]];
+    const rankById = new Map(updates.map((u) => [u.id, u.rank]));
+    // Optimistic update: apply all new ranks locally in one commit and re-sort.
+    const updated = tasks[column].map((t) =>
+      rankById.has(t.id) ? { ...t, rank: rankById.get(t.id)! } : t
+    );
+    updated.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt));
+    set({ tasks: { ...tasks, [column]: updated } });
+    try {
+      await api.reorderTasks(activeSpaceId, updates);
+    } catch (err) {
+      // Full-batch rollback — restore the pre-batch column snapshot verbatim.
+      set({ tasks: { ...get().tasks, [column]: prevColumnTasks } });
+      showToast((err as Error).message, 'error');
+    }
+  },
 
   reorderTask: async (taskId: string, column: Column, newRank: number) => {
     const { activeSpaceId, tasks, showToast } = get();

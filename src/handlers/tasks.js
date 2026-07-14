@@ -484,6 +484,62 @@ function createApp(spaceId, store) {
     }
   }
 
+  /**
+   * Atomically re-rank up to 500 tasks in this space. Body: { updates: [{id, rank}] }.
+   * Wraps all writes in a single SQLite transaction — if any id is missing the
+   * whole batch is rolled back and a 404 is returned.
+   */
+  const RANK_BATCH_MAX = 500;
+  async function handleRankTasksBatch(req, res) {
+    let body;
+    try {
+      body = await parseBody(req);
+    } catch (err) {
+      if (err.message === 'PAYLOAD_TOO_LARGE') {
+        return sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds 512 KB limit');
+      }
+      return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+    }
+
+    if (!body || typeof body !== 'object' || !Array.isArray(body.updates)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be { updates: [{ id, rank }] }');
+    }
+    const { updates } = body;
+    if (updates.length === 0) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'updates must be a non-empty array');
+    }
+    if (updates.length > RANK_BATCH_MAX) {
+      return sendError(res, 400, 'VALIDATION_ERROR', `updates must not exceed ${RANK_BATCH_MAX} items`);
+    }
+    for (let i = 0; i < updates.length; i++) {
+      const u = updates[i];
+      if (!u || typeof u !== 'object') {
+        return sendError(res, 400, 'VALIDATION_ERROR', `updates[${i}] must be an object`);
+      }
+      if (typeof u.id !== 'string' || u.id.length === 0) {
+        return sendError(res, 400, 'VALIDATION_ERROR', `updates[${i}].id must be a non-empty string`);
+      }
+      if (typeof u.rank !== 'number' || !isFinite(u.rank)) {
+        return sendError(res, 400, 'VALIDATION_ERROR', `updates[${i}].rank must be a finite number`);
+      }
+    }
+
+    const t0 = Date.now();
+    try {
+      const tasks = store.reorderTasks(spaceId, updates);
+      process.stderr.write(JSON.stringify({
+        event: 'task.rank_batch_updated', spaceId, count: updates.length, durationMs: Date.now() - t0,
+      }) + '\n');
+      sendJSON(res, 200, { tasks: tasks.map(stripAttachmentContent) });
+    } catch (err) {
+      if (err && err.code === 'TASK_NOT_FOUND') {
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${err.taskId}' not found in space`);
+      }
+      console.error(`PATCH tasks/rank batch error:`, err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to reorder tasks');
+    }
+  }
+
   async function handleUpdateTask(req, res, taskId) {
     let body;
     try {
@@ -935,6 +991,11 @@ function createApp(spaceId, store) {
     }
     if (method === 'PATCH' && attachmentsMatch) {
       return handlePatchAttachments(req, res, attachmentsMatch[1]);
+    }
+
+    // Batch rank update — must be matched before TASK_SINGLE_ROUTE would eat `/tasks/rank`.
+    if (method === 'PATCH' && taskPath === '/tasks/rank') {
+      return handleRankTasksBatch(req, res);
     }
 
     const rankMatch = TASK_RANK_ROUTE.exec(taskPath);
