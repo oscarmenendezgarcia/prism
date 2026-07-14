@@ -33,6 +33,11 @@ interface DragState {
   startDrag: (taskId: string, sourceColumn: Column) => void;
   setDragOver: (column: Column | null) => void;
   resetDrag: () => void;
+  /** Card currently under cursor within a column — for in-column reorder indicator. */
+  dragOverTaskId: string | null;
+  /** true = insert the dragged card ABOVE dragOverTaskId; false = below */
+  insertBefore: boolean;
+  setDragOverTask: (taskId: string | null, insertBefore: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,6 +48,8 @@ export const useDragStore = create<DragState>((set) => ({
   draggedTaskId: null,
   dragOverColumn: null,
   dragSourceColumn: null,
+  dragOverTaskId: null,
+  insertBefore: true,
 
   startDrag: (taskId, sourceColumn) =>
     set({ draggedTaskId: taskId, dragSourceColumn: sourceColumn }),
@@ -50,6 +57,10 @@ export const useDragStore = create<DragState>((set) => ({
   setDragOver: (column) =>
     set({ dragOverColumn: column }),
 
+  setDragOverTask: (taskId, insertBefore) =>
+    set({ dragOverTaskId: taskId, insertBefore }),
+
   resetDrag: () =>
-    set({ draggedTaskId: null, dragOverColumn: null, dragSourceColumn: null }),
+    set({ draggedTaskId: null, dragOverColumn: null, dragSourceColumn: null,
+          dragOverTaskId: null, insertBefore: true }),
 }));

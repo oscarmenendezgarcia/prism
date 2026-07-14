@@ -92,6 +92,7 @@ export interface Task {
   id: string;
   title: string;
   type: TaskType;
+  rank?: number;           // positional order within column (QOL-1)
   description?: string;
   assigned?: string;
   /**

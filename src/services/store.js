@@ -186,6 +186,7 @@ function rowToTask(row) {
     id:        row.id,
     title:     row.title,
     type:      row.type,
+    rank:      row.rank ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -275,6 +276,28 @@ function createStore(dataDir) {
     }
   }
 
+  // Additive migration: rank column (QOL-1 — manual task ordering).
+  {
+    const cols = db.pragma('table_info(tasks)');
+    if (!cols.some((c) => c.name === 'rank')) {
+      db.exec('ALTER TABLE tasks ADD COLUMN rank REAL DEFAULT 0');
+      const groups = db.prepare(
+        "SELECT DISTINCT space_id, column FROM tasks"
+      ).all();
+      const getIds = db.prepare(
+        "SELECT id FROM tasks WHERE space_id = ? AND column = ? ORDER BY created_at ASC"
+      );
+      const setRank = db.prepare("UPDATE tasks SET rank = ? WHERE id = ?");
+      db.transaction(() => {
+        for (const { space_id, column } of groups) {
+          const ids = getIds.all(space_id, column);
+          ids.forEach((row, i) => setRank.run((i + 1) * 1000.0, row.id));
+        }
+      })();
+      console.log('[store] migration: added rank column, seeded from created_at order');
+    }
+  }
+
   // Apply Folio core schema (space-agnostic) and Prism binding schema.
   applyFolioSchema(db);
   applyBindingSchema(db);
@@ -326,7 +349,7 @@ function createStore(dataDir) {
     deleteSpace:   db.prepare('DELETE FROM spaces WHERE id = ?'),
 
     getTasksByColumn: db.prepare(
-      'SELECT * FROM tasks WHERE space_id = ? AND column = ? ORDER BY created_at ASC'
+      'SELECT * FROM tasks WHERE space_id = ? AND column = ? ORDER BY rank ASC, created_at ASC'
     ),
     getAllTasksForSpace: db.prepare(
       'SELECT * FROM tasks WHERE space_id = ? ORDER BY created_at ASC'
@@ -339,15 +362,15 @@ function createStore(dataDir) {
     ),
     insertTask: db.prepare(`
       INSERT INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, rank, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     upsertTask: db.prepare(`
       INSERT OR IGNORE INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, rank, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     updateTask: db.prepare(`
       UPDATE tasks
@@ -360,6 +383,15 @@ function createStore(dataDir) {
          SET column = ?, updated_at = ?
        WHERE space_id = ? AND id = ?
     `),
+    moveTaskWithRank: db.prepare(
+      'UPDATE tasks SET column = ?, rank = ?, updated_at = ? WHERE space_id = ? AND id = ?'
+    ),
+    reorderTask: db.prepare(
+      'UPDATE tasks SET rank = ?, updated_at = ? WHERE space_id = ? AND id = ?'
+    ),
+    maxRankInColumn: db.prepare(
+      "SELECT COALESCE(MAX(rank), 0) AS max_rank FROM tasks WHERE space_id = ? AND column = ?"
+    ),
     deleteTask:  db.prepare('DELETE FROM tasks WHERE space_id = ? AND id = ?'),
     clearSpace:  db.prepare('DELETE FROM tasks WHERE space_id = ?'),
     searchTasks: db.prepare(`
@@ -495,6 +527,12 @@ function createStore(dataDir) {
   }
 
   function insertTask(task, spaceId, column) {
+    const effectiveRank = task.rank != null
+      ? task.rank
+      : (() => {
+          const { max_rank } = stmts.maxRankInColumn.get(spaceId, column);
+          return max_rank + 1000.0;
+        })();
     withFtsRecovery(() => stmts.insertTask.run(
       task.id,
       spaceId,
@@ -509,6 +547,7 @@ function createStore(dataDir) {
       task.arc ?? null,
       // MODEL-1: per-stage model routing overrides.
       toJson(task.stageModels ?? null),
+      effectiveRank,
       task.createdAt,
       task.updatedAt,
     ));
@@ -532,6 +571,7 @@ function createStore(dataDir) {
       task.arc ?? null,
       // MODEL-1: per-stage model routing overrides.
       toJson(task.stageModels ?? null),
+      task.rank ?? 0,
       task.createdAt,
       task.updatedAt,
     );
@@ -576,15 +616,22 @@ function createStore(dataDir) {
    * Returns the updated task object, or null if not found.
    */
   function moveTask(spaceId, taskId, toColumn) {
-    const now = new Date().toISOString();
-
     const move = db.transaction(() => {
-      const info = stmts.moveTask.run(toColumn, now, spaceId, taskId);
+      const { max_rank } = stmts.maxRankInColumn.get(spaceId, toColumn);
+      const tailRank = max_rank + 1000.0;
+      const now = new Date().toISOString();
+      const info = stmts.moveTaskWithRank.run(toColumn, tailRank, now, spaceId, taskId);
       if (info.changes === 0) return null;
       return getTask(spaceId, taskId);
     });
-
     return move();
+  }
+
+  function reorderTask(spaceId, taskId, rank) {
+    const now = new Date().toISOString();
+    const info = stmts.reorderTask.run(rank, now, spaceId, taskId);
+    if (info.changes === 0) return null;
+    return getTask(spaceId, taskId);
   }
 
   function rebuildFts() {
@@ -804,6 +851,7 @@ function createStore(dataDir) {
     upsertTask,
     updateTask,
     moveTask,
+    reorderTask,
     deleteTask,
     clearSpace,
     searchTasks,

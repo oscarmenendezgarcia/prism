@@ -41,6 +41,7 @@ const LINK_SCHEME_ALLOWLIST        = ['http:', 'https:'];
 // ---------------------------------------------------------------------------
 
 const TASK_MOVE_ROUTE               = /^\/tasks\/([^/]+)\/move$/;
+const TASK_RANK_ROUTE               = /^\/tasks\/([^/]+)\/rank$/;
 const TASK_ATTACHMENTS_ROUTE        = /^\/tasks\/([^/]+)\/attachments$/;
 const TASK_ATTACHMENT_CONTENT_ROUTE = /^\/tasks\/([^/]+)\/attachments\/(\d+)$/;
 const TASK_SINGLE_ROUTE             = /^\/tasks\/([^/]+)$/;
@@ -441,6 +442,45 @@ function createApp(spaceId, store) {
     } catch (err) {
       console.error(`PUT tasks/${taskId}/move error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to move task');
+    }
+  }
+
+  async function handleRankTask(req, res, taskId) {
+    let body;
+    try {
+      body = await parseBody(req);
+    } catch (err) {
+      if (err.message === 'PAYLOAD_TOO_LARGE') {
+        return sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds 512 KB limit');
+      }
+      return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+    }
+
+    if (!body || typeof body !== 'object') {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
+    }
+
+    const { rank } = body;
+    if (rank === undefined || rank === null) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'rank is required');
+    }
+    if (typeof rank !== 'number' || !isFinite(rank)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'rank must be a finite number');
+    }
+
+    const t0 = Date.now();
+    try {
+      const updatedTask = store.reorderTask(spaceId, taskId, rank);
+      if (!updatedTask) {
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+      }
+      process.stderr.write(JSON.stringify({
+        event: 'task.rank_updated', spaceId, taskId, rank, durationMs: Date.now() - t0,
+      }) + '\n');
+      sendJSON(res, 200, stripAttachmentContent(updatedTask));
+    } catch (err) {
+      console.error(`PATCH tasks/${taskId}/rank error:`, err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to update task rank');
     }
   }
 
@@ -895,6 +935,11 @@ function createApp(spaceId, store) {
     }
     if (method === 'PATCH' && attachmentsMatch) {
       return handlePatchAttachments(req, res, attachmentsMatch[1]);
+    }
+
+    const rankMatch = TASK_RANK_ROUTE.exec(taskPath);
+    if (method === 'PATCH' && rankMatch) {
+      return handleRankTask(req, res, rankMatch[1]);
     }
 
     const moveMatch = TASK_MOVE_ROUTE.exec(taskPath);
