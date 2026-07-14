@@ -195,4 +195,45 @@ describe('Board — drag and drop', () => {
 
     expect(moveTaskMock).toHaveBeenCalledWith('t1', 'right', 'todo');
   });
+
+  it('BUG-003 regression: reordering into empty space below the last card appends at the end, not before the last card the cursor passed over', () => {
+    // Full integration path through the real useDragStore (not mocked here),
+    // reproducing the exact QA repro: drag t1 over t2 (dragOverTaskId=t2),
+    // then move into the empty column area below t2 (column-level dragover
+    // must clear dragOverTaskId to null), then drop. Without the BUG-003 fix,
+    // dragOverTaskId would stay pinned to t2 and the drop would insert t1
+    // immediately before/after t2 (triggering the rank-rebalance branch)
+    // instead of appending t1 at the end of the column.
+    const reorderTaskMock = vi.fn();
+    useAppStore.setState({ tasks: TASKS_FIXTURE, reorderTask: reorderTaskMock });
+    render(<Board />);
+
+    const cards = screen.getAllByTestId('task-card');
+    const firstCard = cards[0];  // t1, todo
+    const secondCard = cards[1]; // t2, todo
+
+    fireEvent.dragStart(firstCard, {
+      dataTransfer: { effectAllowed: '', setData: vi.fn(), getData: vi.fn().mockReturnValue('t1') },
+    });
+
+    // Cursor passes over the second card first — sets dragOverTaskId to t2.
+    fireEvent.dragOver(secondCard);
+    expect(useDragStore.getState().dragOverTaskId).toBe('t2');
+
+    // Cursor exits into the empty column space below the last card — the
+    // column-level handler (not a per-card one) must fire and clear it.
+    const todoSection = screen.getByRole('region', { name: 'Todo column' });
+    fireEvent.dragOver(todoSection);
+    expect(useDragStore.getState().dragOverTaskId).toBeNull();
+
+    fireEvent.drop(todoSection, {
+      dataTransfer: { getData: vi.fn().mockReturnValue('t1') },
+    });
+
+    // t2 has no explicit rank (defaults to 0 via `?? 0`), so appending at the
+    // end after t2 yields rank 0 + 1000. A single reorderTask call (no
+    // rebalance) confirms the drop landed at the end, not wedged against t2.
+    expect(reorderTaskMock).toHaveBeenCalledTimes(1);
+    expect(reorderTaskMock).toHaveBeenCalledWith('t1', 'todo', 1000);
+  });
 });
