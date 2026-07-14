@@ -551,6 +551,10 @@ function createStore(dataDir) {
       task.createdAt,
       task.updatedAt,
     ));
+    // BUG-001 (QOL-1): expose the computed rank on the caller's task object
+    // so POST /tasks 201 responses (and any other insertTask caller) can see
+    // where the new task landed without re-fetching it.
+    task.rank = effectiveRank;
   }
 
   /**
