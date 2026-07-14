@@ -241,10 +241,10 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
 
       </div>
 
-      {/* Action menu — absolute top-right, hover only */}
+      {/* Action menu — absolute top-right, hover/focus-within only */}
       <div
         data-testid="hover-overlay"
-        className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-fast"
+        className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-fast"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="bg-surface-elevated border border-border rounded-md shadow-sm">
