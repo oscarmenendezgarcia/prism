@@ -3,6 +3,19 @@
 ## [Unreleased]
 
 ### Added
+- **Keyboard-accessible in-column task reorder** — task cards are now focusable
+  (`Tab`/`Shift+Tab`) with a visible focus ring, and a focused card responds to
+  **`Alt+↑` / `Alt+↓`** to move one slot up or down within its column. The same
+  action is available as discoverable **Move up / Move down** buttons in the
+  card's action toolbar (also serving mouse users who prefer clicks to drag).
+  Each reorder — and each boundary hit — is announced via a shared visually-
+  hidden `aria-live` region for screen-reader users. Respects the active arc
+  filter and, when arc grouping is on, stays within the card's arc group.
+  Closes WCAG 2.2 AA gaps 2.1.1 (Keyboard), 2.4.7 (Focus Visible),
+  2.5.7 (Dragging Movements), and 4.1.3 (Status Messages) for the board.
+  Reuses the existing rank persistence (`reorderTask` +
+  `PATCH /api/v1/tasks/:id/rank`) — no backend or API change.
+
 - **Agent auto-sync on startup** — Prism now automatically syncs agent definition files
   (`agents/*.md`) to the runtime directory (`~/.claude/agents/` or `PIPELINE_AGENTS_DIR`)
   on every server startup. After `npm install -g prism-kanban@latest`, the updated agents
