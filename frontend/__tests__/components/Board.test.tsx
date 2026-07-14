@@ -172,6 +172,146 @@ describe('Board — drag and drop', () => {
     expect(moveTaskMock).not.toHaveBeenCalled();
   });
 
+  // ────────────────────────────────────────────────────────────────────────
+  // ADR-1 (touch-reorder) — handleReorderStep via the ↑ / ↓ toolbar buttons
+  // ────────────────────────────────────────────────────────────────────────
+
+  it('reorder step: ↓ on 1st card calls reorderTask with a rank between it and the 2nd card', () => {
+    const reorderTaskMock = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({
+      tasks: {
+        todo: [
+          { id: 't1', title: 'A', type: 'chore' as const, rank: 1000, createdAt: '', updatedAt: '' },
+          { id: 't2', title: 'B', type: 'chore' as const, rank: 2000, createdAt: '', updatedAt: '' },
+          { id: 't3', title: 'C', type: 'chore' as const, rank: 3000, createdAt: '', updatedAt: '' },
+        ],
+        'in-progress': [], done: [],
+      },
+      reorderTask: reorderTaskMock,
+      isMutating: false,
+    });
+    render(<Board />);
+    // Overlay is hidden by CSS opacity — query with hidden:true.
+    const downButtons = screen.getAllByRole('button', { name: /^move down$/i, hidden: true });
+    // First card (t1) → click its ↓ → move it past t2 (rank should be > 2000, < 3000)
+    fireEvent.click(downButtons[0]);
+    expect(reorderTaskMock).toHaveBeenCalledOnce();
+    const [id, column, newRank] = reorderTaskMock.mock.calls[0];
+    expect(id).toBe('t1');
+    expect(column).toBe('todo');
+    expect(newRank).toBeGreaterThan(2000);
+    expect(newRank).toBeLessThan(3000);
+  });
+
+  it('reorder step: ↑ on 2nd card calls reorderTask with a rank less than the 1st card', () => {
+    const reorderTaskMock = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({
+      tasks: {
+        todo: [
+          { id: 't1', title: 'A', type: 'chore' as const, rank: 1000, createdAt: '', updatedAt: '' },
+          { id: 't2', title: 'B', type: 'chore' as const, rank: 2000, createdAt: '', updatedAt: '' },
+        ],
+        'in-progress': [], done: [],
+      },
+      reorderTask: reorderTaskMock,
+      isMutating: false,
+    });
+    render(<Board />);
+    const upButtons = screen.getAllByRole('button', { name: /^move up$/i, hidden: true });
+    // The 2nd card (t2)'s ↑ is the second visible ↑ button (t1's ↑ is disabled but still rendered).
+    fireEvent.click(upButtons[1]);
+    expect(reorderTaskMock).toHaveBeenCalledOnce();
+    const [id, column, newRank] = reorderTaskMock.mock.calls[0];
+    expect(id).toBe('t2');
+    expect(column).toBe('todo');
+    expect(newRank).toBeLessThan(1000);
+  });
+
+  it('reorder step: ↑ on the first card is disabled → no reorderTask call', () => {
+    const reorderTaskMock = vi.fn();
+    useAppStore.setState({
+      tasks: {
+        todo: [
+          { id: 't1', title: 'A', type: 'chore' as const, rank: 1000, createdAt: '', updatedAt: '' },
+          { id: 't2', title: 'B', type: 'chore' as const, rank: 2000, createdAt: '', updatedAt: '' },
+        ],
+        'in-progress': [], done: [],
+      },
+      reorderTask: reorderTaskMock,
+    });
+    render(<Board />);
+    const upButtons = screen.getAllByRole('button', { name: /^move up$/i, hidden: true });
+    expect(upButtons[0]).toBeDisabled();
+    fireEvent.click(upButtons[0]);
+    expect(reorderTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('reorder step: ↓ on the last card is disabled → no reorderTask call', () => {
+    const reorderTaskMock = vi.fn();
+    useAppStore.setState({
+      tasks: {
+        todo: [
+          { id: 't1', title: 'A', type: 'chore' as const, rank: 1000, createdAt: '', updatedAt: '' },
+          { id: 't2', title: 'B', type: 'chore' as const, rank: 2000, createdAt: '', updatedAt: '' },
+        ],
+        'in-progress': [], done: [],
+      },
+      reorderTask: reorderTaskMock,
+    });
+    render(<Board />);
+    const downButtons = screen.getAllByRole('button', { name: /^move down$/i, hidden: true });
+    expect(downButtons[downButtons.length - 1]).toBeDisabled();
+    fireEvent.click(downButtons[downButtons.length - 1]);
+    expect(reorderTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('reorder step: no-op while isMutating', () => {
+    const reorderTaskMock = vi.fn();
+    useAppStore.setState({
+      tasks: {
+        todo: [
+          { id: 't1', title: 'A', type: 'chore' as const, rank: 1000, createdAt: '', updatedAt: '' },
+          { id: 't2', title: 'B', type: 'chore' as const, rank: 2000, createdAt: '', updatedAt: '' },
+          { id: 't3', title: 'C', type: 'chore' as const, rank: 3000, createdAt: '', updatedAt: '' },
+        ],
+        'in-progress': [], done: [],
+      },
+      reorderTask: reorderTaskMock,
+      isMutating: true,
+    });
+    render(<Board />);
+    // While mutating, all buttons are disabled (guard in CardActionMenu).
+    // But even if a stale click sneaks through, handleReorderStep must no-op.
+    // Simulate by calling directly via mousedown on t1's ↓.
+    const downButtons = screen.getAllByRole('button', { name: /^move down$/i, hidden: true });
+    fireEvent.click(downButtons[0]);
+    expect(reorderTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('reorder step: collapsed rank gap triggers the rebalance branch', () => {
+    const reorderTaskMock = vi.fn().mockResolvedValue(undefined);
+    // Adjacent ranks with a gap < 0.001 force rebalance.
+    useAppStore.setState({
+      tasks: {
+        todo: [
+          { id: 't1', title: 'A', type: 'chore' as const, rank: 1.0000, createdAt: '', updatedAt: '' },
+          { id: 't2', title: 'B', type: 'chore' as const, rank: 1.0001, createdAt: '', updatedAt: '' },
+          { id: 't3', title: 'C', type: 'chore' as const, rank: 1.0002, createdAt: '', updatedAt: '' },
+        ],
+        'in-progress': [], done: [],
+      },
+      reorderTask: reorderTaskMock,
+      isMutating: false,
+    });
+    render(<Board />);
+    const downButtons = screen.getAllByRole('button', { name: /^move down$/i, hidden: true });
+    fireEvent.click(downButtons[0]); // t1 down → collapses → rebalance
+    // Rebalance persists every task in the new order.
+    expect(reorderTaskMock).toHaveBeenCalledTimes(3);
+    const ids = reorderTaskMock.mock.calls.map((c) => c[0]).sort();
+    expect(ids).toEqual(['t1', 't2', 't3']);
+  });
+
   it('calls moveTask with direction=right when dropping on a later column', () => {
     const moveTaskMock = vi.fn().mockResolvedValue(undefined);
     useAppStore.setState({ tasks: TASKS_FIXTURE, moveTask: moveTaskMock });

@@ -197,3 +197,83 @@ describe('CardActionMenu — run-agent (AgentLauncherMenu)', () => {
     expect(screen.queryByRole('button', { name: /run agent/i })).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// ADR-1 (touch-reorder) — move-up / move-down buttons
+// ---------------------------------------------------------------------------
+
+describe('CardActionMenu — move-up / move-down (touch-reorder)', () => {
+  it('does not render up/down buttons when callbacks are omitted', () => {
+    renderMenu({ column: 'todo' });
+    expect(screen.queryByRole('button', { name: /^move up$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^move down$/i })).not.toBeInTheDocument();
+  });
+
+  it('renders both ↑ and ↓ when both callbacks are provided', () => {
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown: vi.fn() });
+    expect(screen.getByRole('button', { name: /^move up$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^move down$/i })).toBeInTheDocument();
+  });
+
+  it('renders only ↑ when only onMoveUp is provided', () => {
+    renderMenu({ onMoveUp: vi.fn() });
+    expect(screen.getByRole('button', { name: /^move up$/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^move down$/i })).not.toBeInTheDocument();
+  });
+
+  it('calls onMoveUp when ↑ is clicked', () => {
+    const onMoveUp = vi.fn();
+    renderMenu({ onMoveUp, onMoveDown: vi.fn() });
+    fireEvent.click(screen.getByRole('button', { name: /^move up$/i }));
+    expect(onMoveUp).toHaveBeenCalledOnce();
+  });
+
+  it('calls onMoveDown when ↓ is clicked', () => {
+    const onMoveDown = vi.fn();
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown });
+    fireEvent.click(screen.getByRole('button', { name: /^move down$/i }));
+    expect(onMoveDown).toHaveBeenCalledOnce();
+  });
+
+  it('disables ↑ when canMoveUp=false (first card)', () => {
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: false });
+    expect(screen.getByRole('button', { name: /^move up$/i })).toBeDisabled();
+  });
+
+  it('disables ↓ when canMoveDown=false (last card)', () => {
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveDown: false });
+    expect(screen.getByRole('button', { name: /^move down$/i })).toBeDisabled();
+  });
+
+  it('disables both ↑ and ↓ while isMutating', () => {
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown: vi.fn(), isMutating: true });
+    expect(screen.getByRole('button', { name: /^move up$/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^move down$/i })).toBeDisabled();
+  });
+
+  it('renders ↑/↓ as native <button type="button">', () => {
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown: vi.fn() });
+    const up = screen.getByRole('button', { name: /^move up$/i });
+    const down = screen.getByRole('button', { name: /^move down$/i });
+    expect(up.tagName).toBe('BUTTON');
+    expect(down.tagName).toBe('BUTTON');
+    expect(up).toHaveAttribute('type', 'button');
+    expect(down).toHaveAttribute('type', 'button');
+  });
+
+  it('both buttons have title matching aria-label', () => {
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown: vi.fn() });
+    expect(screen.getByRole('button', { name: /^move up$/i })).toHaveAttribute('title', 'Move up');
+    expect(screen.getByRole('button', { name: /^move down$/i })).toHaveAttribute('title', 'Move down');
+  });
+
+  it('preserves ARIA toolbar role and shows ↑↓ alongside ←→', () => {
+    renderMenu({ column: 'in-progress', onMoveUp: vi.fn(), onMoveDown: vi.fn() });
+    const toolbar = screen.getByRole('toolbar', { name: /card actions/i });
+    expect(toolbar).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^move up$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^move down$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /move to todo/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /move to done/i })).toBeInTheDocument();
+  });
+});

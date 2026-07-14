@@ -461,6 +461,103 @@ describe('TaskCard — card wrapper styles', () => {
     ).toContain('rounded-xl');
   });
 
+  it('drag-handle has no coarse-pointer visibility class (ADR-1 touch-reorder)', () => {
+    // The [@media(pointer:coarse)]:opacity-30 class implied touch drag support
+    // that does not exist and was removed by ADR-1. On coarse pointers the
+    // handle stays fully hidden; users get the ↑ / ↓ buttons instead.
+    const { container } = render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
+    const handle = container.querySelector('[data-testid="drag-handle"]');
+    expect(handle).toBeInTheDocument();
+    expect(handle?.className).not.toContain('[@media(pointer:coarse)]:opacity-30');
+    expect(handle?.className).toContain('opacity-0');
+    // Handle is aria-hidden and non-interactive (no button, no onclick handler).
+    expect(handle).toHaveAttribute('aria-hidden', 'true');
+    expect(handle?.tagName).not.toBe('BUTTON');
+  });
+
+  it('renders ↑ / ↓ buttons when onReorderStep is wired', () => {
+    render(
+      <TaskCard
+        task={BASE_TASK}
+        column="todo"
+        {...DRAG_HANDLERS}
+        onReorderStep={vi.fn()}
+        isFirst={false}
+        isLast={false}
+      />
+    );
+    expect(screen.getByRole('button', { name: /^move up$/i, hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^move down$/i, hidden: true })).toBeInTheDocument();
+  });
+
+  it('does not render ↑ / ↓ when onReorderStep is undefined', () => {
+    render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
+    expect(screen.queryByRole('button', { name: /^move up$/i, hidden: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^move down$/i, hidden: true })).not.toBeInTheDocument();
+  });
+
+  it('↑ button calls onReorderStep with direction=up', () => {
+    const onReorderStep = vi.fn();
+    render(
+      <TaskCard
+        task={BASE_TASK}
+        column="in-progress"
+        {...DRAG_HANDLERS}
+        onReorderStep={onReorderStep}
+        isFirst={false}
+        isLast={false}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^move up$/i, hidden: true }));
+    expect(onReorderStep).toHaveBeenCalledWith('task-1', 'in-progress', 'up');
+  });
+
+  it('↓ button calls onReorderStep with direction=down', () => {
+    const onReorderStep = vi.fn();
+    render(
+      <TaskCard
+        task={BASE_TASK}
+        column="in-progress"
+        {...DRAG_HANDLERS}
+        onReorderStep={onReorderStep}
+        isFirst={false}
+        isLast={false}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^move down$/i, hidden: true }));
+    expect(onReorderStep).toHaveBeenCalledWith('task-1', 'in-progress', 'down');
+  });
+
+  it('↑ is disabled when isFirst=true', () => {
+    render(
+      <TaskCard
+        task={BASE_TASK}
+        column="todo"
+        {...DRAG_HANDLERS}
+        onReorderStep={vi.fn()}
+        isFirst
+        isLast={false}
+      />
+    );
+    expect(screen.getByRole('button', { name: /^move up$/i, hidden: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^move down$/i, hidden: true })).not.toBeDisabled();
+  });
+
+  it('↓ is disabled when isLast=true', () => {
+    render(
+      <TaskCard
+        task={BASE_TASK}
+        column="todo"
+        {...DRAG_HANDLERS}
+        onReorderStep={vi.fn()}
+        isFirst={false}
+        isLast
+      />
+    );
+    expect(screen.getByRole('button', { name: /^move down$/i, hidden: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^move up$/i, hidden: true })).not.toBeDisabled();
+  });
+
   it('drag-over highlight is column-level — card does not get ring-2 (Trend A)', () => {
     // Trend A redesign: drag highlighting moved to column level via dragOverColumn.
     // Individual cards no longer receive ring-2 on drag-over.
