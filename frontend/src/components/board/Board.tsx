@@ -150,6 +150,38 @@ export function Board() {
     useDragStore.getState().resetDrag();
   }, []); // stable — no closure deps
 
+  // ADR-1 (touch-reorder): explicit one-step reorder for touch/keyboard/SR users.
+  // Reuses computeDropRank against the adjacent rank-neighbor. Guards no-op at
+  // column edges and while a mutation is in flight. This is the WCAG 2.5.7
+  // single-pointer / non-drag alternative to the HTML5 drag reorder.
+  const handleReorderStep = useCallback((taskId: string, column: ColumnType, direction: 'up' | 'down') => {
+    const state = useAppStore.getState();
+    if (state.isMutating) return; // guard: don't overlap mutations
+
+    const columnTasks = state.tasks[column] ?? [];
+    const index = columnTasks.findIndex((t) => t.id === taskId);
+    if (index === -1) return;
+
+    const neighborIndex = direction === 'up' ? index - 1 : index + 1;
+    if (neighborIndex < 0 || neighborIndex >= columnTasks.length) return; // edge no-op
+
+    const neighbor = columnTasks[neighborIndex];
+    if (!neighbor) return;
+    const insertBefore = direction === 'up';
+
+    const { newRank, needsRebalance, rebalancedTasks } = computeDropRank(
+      columnTasks, taskId, neighbor.id, insertBefore
+    );
+
+    if (needsRebalance && rebalancedTasks) {
+      for (const t of rebalancedTasks) {
+        reorderTask(t.id, column, t.rank ?? 0);
+      }
+    } else {
+      reorderTask(taskId, column, newRank);
+    }
+  }, [reorderTask]); // stable — Zustand action reference never changes
+
   const taskCounts = {
     todo: (tasks.todo || []).length,
     'in-progress': (tasks['in-progress'] || []).length,
@@ -208,6 +240,7 @@ export function Board() {
               onDragEnd={handleDragEnd}
               onDrop={handleDrop}
               onDragOverTask={handleDragOverTask}
+              onReorderStep={handleReorderStep}
             />
           </div>
         ))}
