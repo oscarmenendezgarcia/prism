@@ -102,7 +102,7 @@ describe('Header', () => {
     it('renders search pill with aria-label', () => {
       renderHeader();
       // There are two buttons with this label (desktop pill + mobile icon button — both in DOM)
-      const pills = screen.getAllByLabelText(/buscar tareas/i);
+      const pills = screen.getAllByLabelText(/search tasks/i);
       expect(pills.length).toBeGreaterThanOrEqual(1);
     });
 
@@ -116,9 +116,9 @@ describe('Header', () => {
       const mockOpenGlobalSearch = vi.fn();
       useAppStore.setState({ openGlobalSearch: mockOpenGlobalSearch } as any);
       renderHeader();
-      // The desktop pill is the entry point carrying the "Buscar…" label text.
-      const desktopPill = screen.getAllByLabelText(/buscar tareas/i)
-        .find((b) => b.textContent?.includes('Buscar…'))!;
+      // The desktop pill is the entry point carrying the "Search…" label text.
+      const desktopPill = screen.getAllByLabelText(/search tasks/i)
+        .find((b) => b.textContent?.includes('Search…'))!;
       fireEvent.click(desktopPill);
       expect(mockOpenGlobalSearch).toHaveBeenCalledTimes(1);
     });
@@ -128,9 +128,9 @@ describe('Header', () => {
       useAppStore.setState({ openGlobalSearch: mockOpenGlobalSearch } as any);
       renderHeader();
       // Mobile entry point is the compact icon-only button (md:hidden) on the left —
-      // same aria-label but no "Buscar…" text. No hamburger needed.
-      const mobileIcon = screen.getAllByLabelText(/buscar tareas/i)
-        .find((b) => !b.textContent?.includes('Buscar…'))!;
+      // same aria-label but no "Search…" text. No hamburger needed.
+      const mobileIcon = screen.getAllByLabelText(/search tasks/i)
+        .find((b) => !b.textContent?.includes('Search…'))!;
       fireEvent.click(mobileIcon);
       expect(mockOpenGlobalSearch).toHaveBeenCalledTimes(1);
     });
@@ -138,13 +138,13 @@ describe('Header', () => {
     it('renders both desktop pill and mobile icon search entry points', () => {
       renderHeader();
       // Two always-rendered entry points (CSS toggles visibility): desktop pill + mobile icon.
-      const pills = screen.getAllByLabelText(/buscar tareas/i);
+      const pills = screen.getAllByLabelText(/search tasks/i);
       expect(pills.length).toBe(2);
     });
 
     it('search pill is keyboard-accessible (has accessible role button)', () => {
       renderHeader();
-      const pills = screen.getAllByRole('button', { name: /buscar tareas/i });
+      const pills = screen.getAllByRole('button', { name: /search tasks/i });
       expect(pills.length).toBeGreaterThanOrEqual(1);
     });
   });
