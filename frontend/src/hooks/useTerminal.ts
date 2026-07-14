@@ -119,16 +119,6 @@ export function useTerminal({
   const reconnectTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resizeTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
   const observerRef     = useRef<ResizeObserver | null>(null);
-  /**
-   * True when the current WebSocket is a reconnect after the previous session
-   * dropped — signals the message handler to reset xterm's parser/mode state
-   * on the next `ready` from the server so the fresh PTY's initial escape
-   * sequences aren't misinterpreted as continuations of the dead session's
-   * mid-flight CSI sequences (which would print as raw text like
-   * "35;1;7M..."). Also gates an eager resize on `open` so the fresh PTY
-   * spawns with the client's real dimensions instead of the 80×24 default.
-   */
-  const needsResetOnReady = useRef(false);
 
   // Keep callbacks stable
   const onStatusChangeRef      = useRef(onStatusChange);
@@ -204,21 +194,6 @@ export function useTerminal({
 
     newWs.addEventListener('open', () => {
       reconnectDelay.current = BACKOFF_BASE_MS;
-      // Reconnect after a drop: the server's fresh PTY spawns at the default
-      // 80×24 until it hears a resize. Send our current dims immediately so
-      // the shell's first prompt (starship etc.) is rendered at the correct
-      // width, avoiding a second reflow once `ready` arrives.
-      if (needsResetOnReady.current
-          && terminalRef.current
-          && fitAddonRef.current
-          && xtermMounted.current) {
-        fitAddonRef.current.fit();
-        send({
-          type: 'resize',
-          cols: terminalRef.current.cols,
-          rows: terminalRef.current.rows,
-        });
-      }
       onStatusChangeRef.current('connected');
       onReconnectAvailableRef.current(false);
     });
@@ -236,19 +211,6 @@ export function useTerminal({
         terminalRef.current?.write(parsed.data ?? '');
       } else if (parsed.type === 'ready') {
         if (terminalRef.current && fitAddonRef.current && xtermMounted.current) {
-          // On a reconnect, wipe xterm's parser/mode state and screen buffer
-          // before writing anything from the new PTY. The previous session
-          // may have been killed mid-CSI (e.g. inside a starship prompt
-          // sequence or with mouse-tracking mode active) — without a reset,
-          // xterm's ANSI parser stays in that intermediate state and
-          // misinterprets the new session's opening escape sequences,
-          // printing raw parameter fragments like "35;1;7M..." instead of
-          // consuming them. Terminal.reset() clears the parser state, screen
-          // buffers, cursor, and mode flags in one call.
-          if (needsResetOnReady.current) {
-            terminalRef.current.reset();
-            needsResetOnReady.current = false;
-          }
           fitAddonRef.current.fit();
           terminalRef.current.scrollToBottom();
           send({ type: 'resize', cols: terminalRef.current.cols, rows: terminalRef.current.rows });
@@ -265,10 +227,6 @@ export function useTerminal({
 
     newWs.addEventListener('close', (event) => {
       console.debug(`[terminal] disconnected, code=${event.code}`);
-      // Mark the next successful connection as a reconnect so the message
-      // handler can reset xterm's parser state before the fresh PTY's output
-      // arrives. See needsResetOnReady comment for details.
-      needsResetOnReady.current = true;
       onStatusChangeRef.current('disconnected');
       scheduleReconnect();
     });
