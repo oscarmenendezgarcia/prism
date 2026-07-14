@@ -249,6 +249,55 @@ describe('moveTask', () => {
     expect(api.getTasks).toHaveBeenCalled();
   });
 
+  it('tracks the mutating taskId in mutatingTaskIds during the call, clears it after', async () => {
+    useAppStore.setState({ activeSpaceId: 'space-1' });
+    let inFlightIds: Set<string> | null = null;
+    vi.mocked(api.moveTask).mockImplementation(async () => {
+      // Snapshot the set while the async call is pending.
+      inFlightIds = new Set(useAppStore.getState().mutatingTaskIds);
+      return {
+        task: { id: 't1', title: 'T', type: 'chore', createdAt: '', updatedAt: '' },
+        from: 'todo',
+        to: 'in-progress',
+      };
+    });
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+
+    await useAppStore.getState().moveTask('t1', 'right', 'todo');
+
+    expect(inFlightIds).not.toBeNull();
+    expect(Array.from(inFlightIds!)).toEqual(['t1']);
+    // Cleared once the mutation resolves — other cards must be interactive again.
+    expect(useAppStore.getState().mutatingTaskIds.size).toBe(0);
+  });
+
+  it('does not disable OTHER tasks — mutatingTaskIds only contains the moved task', async () => {
+    useAppStore.setState({ activeSpaceId: 'space-1' });
+    let inFlightIds: Set<string> | null = null;
+    vi.mocked(api.moveTask).mockImplementation(async () => {
+      inFlightIds = new Set(useAppStore.getState().mutatingTaskIds);
+      return {
+        task: { id: 't1', title: 'T', type: 'chore', createdAt: '', updatedAt: '' },
+        from: 'todo',
+        to: 'in-progress',
+      };
+    });
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+
+    await useAppStore.getState().moveTask('t1', 'right', 'todo');
+
+    // Regression guard: only 't1' is tracked, never 'other-task'.
+    expect(inFlightIds!.has('t1')).toBe(true);
+    expect(inFlightIds!.has('other-task')).toBe(false);
+  });
+
+  it('clears mutatingTaskIds even when api.moveTask throws', async () => {
+    useAppStore.setState({ activeSpaceId: 'space-1' });
+    vi.mocked(api.moveTask).mockRejectedValue(new Error('boom'));
+    await useAppStore.getState().moveTask('t1', 'right', 'todo');
+    expect(useAppStore.getState().mutatingTaskIds.size).toBe(0);
+  });
+
   it('moves left from in-progress to todo', async () => {
     useAppStore.setState({ activeSpaceId: 'space-1' });
     vi.mocked(api.moveTask).mockResolvedValue({

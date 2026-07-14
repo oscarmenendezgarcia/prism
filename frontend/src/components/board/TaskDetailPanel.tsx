@@ -443,7 +443,12 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const updateTask           = useAppStore((s) => s.updateTask);
   const addComment           = useAppStore((s) => s.addComment);
   const patchComment         = useAppStore((s) => s.patchComment);
-  const isMutating           = useAppStore((s) => s.isMutating);
+  // Per-task mutation flag — the panel is read-only only when the detailTask
+  // itself has an in-flight mutation. A move/delete on another card must not
+  // freeze this panel.
+  const isMutating           = useAppStore((s) =>
+    s.detailTask ? s.mutatingTaskIds.has(s.detailTask.id) : false
+  );
   const tasks                = useAppStore((s) => s.tasks);
   const arcs                 = distinctArcs(tasks);
   const showToast            = useAppStore((s) => s.showToast);

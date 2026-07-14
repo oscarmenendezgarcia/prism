@@ -20,6 +20,7 @@ function storeState(overrides: Record<string, unknown> = {}) {
     openAttachmentModal:  vi.fn(),
     activeSpaceId:        'space-1',
     isMutating:           false,
+    mutatingTaskIds:      new Set<string>(),
     openDetailPanel:      vi.fn(),
     arcGrouping:          false,
     activeRun:            null,
