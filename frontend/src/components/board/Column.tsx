@@ -27,9 +27,11 @@ interface ColumnProps {
   onDragEnd?: () => void;
   onDrop?: (e: React.DragEvent, targetColumn: ColumnType) => void;
   onDragOverTask?: (taskId: string, insertBefore: boolean) => void;
+  /** ADR-1 (touch-reorder): one-step reorder for touch/keyboard/SR users. */
+  onReorderStep?: (taskId: string, column: ColumnType, direction: 'up' | 'down') => void;
 }
 
-export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, onDragOverTask }: ColumnProps) {
+export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, onDragOverTask, onReorderStep }: ColumnProps) {
   const { label, accentClass } = COLUMN_META[column];
 
   // Subscribe to column-level drag-over — re-renders only when this column's
@@ -133,6 +135,13 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
                 const staggerMs = tasks.length > 30
                   ? 0
                   : Math.min(COLUMN_META[column].colIndex * 100 + globalIndex * 35, 500);
+                // ADR-1 (touch-reorder): isFirst/isLast are based on the column's
+                // rank-order (`tasks`), NOT the filtered/grouped visible list —
+                // rank is the source of truth, so step controls must reflect
+                // absolute column position regardless of arc grouping/filter.
+                const rankIndex = tasks.findIndex((t) => t.id === task.id);
+                const isFirst = rankIndex <= 0;
+                const isLast = rankIndex === -1 || rankIndex >= tasks.length - 1;
                 return (
                   <TaskCard
                     key={task.id}
@@ -142,6 +151,9 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
                     onDragEnd={onDragEnd}
                     staggerDelayMs={staggerMs}
                     onDragOverTask={onDragOverTask}
+                    onReorderStep={onReorderStep}
+                    isFirst={isFirst}
+                    isLast={isLast}
                   />
                 );
               })}

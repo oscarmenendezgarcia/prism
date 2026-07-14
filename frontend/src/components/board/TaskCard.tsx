@@ -64,6 +64,15 @@ interface TaskCardProps {
   onDragOverTask?: (taskId: string, insertBefore: boolean) => void;
   /** A-1: stagger delay in ms for the entrance animation. EXCEPTION: only inline style allowed. */
   staggerDelayMs?: number;
+  /**
+   * ADR-1 (touch-reorder): parent-provided one-step reorder handler. When set,
+   * the CardActionMenu renders ↑ / ↓ buttons for touch/keyboard/SR users.
+   */
+  onReorderStep?: (taskId: string, column: Column, direction: 'up' | 'down') => void;
+  /** True when this card is the first in its column — disables ↑. */
+  isFirst?: boolean;
+  /** True when this card is the last in its column — disables ↓. */
+  isLast?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +83,7 @@ interface TaskCardProps {
 // task list changes). Drag state is now read directly from useDragStore with
 // per-card boolean selectors — only this specific card re-renders when its own
 // drag state changes, giving O(1) re-renders per drag event.
-export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragEnd, staggerDelayMs = 0, onDragOverTask }: TaskCardProps) {
+export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragEnd, staggerDelayMs = 0, onDragOverTask, onReorderStep, isFirst = false, isLast = false }: TaskCardProps) {
   const moveTask          = useAppStore((s) => s.moveTask);
   const deleteTask        = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
@@ -153,10 +162,15 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       onDragEnd={onDragEnd}
       onDragOver={handleDragOver}
     >
-      {/* Drag handle — visible on hover, left edge */}
+      {/* Drag handle — visible on hover only.
+          ADR-1 (touch-reorder): coarse-pointer affordance removed — the HTML5
+          drag it hints at does not fire on touch, so showing a grab handle
+          there is misleading. Touch/keyboard users get the ↑ / ↓ step
+          controls in CardActionMenu instead. */}
       <div
-        className="absolute left-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 [@media(pointer:coarse)]:opacity-30 transition-opacity duration-fast text-text-secondary cursor-grab active:cursor-grabbing"
+        className="absolute left-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 transition-opacity duration-fast text-text-secondary cursor-grab active:cursor-grabbing"
         aria-hidden="true"
+        data-testid="drag-handle"
       >
         <span className="material-symbols-outlined text-base leading-none select-none">drag_indicator</span>
       </div>
@@ -254,6 +268,10 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
             spaceId={activeSpaceId}
             isMutating={isMutating}
             activeRun={activeRun}
+            onMoveUp={onReorderStep ? () => onReorderStep(task.id, column, 'up') : undefined}
+            onMoveDown={onReorderStep ? () => onReorderStep(task.id, column, 'down') : undefined}
+            canMoveUp={!isFirst}
+            canMoveDown={!isLast}
             onMoveLeft={showLeft ? () => moveTask(task.id, 'left', column) : undefined}
             onMoveRight={showRight ? () => moveTask(task.id, 'right', column) : undefined}
             onDelete={() => deleteTask(task.id)}
