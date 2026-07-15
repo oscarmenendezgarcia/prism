@@ -66,7 +66,8 @@ interface TaskCardProps {
   staggerDelayMs?: number;
   /**
    * Keyboard/button reorder within the column (Alt+Arrow shortcut, and the
-   * CardActionMenu move-up/move-down buttons). See ADR-1 keyboard-card-reorder.
+   * CardActionMenu move-up/move-down buttons — shared by the keyboard and
+   * touch-reorder features). See ADR-1 keyboard-card-reorder + ADR-1 touch-reorder.
    */
   onKeyboardReorder?: (taskId: string, column: Column, direction: 'up' | 'down') => void;
   /** True when this card is the first in its visible group — disables move-up. */
@@ -193,10 +194,15 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       onDragEnd={onDragEnd}
       onDragOver={handleDragOver}
     >
-      {/* Drag handle — visible on hover, left edge */}
+      {/* Drag handle — visible on hover only.
+          ADR-1 (touch-reorder): coarse-pointer affordance removed — the HTML5
+          drag it hints at does not fire on touch, so showing a grab handle
+          there is misleading. Touch/keyboard users get the ↑ / ↓ step
+          controls in CardActionMenu instead. */}
       <div
-        className="absolute left-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 [@media(pointer:coarse)]:opacity-30 transition-opacity duration-fast text-text-secondary cursor-grab active:cursor-grabbing"
+        className="absolute left-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 transition-opacity duration-fast text-text-secondary cursor-grab active:cursor-grabbing"
         aria-hidden="true"
+        data-testid="drag-handle"
       >
         <span className="material-symbols-outlined text-base leading-none select-none">drag_indicator</span>
       </div>

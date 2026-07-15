@@ -32,11 +32,11 @@ export interface CardActionMenuProps {
   activeRun: AgentRun | null;
   onMoveLeft?: () => void;
   onMoveRight?: () => void;
-  onDelete: () => void;
   /**
-   * Vertical (in-column) reorder — the pointer alternative to Alt+Arrow.
-   * Satisfies WCAG 2.5.7 (a non-drag alternative to the drag gesture).
-   * Undefined when at a list/group boundary → button rendered `disabled`.
+   * Vertical (in-column) reorder — the pointer/keyboard alternative to
+   * Alt+Arrow, shared by the keyboard-card-reorder and touch-reorder
+   * features. Satisfies WCAG 2.5.7 (a non-drag alternative to the drag
+   * gesture). Omit to hide the button entirely.
    */
   onMoveUp?: () => void;
   onMoveDown?: () => void;
@@ -47,6 +47,7 @@ export interface CardActionMenuProps {
    */
   canMoveUp?: boolean;
   canMoveDown?: boolean;
+  onDelete: () => void;
 }
 
 /**
@@ -64,11 +65,11 @@ export function CardActionMenu({
   activeRun,
   onMoveLeft,
   onMoveRight,
-  onDelete,
   onMoveUp,
   onMoveDown,
   canMoveUp = false,
   canMoveDown = false,
+  onDelete,
 }: CardActionMenuProps) {
   const showLeft = column !== 'todo';
   const showRight = column !== 'done';
@@ -77,6 +78,7 @@ export function CardActionMenu({
   // Vertical reorder buttons rendered when the parent wired the callback OR
   // it's a boundary (disabled). Absent only if the whole feature is off.
   const showVertical = onMoveUp !== undefined || onMoveDown !== undefined || canMoveUp || canMoveDown;
+  const showColumnMoveGroup = showLeft || showRight;
 
   return (
     <div
@@ -112,9 +114,12 @@ export function CardActionMenu({
               arrow_downward
             </span>
           </button>
-          {/* Thin divider — separates the new vertical pair from the shipped
-              horizontal move pair. Wireframes.md button-order decision. */}
-          <div aria-hidden="true" className="w-px h-4 bg-border mx-0.5" />
+          {/* Thin divider — separates the vertical reorder pair from the
+              horizontal column-move pair. Only rendered when a horizontal
+              group actually follows (Todo has no ← button, Done has no →). */}
+          {showColumnMoveGroup && (
+            <div aria-hidden="true" className="w-px h-4 bg-border mx-0.5" />
+          )}
         </>
       )}
 

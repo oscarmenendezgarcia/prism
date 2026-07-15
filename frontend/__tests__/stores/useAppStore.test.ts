@@ -55,6 +55,7 @@ vi.mock('../../src/api/client', () => ({
   createTask:           vi.fn(),
   moveTask:             vi.fn(),
   deleteTask:           vi.fn(),
+  reorderTask:          vi.fn(),
   getAttachmentContent: vi.fn(),
   // Agent launcher API
   getAgents:            vi.fn(),
@@ -323,6 +324,46 @@ describe('deleteTask', () => {
 
     expect(api.deleteTask).toHaveBeenCalledWith('space-1', 't1');
     expect(useAppStore.getState().toast?.message).toBe('Task deleted');
+  });
+});
+
+// ADR-1 (touch-reorder): reorderTask is the persistence path the new ↑/↓
+// step controls call into. Previously this store action had zero direct
+// unit coverage (only exercised indirectly via a mocked prop in
+// Board.test.tsx) — added here to verify the optimistic-update /
+// persist / rollback-on-failure contract that the touch-reorder
+// acceptance criteria depend on.
+describe('reorderTask', () => {
+  const columnTasks = {
+    todo: [
+      { id: 't1', title: 'A', type: 'chore' as const, rank: 1000, createdAt: '', updatedAt: '' },
+      { id: 't2', title: 'B', type: 'chore' as const, rank: 2000, createdAt: '', updatedAt: '' },
+    ],
+    'in-progress': [],
+    done: [],
+  };
+
+  it('optimistically re-sorts the column and persists via api.reorderTask', async () => {
+    useAppStore.setState({ activeSpaceId: 'space-1', tasks: columnTasks });
+    vi.mocked(api.reorderTask).mockResolvedValue(undefined);
+
+    const promise = useAppStore.getState().reorderTask('t1', 'todo', 2500);
+    // Optimistic re-sort happens synchronously, before the API call resolves.
+    expect(useAppStore.getState().tasks.todo.map((t) => t.id)).toEqual(['t2', 't1']);
+
+    await promise;
+    expect(api.reorderTask).toHaveBeenCalledWith('space-1', 't1', 2500);
+  });
+
+  it('rolls back the column order and shows an error toast when the API call fails', async () => {
+    useAppStore.setState({ activeSpaceId: 'space-1', tasks: columnTasks });
+    vi.mocked(api.reorderTask).mockRejectedValue(new Error('Network error'));
+
+    await useAppStore.getState().reorderTask('t1', 'todo', 2500);
+
+    // Rolled back to the original rank order (t1 before t2).
+    expect(useAppStore.getState().tasks.todo.map((t) => t.id)).toEqual(['t1', 't2']);
+    expect(useAppStore.getState().toast).toMatchObject({ message: 'Network error', type: 'error' });
   });
 });
 

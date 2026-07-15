@@ -231,12 +231,13 @@ export function Board() {
   }, []); // stable — no closure deps
 
   // ── Keyboard reorder ─────────────────────────────────────────────────────
-  // Alt+Arrow on a focused card or CardActionMenu up/down button. Reuses
-  // computeDropRank + reorderTask (no new persistence surface). Announces the
-  // outcome via the shared aria-live announcer (WCAG 4.1.3). Guarded so a
-  // press during an in-flight cross-column move is a silent no-op — matching
-  // the button `disabled` state (see wireframes.md — no SR noise for a
-  // transient, retryable state).
+  // Alt+Arrow on a focused card or CardActionMenu up/down button (shared by
+  // the keyboard-card-reorder and touch-reorder features — see the
+  // consolidation note in Column.tsx). Reuses computeDropRank + reorderTask
+  // (no new persistence surface). Announces the outcome via the shared
+  // aria-live announcer (WCAG 4.1.3). Guarded so a press during an in-flight
+  // cross-column move is a silent no-op — matching the button `disabled`
+  // state (see wireframes.md — no SR noise for a transient, retryable state).
   const handleKeyboardReorder = useCallback((
     taskId: string,
     targetColumn: ColumnType,

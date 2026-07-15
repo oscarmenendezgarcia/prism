@@ -27,7 +27,17 @@ interface ColumnProps {
   onDragEnd?: () => void;
   onDrop?: (e: React.DragEvent, targetColumn: ColumnType) => void;
   onDragOverTask?: (taskId: string | null, insertBefore: boolean) => void;
-  /** Keyboard/button reorder within a column. See Board.handleKeyboardReorder. */
+  /**
+   * Keyboard/button reorder within a column (Alt+Arrow shortcut, and the
+   * CardActionMenu move-up/move-down buttons — shared by the keyboard and
+   * touch-reorder features; see ADR-1 keyboard-card-reorder + ADR-1 touch-reorder).
+   * CONSOLIDATION NOTE: both features independently implemented the same
+   * one-step reorder. Kept keyboard-card-reorder's group-scoped semantics
+   * (does not cross arc-group boundaries) over touch-reorder's rank-absolute
+   * semantics, since the group-scoped behavior was formally reviewed/approved
+   * with that exact rule and avoids implicit arc reassignment as a side effect
+   * of a reorder step.
+   */
   onKeyboardReorder?: (taskId: string, column: ColumnType, direction: 'up' | 'down') => void;
 }
 

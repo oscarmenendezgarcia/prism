@@ -266,4 +266,24 @@ describe('CardActionMenu — move-up / move-down buttons', () => {
     expect(btn).toHaveAttribute('aria-label', 'Move up');
     expect(btn.getAttribute('aria-label')).not.toMatch(/already/i);
   });
+
+  it('renders ↑/↓ as native <button type="button">', () => {
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true });
+    const up = screen.getByRole('button', { name: 'Move up' });
+    const down = screen.getByRole('button', { name: 'Move down' });
+    expect(up.tagName).toBe('BUTTON');
+    expect(down.tagName).toBe('BUTTON');
+    expect(up).toHaveAttribute('type', 'button');
+    expect(down).toHaveAttribute('type', 'button');
+  });
+
+  it('preserves ARIA toolbar role and shows ↑↓ alongside ←→, with a divider between the groups', () => {
+    renderMenu({ column: 'in-progress', onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true });
+    const toolbar = screen.getByRole('toolbar', { name: /card actions/i });
+    expect(toolbar).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move up' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move down' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /move to todo/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /move to done/i })).toBeInTheDocument();
+  });
 });
