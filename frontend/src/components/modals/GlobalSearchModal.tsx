@@ -15,17 +15,12 @@ import React, { useEffect, useRef, useCallback, useId } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { useGlobalSearch } from '@/hooks/useGlobalSearch';
 import { useAppStore } from '@/stores/useAppStore';
-import type { SearchResult } from '@/types';
+import type { Column, SearchResult } from '@/types';
+import { COLUMN_LABELS } from '@/constants/columns';
 
 // ---------------------------------------------------------------------------
 // Column display helpers
 // ---------------------------------------------------------------------------
-
-const COLUMN_LABELS: Record<string, string> = {
-  'todo':        'Todo',
-  'in-progress': 'In Progress',
-  'done':        'Done',
-};
 
 const COLUMN_COLORS: Record<string, string> = {
   'todo':        'text-text-secondary bg-surface-variant',
@@ -46,7 +41,7 @@ interface ResultItemProps {
 
 function ResultItem({ result, selected, onSelect, id, index = 0 }: ResultItemProps & { index?: number }) {
   const { task, spaceName, column } = result;
-  const colLabel = COLUMN_LABELS[column] ?? column;
+  const colLabel = COLUMN_LABELS[column as Column] ?? column;
   const colColor = COLUMN_COLORS[column] ?? 'text-text-secondary bg-surface-variant';
   const staggerClass = `stagger-delay-${Math.min(index, 7)}`;
 

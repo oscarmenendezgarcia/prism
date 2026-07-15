@@ -6,12 +6,12 @@
 
 import React from 'react';
 import type { Column } from '@/types';
+import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
 
-const TABS: { column: Column; label: string }[] = [
-  { column: 'todo',        label: 'Todo' },
-  { column: 'in-progress', label: 'In Progress' },
-  { column: 'done',        label: 'Done' },
-];
+const TABS: { column: Column; label: string }[] = COLUMNS.map((column) => ({
+  column,
+  label: COLUMN_LABELS[column],
+}));
 
 interface ColumnTabBarProps {
   activeColumn: Column;

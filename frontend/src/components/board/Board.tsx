@@ -14,8 +14,7 @@ import { ArcBar } from './ArcBar';
 import { ColumnTabBar } from './ColumnTabBar';
 import { BoardEmptyState } from './BoardEmptyState';
 import { Announcer } from '@/components/shared/Announcer';
-
-const COLUMNS: ColumnType[] = ['todo', 'in-progress', 'done'];
+import { COLUMNS } from '@/constants/columns';
 
 const COLUMN_LABEL: Record<ColumnType, string> = {
   todo: 'Todo',

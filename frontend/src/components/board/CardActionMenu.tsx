@@ -11,18 +11,7 @@
 import React from 'react';
 import type { Column, AgentRun } from '@/types';
 import { AgentLauncherMenu } from '@/components/agent-launcher/AgentLauncherMenu';
-
-/** Map each column to the human-readable label for the column to its left. */
-const LEFT_LABEL: Partial<Record<Column, string>> = {
-  'in-progress': 'Todo',
-  'done': 'In Progress',
-};
-
-/** Map each column to the human-readable label for the column to its right. */
-const RIGHT_LABEL: Partial<Record<Column, string>> = {
-  'todo': 'In Progress',
-  'in-progress': 'Done',
-};
+import { adjacentColumnLabel } from '@/constants/columns';
 
 export interface CardActionMenuProps {
   taskId: string;
@@ -128,8 +117,8 @@ export function CardActionMenu({
           type="button"
           onClick={onMoveLeft}
           disabled={isMutating}
-          aria-label={`Move to ${LEFT_LABEL[column]}`}
-          title={`Move to ${LEFT_LABEL[column]}`}
+          aria-label={`Move to ${adjacentColumnLabel(column, 'left')}`}
+          title={`Move to ${adjacentColumnLabel(column, 'left')}`}
           className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
         >
           <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
@@ -143,8 +132,8 @@ export function CardActionMenu({
           type="button"
           onClick={onMoveRight}
           disabled={isMutating}
-          aria-label={`Move to ${RIGHT_LABEL[column]}`}
-          title={`Move to ${RIGHT_LABEL[column]}`}
+          aria-label={`Move to ${adjacentColumnLabel(column, 'right')}`}
+          title={`Move to ${adjacentColumnLabel(column, 'right')}`}
           className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
         >
           <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">

@@ -45,6 +45,7 @@ import type {
 } from '@/types';
 import { buildSingleState, buildPipelineGroupState } from '@/stores/pipelineStateFromRun';
 import { safeStorage } from '@/utils/safeStorage';
+import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
 
 // ---------------------------------------------------------------------------
 // openLogPanelForRun input type
@@ -62,14 +63,6 @@ export type OpenLogPanelInput =
 /** Keys used to persist state across page reloads. */
 const ACTIVE_SPACE_KEY = 'prism-active-space';
 const CONFIG_OPEN_KEY  = 'config-panel:open';
-
-const COLUMNS: Column[] = ['todo', 'in-progress', 'done'];
-
-const COLUMN_LABELS: Record<Column, string> = {
-  'todo': 'Todo',
-  'in-progress': 'In Progress',
-  'done': 'Done',
-};
 
 const emptyBoard = (): BoardTasks => ({
   'todo': [],

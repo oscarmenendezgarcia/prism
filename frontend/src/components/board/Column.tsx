@@ -10,12 +10,14 @@ import { useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { TaskCard } from './TaskCard';
 import { EmptyState } from './EmptyState';
+import { COLUMN_LABELS } from '@/constants/columns';
 
 // Wireframe S-01/S-02: Todo = neutral, In-Progress = violet left accent, Done = green left accent
+// accentClass and colIndex are presentation-only and stay local; label comes from the shared map.
 export const COLUMN_META: Record<ColumnType, { label: string; accentClass: string; colIndex: number }> = {
-  'todo':        { label: 'Todo',        accentClass: '',                     colIndex: 0 },
-  'in-progress': { label: 'In Progress', accentClass: 'border-l-2 border-l-primary', colIndex: 1 },
-  'done':        { label: 'Done',        accentClass: 'border-l-2 border-l-success', colIndex: 2 },
+  'todo':        { label: COLUMN_LABELS['todo'],        accentClass: '',                            colIndex: 0 },
+  'in-progress': { label: COLUMN_LABELS['in-progress'], accentClass: 'border-l-2 border-l-primary', colIndex: 1 },
+  'done':        { label: COLUMN_LABELS['done'],        accentClass: 'border-l-2 border-l-success', colIndex: 2 },
 };
 
 interface ColumnProps {
