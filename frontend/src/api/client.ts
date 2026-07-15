@@ -173,6 +173,20 @@ export const reorderTask = (
     body: JSON.stringify({ rank }),
   });
 
+/**
+ * Atomically re-rank multiple tasks in a single space (single transaction on
+ * the server). Used by the client-side rank rebalance path so a mid-batch
+ * failure cannot leave the column in a mixed old/new rank state.
+ */
+export const reorderTasks = (
+  spaceId: string,
+  updates: Array<{ id: string; rank: number }>,
+): Promise<{ tasks: Task[] }> =>
+  apiFetch<{ tasks: Task[] }>(`/spaces/${spaceId}/tasks/rank`, {
+    method: 'PATCH',
+    body: JSON.stringify({ updates }),
+  });
+
 /** Delete a task from a space. */
 export const deleteTask = (spaceId: string, id: string): Promise<{ deleted: true; id: string }> =>
   apiFetch<{ deleted: true; id: string }>(`/spaces/${spaceId}/tasks/${id}`, {

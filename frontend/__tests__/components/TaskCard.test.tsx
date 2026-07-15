@@ -95,10 +95,6 @@ function resetStores(overrides: Record<string, unknown> = {}) {
   });
   useRunHistoryStore.setState({
     runs: [],
-    historyPanelOpen: false,
-    selectedRunId: null,
-    filterTaskId: null,
-    taskIdFilter: null,
   });
 }
 
@@ -399,10 +395,19 @@ describe('TaskCard — move actions (in overlay)', () => {
     expect(mockDeleteTask).toHaveBeenCalledWith('task-1');
   });
 
-  it('move buttons are disabled when isMutating', () => {
-    resetStores({ isMutating: true });
+  it('move buttons are disabled when this task is mutating', () => {
+    // Per-task scoping: only the card whose id is in mutatingTaskIds is disabled.
+    resetStores({ isMutating: true, mutatingTaskIds: new Set([BASE_TASK.id]) });
     render(<TaskCard task={BASE_TASK} column="in-progress" {...DRAG_HANDLERS} />);
     expect(screen.getByRole('button', { name: /move to todo/i, hidden: true })).toBeDisabled();
+  });
+
+  it('move buttons stay enabled when a DIFFERENT task is mutating', () => {
+    // The old global-isMutating behavior would disable every card. Verify the
+    // fix: mutation on 'other-task' must not disable BASE_TASK's move button.
+    resetStores({ isMutating: true, mutatingTaskIds: new Set(['other-task']) });
+    render(<TaskCard task={BASE_TASK} column="in-progress" {...DRAG_HANDLERS} />);
+    expect(screen.getByRole('button', { name: /move to todo/i, hidden: true })).not.toBeDisabled();
   });
 });
 
@@ -461,6 +466,103 @@ describe('TaskCard — card wrapper styles', () => {
     ).toContain('rounded-xl');
   });
 
+  it('drag-handle has no coarse-pointer visibility class (ADR-1 touch-reorder)', () => {
+    // The [@media(pointer:coarse)]:opacity-30 class implied touch drag support
+    // that does not exist and was removed by ADR-1. On coarse pointers the
+    // handle stays fully hidden; users get the ↑ / ↓ buttons instead.
+    const { container } = render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
+    const handle = container.querySelector('[data-testid="drag-handle"]');
+    expect(handle).toBeInTheDocument();
+    expect(handle?.className).not.toContain('[@media(pointer:coarse)]:opacity-30');
+    expect(handle?.className).toContain('opacity-0');
+    // Handle is aria-hidden and non-interactive (no button, no onclick handler).
+    expect(handle).toHaveAttribute('aria-hidden', 'true');
+    expect(handle?.tagName).not.toBe('BUTTON');
+  });
+
+  it('renders ↑ / ↓ buttons when onKeyboardReorder is wired', () => {
+    render(
+      <TaskCard
+        task={BASE_TASK}
+        column="todo"
+        {...DRAG_HANDLERS}
+        onKeyboardReorder={vi.fn()}
+        isFirstInList={false}
+        isLastInList={false}
+      />
+    );
+    expect(screen.getByRole('button', { name: /^move up$/i, hidden: true })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^move down$/i, hidden: true })).toBeInTheDocument();
+  });
+
+  it('does not render ↑ / ↓ when onKeyboardReorder is undefined', () => {
+    render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
+    expect(screen.queryByRole('button', { name: /^move up$/i, hidden: true })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^move down$/i, hidden: true })).not.toBeInTheDocument();
+  });
+
+  it('↑ button calls onKeyboardReorder with direction=up', () => {
+    const onKeyboardReorder = vi.fn();
+    render(
+      <TaskCard
+        task={BASE_TASK}
+        column="in-progress"
+        {...DRAG_HANDLERS}
+        onKeyboardReorder={onKeyboardReorder}
+        isFirstInList={false}
+        isLastInList={false}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^move up$/i, hidden: true }));
+    expect(onKeyboardReorder).toHaveBeenCalledWith('task-1', 'in-progress', 'up');
+  });
+
+  it('↓ button calls onKeyboardReorder with direction=down', () => {
+    const onKeyboardReorder = vi.fn();
+    render(
+      <TaskCard
+        task={BASE_TASK}
+        column="in-progress"
+        {...DRAG_HANDLERS}
+        onKeyboardReorder={onKeyboardReorder}
+        isFirstInList={false}
+        isLastInList={false}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^move down$/i, hidden: true }));
+    expect(onKeyboardReorder).toHaveBeenCalledWith('task-1', 'in-progress', 'down');
+  });
+
+  it('↑ is disabled when isFirstInList=true', () => {
+    render(
+      <TaskCard
+        task={BASE_TASK}
+        column="todo"
+        {...DRAG_HANDLERS}
+        onKeyboardReorder={vi.fn()}
+        isFirstInList
+        isLastInList={false}
+      />
+    );
+    expect(screen.getByRole('button', { name: /^move up$/i, hidden: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^move down$/i, hidden: true })).not.toBeDisabled();
+  });
+
+  it('↓ is disabled when isLastInList=true', () => {
+    render(
+      <TaskCard
+        task={BASE_TASK}
+        column="todo"
+        {...DRAG_HANDLERS}
+        onKeyboardReorder={vi.fn()}
+        isFirstInList={false}
+        isLastInList
+      />
+    );
+    expect(screen.getByRole('button', { name: /^move down$/i, hidden: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^move up$/i, hidden: true })).not.toBeDisabled();
+  });
+
   it('drag-over highlight is column-level — card does not get ring-2 (Trend A)', () => {
     // Trend A redesign: drag highlighting moved to column level via dragOverColumn.
     // Individual cards no longer receive ring-2 on drag-over.
@@ -468,8 +570,13 @@ describe('TaskCard — card wrapper styles', () => {
     const { container } = render(
       <TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />
     );
-    expect(
-      container.querySelector('[data-testid="task-card"]')?.className
-    ).not.toContain('ring-2');
+    // Exclude the always-present `focus-visible:ring-2` (keyboard focus
+     // indicator added by ADR-1 keyboard-card-reorder) — the invariant is
+     // that no *unconditional* ring-2 fires on drag-over.
+     const cls = container.querySelector('[data-testid="task-card"]')?.className ?? '';
+     const dragOverRing = cls
+       .split(/\s+/)
+       .some((c) => c === 'ring-2' || (c.endsWith(':ring-2') && !c.startsWith('focus-visible:')));
+     expect(dragOverRing).toBe(false);
   });
 });

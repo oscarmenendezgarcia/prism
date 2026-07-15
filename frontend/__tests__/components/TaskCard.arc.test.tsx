@@ -20,6 +20,7 @@ function storeState(overrides: Record<string, unknown> = {}) {
     openAttachmentModal:  vi.fn(),
     activeSpaceId:        'space-1',
     isMutating:           false,
+    mutatingTaskIds:      new Set<string>(),
     openDetailPanel:      vi.fn(),
     arcGrouping:          false,
     activeRun:            null,
@@ -35,12 +36,6 @@ vi.mock('../../src/stores/useAppStore', () => ({
   useAppStore:        vi.fn(),
   useActiveRun:       vi.fn(() => null),
   useAvailableAgents: vi.fn(() => []),
-}));
-
-vi.mock('../../src/stores/useRunHistoryStore', () => ({
-  useRunHistoryStore: vi.fn((sel) => sel({
-    openPanelForTask: vi.fn(),
-  })),
 }));
 
 vi.mock('../../src/stores/useDragStore', () => ({

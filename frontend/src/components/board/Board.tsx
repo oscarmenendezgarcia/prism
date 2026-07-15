@@ -5,15 +5,81 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import type { Column as ColumnType } from '@/types';
+import type { Column as ColumnType, Task } from '@/types';
 import { useTasks, useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
+import { useAnnouncer } from '@/stores/useAnnouncer';
 import { Column } from './Column';
 import { ArcBar } from './ArcBar';
 import { ColumnTabBar } from './ColumnTabBar';
 import { BoardEmptyState } from './BoardEmptyState';
+import { Announcer } from '@/components/shared/Announcer';
+import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
 
-const COLUMNS: ColumnType[] = ['todo', 'in-progress', 'done'];
+/**
+ * Given the sorted column, produce the visible list respecting the arc
+ * filter (matches Column.tsx). Rank math still runs against the full column.
+ */
+function getVisibleColumnTasks(
+  columnTasks: Task[],
+  arcFilter: string | null,
+): Task[] {
+  if (arcFilter === null) return columnTasks;
+  return columnTasks.filter((t) => t.arc === arcFilter);
+}
+
+/**
+ * Resolve the keyboard-reorder neighbor for a card, honouring arc filter
+ * and arc grouping (T-005). Returns either the neighbor id or a boundary
+ * reason:
+ *   - `column` — first/last in the visible column (or card missing)
+ *   - `group`  — first/last within the arc group when grouping is on;
+ *                moving further would cross into another arc, which would
+ *                implicitly reassign `task.arc` (out of scope).
+ */
+export function resolveKeyboardNeighbor(
+  columnTasks: Task[],
+  taskId: string,
+  arcFilter: string | null,
+  arcGrouping: boolean,
+  direction: 'up' | 'down',
+): {
+  ok: true;
+  neighborId: string;
+  visibleIndex: number;
+  visibleCount: number;
+} | {
+  ok: false;
+  reason: 'column' | 'group';
+  arcLabel: string | null;
+  visibleIndex: number;
+  visibleCount: number;
+} {
+  const visible = getVisibleColumnTasks(columnTasks, arcFilter);
+  const idx = visible.findIndex((t) => t.id === taskId);
+  const visibleCount = visible.length;
+
+  if (idx === -1) {
+    return { ok: false, reason: 'column', arcLabel: null, visibleIndex: -1, visibleCount };
+  }
+  const step = direction === 'up' ? -1 : 1;
+  const neighborIdx = idx + step;
+  if (neighborIdx < 0 || neighborIdx >= visible.length) {
+    return { ok: false, reason: 'column', arcLabel: null, visibleIndex: idx, visibleCount };
+  }
+  const current  = visible[idx];
+  const neighbor = visible[neighborIdx];
+
+  if (arcGrouping) {
+    const currentArc  = current.arc ?? null;
+    const neighborArc = neighbor.arc ?? null;
+    if (currentArc !== neighborArc) {
+      return { ok: false, reason: 'group', arcLabel: currentArc, visibleIndex: idx, visibleCount };
+    }
+  }
+
+  return { ok: true, neighborId: neighbor.id, visibleIndex: idx, visibleCount };
+}
 
 function computeDropRank(
   tasks: import('@/types').Task[],
@@ -73,6 +139,7 @@ export function Board() {
   const tasks = useTasks();
   const moveTask = useAppStore((s) => s.moveTask);
   const reorderTask = useAppStore((s) => s.reorderTask);
+  const reorderTasks = useAppStore((s) => s.reorderTasks);
   const openCreateModal = useAppStore((s) => s.openCreateModal);
   // MB-1: active column for mobile single-column view
   const [activeColumn, setActiveColumn] = useState<ColumnType>('todo');
@@ -89,7 +156,7 @@ export function Board() {
   }, []); // stable — getState() never changes
 
 
-  const handleDragOverTask = useCallback((taskId: string, insertBefore: boolean) => {
+  const handleDragOverTask = useCallback((taskId: string | null, insertBefore: boolean) => {
     useDragStore.getState().setDragOverTask(taskId, insertBefore);
   }, []); // stable — getState() never changes
 
@@ -131,9 +198,15 @@ export function Board() {
       );
 
       if (needsRebalance && rebalancedTasks) {
-        for (const t of rebalancedTasks) {
-          reorderTask(t.id, targetColumn, t.rank ?? 0);
-        }
+        // BUG-fix: batch the rebalance into a single atomic request. Previously
+        // this fired N independent PATCHes; a mid-batch failure (network blip,
+        // server restart) left the column with a mix of old and new ranks that
+        // persisted after reload. `reorderTasks` sends one request wrapped in a
+        // SQLite transaction and rolls back the whole column on failure.
+        reorderTasks(
+          targetColumn,
+          rebalancedTasks.map((t) => ({ id: t.id, rank: t.rank ?? 0 })),
+        );
       } else {
         reorderTask(taskId, targetColumn, newRank);
       }
@@ -142,13 +215,77 @@ export function Board() {
 
     const direction = COLUMNS.indexOf(targetColumn) > COLUMNS.indexOf(dragSourceColumn) ? 'right' : 'left';
     moveTask(taskId, direction, dragSourceColumn);
-  }, [moveTask, reorderTask]); // stable — Zustand actions never change
+  }, [moveTask, reorderTask, reorderTasks]); // stable — Zustand actions never change
 
   // Safety: if the drag is cancelled (dropped outside any valid target), the
   // browser fires dragend on the source element. Reset to avoid a ghost card.
   const handleDragEnd = useCallback(() => {
     useDragStore.getState().resetDrag();
   }, []); // stable — no closure deps
+
+  // ── Keyboard reorder ─────────────────────────────────────────────────────
+  // Alt+Arrow on a focused card or CardActionMenu up/down button (shared by
+  // the keyboard-card-reorder and touch-reorder features — see the
+  // consolidation note in Column.tsx). Reuses computeDropRank + reorderTask
+  // (no new persistence surface). Announces the outcome via the shared
+  // aria-live announcer (WCAG 4.1.3). Guarded so a press during an in-flight
+  // cross-column move is a silent no-op — matching the button `disabled`
+  // state (see wireframes.md — no SR noise for a transient, retryable state).
+  const handleKeyboardReorder = useCallback((
+    taskId: string,
+    targetColumn: ColumnType,
+    direction: 'up' | 'down',
+  ) => {
+    const state = useAppStore.getState();
+    if (state.isMutating) return;
+
+    const columnTasks = state.tasks[targetColumn] ?? [];
+    const task = columnTasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    const columnLabel = COLUMN_LABELS[targetColumn];
+    const title = task.title;
+    const announce = useAnnouncer.getState().announce;
+
+    const resolved = resolveKeyboardNeighbor(
+      columnTasks, taskId, state.arcFilter, state.arcGrouping, direction,
+    );
+
+    if (!resolved.ok) {
+      const edge = direction === 'up' ? 'top' : 'bottom';
+      if (resolved.reason === 'group' && resolved.arcLabel) {
+        announce(
+          `Task "${title}" is already at the ${edge} of the "${resolved.arcLabel}" group in ${columnLabel}.`
+        );
+      } else {
+        announce(`Task "${title}" is already at the ${edge} of ${columnLabel}.`);
+      }
+      return;
+    }
+
+    const { newRank, needsRebalance, rebalancedTasks } = computeDropRank(
+      columnTasks, taskId, resolved.neighborId, /* insertBefore */ direction === 'up',
+    );
+
+    if (needsRebalance && rebalancedTasks) {
+      // BUG-001 fix: mirror handleDrop's atomic batch — N independent
+      // fire-and-forget PATCHes here would reintroduce the partial-rebalance
+      // corruption bug (see .folio/lessons/partial-rebalance-corruption.md).
+      reorderTasks(
+        targetColumn,
+        rebalancedTasks.map((t) => ({ id: t.id, rank: t.rank ?? 0 })),
+      );
+    } else {
+      reorderTask(taskId, targetColumn, newRank);
+    }
+
+    // New 1-based position in the (unchanged-length) visible list.
+    const newVisibleIndex = direction === 'up' ? resolved.visibleIndex - 1 : resolved.visibleIndex + 1;
+    const newPosition = newVisibleIndex + 1;
+    announce(
+      `Task "${title}" moved to position ${newPosition} of ${resolved.visibleCount} in ${columnLabel}.`
+    );
+  }, [reorderTask, reorderTasks]); // stable — Zustand actions never change
 
   const taskCounts = {
     todo: (tasks.todo || []).length,
@@ -185,6 +322,9 @@ export function Board() {
       {/* Arc filter / grouping bar */}
       <ArcBar />
 
+      {/* Shared SR-only aria-live region for keyboard reorder announcements. */}
+      <Announcer />
+
       <main
         role="main"
         className="flex h-full overflow-x-auto overflow-y-hidden"
@@ -208,6 +348,7 @@ export function Board() {
               onDragEnd={handleDragEnd}
               onDrop={handleDrop}
               onDragOverTask={handleDragOverTask}
+              onKeyboardReorder={handleKeyboardReorder}
             />
           </div>
         ))}

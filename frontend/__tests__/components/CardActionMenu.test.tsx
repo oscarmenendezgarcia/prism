@@ -197,3 +197,93 @@ describe('CardActionMenu — run-agent (AgentLauncherMenu)', () => {
     expect(screen.queryByRole('button', { name: /run agent/i })).not.toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Move-up / Move-down buttons (ADR-1 keyboard-card-reorder, T-004)
+// ---------------------------------------------------------------------------
+
+describe('CardActionMenu — move-up / move-down buttons', () => {
+  it('are absent when neither vertical prop is provided (feature off)', () => {
+    renderMenu({ onMoveUp: undefined, onMoveDown: undefined, canMoveUp: false, canMoveDown: false });
+    expect(screen.queryByRole('button', { name: 'Move up' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Move down' })).not.toBeInTheDocument();
+  });
+
+  it('render when canMoveUp/Down are provided', () => {
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true });
+    expect(screen.getByRole('button', { name: 'Move up' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move down' })).toBeInTheDocument();
+  });
+
+  it('render leftmost (before the move-left / move-right pair)', () => {
+    const { container } = renderMenu({
+      column: 'in-progress',
+      onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true,
+    });
+    const buttons = Array.from(container.querySelectorAll('button')).map((b) => b.getAttribute('aria-label'));
+    expect(buttons.slice(0, 2)).toEqual(['Move up', 'Move down']);
+  });
+
+  it('call onMoveUp / onMoveDown when clicked', () => {
+    const onMoveUp = vi.fn(), onMoveDown = vi.fn();
+    renderMenu({ onMoveUp, onMoveDown, canMoveUp: true, canMoveDown: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Move up' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Move down' }));
+    expect(onMoveUp).toHaveBeenCalledOnce();
+    expect(onMoveDown).toHaveBeenCalledOnce();
+  });
+
+  it('move-up disabled when canMoveUp is false (first-in-list boundary)', () => {
+    renderMenu({ onMoveUp: undefined, onMoveDown: vi.fn(), canMoveUp: false, canMoveDown: true });
+    expect(screen.getByRole('button', { name: 'Move up' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move down' })).not.toBeDisabled();
+  });
+
+  it('move-down disabled when canMoveDown is false (last-in-list boundary)', () => {
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown: undefined, canMoveUp: true, canMoveDown: false });
+    expect(screen.getByRole('button', { name: 'Move up' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move down' })).toBeDisabled();
+  });
+
+  it('both disabled while isMutating, even at non-boundary positions', () => {
+    renderMenu({
+      isMutating: true,
+      onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true,
+    });
+    expect(screen.getByRole('button', { name: 'Move up' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move down' })).toBeDisabled();
+  });
+
+  it('tooltips include the shortcut hint', () => {
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true });
+    expect(screen.getByRole('button', { name: 'Move up' })).toHaveAttribute('title', 'Move up (Alt+↑)');
+    expect(screen.getByRole('button', { name: 'Move down' })).toHaveAttribute('title', 'Move down (Alt+↓)');
+  });
+
+  it('aria-label stays stable at the boundary — does not switch to "Already at top" text', () => {
+    renderMenu({ canMoveUp: false, canMoveDown: true, onMoveDown: vi.fn() });
+    const btn = screen.getByRole('button', { name: 'Move up' });
+    expect(btn).toHaveAttribute('aria-label', 'Move up');
+    expect(btn.getAttribute('aria-label')).not.toMatch(/already/i);
+  });
+
+  it('renders ↑/↓ as native <button type="button">', () => {
+    renderMenu({ onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true });
+    const up = screen.getByRole('button', { name: 'Move up' });
+    const down = screen.getByRole('button', { name: 'Move down' });
+    expect(up.tagName).toBe('BUTTON');
+    expect(down.tagName).toBe('BUTTON');
+    expect(up).toHaveAttribute('type', 'button');
+    expect(down).toHaveAttribute('type', 'button');
+  });
+
+  it('preserves ARIA toolbar role and shows ↑↓ alongside ←→, with a divider between the groups', () => {
+    renderMenu({ column: 'in-progress', onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true });
+    const toolbar = screen.getByRole('toolbar', { name: /card actions/i });
+    expect(toolbar).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move up' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move down' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /move to todo/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /move to done/i })).toBeInTheDocument();
+  });
+});

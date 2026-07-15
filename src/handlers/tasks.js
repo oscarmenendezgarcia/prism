@@ -47,6 +47,56 @@ const TASK_ATTACHMENT_CONTENT_ROUTE = /^\/tasks\/([^/]+)\/attachments\/(\d+)$/;
 const TASK_SINGLE_ROUTE             = /^\/tasks\/([^/]+)$/;
 
 // ---------------------------------------------------------------------------
+// Field validation helpers (shared between create + update paths)
+//
+// These are pure, module-scope helpers — same precedent as `validatePipelineField`
+// below — so they can be unit-tested without an HTTP server or a Store instance.
+// They own the message templates for the two checks that were previously
+// hand-copied across the create and update paths (blueprint §3.2). Presence /
+// required semantics deliberately stay at the call site (ADR-1) because they
+// legitimately differ between POST (required) and PUT (patch).
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate a string field's max length. Caller guarantees `value` is a string.
+ *
+ * @param {string} name  Field name for the error message.
+ * @param {string} value String value already asserted by the caller.
+ * @param {number} max   Inclusive maximum length (measured AFTER trim()).
+ * @returns {string|null} Error message, or null when valid.
+ */
+function validateFieldLength(name, value, max) {
+  if (value.trim().length > max) {
+    return `${name} must not exceed ${max} characters`;
+  }
+  return null;
+}
+
+/**
+ * Validate an optional string field: type guard, then max length.
+ * The caller decides presence — this is only called for fields the client sent.
+ *
+ * @param {string}  name
+ * @param {unknown} value
+ * @param {number}  max
+ * @returns {string|null} Error message, or null when valid.
+ */
+function validateOptionalStringField(name, value, max) {
+  if (typeof value !== 'string') {
+    return `${name} must be a string when provided`;
+  }
+  return validateFieldLength(name, value, max);
+}
+
+// Spec table driving the create + update loops. Order matters: it fixes the
+// order in which errors appear in the `; `-joined message (blueprint §6).
+const OPTIONAL_STRING_FIELDS = [
+  { name: 'description', max: DESCRIPTION_MAX_LEN },
+  { name: 'assigned',    max: ASSIGNED_MAX_LEN },
+  { name: 'arc',         max: ARC_MAX_LEN },
+];
+
+// ---------------------------------------------------------------------------
 // Pipeline field validation (exported for autoTask.js)
 // ---------------------------------------------------------------------------
 
@@ -198,30 +248,19 @@ function createApp(spaceId, store) {
 
     if (!title || typeof title !== 'string' || title.trim().length === 0) {
       errors.push('title is required and must be a non-empty string');
-    } else if (title.trim().length > TITLE_MAX_LEN) {
-      errors.push(`title must not exceed ${TITLE_MAX_LEN} characters`);
+    } else {
+      const err = validateFieldLength('title', title, TITLE_MAX_LEN);
+      if (err) errors.push(err);
     }
 
     if (!type || !VALID_TYPES.includes(type)) {
       errors.push(`type is required and must be one of: ${VALID_TYPES.join(', ')}`);
     }
 
-    if (description !== undefined && typeof description !== 'string') {
-      errors.push('description must be a string when provided');
-    } else if (typeof description === 'string' && description.trim().length > DESCRIPTION_MAX_LEN) {
-      errors.push(`description must not exceed ${DESCRIPTION_MAX_LEN} characters`);
-    }
-
-    if (assigned !== undefined && typeof assigned !== 'string') {
-      errors.push('assigned must be a string when provided');
-    } else if (typeof assigned === 'string' && assigned.trim().length > ASSIGNED_MAX_LEN) {
-      errors.push(`assigned must not exceed ${ASSIGNED_MAX_LEN} characters`);
-    }
-
-    if (body.arc !== undefined && typeof body.arc !== 'string') {
-      errors.push('arc must be a string when provided');
-    } else if (typeof body.arc === 'string' && body.arc.trim().length > ARC_MAX_LEN) {
-      errors.push(`arc must not exceed ${ARC_MAX_LEN} characters`);
+    for (const { name, max } of OPTIONAL_STRING_FIELDS) {
+      if (body[name] === undefined) continue;                // create's existing gate
+      const err = validateOptionalStringField(name, body[name], max);
+      if (err) errors.push(err);
     }
 
     const pipelineResult = validatePipelineField(body.pipeline);
@@ -484,6 +523,62 @@ function createApp(spaceId, store) {
     }
   }
 
+  /**
+   * Atomically re-rank up to 500 tasks in this space. Body: { updates: [{id, rank}] }.
+   * Wraps all writes in a single SQLite transaction — if any id is missing the
+   * whole batch is rolled back and a 404 is returned.
+   */
+  const RANK_BATCH_MAX = 500;
+  async function handleRankTasksBatch(req, res) {
+    let body;
+    try {
+      body = await parseBody(req);
+    } catch (err) {
+      if (err.message === 'PAYLOAD_TOO_LARGE') {
+        return sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds 512 KB limit');
+      }
+      return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+    }
+
+    if (!body || typeof body !== 'object' || !Array.isArray(body.updates)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be { updates: [{ id, rank }] }');
+    }
+    const { updates } = body;
+    if (updates.length === 0) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'updates must be a non-empty array');
+    }
+    if (updates.length > RANK_BATCH_MAX) {
+      return sendError(res, 400, 'VALIDATION_ERROR', `updates must not exceed ${RANK_BATCH_MAX} items`);
+    }
+    for (let i = 0; i < updates.length; i++) {
+      const u = updates[i];
+      if (!u || typeof u !== 'object') {
+        return sendError(res, 400, 'VALIDATION_ERROR', `updates[${i}] must be an object`);
+      }
+      if (typeof u.id !== 'string' || u.id.length === 0) {
+        return sendError(res, 400, 'VALIDATION_ERROR', `updates[${i}].id must be a non-empty string`);
+      }
+      if (typeof u.rank !== 'number' || !isFinite(u.rank)) {
+        return sendError(res, 400, 'VALIDATION_ERROR', `updates[${i}].rank must be a finite number`);
+      }
+    }
+
+    const t0 = Date.now();
+    try {
+      const tasks = store.reorderTasks(spaceId, updates);
+      process.stderr.write(JSON.stringify({
+        event: 'task.rank_batch_updated', spaceId, count: updates.length, durationMs: Date.now() - t0,
+      }) + '\n');
+      sendJSON(res, 200, { tasks: tasks.map(stripAttachmentContent) });
+    } catch (err) {
+      if (err && err.code === 'TASK_NOT_FOUND') {
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${err.taskId}' not found in space`);
+      }
+      console.error(`PATCH tasks/rank batch error:`, err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to reorder tasks');
+    }
+  }
+
   async function handleUpdateTask(req, res, taskId) {
     let body;
     try {
@@ -512,8 +607,9 @@ function createApp(spaceId, store) {
     if ('title' in body) {
       if (typeof body.title !== 'string' || body.title.trim().length === 0) {
         errors.push('title must be a non-empty string');
-      } else if (body.title.trim().length > TITLE_MAX_LEN) {
-        errors.push(`title must not exceed ${TITLE_MAX_LEN} characters`);
+      } else {
+        const err = validateFieldLength('title', body.title, TITLE_MAX_LEN);
+        if (err) errors.push(err);
       }
     }
 
@@ -523,35 +619,20 @@ function createApp(spaceId, store) {
       }
     }
 
-    if ('description' in body) {
-      if (typeof body.description !== 'string') {
-        errors.push('description must be a string when provided');
-      } else if (body.description.trim().length > DESCRIPTION_MAX_LEN) {
-        errors.push(`description must not exceed ${DESCRIPTION_MAX_LEN} characters`);
-      }
+    for (const { name, max } of OPTIONAL_STRING_FIELDS) {
+      if (!(name in body)) continue;                         // update's existing gate
+      const err = validateOptionalStringField(name, body[name], max);
+      if (err) errors.push(err);
     }
 
-    if ('assigned' in body) {
-      if (typeof body.assigned !== 'string') {
-        errors.push('assigned must be a string when provided');
-      } else if (body.assigned.trim().length > ASSIGNED_MAX_LEN) {
-        errors.push(`assigned must not exceed ${ASSIGNED_MAX_LEN} characters`);
-      }
-    }
-
+    // NB: `pipeline` is validated after the optional-string loop, so on the
+    // update path a `pipeline` error now appears AFTER `arc`. Accepted deviation
+    // — see blueprint §6 and the deviation note on the Kanban card.
     let pipelineUpdateResult;
     if ('pipeline' in body) {
       pipelineUpdateResult = validatePipelineField(body.pipeline);
       if (!pipelineUpdateResult.valid) {
         errors.push(pipelineUpdateResult.error);
-      }
-    }
-
-    if ('arc' in body) {
-      if (typeof body.arc !== 'string') {
-        errors.push('arc must be a string when provided');
-      } else if (body.arc.trim().length > ARC_MAX_LEN) {
-        errors.push(`arc must not exceed ${ARC_MAX_LEN} characters`);
       }
     }
 
@@ -937,6 +1018,11 @@ function createApp(spaceId, store) {
       return handlePatchAttachments(req, res, attachmentsMatch[1]);
     }
 
+    // Batch rank update — must be matched before TASK_SINGLE_ROUTE would eat `/tasks/rank`.
+    if (method === 'PATCH' && taskPath === '/tasks/rank') {
+      return handleRankTasksBatch(req, res);
+    }
+
     const rankMatch = TASK_RANK_ROUTE.exec(taskPath);
     if (method === 'PATCH' && rankMatch) {
       return handleRankTask(req, res, rankMatch[1]);
@@ -969,4 +1055,9 @@ function createApp(spaceId, store) {
   return { router, ensureDataFiles };
 }
 
-module.exports = { createApp, validatePipelineField };
+module.exports = {
+  createApp,
+  validatePipelineField,
+  validateFieldLength,
+  validateOptionalStringField,
+};

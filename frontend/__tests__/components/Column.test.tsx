@@ -74,4 +74,18 @@ describe('Column', () => {
     fireEvent.dragEnd(cards[0]);
     expect(onDragEnd).toHaveBeenCalledTimes(1);
   });
+
+  it('BUG-003: clears dragOverTaskId when cursor is in empty column space', () => {
+    // Regression: when the cursor exits the last card into empty column space,
+    // no per-card handler fires (cards stopPropagation), so dragOverTaskId
+    // used to stay pointing at the last card. Column-level dragover must now
+    // clear it by calling onDragOverTask(null, ...).
+    const onDragOverTask = vi.fn();
+    const { container } = render(
+      <Column column="todo" tasks={tasks} onDragOverTask={onDragOverTask} />
+    );
+    const section = container.querySelector('[aria-label="Todo column"]')!;
+    fireEvent.dragOver(section);
+    expect(onDragOverTask).toHaveBeenCalledWith(null, true);
+  });
 });

@@ -71,7 +71,7 @@ function makeRun(overrides: Partial<AgentRunRecord> = {}): AgentRunRecord {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  useRunHistoryStore.setState({ runs: [], filter: 'all', taskIdFilter: null, loading: false });
+  useRunHistoryStore.setState({ runs: [], filter: 'all', loading: false });
   usePipelineLogStore.setState({
     runsPanelOpen: true,
     logPanelOpen:  true,
@@ -229,31 +229,6 @@ describe('RunsPanel — run row expand button', () => {
     expect(
       screen.getByRole('button', { name: /open logs for feat: my task/i })
     ).toBeInTheDocument();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Task ID filter chip
-// ---------------------------------------------------------------------------
-
-describe('RunsPanel — taskIdFilter chip', () => {
-  it('shows filter chip when taskIdFilter is set', () => {
-    useRunHistoryStore.setState({ taskIdFilter: 'task-1', runs: [] });
-    render(<RunsPanel />);
-    expect(screen.getByText('Filtering by task')).toBeInTheDocument();
-  });
-
-  it('does not show filter chip when taskIdFilter is null', () => {
-    useRunHistoryStore.setState({ taskIdFilter: null, runs: [] });
-    render(<RunsPanel />);
-    expect(screen.queryByText('Filtering by task')).toBeNull();
-  });
-
-  it('clicking clear filter button clears taskIdFilter', () => {
-    useRunHistoryStore.setState({ taskIdFilter: 'task-1', runs: [] });
-    render(<RunsPanel />);
-    fireEvent.click(screen.getByRole('button', { name: /clear task filter/i }));
-    expect(useRunHistoryStore.getState().taskIdFilter).toBeNull();
   });
 });
 

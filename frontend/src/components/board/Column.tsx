@@ -10,12 +10,14 @@ import { useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { TaskCard } from './TaskCard';
 import { EmptyState } from './EmptyState';
+import { COLUMN_LABELS } from '@/constants/columns';
 
 // Wireframe S-01/S-02: Todo = neutral, In-Progress = violet left accent, Done = green left accent
-const COLUMN_META: Record<ColumnType, { label: string; accentClass: string; colIndex: number }> = {
-  'todo':        { label: 'Todo',        accentClass: '',                     colIndex: 0 },
-  'in-progress': { label: 'In Progress', accentClass: 'border-l-2 border-l-primary', colIndex: 1 },
-  'done':        { label: 'Done',        accentClass: 'border-l-2 border-l-success', colIndex: 2 },
+// accentClass and colIndex are presentation-only and stay local; label comes from the shared map.
+export const COLUMN_META: Record<ColumnType, { label: string; accentClass: string; colIndex: number }> = {
+  'todo':        { label: COLUMN_LABELS['todo'],        accentClass: '',                            colIndex: 0 },
+  'in-progress': { label: COLUMN_LABELS['in-progress'], accentClass: 'border-l-2 border-l-primary', colIndex: 1 },
+  'done':        { label: COLUMN_LABELS['done'],        accentClass: 'border-l-2 border-l-success', colIndex: 2 },
 };
 
 interface ColumnProps {
@@ -26,10 +28,22 @@ interface ColumnProps {
   onDragLeave?: (e: React.DragEvent, targetColumn: ColumnType) => void;
   onDragEnd?: () => void;
   onDrop?: (e: React.DragEvent, targetColumn: ColumnType) => void;
-  onDragOverTask?: (taskId: string, insertBefore: boolean) => void;
+  onDragOverTask?: (taskId: string | null, insertBefore: boolean) => void;
+  /**
+   * Keyboard/button reorder within a column (Alt+Arrow shortcut, and the
+   * CardActionMenu move-up/move-down buttons — shared by the keyboard and
+   * touch-reorder features; see ADR-1 keyboard-card-reorder + ADR-1 touch-reorder).
+   * CONSOLIDATION NOTE: both features independently implemented the same
+   * one-step reorder. Kept keyboard-card-reorder's group-scoped semantics
+   * (does not cross arc-group boundaries) over touch-reorder's rank-absolute
+   * semantics, since the group-scoped behavior was formally reviewed/approved
+   * with that exact rule and avoids implicit arc reassignment as a side effect
+   * of a reorder step.
+   */
+  onKeyboardReorder?: (taskId: string, column: ColumnType, direction: 'up' | 'down') => void;
 }
 
-export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, onDragOverTask }: ColumnProps) {
+export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, onDragOverTask, onKeyboardReorder }: ColumnProps) {
   const { label, accentClass } = COLUMN_META[column];
 
   // Subscribe to column-level drag-over — re-renders only when this column's
@@ -71,6 +85,13 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     onDragOver?.(e, column);
+    // BUG-003 fix: TaskCard.handleDragOver calls stopPropagation, so this
+    // column-level handler only fires when the cursor is in empty column space
+    // (below the last card, or briefly in the gap between cards). Clear
+    // dragOverTaskId so the drop indicator does not stay pinned to the last
+    // card the cursor passed over; a subsequent card-level dragover will
+    // re-set it. Prevents mispositioned drops in the empty area below all cards.
+    onDragOverTask?.(null, true);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
@@ -133,6 +154,11 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
                 const staggerMs = tasks.length > 30
                   ? 0
                   : Math.min(COLUMN_META[column].colIndex * 100 + globalIndex * 35, 500);
+                // Boundary flags are local to the visible group when grouping
+                // is on, and to the whole visible column otherwise — matching
+                // resolveKeyboardNeighbor's arc-group constraint (T-005).
+                const isFirstInList = cardIndex === 0;
+                const isLastInList  = cardIndex === group.tasks.length - 1;
                 return (
                   <TaskCard
                     key={task.id}
@@ -142,6 +168,9 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
                     onDragEnd={onDragEnd}
                     staggerDelayMs={staggerMs}
                     onDragOverTask={onDragOverTask}
+                    onKeyboardReorder={onKeyboardReorder}
+                    isFirstInList={isFirstInList}
+                    isLastInList={isLastInList}
                   />
                 );
               })}
