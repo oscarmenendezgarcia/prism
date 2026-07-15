@@ -1,0 +1,116 @@
+{
+  "version": "1.0",
+  "project": "Prism",
+  "feature": "keyboard-card-reorder",
+  "date": "2026-07-14",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Shared aria-live announcer (useAnnouncer store + <Announcer/>)",
+      "description": "Add a tiny Zustand store `useAnnouncer` ({ message, announce(msg) }) in frontend/src/stores/useAnnouncer.ts and a visually-hidden `role=\"status\" aria-live=\"polite\"` component `<Announcer/>` in frontend/src/components/shared/Announcer.tsx that renders `message`. Force re-announcement of identical strings via a nonce/counter so the text node changes. Mount <Announcer/> once (in Board). SR-only styling (sr-only), no visual footprint.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": [],
+      "acceptance_criteria": [
+        "useAnnouncer exposes `message: string` and `announce(msg: string)`.",
+        "Calling announce twice with the same string still updates the rendered text node (nonce/counter).",
+        "<Announcer/> renders one element with role=\"status\" and aria-live=\"polite\", visually hidden (sr-only) but present in the accessibility tree.",
+        "No visible UI change on the board."
+      ]
+    },
+    {
+      "id": "T-002",
+      "title": "Board keyboard-reorder handler (reuse computeDropRank + reorderTask)",
+      "description": "Add `handleKeyboardReorder(taskId, column, direction: 'up'|'down')` to Board.tsx. Resolve the card's neighbor from the RENDERED/visible order for that column (respect arc filter and arc grouping; see T-005), compute the target rank by reusing the existing computeDropRank (overTaskId = neighbor, insertBefore = true for 'up' / false for 'down'), then call reorderTask (or loop the rebalance branch when needsRebalance). After a successful move, call announce(\"Task '<title>' moved to position N of M in <Column label>\"). Guard: ignore when isMutating. Pass the handler down through Column to TaskCard/CardActionMenu.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-001"],
+      "acceptance_criteria": [
+        "Handler reuses the existing computeDropRank; no duplicated rank math.",
+        "'up' moves the card one slot toward index 0; 'down' one slot toward the end, matching drag semantics.",
+        "needsRebalance path loops reorderTask over rebalancedTasks exactly as the drop handler does.",
+        "After each successful move announce() is called with the correct 1-based position and column label.",
+        "No store call is made while isMutating is true.",
+        "Handler prop is threaded Board -> Column -> TaskCard/CardActionMenu."
+      ]
+    },
+    {
+      "id": "T-003",
+      "title": "TaskCard focusability + Alt+Arrow keydown + focus-visible ring",
+      "description": "Make the TaskCard <article> focusable (tabIndex={0}), add aria-keyshortcuts=\"Alt+ArrowUp Alt+ArrowDown\", and an onKeyDown that, only when e.altKey && key is ArrowUp/ArrowDown, calls e.preventDefault()+e.stopPropagation() and invokes onKeyboardReorder(task.id, column, dir). All other keys (Tab, Enter/Space to open panel, Escape) must pass through unaffected. Add a visible focus-visible ring (focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-hidden) — none exists today. Use design-system tokens only (no inline styles).",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "Card is reachable by Tab and shows a visible focus ring (2.4.7).",
+        "Alt+ArrowUp / Alt+ArrowDown on a focused card trigger a reorder and are the only keys intercepted.",
+        "Tab, Enter/Space (open panel), and Escape behavior are unchanged.",
+        "aria-keyshortcuts is present on the card.",
+        "Only Tailwind design-system tokens used; no style={{}} added."
+      ]
+    },
+    {
+      "id": "T-004",
+      "title": "CardActionMenu move-up / move-down buttons (discoverable + WCAG 2.5.7)",
+      "description": "Add onMoveUp?/onMoveDown? props to CardActionMenu and render two icon buttons (arrow_upward / arrow_downward) with aria-label \"Move up\"/\"Move down\" and a title tooltip that includes the shortcut hint (e.g. \"Move up (Alt+↑)\"). Wire them to Board's handleKeyboardReorder via TaskCard. Disable each at the list boundary (first card can't move up, last can't move down) and while isMutating. Follow the existing 28x28 icon-button styling. Final visual grouping relative to move-left/right is per the UX stage's wireframes.",
+      "role": "Developer",
+      "priority": "High",
+      "estimate": "2",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "Move-up/down buttons appear in the card action overlay, keyboard-focusable and operable.",
+        "Buttons are disabled (and announced disabled) at column boundaries and while isMutating.",
+        "Clicking a button performs the same reorder as the Alt+Arrow shortcut (single shared handler).",
+        "aria-labels present; tooltip includes the shortcut hint.",
+        "Provides the non-drag pointer alternative required by WCAG 2.5.7."
+      ]
+    },
+    {
+      "id": "T-005",
+      "title": "Arc-group / arc-filter boundary handling in reorder",
+      "description": "Ensure neighbor resolution uses the visible ordering. When arc grouping is ON, constrain reorder to within the card's arc group: a press that would cross into another group or the ungrouped bucket is a no-op that announces the boundary (moving across groups would implicitly change the card's arc). When an arc filter is active, compute the neighbor from the filtered visible list. Boundary presses (top ^ / bottom v) never call reorderTask and announce 'already at top/bottom of <Column>'.",
+      "role": "Developer",
+      "priority": "Medium",
+      "estimate": "2",
+      "dependencies": ["T-002"],
+      "acceptance_criteria": [
+        "With grouping on, a card at the top of its group does not move into the previous group; a spoken boundary announcement is made.",
+        "With an arc filter active, reorder places the card relative to visible neighbors only.",
+        "First/last visible card boundary presses make no store call and announce the boundary.",
+        "No press ever changes a card's arc."
+      ]
+    },
+    {
+      "id": "T-006",
+      "title": "Tests — unit, component (RTL), and keyboard focus retention",
+      "description": "Unit tests for neighbor/rank resolution incl. boundaries, arc-group constraint, and rebalance path. Component (RTL) tests: Alt+ArrowUp/Down calls reorderTask with the expected rank; plain arrows/Tab/Enter are NOT swallowed; announcer text is correct; boundary press announces and does not call reorderTask; buttons disabled at boundaries. Assert focus stays on the moved card after reorder. Target >90% coverage on new/changed lines.",
+      "role": "QA",
+      "priority": "High",
+      "estimate": "3",
+      "dependencies": ["T-003", "T-004", "T-005"],
+      "acceptance_criteria": [
+        "Unit tests cover up/down, both boundaries, arc-group constraint, and rebalance.",
+        "Component tests assert reorderTask call args, announcement strings, and that non-shortcut keys pass through.",
+        "A test asserts the moved card retains focus after reorder.",
+        ">90% coverage on new/changed frontend lines; frontend `npm test` green."
+      ]
+    },
+    {
+      "id": "T-007",
+      "title": "E2E keyboard reorder + persistence (Playwright) and changelog",
+      "description": "Playwright keyboard-only E2E: Tab to a card, Alt+ArrowDown, assert DOM order changed and focus remains on the same card; reload and assert order persisted. Verify the aria-live region and focus-visible ring exist. Add a changelog entry describing the accessible reorder path and shortcuts.",
+      "role": "QA",
+      "priority": "Medium",
+      "estimate": "2",
+      "dependencies": ["T-006"],
+      "acceptance_criteria": [
+        "Headless Playwright test reorders a card with the keyboard and verifies persisted order after reload.",
+        "Test verifies focus retention and presence of the live region.",
+        "Changelog updated with the feature and its keyboard shortcuts."
+      ]
+    }
+  ]
+}

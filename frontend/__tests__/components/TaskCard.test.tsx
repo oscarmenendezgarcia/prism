@@ -477,8 +477,13 @@ describe('TaskCard — card wrapper styles', () => {
     const { container } = render(
       <TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />
     );
-    expect(
-      container.querySelector('[data-testid="task-card"]')?.className
-    ).not.toContain('ring-2');
+    // Exclude the always-present `focus-visible:ring-2` (keyboard focus
+     // indicator added by ADR-1 keyboard-card-reorder) — the invariant is
+     // that no *unconditional* ring-2 fires on drag-over.
+     const cls = container.querySelector('[data-testid="task-card"]')?.className ?? '';
+     const dragOverRing = cls
+       .split(/\s+/)
+       .some((c) => c === 'ring-2' || (c.endsWith(':ring-2') && !c.startsWith('focus-visible:')));
+     expect(dragOverRing).toBe(false);
   });
 });

@@ -64,6 +64,15 @@ interface TaskCardProps {
   onDragOverTask?: (taskId: string | null, insertBefore: boolean) => void;
   /** A-1: stagger delay in ms for the entrance animation. EXCEPTION: only inline style allowed. */
   staggerDelayMs?: number;
+  /**
+   * Keyboard/button reorder within the column (Alt+Arrow shortcut, and the
+   * CardActionMenu move-up/move-down buttons). See ADR-1 keyboard-card-reorder.
+   */
+  onKeyboardReorder?: (taskId: string, column: Column, direction: 'up' | 'down') => void;
+  /** True when this card is the first in its visible group — disables move-up. */
+  isFirstInList?: boolean;
+  /** True when this card is the last in its visible group — disables move-down. */
+  isLastInList?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -74,7 +83,7 @@ interface TaskCardProps {
 // task list changes). Drag state is now read directly from useDragStore with
 // per-card boolean selectors — only this specific card re-renders when its own
 // drag state changes, giving O(1) re-renders per drag event.
-export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragEnd, staggerDelayMs = 0, onDragOverTask }: TaskCardProps) {
+export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragEnd, staggerDelayMs = 0, onDragOverTask, onKeyboardReorder, isFirstInList = false, isLastInList = false }: TaskCardProps) {
   const moveTask          = useAppStore((s) => s.moveTask);
   const deleteTask        = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
@@ -127,10 +136,35 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
     onDragOverTask?.(task.id, insertBefore);
   };
 
+  // Alt+ArrowUp/Down keyboard reorder (ADR-1 keyboard-card-reorder).
+  // Only intercepts that exact combo — Tab, Enter, Space, Escape, plain
+  // arrows all pass through unchanged so we never trap the keyboard.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (!onKeyboardReorder) return;
+    if (!e.altKey) return;
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    if (isMutating) {
+      // Silent no-op — matches disabled button behaviour; do not spam SR.
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    onKeyboardReorder(task.id, column, e.key === 'ArrowUp' ? 'up' : 'down');
+  };
+
+  const canMoveUp   = !!onKeyboardReorder && !isFirstInList;
+  const canMoveDown = !!onKeyboardReorder && !isLastInList;
+  const handleMoveUp   = canMoveUp   ? () => onKeyboardReorder!(task.id, column, 'up')   : undefined;
+  const handleMoveDown = canMoveDown ? () => onKeyboardReorder!(task.id, column, 'down') : undefined;
+
   return (
     <article
       role="listitem"
       draggable
+      tabIndex={0}
+      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
       data-id={task.id}
       data-column={column}
       data-testid="task-card"
@@ -142,6 +176,9 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         'transition-[transform,box-shadow,border-color] duration-fast ease-default',
         'hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(124,109,250,0.15)] hover:ring-1 hover:ring-primary/30',
         'active:scale-[0.99] active:duration-100',
+        // 2.4.7 Focus Visible — card had no focus indicator before; :focus-visible
+        // so mouse clicks don't show a ring, only real keyboard focus does.
+        'focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
         isDone ? 'opacity-50 grayscale-[25%]' : '',
         isDragging ? 'rotate-1 scale-[0.97] shadow-xl ring-1 ring-primary/40 opacity-80' : '',
         isActiveTask ? 'border-primary/30 animate-glow-pulse' : '',
@@ -151,6 +188,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       style={staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms`, animationFillMode: 'both' } : { animationFillMode: 'both' }}
       aria-grabbed={isDragging}
       onClick={() => openDetailPanel(task)}
+      onKeyDown={handleKeyDown}
       onDragStart={(e) => onDragStart?.(e, task.id, column)}
       onDragEnd={onDragEnd}
       onDragOver={handleDragOver}
@@ -256,6 +294,10 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
             spaceId={activeSpaceId}
             isMutating={isMutating}
             activeRun={activeRun}
+            onMoveUp={handleMoveUp}
+            onMoveDown={handleMoveDown}
+            canMoveUp={canMoveUp}
+            canMoveDown={canMoveDown}
             onMoveLeft={showLeft ? () => moveTask(task.id, 'left', column) : undefined}
             onMoveRight={showRight ? () => moveTask(task.id, 'right', column) : undefined}
             onDelete={() => deleteTask(task.id)}

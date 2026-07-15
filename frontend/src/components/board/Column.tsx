@@ -12,7 +12,7 @@ import { TaskCard } from './TaskCard';
 import { EmptyState } from './EmptyState';
 
 // Wireframe S-01/S-02: Todo = neutral, In-Progress = violet left accent, Done = green left accent
-const COLUMN_META: Record<ColumnType, { label: string; accentClass: string; colIndex: number }> = {
+export const COLUMN_META: Record<ColumnType, { label: string; accentClass: string; colIndex: number }> = {
   'todo':        { label: 'Todo',        accentClass: '',                     colIndex: 0 },
   'in-progress': { label: 'In Progress', accentClass: 'border-l-2 border-l-primary', colIndex: 1 },
   'done':        { label: 'Done',        accentClass: 'border-l-2 border-l-success', colIndex: 2 },
@@ -27,9 +27,11 @@ interface ColumnProps {
   onDragEnd?: () => void;
   onDrop?: (e: React.DragEvent, targetColumn: ColumnType) => void;
   onDragOverTask?: (taskId: string | null, insertBefore: boolean) => void;
+  /** Keyboard/button reorder within a column. See Board.handleKeyboardReorder. */
+  onKeyboardReorder?: (taskId: string, column: ColumnType, direction: 'up' | 'down') => void;
 }
 
-export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, onDragOverTask }: ColumnProps) {
+export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, onDragOverTask, onKeyboardReorder }: ColumnProps) {
   const { label, accentClass } = COLUMN_META[column];
 
   // Subscribe to column-level drag-over — re-renders only when this column's
@@ -140,6 +142,11 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
                 const staggerMs = tasks.length > 30
                   ? 0
                   : Math.min(COLUMN_META[column].colIndex * 100 + globalIndex * 35, 500);
+                // Boundary flags are local to the visible group when grouping
+                // is on, and to the whole visible column otherwise — matching
+                // resolveKeyboardNeighbor's arc-group constraint (T-005).
+                const isFirstInList = cardIndex === 0;
+                const isLastInList  = cardIndex === group.tasks.length - 1;
                 return (
                   <TaskCard
                     key={task.id}
@@ -149,6 +156,9 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
                     onDragEnd={onDragEnd}
                     staggerDelayMs={staggerMs}
                     onDragOverTask={onDragOverTask}
+                    onKeyboardReorder={onKeyboardReorder}
+                    isFirstInList={isFirstInList}
+                    isLastInList={isLastInList}
                   />
                 );
               })}
