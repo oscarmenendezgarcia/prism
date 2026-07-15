@@ -16,7 +16,6 @@ import { Badge } from '@/components/shared/Badge';
 import { arcColor } from '@/utils/arcs';
 import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore, useActiveRun } from '@/stores/useAppStore';
-import { useRunHistoryStore } from '@/stores/useRunHistoryStore';
 import { useDragStore } from '@/stores/useDragStore';
 
 // ---------------------------------------------------------------------------
@@ -83,7 +82,6 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const activeRun         = useActiveRun();
   const openDetailPanel   = useAppStore((s) => s.openDetailPanel);
   const arcGrouping       = useAppStore((s) => s.arcGrouping);
-  const openPanelForTask  = useRunHistoryStore((s) => s.openPanelForTask);
 
   const isDragging = useDragStore((s) => s.draggedTaskId === task.id);
   const isDragOverThis = useDragStore((s) => s.dragOverTaskId === task.id);

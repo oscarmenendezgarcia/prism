@@ -10,10 +10,6 @@ import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import { createAgentRun, updateAgentRun, getAgentRuns } from '@/api/client';
 import type { AgentRunRecord, AgentRunPatchPayload, RunStatus } from '@/types';
-import { safeStorage } from '@/utils/safeStorage';
-
-/** localStorage key for panel open state persistence. */
-const HISTORY_PANEL_OPEN_KEY = 'prism:run-history:open';
 
 // ---------------------------------------------------------------------------
 // Store shape
@@ -26,14 +22,8 @@ interface RunHistoryState {
   /** Active status filter — 'all' means no filter. */
   filter: RunStatus | 'all';
 
-  /** When set, the panel shows only runs for this task ID. */
-  taskIdFilter: string | null;
-
   /** True during the first fetch only. */
   loading: boolean;
-
-  /** Whether the Run History panel is open. Persisted to safeStorage. */
-  historyPanelOpen: boolean;
 
   /** Fetch /api/v1/agent-runs and update runs[]. */
   loadRuns: () => Promise<void>;
@@ -58,18 +48,6 @@ interface RunHistoryState {
 
   /** Update the active status filter. */
   setFilter: (filter: RunStatus | 'all') => void;
-
-  /**
-   * Open the panel and filter to a specific task ID.
-   * Called when the user clicks the active-run indicator on a task card.
-   */
-  openPanelForTask: (taskId: string) => void;
-
-  /** Clear the task ID filter and return to showing all runs. */
-  clearTaskIdFilter: () => void;
-
-  /** Toggle historyPanelOpen and persist to safeStorage. */
-  toggleHistoryPanel: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,11 +55,9 @@ interface RunHistoryState {
 // ---------------------------------------------------------------------------
 
 export const useRunHistoryStore = create<RunHistoryState>((set, get) => ({
-  runs:         [],
-  filter:       'all',
-  taskIdFilter: null,
-  loading:      false,
-  historyPanelOpen: safeStorage.getItem(HISTORY_PANEL_OPEN_KEY) === '1',
+  runs:    [],
+  filter:  'all',
+  loading: false,
 
   loadRuns: async () => {
     const { runs: currentRuns } = get();
@@ -159,40 +135,14 @@ export const useRunHistoryStore = create<RunHistoryState>((set, get) => ({
   },
 
   setFilter: (filter) => set({ filter }),
-
-  openPanelForTask: (taskId) => {
-    safeStorage.setItem(HISTORY_PANEL_OPEN_KEY, '1');
-    set({ historyPanelOpen: true, taskIdFilter: taskId, filter: 'all' });
-  },
-
-  clearTaskIdFilter: () => set({ taskIdFilter: null }),
-
-  toggleHistoryPanel: () => {
-    const next = !get().historyPanelOpen;
-    if (next) {
-      safeStorage.setItem(HISTORY_PANEL_OPEN_KEY, '1');
-    } else {
-      safeStorage.removeItem(HISTORY_PANEL_OPEN_KEY);
-    }
-    set({ historyPanelOpen: next });
-  },
 }));
 
 // ---------------------------------------------------------------------------
 // Selector hooks for common slices
 // ---------------------------------------------------------------------------
 
-/** Convenience selector for the panel open state. */
-export const useHistoryPanelOpen = () =>
-  useRunHistoryStore((s) => s.historyPanelOpen);
-
-/** Filtered runs — applies both status filter and task ID filter. */
+/** Filtered runs — applies the active status filter. */
 export const useFilteredRuns = (): AgentRunRecord[] =>
   useRunHistoryStore(
-    useShallow((s) => {
-      let result = s.runs;
-      if (s.taskIdFilter) result = result.filter((r) => r.taskId === s.taskIdFilter);
-      if (s.filter !== 'all') result = result.filter((r) => r.status === s.filter);
-      return result;
-    })
+    useShallow((s) => (s.filter === 'all' ? s.runs : s.runs.filter((r) => r.status === s.filter)))
   );
