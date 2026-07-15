@@ -6,9 +6,10 @@
  * channel. This store feeds a single <Announcer/> element mounted once in
  * <Board/>.
  *
- * `nonce` increments on every call so that two consecutive announcements of
- * the same string still update the rendered text node (a bare live region
- * silently dedupes identical text and the SR never re-reads it).
+ * `nonce` increments on every call. <Announcer/> keys its message span on
+ * `nonce` so React remounts the text node on every announcement, even when
+ * two consecutive messages are identical — a bare live region silently
+ * dedupes identical text and the SR never re-reads it otherwise.
  */
 
 import { create } from 'zustand';

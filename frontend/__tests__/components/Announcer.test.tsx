@@ -1,7 +1,7 @@
 /**
  * Tests for <Announcer/>.
  * Verifies role/aria-live, sr-only styling, and that identical repeat
- * messages still change the rendered text node (nonce-driven).
+ * messages still remount the text node (key={nonce}-driven).
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -28,19 +28,19 @@ describe('Announcer', () => {
       useAnnouncer.getState().announce('Task moved to position 2 of 3 in Todo.');
     });
     const el = screen.getByTestId('announcer');
-    expect(el.textContent?.replace(/​/g, '')).toBe(
-      'Task moved to position 2 of 3 in Todo.'
-    );
+    expect(el.textContent).toBe('Task moved to position 2 of 3 in Todo.');
   });
 
-  it('two identical announcements change the rendered text node (nonce marker)', () => {
+  it('two identical announcements remount the message span (nonce key)', () => {
     render(<Announcer />);
     act(() => useAnnouncer.getState().announce('boundary'));
-    const first = screen.getByTestId('announcer').textContent;
+    const firstSpan = screen.getByTestId('announcer').querySelector('span');
     act(() => useAnnouncer.getState().announce('boundary'));
-    const second = screen.getByTestId('announcer').textContent;
-    expect(first).not.toBe(second);
-    // The user-visible text stripped of nonce markers must remain identical.
-    expect(first?.replace(/​/g, '')).toBe(second?.replace(/​/g, ''));
+    const secondSpan = screen.getByTestId('announcer').querySelector('span');
+    // Different DOM node instances despite identical text — React remounted
+    // it because the key (nonce) changed, which is what forces the SR to
+    // re-read an aria-live region with unchanged visible text.
+    expect(firstSpan).not.toBe(secondSpan);
+    expect(secondSpan?.textContent).toBe('boundary');
   });
 });
