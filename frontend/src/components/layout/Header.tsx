@@ -23,7 +23,7 @@ const IS_MAC =
   typeof navigator !== 'undefined' &&
   /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
 const SEARCH_HINT = IS_MAC ? '⌘K' : 'Ctrl K';
-const SEARCH_LABEL = `Buscar tareas (${SEARCH_HINT})`;
+const SEARCH_LABEL = `Search tasks (${SEARCH_HINT})`;
 
 export function Header() {
   const openCreateModal = useAppStore((s) => s.openCreateModal);
@@ -101,7 +101,7 @@ export function Header() {
           </span>
           <span className="flex-1 text-[13px] text-text-disabled group-hover:text-text-secondary text-left select-none
             transition-colors duration-fast ease-default">
-            Buscar…
+            Search…
           </span>
           <kbd
             className="inline-flex items-center px-1.5 py-0.5
