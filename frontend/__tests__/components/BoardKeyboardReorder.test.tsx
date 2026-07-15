@@ -261,6 +261,43 @@ describe('Board — keyboard reorder', () => {
     expect(reorderTask).not.toHaveBeenCalled();
   });
 
+  it('BUG-001 regression: a rebalance-triggering move calls the atomic reorderTasks batch, not N reorderTask loop calls', () => {
+    // Ranks packed tight enough (gap < 0.001) that inserting 'a' between
+    // 'b' and 'c' forces computeDropRank's rebalance branch. Before the
+    // fix, handleKeyboardReorder looped reorderTask() once per task here —
+    // reintroducing the partial-rebalance-corruption bug already fixed for
+    // drag-and-drop (see .folio/lessons/partial-rebalance-corruption.md).
+    const reorderTask = vi.fn();
+    const reorderTasks = vi.fn();
+    setBoard({
+      tasks: {
+        todo: [
+          mkTask('a', 1000),
+          mkTask('b', 1000.0004),
+          mkTask('c', 1000.0008),
+        ],
+        'in-progress': [], done: [],
+      },
+      reorderTask,
+      reorderTasks,
+    } as never);
+    render(<Board />);
+
+    fireEvent.keyDown(findCard('a'), { key: 'ArrowDown', altKey: true });
+
+    // Single atomic batch call — never the per-task loop.
+    expect(reorderTasks).toHaveBeenCalledOnce();
+    expect(reorderTask).not.toHaveBeenCalled();
+
+    const [column, updates] = reorderTasks.mock.calls[0];
+    expect(column).toBe('todo');
+    expect(updates).toEqual([
+      { id: 'b', rank: 1000 },
+      { id: 'a', rank: 2000 },
+      { id: 'c', rank: 3000 },
+    ]);
+  });
+
   it('cards are tabIndex=0 (focusable)', () => {
     render(<Board />);
     expect(findCard('a').tabIndex).toBe(0);

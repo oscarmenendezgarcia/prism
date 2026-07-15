@@ -274,9 +274,13 @@ export function Board() {
     );
 
     if (needsRebalance && rebalancedTasks) {
-      for (const t of rebalancedTasks) {
-        reorderTask(t.id, targetColumn, t.rank ?? 0);
-      }
+      // BUG-001 fix: mirror handleDrop's atomic batch — N independent
+      // fire-and-forget PATCHes here would reintroduce the partial-rebalance
+      // corruption bug (see .folio/lessons/partial-rebalance-corruption.md).
+      reorderTasks(
+        targetColumn,
+        rebalancedTasks.map((t) => ({ id: t.id, rank: t.rank ?? 0 })),
+      );
     } else {
       reorderTask(taskId, targetColumn, newRank);
     }
@@ -287,7 +291,7 @@ export function Board() {
     announce(
       `Task "${title}" moved to position ${newPosition} of ${resolved.visibleCount} in ${columnLabel}.`
     );
-  }, [reorderTask]); // reorderTask is a stable Zustand action
+  }, [reorderTask, reorderTasks]); // stable — Zustand actions never change
 
   const taskCounts = {
     todo: (tasks.todo || []).length,
