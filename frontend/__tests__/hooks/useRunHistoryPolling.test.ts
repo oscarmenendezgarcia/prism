@@ -29,7 +29,7 @@ import * as clientModule from '../../src/api/client';
 beforeEach(() => {
   vi.useFakeTimers();
   useAppStore.setState({ activeRun: null, isMutating: false });
-  useRunHistoryStore.setState({ runs: [], filter: 'all', loading: false, historyPanelOpen: true });
+  useRunHistoryStore.setState({ runs: [], filter: 'all', loading: false });
   vi.clearAllMocks();
 });
 

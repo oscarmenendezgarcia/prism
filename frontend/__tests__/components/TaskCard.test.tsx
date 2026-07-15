@@ -95,10 +95,6 @@ function resetStores(overrides: Record<string, unknown> = {}) {
   });
   useRunHistoryStore.setState({
     runs: [],
-    historyPanelOpen: false,
-    selectedRunId: null,
-    filterTaskId: null,
-    taskIdFilter: null,
   });
 }
 

@@ -38,12 +38,6 @@ vi.mock('../../src/stores/useAppStore', () => ({
   useAvailableAgents: vi.fn(() => []),
 }));
 
-vi.mock('../../src/stores/useRunHistoryStore', () => ({
-  useRunHistoryStore: vi.fn((sel) => sel({
-    openPanelForTask: vi.fn(),
-  })),
-}));
-
 vi.mock('../../src/stores/useDragStore', () => ({
   useDragStore: vi.fn((sel) => sel({
     draggedTaskId:  null,

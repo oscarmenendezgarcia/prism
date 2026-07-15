@@ -223,12 +223,10 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
 // ---------------------------------------------------------------------------
 
 export function RunsPanel() {
-  const filter            = useRunHistoryStore((s) => s.filter);
-  const setFilter         = useRunHistoryStore((s) => s.setFilter);
-  const loading           = useRunHistoryStore((s) => s.loading);
-  const taskIdFilter      = useRunHistoryStore((s) => s.taskIdFilter);
-  const clearTaskIdFilter = useRunHistoryStore((s) => s.clearTaskIdFilter);
-  const filteredRuns      = useFilteredRuns();
+  const filter       = useRunHistoryStore((s) => s.filter);
+  const setFilter    = useRunHistoryStore((s) => s.setFilter);
+  const loading      = useRunHistoryStore((s) => s.loading);
+  const filteredRuns = useFilteredRuns();
 
   const setRunsPanelOpen   = usePipelineLogStore((s) => s.setRunsPanelOpen);
   const openLogPanelForRun = useAppStore((s) => s.openLogPanelForRun);
@@ -435,23 +433,6 @@ export function RunsPanel() {
           </button>
         </div>
 
-        {/* Task ID filter chip */}
-        {taskIdFilter && (
-          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 bg-info-container">
-            <span className="material-symbols-outlined text-sm text-info leading-none" aria-hidden="true">
-              filter_alt
-            </span>
-            <span className="text-xs text-info flex-1 truncate">Filtering by task</span>
-            <button
-              onClick={clearTaskIdFilter}
-              aria-label="Clear task filter"
-              className="w-5 h-5 flex items-center justify-center rounded text-info hover:bg-info/[0.20] transition-colors duration-150"
-            >
-              <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">close</span>
-            </button>
-          </div>
-        )}
-
         {/* Filter pill bar */}
         <div className="flex items-center gap-1 px-3 py-2 border-b border-border shrink-0 overflow-x-auto">
           {FILTER_OPTIONS.map((opt) => {
@@ -488,12 +469,10 @@ export function RunsPanel() {
                 account_tree
               </span>
               <p className="text-sm font-medium text-text-secondary">
-                {taskIdFilter ? 'No runs for this task' : filter === 'all' ? 'No runs yet' : `No ${filter} runs`}
+                {filter === 'all' ? 'No runs yet' : `No ${filter} runs`}
               </p>
               <p className="text-xs text-text-disabled leading-relaxed max-w-[200px]">
-                {taskIdFilter
-                  ? 'No agents have been launched on this task yet.'
-                  : filter === 'all'
+                {filter === 'all'
                   ? 'Agent runs will appear here when you launch an agent from a task card.'
                   : `Switch to "All" to see runs with other statuses.`}
               </p>
