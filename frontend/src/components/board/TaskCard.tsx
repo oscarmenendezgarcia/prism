@@ -205,11 +205,15 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
           so same-arc cards read as a group at a glance. Hidden while grouping is
           on, since the column's group header already carries the arc. Negative
           margins bleed it to the card edges (article is overflow-hidden so it
-          respects the rounded top corners). Rides the card's fade-in entrance. */}
+          respects the rounded top corners) — asymmetric (-ml-7/-mr-4) to match
+          the article's own asymmetric p-4 pl-7 (the extra left padding clears
+          the drag handle below), then padded back in (pl-7/pr-4) so the arc
+          text lines up with the title instead of hugging the bled edge.
+          Rides the card's fade-in entrance. */}
       {task.arc && !arcGrouping && (
         <div
           data-testid="arc-strip"
-          className={`-mx-4 -mt-4 mb-3 px-4 py-1.5 text-[11px] font-mono font-semibold uppercase tracking-wider truncate ${arcColor(task.arc)}`}
+          className={`-ml-7 -mr-4 -mt-4 mb-3 pl-7 pr-4 py-1.5 text-[11px] font-mono font-semibold uppercase tracking-wider truncate ${arcColor(task.arc)}`}
           title={task.arc}
         >
           {task.arc}
