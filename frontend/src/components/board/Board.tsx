@@ -90,7 +90,7 @@ export function Board() {
   }, []); // stable — getState() never changes
 
 
-  const handleDragOverTask = useCallback((taskId: string, insertBefore: boolean) => {
+  const handleDragOverTask = useCallback((taskId: string | null, insertBefore: boolean) => {
     useDragStore.getState().setDragOverTask(taskId, insertBefore);
   }, []); // stable — getState() never changes
 
