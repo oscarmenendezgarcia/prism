@@ -14,13 +14,7 @@ import { ArcBar } from './ArcBar';
 import { ColumnTabBar } from './ColumnTabBar';
 import { BoardEmptyState } from './BoardEmptyState';
 import { Announcer } from '@/components/shared/Announcer';
-import { COLUMNS } from '@/constants/columns';
-
-const COLUMN_LABEL: Record<ColumnType, string> = {
-  todo: 'Todo',
-  'in-progress': 'In Progress',
-  done: 'Done',
-};
+import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
 
 /**
  * Given the sorted column, produce the visible list respecting the arc
@@ -249,7 +243,7 @@ export function Board() {
     const task = columnTasks.find((t) => t.id === taskId);
     if (!task) return;
 
-    const columnLabel = COLUMN_LABEL[targetColumn];
+    const columnLabel = COLUMN_LABELS[targetColumn];
     const title = task.title;
     const announce = useAnnouncer.getState().announce;
 
