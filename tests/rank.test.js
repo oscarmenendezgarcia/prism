@@ -194,6 +194,66 @@ async function runTests() {
   });
 
   // =========================================================================
+  // Store: insertTask writes computed rank back onto the task object (BUG-001)
+  // =========================================================================
+
+  suite('Store — insertTask exposes computed rank on the input task');
+
+  await test('insertTask mutates task.rank with the computed tail rank', async () => {
+    const store = createStore(':memory:');
+    store.upsertSpace(makeSpace());
+
+    const t1 = makeTask({ id: 'mut-1' });
+    store.insertTask(t1, 'space-1', 'todo');
+    assert(t1.rank === 1000, `Expected mutated rank 1000, got ${t1.rank}`);
+
+    const t2 = makeTask({ id: 'mut-2' });
+    store.insertTask(t2, 'space-1', 'todo');
+    assert(t2.rank === 2000, `Expected mutated rank 2000, got ${t2.rank}`);
+    store.close();
+  });
+
+  await test('insertTask preserves an explicitly provided rank on the task object', async () => {
+    const store = createStore(':memory:');
+    store.upsertSpace(makeSpace());
+
+    const t = makeTask({ id: 'mut-explicit', rank: 12345 });
+    store.insertTask(t, 'space-1', 'todo');
+    assert(t.rank === 12345, `Expected preserved rank 12345, got ${t.rank}`);
+    store.close();
+  });
+
+  // =========================================================================
+  // HTTP: POST /tasks 201 response includes the computed rank (BUG-001)
+  // =========================================================================
+
+  suite('HTTP — POST /tasks 201 response includes computed rank');
+
+  await test('POST /tasks returns the computed rank in the 201 body', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      const created = await post(port, '/api/v1/spaces/default/tasks', {
+        title: 'first',
+        type:  'feature',
+      });
+      assert(created.status === 201, `Expected 201, got ${created.status}`);
+      assert(typeof created.body.rank === 'number',
+        `Expected numeric rank, got ${JSON.stringify(created.body.rank)}`);
+      const firstRank = created.body.rank;
+
+      const second = await post(port, '/api/v1/spaces/default/tasks', {
+        title: 'second',
+        type:  'feature',
+      });
+      assert(second.status === 201, `Expected 201, got ${second.status}`);
+      assert(second.body.rank === firstRank + 1000,
+        `Expected rank ${firstRank + 1000}, got ${second.body.rank}`);
+    } finally {
+      await close();
+    }
+  });
+
+  // =========================================================================
   // Store: moveTask assigns tail rank in destination
   // =========================================================================
 
