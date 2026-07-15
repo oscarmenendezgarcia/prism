@@ -73,6 +73,7 @@ export function Board() {
   const tasks = useTasks();
   const moveTask = useAppStore((s) => s.moveTask);
   const reorderTask = useAppStore((s) => s.reorderTask);
+  const reorderTasks = useAppStore((s) => s.reorderTasks);
   const openCreateModal = useAppStore((s) => s.openCreateModal);
   // MB-1: active column for mobile single-column view
   const [activeColumn, setActiveColumn] = useState<ColumnType>('todo');
@@ -131,9 +132,15 @@ export function Board() {
       );
 
       if (needsRebalance && rebalancedTasks) {
-        for (const t of rebalancedTasks) {
-          reorderTask(t.id, targetColumn, t.rank ?? 0);
-        }
+        // BUG-fix: batch the rebalance into a single atomic request. Previously
+        // this fired N independent PATCHes; a mid-batch failure (network blip,
+        // server restart) left the column with a mix of old and new ranks that
+        // persisted after reload. `reorderTasks` sends one request wrapped in a
+        // SQLite transaction and rolls back the whole column on failure.
+        reorderTasks(
+          targetColumn,
+          rebalancedTasks.map((t) => ({ id: t.id, rank: t.rank ?? 0 })),
+        );
       } else {
         reorderTask(taskId, targetColumn, newRank);
       }
@@ -142,7 +149,7 @@ export function Board() {
 
     const direction = COLUMNS.indexOf(targetColumn) > COLUMNS.indexOf(dragSourceColumn) ? 'right' : 'left';
     moveTask(taskId, direction, dragSourceColumn);
-  }, [moveTask, reorderTask]); // stable — Zustand actions never change
+  }, [moveTask, reorderTask, reorderTasks]); // stable — Zustand actions never change
 
   // Safety: if the drag is cancelled (dropped outside any valid target), the
   // browser fires dragend on the source element. Reset to avoid a ghost card.

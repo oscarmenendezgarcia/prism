@@ -356,6 +356,142 @@ async function runTests() {
     }
   });
 
+  // =========================================================================
+  // Store: reorderTasks (batch, atomic)
+  // =========================================================================
+
+  suite('Store — reorderTasks batches updates atomically');
+
+  await test('applies all updates in one transaction', async () => {
+    const store = createStore(':memory:');
+    store.upsertSpace(makeSpace());
+    store.insertTask(makeTask({ id: 'a', createdAt: '2026-01-01T00:00:00.000Z' }), 'space-1', 'todo');
+    store.insertTask(makeTask({ id: 'b', createdAt: '2026-01-01T00:01:00.000Z' }), 'space-1', 'todo');
+    store.insertTask(makeTask({ id: 'c', createdAt: '2026-01-01T00:02:00.000Z' }), 'space-1', 'todo');
+
+    const updated = store.reorderTasks('space-1', [
+      { id: 'a', rank: 3000 },
+      { id: 'b', rank: 1000 },
+      { id: 'c', rank: 2000 },
+    ]);
+    assert(Array.isArray(updated) && updated.length === 3, 'reorderTasks should return updated tasks');
+    const tasks = store.getTasksByColumn('space-1', 'todo');
+    assert(tasks[0].id === 'b' && tasks[0].rank === 1000, 'b first at 1000');
+    assert(tasks[1].id === 'c' && tasks[1].rank === 2000, 'c second at 2000');
+    assert(tasks[2].id === 'a' && tasks[2].rank === 3000, 'a last at 3000');
+    store.close();
+  });
+
+  await test('rolls back all updates when any task id is missing (atomicity)', async () => {
+    const store = createStore(':memory:');
+    store.upsertSpace(makeSpace());
+    store.insertTask(makeTask({ id: 'a', createdAt: '2026-01-01T00:00:00.000Z' }), 'space-1', 'todo');
+    store.insertTask(makeTask({ id: 'b', createdAt: '2026-01-01T00:01:00.000Z' }), 'space-1', 'todo');
+    // Original ranks: a=1000, b=2000
+
+    let threw = null;
+    try {
+      store.reorderTasks('space-1', [
+        { id: 'a', rank: 9000 },
+        { id: 'ghost', rank: 9500 },
+        { id: 'b', rank: 9999 },
+      ]);
+    } catch (err) {
+      threw = err;
+    }
+    assert(threw && threw.code === 'TASK_NOT_FOUND', 'should throw TASK_NOT_FOUND');
+    const tasks = store.getTasksByColumn('space-1', 'todo');
+    assert(tasks[0].id === 'a' && tasks[0].rank === 1000, `a rank rolled back, got ${tasks[0].rank}`);
+    assert(tasks[1].id === 'b' && tasks[1].rank === 2000, `b rank rolled back, got ${tasks[1].rank}`);
+    store.close();
+  });
+
+  // =========================================================================
+  // HTTP: PATCH /tasks/rank batch
+  // =========================================================================
+
+  suite('PATCH /spaces/:spaceId/tasks/rank — batch');
+
+  await test('200 applies all rank updates atomically', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      const t1 = (await post(port, '/api/v1/spaces/default/tasks', { title: 'A', type: 'chore' })).body;
+      const t2 = (await post(port, '/api/v1/spaces/default/tasks', { title: 'B', type: 'chore' })).body;
+      const t3 = (await post(port, '/api/v1/spaces/default/tasks', { title: 'C', type: 'chore' })).body;
+
+      const res = await patch(port, '/api/v1/spaces/default/tasks/rank', {
+        updates: [
+          { id: t1.id, rank: 3000 },
+          { id: t2.id, rank: 1000 },
+          { id: t3.id, rank: 2000 },
+        ],
+      });
+      assert(res.status === 200, `Expected 200, got ${res.status}: ${JSON.stringify(res.body)}`);
+      assert(Array.isArray(res.body.tasks) && res.body.tasks.length === 3, 'response.tasks[3]');
+
+      const listRes = await get(port, '/api/v1/spaces/default/tasks');
+      const todo = listRes.body.todo;
+      assert(todo[0].id === t2.id, `first should be t2, got ${todo[0].id}`);
+      assert(todo[1].id === t3.id, `second should be t3, got ${todo[1].id}`);
+      assert(todo[2].id === t1.id, `third should be t1, got ${todo[2].id}`);
+    } finally {
+      await close();
+    }
+  });
+
+  await test('404 and full rollback when any id is unknown', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      const t1 = (await post(port, '/api/v1/spaces/default/tasks', { title: 'A', type: 'chore' })).body;
+      const t2 = (await post(port, '/api/v1/spaces/default/tasks', { title: 'B', type: 'chore' })).body;
+      // originals: t1 rank 1000, t2 rank 2000
+
+      const res = await patch(port, '/api/v1/spaces/default/tasks/rank', {
+        updates: [
+          { id: t1.id, rank: 9000 },
+          { id: 'does-not-exist', rank: 9500 },
+          { id: t2.id, rank: 9999 },
+        ],
+      });
+      assert(res.status === 404, `Expected 404, got ${res.status}`);
+      assert(res.body.error.code === 'TASK_NOT_FOUND', `Expected TASK_NOT_FOUND, got ${res.body.error.code}`);
+
+      const listRes = await get(port, '/api/v1/spaces/default/tasks');
+      const todo = listRes.body.todo;
+      const gotT1 = todo.find((t) => t.id === t1.id);
+      const gotT2 = todo.find((t) => t.id === t2.id);
+      assert(gotT1.rank === 1000, `t1 rank rolled back to 1000, got ${gotT1.rank}`);
+      assert(gotT2.rank === 2000, `t2 rank rolled back to 2000, got ${gotT2.rank}`);
+    } finally {
+      await close();
+    }
+  });
+
+  await test('400 when body has no updates array', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      const res = await patch(port, '/api/v1/spaces/default/tasks/rank', {});
+      assert(res.status === 400, `Expected 400, got ${res.status}`);
+      assert(res.body.error.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${res.body.error.code}`);
+    } finally {
+      await close();
+    }
+  });
+
+  await test('400 when an update item has non-numeric rank', async () => {
+    const { port, close } = await startTestServer();
+    try {
+      const t1 = (await post(port, '/api/v1/spaces/default/tasks', { title: 'A', type: 'chore' })).body;
+      const res = await patch(port, '/api/v1/spaces/default/tasks/rank', {
+        updates: [{ id: t1.id, rank: 'nope' }],
+      });
+      assert(res.status === 400, `Expected 400, got ${res.status}`);
+      assert(res.body.error.code === 'VALIDATION_ERROR', `Expected VALIDATION_ERROR, got ${res.body.error.code}`);
+    } finally {
+      await close();
+    }
+  });
+
   // ---------------------------------------------------------------------------
   // Summary
   // ---------------------------------------------------------------------------
