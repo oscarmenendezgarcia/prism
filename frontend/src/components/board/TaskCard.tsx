@@ -187,19 +187,6 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       onDragEnd={onDragEnd}
       onDragOver={handleDragOver}
     >
-      {/* Drag handle — visible on hover only.
-          ADR-1 (touch-reorder): coarse-pointer affordance removed — the HTML5
-          drag it hints at does not fire on touch, so showing a grab handle
-          there is misleading. Touch/keyboard users get the ↑ / ↓ step
-          controls in CardActionMenu instead. */}
-      <div
-        className="absolute left-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-40 transition-opacity duration-fast text-text-secondary cursor-grab active:cursor-grabbing"
-        aria-hidden="true"
-        data-testid="drag-handle"
-      >
-        <span className="material-symbols-outlined text-base leading-none select-none">drag_indicator</span>
-      </div>
-
       {/* ── Arc strip (storyline banner) ──
           Full-width tinted band titling the card with its arc, coloured per-arc
           so same-arc cards read as a group at a glance. Hidden while grouping is
@@ -209,7 +196,8 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
           the article's own asymmetric p-4 pl-7 (the extra left padding clears
           the drag handle below), then padded back in (pl-7/pr-4) so the arc
           text lines up with the title instead of hugging the bled edge.
-          Rides the card's fade-in entrance. */}
+          Rides the card's fade-in entrance. Rendered outside the body wrapper
+          below so the drag handle centers on the body only, not the strip. */}
       {task.arc && !arcGrouping && (
         <div
           data-testid="arc-strip"
@@ -220,100 +208,116 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         </div>
       )}
 
-      {/* ── Title ── */}
-      <p className="text-sm font-medium text-text-primary leading-snug line-clamp-2">
-        {task.title}
-      </p>
-
-      {/* ── Meta row: badge + assigned + attachments + questions + action menu ── */}
-      <div className="flex items-center gap-2 mt-3 flex-wrap" data-testid="zone-b">
-        {/* Badge */}
-        <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-md flex-shrink-0 ${badgeClass}`}>
-          <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">
-            {task.type === 'feature' ? 'diamond' : task.type === 'bug' ? 'bug_report' : 'science'}
-          </span>
-          {task.type}
-        </span>
-
-        {/* Assigned / Unassigned */}
-        {task.assigned ? (
-          <>
-            <div
-              className={`w-4 h-4 rounded-full bg-gradient-to-br ${getGradient(task.assigned)} flex items-center justify-center text-[7px] font-bold text-white flex-shrink-0`}
-              aria-hidden="true"
-              data-testid="avatar"
-            >
-              {getInitials(task.assigned)}
-            </div>
-            <span className="text-xs text-text-secondary truncate" data-testid="assigned-name">
-              {task.assigned}
-            </span>
-          </>
-        ) : (
-          <span className="text-[11px] text-text-disabled" data-testid="unassigned-label">
-            Unassigned
-          </span>
-        )}
-
-        {/* Attachments */}
-        {task.attachments && task.attachments.length > 0 && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); openAttachmentModal(activeSpaceId, task.id, 0, task.attachments![0].name, task.attachments!); }}
-            aria-label={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
-            title={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
-            data-testid="attachment-pill"
-            className="inline-flex items-center gap-0.5 text-xs text-text-secondary hover:text-primary transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
-          >
-            <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">attachment</span>
-            {task.attachments.length}
-          </button>
-        )}
-
-        {/* Pending questions */}
-        {pendingQuestions > 0 && (
-          <span
-            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-warning/[0.15] text-warning leading-none"
-            data-testid="pending-questions-badge"
-            aria-label={`${pendingQuestions} pending question${pendingQuestions !== 1 ? 's' : ''}`}
-          >
-            <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">help</span>
-            {pendingQuestions}
-          </span>
-        )}
-
-      </div>
-
-      {/* Action menu — absolute top-right, hover/focus-within only */}
-      <div
-        data-testid="hover-overlay"
-        className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-fast"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="bg-surface-elevated border border-border rounded-md shadow-sm">
-          <CardActionMenu
-            taskId={task.id}
-            column={column}
-            spaceId={activeSpaceId}
-            isMutating={isMutating}
-            activeRun={activeRun}
-            onMoveUp={handleMoveUp}
-            onMoveDown={handleMoveDown}
-            canMoveUp={canMoveUp}
-            canMoveDown={canMoveDown}
-            onMoveLeft={showLeft ? () => moveTask(task.id, 'left', column) : undefined}
-            onMoveRight={showRight ? () => moveTask(task.id, 'right', column) : undefined}
-            onDelete={() => deleteTask(task.id)}
-          />
+      <div className="relative">
+        {/* Drag handle — visible on hover only, centered in the pl-7 gutter
+            and on the body's own height (excludes the arc strip above).
+            ADR-1 (touch-reorder): coarse-pointer affordance removed — the
+            HTML5 drag it hints at does not fire on touch, so showing a grab
+            handle there is misleading. Touch/keyboard users get the ↑ / ↓
+            step controls in CardActionMenu instead. */}
+        <div
+          className="absolute -left-7 w-7 top-1/2 -translate-y-1/2 flex justify-center opacity-0 group-hover:opacity-40 transition-opacity duration-fast text-text-secondary cursor-grab active:cursor-grabbing"
+          aria-hidden="true"
+          data-testid="drag-handle"
+        >
+          <span className="material-symbols-outlined text-base leading-none select-none">drag_indicator</span>
         </div>
-      </div>
 
-      {/* ── Description preview ── */}
-      {task.description && (
-        <p className="mt-2 text-[11px] text-text-disabled line-clamp-2 leading-relaxed" data-testid="desc-preview">
-          {task.description}
+        {/* ── Title ── */}
+        <p className="text-sm font-medium text-text-primary leading-snug line-clamp-2">
+          {task.title}
         </p>
-      )}
+
+        {/* ── Meta row: badge + assigned + attachments + questions + action menu ── */}
+        <div className="flex items-center gap-2 mt-3 flex-wrap" data-testid="zone-b">
+          {/* Badge */}
+          <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-md flex-shrink-0 ${badgeClass}`}>
+            <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">
+              {task.type === 'feature' ? 'diamond' : task.type === 'bug' ? 'bug_report' : 'science'}
+            </span>
+            {task.type}
+          </span>
+
+          {/* Assigned / Unassigned */}
+          {task.assigned ? (
+            <>
+              <div
+                className={`w-4 h-4 rounded-full bg-gradient-to-br ${getGradient(task.assigned)} flex items-center justify-center text-[7px] font-bold text-white flex-shrink-0`}
+                aria-hidden="true"
+                data-testid="avatar"
+              >
+                {getInitials(task.assigned)}
+              </div>
+              <span className="text-xs text-text-secondary truncate" data-testid="assigned-name">
+                {task.assigned}
+              </span>
+            </>
+          ) : (
+            <span className="text-[11px] text-text-disabled" data-testid="unassigned-label">
+              Unassigned
+            </span>
+          )}
+
+          {/* Attachments */}
+          {task.attachments && task.attachments.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); openAttachmentModal(activeSpaceId, task.id, 0, task.attachments![0].name, task.attachments!); }}
+              aria-label={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
+              title={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}`}
+              data-testid="attachment-pill"
+              className="inline-flex items-center gap-0.5 text-xs text-text-secondary hover:text-primary transition-colors duration-fast focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
+            >
+              <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">attachment</span>
+              {task.attachments.length}
+            </button>
+          )}
+
+          {/* Pending questions */}
+          {pendingQuestions > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-warning/[0.15] text-warning leading-none"
+              data-testid="pending-questions-badge"
+              aria-label={`${pendingQuestions} pending question${pendingQuestions !== 1 ? 's' : ''}`}
+            >
+              <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">help</span>
+              {pendingQuestions}
+            </span>
+          )}
+
+        </div>
+
+        {/* Action menu — absolute top-right, hover/focus-within only */}
+        <div
+          data-testid="hover-overlay"
+          className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-fast"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-surface-elevated border border-border rounded-md shadow-sm">
+            <CardActionMenu
+              taskId={task.id}
+              column={column}
+              spaceId={activeSpaceId}
+              isMutating={isMutating}
+              activeRun={activeRun}
+              onMoveUp={handleMoveUp}
+              onMoveDown={handleMoveDown}
+              canMoveUp={canMoveUp}
+              canMoveDown={canMoveDown}
+              onMoveLeft={showLeft ? () => moveTask(task.id, 'left', column) : undefined}
+              onMoveRight={showRight ? () => moveTask(task.id, 'right', column) : undefined}
+              onDelete={() => deleteTask(task.id)}
+            />
+          </div>
+        </div>
+
+        {/* ── Description preview ── */}
+        {task.description && (
+          <p className="mt-2 text-[11px] text-text-disabled line-clamp-2 leading-relaxed" data-testid="desc-preview">
+            {task.description}
+          </p>
+        )}
+      </div>
     </article>
   );
 });
