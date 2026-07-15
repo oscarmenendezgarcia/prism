@@ -484,83 +484,83 @@ describe('TaskCard — card wrapper styles', () => {
     expect(handle?.tagName).not.toBe('BUTTON');
   });
 
-  it('renders ↑ / ↓ buttons when onReorderStep is wired', () => {
+  it('renders ↑ / ↓ buttons when onKeyboardReorder is wired', () => {
     render(
       <TaskCard
         task={BASE_TASK}
         column="todo"
         {...DRAG_HANDLERS}
-        onReorderStep={vi.fn()}
-        isFirst={false}
-        isLast={false}
+        onKeyboardReorder={vi.fn()}
+        isFirstInList={false}
+        isLastInList={false}
       />
     );
     expect(screen.getByRole('button', { name: /^move up$/i, hidden: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^move down$/i, hidden: true })).toBeInTheDocument();
   });
 
-  it('does not render ↑ / ↓ when onReorderStep is undefined', () => {
+  it('does not render ↑ / ↓ when onKeyboardReorder is undefined', () => {
     render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
     expect(screen.queryByRole('button', { name: /^move up$/i, hidden: true })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^move down$/i, hidden: true })).not.toBeInTheDocument();
   });
 
-  it('↑ button calls onReorderStep with direction=up', () => {
-    const onReorderStep = vi.fn();
+  it('↑ button calls onKeyboardReorder with direction=up', () => {
+    const onKeyboardReorder = vi.fn();
     render(
       <TaskCard
         task={BASE_TASK}
         column="in-progress"
         {...DRAG_HANDLERS}
-        onReorderStep={onReorderStep}
-        isFirst={false}
-        isLast={false}
+        onKeyboardReorder={onKeyboardReorder}
+        isFirstInList={false}
+        isLastInList={false}
       />
     );
     fireEvent.click(screen.getByRole('button', { name: /^move up$/i, hidden: true }));
-    expect(onReorderStep).toHaveBeenCalledWith('task-1', 'in-progress', 'up');
+    expect(onKeyboardReorder).toHaveBeenCalledWith('task-1', 'in-progress', 'up');
   });
 
-  it('↓ button calls onReorderStep with direction=down', () => {
-    const onReorderStep = vi.fn();
+  it('↓ button calls onKeyboardReorder with direction=down', () => {
+    const onKeyboardReorder = vi.fn();
     render(
       <TaskCard
         task={BASE_TASK}
         column="in-progress"
         {...DRAG_HANDLERS}
-        onReorderStep={onReorderStep}
-        isFirst={false}
-        isLast={false}
+        onKeyboardReorder={onKeyboardReorder}
+        isFirstInList={false}
+        isLastInList={false}
       />
     );
     fireEvent.click(screen.getByRole('button', { name: /^move down$/i, hidden: true }));
-    expect(onReorderStep).toHaveBeenCalledWith('task-1', 'in-progress', 'down');
+    expect(onKeyboardReorder).toHaveBeenCalledWith('task-1', 'in-progress', 'down');
   });
 
-  it('↑ is disabled when isFirst=true', () => {
+  it('↑ is disabled when isFirstInList=true', () => {
     render(
       <TaskCard
         task={BASE_TASK}
         column="todo"
         {...DRAG_HANDLERS}
-        onReorderStep={vi.fn()}
-        isFirst
-        isLast={false}
+        onKeyboardReorder={vi.fn()}
+        isFirstInList
+        isLastInList={false}
       />
     );
     expect(screen.getByRole('button', { name: /^move up$/i, hidden: true })).toBeDisabled();
     expect(screen.getByRole('button', { name: /^move down$/i, hidden: true })).not.toBeDisabled();
   });
 
-  it('↓ is disabled when isLast=true', () => {
+  it('↓ is disabled when isLastInList=true', () => {
     render(
       <TaskCard
         task={BASE_TASK}
         column="todo"
         {...DRAG_HANDLERS}
-        onReorderStep={vi.fn()}
-        isFirst={false}
-        isLast
+        onKeyboardReorder={vi.fn()}
+        isFirstInList={false}
+        isLastInList
       />
     );
     expect(screen.getByRole('button', { name: /^move down$/i, hidden: true })).toBeDisabled();
