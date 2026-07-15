@@ -312,6 +312,81 @@ describe('Board — drag and drop', () => {
     expect(ids).toEqual(['t1', 't2', 't3']);
   });
 
+  // ────────────────────────────────────────────────────────────────────────
+  // ADR-1 (touch-reorder) — isFirst/isLast + neighbor selection must use
+  // rank-order (the full column), not the arc-filtered/grouped visible list.
+  // This is a documented assumption (blueprint.md §3.2, Column.tsx comment) —
+  // regression-tested here since no prior test exercised arcFilter/arcGrouping
+  // together with the reorder-step buttons.
+  // ────────────────────────────────────────────────────────────────────────
+
+  it('reorder step: ↓ targets the true rank-neighbor even when it is filtered out of view', () => {
+    const reorderTaskMock = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({
+      tasks: {
+        todo: [
+          { id: 't1', title: 'A', type: 'chore' as const, rank: 1000, arc: 'Alpha', createdAt: '', updatedAt: '' },
+          // t2 has no arc — filtered out when arcFilter='Alpha', but is still
+          // t1's immediate rank-neighbor and must be the reorder target.
+          { id: 't2', title: 'B', type: 'chore' as const, rank: 2000, createdAt: '', updatedAt: '' },
+          { id: 't3', title: 'C', type: 'chore' as const, rank: 3000, arc: 'Alpha', createdAt: '', updatedAt: '' },
+        ],
+        'in-progress': [], done: [],
+      },
+      reorderTask: reorderTaskMock,
+      isMutating: false,
+      arcFilter: 'Alpha',
+      arcGrouping: false,
+    });
+    render(<Board />);
+    // Only t1 and t3 (arc=Alpha) are visible; t1 is first-in-view but is
+    // still first-in-rank too, so ↑ stays disabled. Its ↓ must target the
+    // real neighbor t2 (rank 2000), not the next *visible* card t3.
+    const downButtons = screen.getAllByRole('button', { name: /^move down$/i, hidden: true });
+    fireEvent.click(downButtons[0]);
+    expect(reorderTaskMock).toHaveBeenCalledOnce();
+    const [id, column, newRank] = reorderTaskMock.mock.calls[0];
+    expect(id).toBe('t1');
+    expect(column).toBe('todo');
+    expect(newRank).toBeGreaterThan(2000);
+    expect(newRank).toBeLessThan(3000);
+
+    // t3 is 2nd in the *filtered* view but 3rd (last) in true rank order —
+    // its ↓ must stay disabled, proving isFirst/isLast is computed against
+    // the unfiltered column, not `visibleTasks`. (Regression check: if
+    // Column.tsx ever switches isFirst/isLast to rank-index-within-
+    // visibleTasks, this button would incorrectly become enabled.)
+    expect(downButtons[1]).toBeDisabled();
+  });
+
+  it('reorder step: ↓/↑ still edits by rank order when arcGrouping is on, crossing group boundaries', () => {
+    const reorderTaskMock = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({
+      tasks: {
+        todo: [
+          { id: 't1', title: 'A', type: 'chore' as const, rank: 1000, arc: 'Alpha', createdAt: '', updatedAt: '' },
+          { id: 't2', title: 'B', type: 'chore' as const, rank: 2000, arc: 'Beta', createdAt: '', updatedAt: '' },
+        ],
+        'in-progress': [], done: [],
+      },
+      reorderTask: reorderTaskMock,
+      isMutating: false,
+      arcFilter: null,
+      arcGrouping: true,
+    });
+    render(<Board />);
+    // t1 (Alpha) and t2 (Beta) are rank-adjacent despite different arc groups.
+    // Epic 3 (user-stories.md): rank stays the single source of truth, no
+    // special-casing at a group boundary — this is intentional, not a bug.
+    const downButtons = screen.getAllByRole('button', { name: /^move down$/i, hidden: true });
+    fireEvent.click(downButtons[0]); // t1 ↓ → swaps past t2 across the Alpha/Beta boundary
+    expect(reorderTaskMock).toHaveBeenCalledOnce();
+    const [id, column, newRank] = reorderTaskMock.mock.calls[0];
+    expect(id).toBe('t1');
+    expect(column).toBe('todo');
+    expect(newRank).toBeGreaterThan(2000);
+  });
+
   it('calls moveTask with direction=right when dropping on a later column', () => {
     const moveTaskMock = vi.fn().mockResolvedValue(undefined);
     useAppStore.setState({ tasks: TASKS_FIXTURE, moveTask: moveTaskMock });
