@@ -79,7 +79,9 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const deleteTask        = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
   const activeSpaceId     = useAppStore((s) => s.activeSpaceId);
-  const isMutating        = useAppStore((s) => s.isMutating);
+  // Per-task mutation flag — only this card's actions get disabled while its
+  // own move/delete is in flight; the rest of the board stays interactive.
+  const isMutating        = useAppStore((s) => s.mutatingTaskIds.has(task.id));
   const activeRun         = useActiveRun();
   const openDetailPanel   = useAppStore((s) => s.openDetailPanel);
   const arcGrouping       = useAppStore((s) => s.arcGrouping);

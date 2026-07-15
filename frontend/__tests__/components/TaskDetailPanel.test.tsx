@@ -81,6 +81,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useAppStore.getState>> 
   useAppStore.setState({
     detailTask: null,
     isMutating: false,
+    mutatingTaskIds: new Set<string>(),
     activeRun: null,
     tasks: { todo: [TASK, TASK_WITH_PIPELINE, TASK_WITH_ATTACHMENTS], 'in-progress': [], done: [] },
     activeSpaceId: 'space-1',
@@ -287,32 +288,32 @@ describe('TaskDetailPanel — explicit save: description', () => {
 
 describe('TaskDetailPanel — disabled state during isMutating', () => {
   it('disables title input when isMutating is true', () => {
-    useAppStore.setState({ detailTask: TASK, isMutating: true } as any);
+    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
     render(<TaskDetailPanel />);
     expect(screen.getByLabelText(/title/i)).toBeDisabled();
   });
 
   it('disables assigned input when isMutating is true', () => {
-    useAppStore.setState({ detailTask: TASK, isMutating: true } as any);
+    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
     render(<TaskDetailPanel />);
     expect(screen.getByLabelText(/assigned/i)).toBeDisabled();
   });
 
   it('disables description textarea when isMutating is true', () => {
-    useAppStore.setState({ detailTask: TASK, isMutating: true } as any);
+    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
     render(<TaskDetailPanel />);
     expect(screen.getByLabelText(/description/i)).toBeDisabled();
   });
 
   it('disables type radio buttons when isMutating is true', () => {
-    useAppStore.setState({ detailTask: TASK, isMutating: true } as any);
+    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
     render(<TaskDetailPanel />);
     const radios = screen.getAllByRole('radio');
     radios.forEach((r) => expect(r).toBeDisabled());
   });
 
   it('disables Save description button when isMutating is true', () => {
-    useAppStore.setState({ detailTask: TASK, isMutating: true } as any);
+    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
     render(<TaskDetailPanel />);
     // The button is disabled; text changes to "Saving..."
     const btn = document.body.querySelector('button[disabled]') as HTMLButtonElement;
@@ -630,7 +631,7 @@ describe('TaskDetailPanel — pipeline field: edit mode', () => {
   });
 
   it('pipeline editor is disabled when fieldDisabled is true (isMutating)', () => {
-    useAppStore.setState({ detailTask: TASK_WITH_PIPELINE, isMutating: true } as any);
+    useAppStore.setState({ detailTask: TASK_WITH_PIPELINE, isMutating: true, mutatingTaskIds: new Set([TASK_WITH_PIPELINE.id]) } as any);
     render(<TaskDetailPanel />);
 
     const editBtn = screen.getByRole('button', { name: /edit pipeline/i });
@@ -879,7 +880,7 @@ describe('TaskDetailPanel — centered modal layout', () => {
   });
 
   it('disables all inputs when isMutating is true', () => {
-    useAppStore.setState({ detailTask: TASK, isMutating: true } as any);
+    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
     render(<TaskDetailPanel />);
     expect(screen.getByLabelText(/title/i)).toBeDisabled();
     expect(screen.getByLabelText(/assigned/i)).toBeDisabled();

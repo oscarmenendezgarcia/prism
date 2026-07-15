@@ -77,6 +77,22 @@ const emptyBoard = (): BoardTasks => ({
   'done': [],
 });
 
+/**
+ * Immutable helpers for `mutatingTaskIds`. Always return a fresh Set so
+ * Zustand's default reference equality re-renders the affected selectors.
+ */
+function addMutatingId(prev: Set<string>, id: string): Set<string> {
+  const next = new Set(prev);
+  next.add(id);
+  return next;
+}
+function removeMutatingId(prev: Set<string>, id: string): Set<string> {
+  if (!prev.has(id)) return prev;
+  const next = new Set(prev);
+  next.delete(id);
+  return next;
+}
+
 // ---------------------------------------------------------------------------
 // Store shape
 // ---------------------------------------------------------------------------
@@ -104,7 +120,20 @@ interface AppState {
 
   // Tasks
   tasks: BoardTasks;
+  /**
+   * Global "any mutation in flight" flag. Used by polling loops to skip a
+   * refetch that would clobber optimistic state, and by createTask (which has
+   * no taskId yet to scope per-task). For per-card gating (disabling move /
+   * delete on a specific card), read `mutatingTaskIds` instead — that way an
+   * in-flight move on one card doesn't disable the buttons on every other.
+   */
   isMutating: boolean;
+  /**
+   * IDs of tasks that currently have an in-flight mutation (move / delete /
+   * updateTask). Scoped per-task so only the affected card shows a disabled
+   * state; the rest of the board stays interactive.
+   */
+  mutatingTaskIds: Set<string>;
   loadBoard: () => Promise<void>;
   createTask: (payload: CreateTaskPayload) => Promise<void>;
   moveTask: (taskId: string, direction: 'left' | 'right', currentColumn: Column) => Promise<void>;
@@ -781,6 +810,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   tasks: emptyBoard(),
   isMutating: false,
+  mutatingTaskIds: new Set<string>(),
 
   loadBoard: async () => {
     const { activeSpaceId, showToast } = get();
@@ -814,7 +844,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const idx = COLUMNS.indexOf(currentColumn);
     const targetColumn: Column = direction === 'left' ? COLUMNS[idx - 1] : COLUMNS[idx + 1];
 
-    set({ isMutating: true });
+    set({ isMutating: true, mutatingTaskIds: addMutatingId(get().mutatingTaskIds, taskId) });
     try {
       await api.moveTask(activeSpaceId, taskId, targetColumn);
       showToast(`Moved to ${COLUMN_LABELS[targetColumn]}`);
@@ -822,13 +852,13 @@ export const useAppStore = create<AppState>((set, get) => {
     } catch (err) {
       showToast((err as Error).message, 'error');
     } finally {
-      set({ isMutating: false });
+      set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });
     }
   },
 
   deleteTask: async (taskId: string) => {
     const { activeSpaceId, loadBoard, showToast } = get();
-    set({ isMutating: true });
+    set({ isMutating: true, mutatingTaskIds: addMutatingId(get().mutatingTaskIds, taskId) });
     try {
       await api.deleteTask(activeSpaceId, taskId);
       showToast('Task deleted');
@@ -836,7 +866,7 @@ export const useAppStore = create<AppState>((set, get) => {
     } catch (err) {
       showToast((err as Error).message, 'error');
     } finally {
-      set({ isMutating: false });
+      set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });
     }
   },
 
@@ -1648,7 +1678,12 @@ export const useAppStore = create<AppState>((set, get) => {
     const optimisticDetail =
       detailTask?.id === taskId ? { ...detailTask, ...patch } : detailTask;
 
-    set({ isMutating: true, tasks: optimisticTasks, detailTask: optimisticDetail });
+    set({
+      isMutating: true,
+      mutatingTaskIds: addMutatingId(get().mutatingTaskIds, taskId),
+      tasks: optimisticTasks,
+      detailTask: optimisticDetail,
+    });
 
     try {
       const updated = await api.updateTask(activeSpaceId, taskId, patch);
@@ -1672,7 +1707,7 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ tasks, detailTask });
       showToast(`Failed to save: ${(err as Error).message}`, 'error');
     } finally {
-      set({ isMutating: false });
+      set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });
     }
   },
 
@@ -1793,6 +1828,13 @@ export const useActiveSpaceId = () => useAppStore((s) => s.activeSpaceId);
 export const useSpaces = () => useAppStore((s) => s.spaces);
 export const useTasks = () => useAppStore((s) => s.tasks);
 export const useIsMutating = () => useAppStore((s) => s.isMutating);
+/**
+ * True while `taskId` has an in-flight mutation (move / delete / updateTask).
+ * Scoped per-task so only the affected card shows a disabled state while other
+ * cards on the board remain interactive.
+ */
+export const useIsTaskMutating = (taskId: string) =>
+  useAppStore((s) => s.mutatingTaskIds.has(taskId));
 export const useToast = () => useAppStore((s) => s.toast);
 /** T-1: true during the exit animation window (200ms before toast clears). */
 export const useToastLeaving = () => useAppStore((s) => s.toastLeaving);

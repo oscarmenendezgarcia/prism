@@ -399,10 +399,19 @@ describe('TaskCard — move actions (in overlay)', () => {
     expect(mockDeleteTask).toHaveBeenCalledWith('task-1');
   });
 
-  it('move buttons are disabled when isMutating', () => {
-    resetStores({ isMutating: true });
+  it('move buttons are disabled when this task is mutating', () => {
+    // Per-task scoping: only the card whose id is in mutatingTaskIds is disabled.
+    resetStores({ isMutating: true, mutatingTaskIds: new Set([BASE_TASK.id]) });
     render(<TaskCard task={BASE_TASK} column="in-progress" {...DRAG_HANDLERS} />);
     expect(screen.getByRole('button', { name: /move to todo/i, hidden: true })).toBeDisabled();
+  });
+
+  it('move buttons stay enabled when a DIFFERENT task is mutating', () => {
+    // The old global-isMutating behavior would disable every card. Verify the
+    // fix: mutation on 'other-task' must not disable BASE_TASK's move button.
+    resetStores({ isMutating: true, mutatingTaskIds: new Set(['other-task']) });
+    render(<TaskCard task={BASE_TASK} column="in-progress" {...DRAG_HANDLERS} />);
+    expect(screen.getByRole('button', { name: /move to todo/i, hidden: true })).not.toBeDisabled();
   });
 });
 
