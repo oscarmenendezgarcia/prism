@@ -496,7 +496,6 @@ function resetLauncherStore() {
     pipelineState:       null,
     agentSettings:    null,
     settingsLoading:  false,
-    agentSettingsPanelOpen: false,
   });
 }
 

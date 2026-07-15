@@ -99,10 +99,18 @@ describe('ConfigPanel — structure', () => {
 });
 
 describe('ConfigPanel — view tabs', () => {
-  it('renders the ConfigViewTabs with "Agents & Routing" and "Files" tabs', () => {
+  it('renders the ConfigViewTabs with "Agents & Routing", "Files" and "Preferences" tabs', () => {
     render(<ConfigPanel />);
     expect(screen.getByRole('tab', { name: /agents & routing/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /files/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /preferences/i })).toBeInTheDocument();
+  });
+
+  it('switches to Preferences view when Preferences tab is clicked', () => {
+    render(<ConfigPanel />);
+    fireEvent.click(screen.getByRole('tab', { name: /preferences/i }));
+    const prefsTab = screen.getByRole('tab', { name: /preferences/i });
+    expect(prefsTab.getAttribute('aria-selected')).toBe('true');
   });
 
   it('defaults to the "Agents & Routing" view (agents tab selected)', () => {

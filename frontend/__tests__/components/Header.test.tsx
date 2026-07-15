@@ -9,28 +9,9 @@ vi.mock('../../src/api/client', () => ({
   getAttachmentContent: vi.fn(),
 }));
 
-// ADR-003: Header now renders ThemeToggle which calls window.matchMedia via useTheme.
-function setupMatchMedia() {
-  Object.defineProperty(window, 'matchMedia', {
-    writable: true,
-    value: vi.fn(() => ({
-      matches: false,
-      media: '(prefers-color-scheme: dark)',
-      onchange: null,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-    })),
-  });
-}
-
 beforeEach(() => {
   localStorage.clear();
-  document.documentElement.classList.remove('dark');
-  setupMatchMedia();
-  useAppStore.setState({ createModalOpen: false, agentSettingsPanelOpen: false, isGlobalSearchOpen: false });
+  useAppStore.setState({ createModalOpen: false, isGlobalSearchOpen: false });
 });
 
 afterEach(() => {
@@ -66,36 +47,10 @@ describe('Header', () => {
     expect(mockOpen).toHaveBeenCalled();
   });
 
-  it('renders ThemeToggle button (ADR-003)', () => {
+  it('does not render a standalone theme toggle or Agent Settings button (moved into Config → Preferences)', () => {
     renderHeader();
-    // ThemeToggle renders a button with an aria-label about theme switching
-    expect(screen.getByLabelText(/switch to/i)).toBeInTheDocument();
-  });
-
-  it('agent settings button has static aria-label and aria-pressed=false when closed', () => {
-    useAppStore.setState({ agentSettingsPanelOpen: false, setAgentSettingsPanelOpen: vi.fn() } as any);
-    renderHeader();
-    const btn = screen.getByLabelText(/agent settings/i);
-    expect(btn).toBeInTheDocument();
-    expect(btn).toHaveAttribute('aria-pressed', 'false');
-  });
-
-  it('agent settings button has static aria-label and aria-pressed=true when open', () => {
-    useAppStore.setState({ agentSettingsPanelOpen: true } as any);
-    renderHeader();
-    const btn = screen.getByLabelText(/agent settings/i);
-    expect(btn).toBeInTheDocument();
-    expect(btn).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  it('Terminal toggle appears before AgentSettings toggle in DOM order (T-4 redesign)', () => {
-    renderHeader();
-    const buttons = screen.getAllByRole('button');
-    const terminalIdx = buttons.findIndex((b) => /toggle terminal panel/i.test(b.getAttribute('aria-label') ?? ''));
-    const agentIdx    = buttons.findIndex((b) => /agent settings/i.test(b.getAttribute('aria-label') ?? ''));
-    expect(terminalIdx).toBeGreaterThanOrEqual(0);
-    expect(agentIdx).toBeGreaterThanOrEqual(0);
-    expect(terminalIdx).toBeLessThan(agentIdx);
+    expect(screen.queryByLabelText(/switch to/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/agent settings/i)).not.toBeInTheDocument();
   });
 
   describe('Search pill (QOL-4)', () => {

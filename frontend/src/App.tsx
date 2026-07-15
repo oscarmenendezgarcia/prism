@@ -14,7 +14,6 @@ import { SpaceTabs } from '@/components/layout/SpaceTabs';
 import { Board } from '@/components/board/Board';
 import { TerminalPanel } from '@/components/terminal/TerminalPanel';
 import { ConfigPanel } from '@/components/config/ConfigPanel';
-import { AgentSettingsPanel } from '@/components/agent-launcher/AgentSettingsPanel';
 import { RunsPanel } from '@/components/runs-panel/RunsPanel';
 import { AgentPromptPreview } from '@/components/agent-launcher/AgentPromptPreview';
 import { TaskDetailPanel } from '@/components/board/TaskDetailPanel';
@@ -90,10 +89,9 @@ class ErrorBoundary extends React.Component<
 function useMobilePanelExclusivity() {
   const folioOpen  = useAppStore((s) => s.folioOpen);
   const configOpen = useAppStore((s) => s.configPanelOpen);
-  const agentOpen  = useAppStore((s) => s.agentSettingsPanelOpen);
   const runsOpen   = usePipelineLogStore((s) => s.runsPanelOpen);
   const termOpen   = useTerminalSessionStore((s) => s.panelOpen);
-  const prev = useRef({ folioOpen, configOpen, agentOpen, runsOpen, termOpen });
+  const prev = useRef({ folioOpen, configOpen, runsOpen, termOpen });
 
   useEffect(() => {
     const p = prev.current;
@@ -102,7 +100,6 @@ function useMobilePanelExclusivity() {
       const opened =
         folioOpen  && !p.folioOpen  ? 'folio'  :
         configOpen && !p.configOpen ? 'config' :
-        agentOpen  && !p.agentOpen  ? 'agent'  :
         runsOpen   && !p.runsOpen   ? 'runs'   :
         termOpen   && !p.termOpen   ? 'term'   : null;
       if (opened) {
@@ -111,13 +108,12 @@ function useMobilePanelExclusivity() {
         const term = useTerminalSessionStore.getState();
         if (opened !== 'folio'  && app.folioOpen)              app.closeFolio();
         if (opened !== 'config' && app.configPanelOpen)        app.setConfigPanelOpen(false);
-        if (opened !== 'agent'  && app.agentSettingsPanelOpen) app.setAgentSettingsPanelOpen(false);
         if (opened !== 'runs'   && plog.runsPanelOpen)         plog.setRunsPanelOpen(false);
         if (opened !== 'term'   && term.panelOpen)             term.closePanel();
       }
     }
-    prev.current = { folioOpen, configOpen, agentOpen, runsOpen, termOpen };
-  }, [folioOpen, configOpen, agentOpen, runsOpen, termOpen]);
+    prev.current = { folioOpen, configOpen, runsOpen, termOpen };
+  }, [folioOpen, configOpen, runsOpen, termOpen]);
 }
 
 function AppContent() {
@@ -125,7 +121,6 @@ function AppContent() {
   const loadSettings         = useAppStore((s) => s.loadSettings);
   const loadSystemInfo       = useAppStore((s) => s.loadSystemInfo);
   const configPanelOpen        = useAppStore((s) => s.configPanelOpen);
-  const agentSettingsPanelOpen = useAppStore((s) => s.agentSettingsPanelOpen);
   const folioOpen              = useAppStore((s) => s.folioOpen);
   const closeFolio             = useAppStore((s) => s.closeFolio);
   const runsPanelOpen          = usePipelineLogStore((s) => s.runsPanelOpen);
@@ -191,7 +186,6 @@ function AppContent() {
           <TerminalPanel />
           {runsPanelOpen && <RunsPanel />}
           {configPanelOpen && <ConfigPanel />}
-          {agentSettingsPanelOpen && <AgentSettingsPanel />}
           {folioOpen && <FolioScreen onClose={closeFolio} />}
         </div>
       </div>

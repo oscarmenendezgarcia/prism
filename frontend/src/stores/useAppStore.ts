@@ -304,10 +304,6 @@ interface AppState {
   openPipelineConfirm: (spaceId: string, taskId: string) => void;
   closePipelineConfirm: () => void;
 
-  /** Agent settings panel open state. */
-  agentSettingsPanelOpen: boolean;
-  setAgentSettingsPanelOpen: (open: boolean) => void;
-
   // ── Agent settings (ADR-1: Settings Persistence) ──────────────────────────
 
   agentSettings: AgentSettings | null;
@@ -1610,9 +1606,6 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   },
 
-  agentSettingsPanelOpen:    false,
-  setAgentSettingsPanelOpen: (open: boolean) => set({ agentSettingsPanelOpen: open }),
-
   // ── Agent settings ────────────────────────────────────────────────────────
 
   agentSettings:  null,
@@ -1874,8 +1867,7 @@ export const usePreparedRun    = () => useAppStore((s) => s.preparedRun);
 export const usePromptPreviewOpen = () => useAppStore((s) => s.promptPreviewOpen);
 
 // Agent settings selectors
-export const useAgentSettings        = () => useAppStore((s) => s.agentSettings);
-export const useAgentSettingsPanelOpen = () => useAppStore((s) => s.agentSettingsPanelOpen);
+export const useAgentSettings = () => useAppStore((s) => s.agentSettings);
 
 // Tagger selectors
 export const useTaggerLoading     = () => useAppStore((s) => s.taggerLoading);
