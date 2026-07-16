@@ -274,8 +274,6 @@ async function runTests() {
   await test('returns 200 with default settings when no settings file exists', async () => {
     const res = await request('GET', '/api/v1/settings');
     assert(res.status === 200,                      `expected 200, got ${res.status}`);
-    assert(res.body.cli.tool            === 'claude',        'default cli.tool should be claude');
-    assert(res.body.cli.binary          === 'claude',        'default cli.binary should be claude');
     assert(res.body.cli.fileInputMethod === 'cat-subshell',  'default fileInputMethod should be cat-subshell');
     assert(res.body.pipeline.autoAdvance         === true,   'default autoAdvance should be true');
     assert(res.body.pipeline.confirmBetweenStages === true,  'default confirmBetweenStages should be true');
@@ -298,13 +296,11 @@ async function runTests() {
 
   await test('returns 200 with merged settings on valid partial update', async () => {
     const res = await request('PUT', '/api/v1/settings', {
-      cli: { tool: 'opencode', binary: 'opencode' },
+      cli: { fileInputMethod: 'flag-file' },
     });
     assert(res.status === 200,                     `expected 200, got ${res.status}`);
-    assert(res.body.cli.tool   === 'opencode',     `tool should be opencode, got ${res.body.cli.tool}`);
-    assert(res.body.cli.binary === 'opencode',     `binary should be opencode, got ${res.body.cli.binary}`);
+    assert(res.body.cli.fileInputMethod === 'flag-file', `fileInputMethod should be flag-file, got ${res.body.cli.fileInputMethod}`);
     // Fields not in partial should retain defaults.
-    assert(res.body.cli.fileInputMethod === 'cat-subshell', 'fileInputMethod should retain default');
     assert(res.body.pipeline.autoAdvance === true, 'pipeline.autoAdvance should retain default');
   });
 
@@ -318,21 +314,14 @@ async function runTests() {
     );
   });
 
-  await test('deep-merges cli partial — unset fields keep defaults', async () => {
+  await test('deep-merges prompts partial — unset sibling fields keep their previous value', async () => {
     // Reset first.
-    await request('PUT', '/api/v1/settings', { cli: { tool: 'claude', binary: 'claude' } });
-    // Update only fileInputMethod.
-    await request('PUT', '/api/v1/settings', { cli: { fileInputMethod: 'stdin-redirect' } });
+    await request('PUT', '/api/v1/settings', { prompts: { includeKanbanBlock: true, includeGitBlock: true } });
+    // Update only includeGitBlock.
+    await request('PUT', '/api/v1/settings', { prompts: { includeGitBlock: false } });
     const res = await request('GET', '/api/v1/settings');
-    assert(res.body.cli.fileInputMethod === 'stdin-redirect', 'fileInputMethod should be updated');
-    assert(res.body.cli.tool === 'claude', 'tool should retain previous value');
-  });
-
-  await test('returns 400 VALIDATION_ERROR for invalid cli.tool', async () => {
-    const res = await request('PUT', '/api/v1/settings', { cli: { tool: 'bad-tool' } });
-    assert(res.status === 400,                         `expected 400, got ${res.status}`);
-    assert(res.body.error.code === 'VALIDATION_ERROR', `unexpected code: ${res.body.error.code}`);
-    assert(res.body.error.field === 'cli.tool',        `expected field cli.tool, got ${res.body.error.field}`);
+    assert(res.body.prompts.includeGitBlock === false, 'includeGitBlock should be updated');
+    assert(res.body.prompts.includeKanbanBlock === true, 'includeKanbanBlock should retain previous value');
   });
 
   await test('returns 400 VALIDATION_ERROR for invalid cli.fileInputMethod', async () => {

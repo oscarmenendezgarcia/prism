@@ -48,7 +48,7 @@ const AGENT_PROMPT_ROUTE = /^\/api\/v1\/agent\/prompt$/;
  * selection into one place); only `fileInputMethod` stays a Prism-wide
  * setting, since it's shell-syntax mechanics, not a model/provider choice.
  */
-function buildCliCommand(fileInputMethod, cliTool, binary, promptPath, dangerouslySkipPermissions = false) {
+function buildCliCommand({ fileInputMethod, cliTool, binary, promptPath, dangerouslySkipPermissions = false }) {
   let promptRef;
   if (fileInputMethod === 'stdin-redirect') {
     promptRef = `< "${promptPath}"`;
@@ -271,7 +271,13 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager, store) {
     });
   }
 
-  const cliCommand      = buildCliCommand(settings.cli.fileInputMethod, modelConfig.cliTool, cliBinary, promptPath, dangerouslySkipPermissions === true);
+  const cliCommand      = buildCliCommand({
+    fileInputMethod: settings.cli.fileInputMethod,
+    cliTool:         modelConfig.cliTool,
+    binary:          cliBinary,
+    promptPath,
+    dangerouslySkipPermissions: dangerouslySkipPermissions === true,
+  });
   const promptPreview   = promptText.slice(0, 500);
   const estimatedTokens = Math.ceil(promptText.length / 4);
   const promptSizeBytes = Buffer.byteLength(promptText, 'utf8');

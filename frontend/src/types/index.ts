@@ -461,10 +461,12 @@ export interface StageMetrics {
   parser: StageMetricsParser;
 }
 
-/** CLI tool configuration. */
+/**
+ * CLI/prompt-delivery settings. Which CLI/model runs a given agent is
+ * resolved per-agent via Agents & Routing (resolveStageModelConfig) — this
+ * only carries the shell mechanics for the ad-hoc Launcher's prompt file.
+ */
 export interface CliSettings {
-  tool: 'claude' | 'opencode' | 'custom';
-  binary: string;
   fileInputMethod: 'cat-subshell' | 'stdin-redirect' | 'flag-file';
 }
 
