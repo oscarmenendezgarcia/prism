@@ -263,9 +263,11 @@ The worktree path and branch are git-ignored and never committed.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | HTTP server port |
-| `DATA_DIR` | `./data` | Directory where `prism.db` is stored |
-| `ALLOWED_ORIGINS` | `http://localhost:3000,...` | Allowed WebSocket origins — set to your public URL behind a reverse proxy |
+| `DATA_DIR` | *(resolved, see below)* | Directory where `prism.db` is stored |
+| `ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173` | Allowed WebSocket origins — set to your public URL behind a reverse proxy |
 | `ANTHROPIC_API_KEY` | — | Required for any stage/agent routed to Claude (the default). Not needed for stages routed to opencode against a local or self-hosted model — [see Agents & Routing](#agents--routing--bring-your-own-model). |
+
+`DATA_DIR` isn't a flat default — without an explicit override it's resolved in this order: **(1)** `DATA_DIR` env var if set; **(2)** `<packageRoot>/data` when running from a git checkout (has a `.git` directory — this repo, or a dev clone); **(3)** `$XDG_DATA_HOME/prism` if `XDG_DATA_HOME` is set; **(4)** `~/.local/share/prism` otherwise. A global `npm install -g prism-kanban` install lands on (3) or (4), *not* `./data` — the Docker image sets `DATA_DIR=/app/data` explicitly, which is why that path shows up there.
 
 ### Tests
 
