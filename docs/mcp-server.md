@@ -1,10 +1,11 @@
-# Prism — MCP Server
+# Prism — Kanban MCP Server
 
 > Maintained by agents. Update when tools are added, changed, or removed.
+> See [`mcp-server-folio.md`](mcp-server-folio.md) for the separate Folio MCP server.
 
 ## Overview
 
-The Prism MCP server exposes the Kanban board and pipeline as tools callable by Claude Code agents.
+The Prism Kanban MCP server exposes the Kanban board and pipeline as tools callable by Claude Code agents.
 
 - **Entry point:** `mcp/mcp-server.js`
 - **Transport:** `StdioServerTransport` — Claude Code manages the process lifecycle
@@ -28,6 +29,7 @@ All tool names are prefixed `kanban_` and available as `mcp__prism__kanban_*` in
 | `kanban_move_task` | `id`, `to` | `spaceId` | Move to `todo \| in-progress \| done` |
 | `kanban_delete_task` | `id` | `spaceId` | Delete a task |
 | `kanban_clear_board` | — | `spaceId` | Delete all tasks in a space |
+| `kanban_search_tasks` | `q` | `limit` (def 20, max 50) | Full-text search (FTS5/BM25) across **all spaces** — title + description. Returns `{ task, spaceId, spaceName, column }` per hit. Prefer this over iterating `kanban_get_task` when you don't know the spaceId. |
 
 ### Space tools
 
@@ -58,6 +60,13 @@ Activity event types: `task.created`, `task.moved`, `task.updated`, `task.delete
 Run statuses: `pending`, `running`, `completed`, `failed`, `interrupted`
 
 **Stop vs delete:** `kanban_stop_pipeline` marks the run as `interrupted` and preserves the run directory so it can be resumed. `DELETE /api/v1/runs/:runId` removes the run permanently.
+
+### Comment tools
+
+| Tool | Required params | Optional params | Description |
+|------|----------------|----------------|-------------|
+| `kanban_add_comment` | `spaceId`, `taskId`, `text`, `type` | `author` (def `'user'`), `targetAgent` | Add a comment. `type` is `'note'` \| `'question'` \| `'answer'`. A `'question'` comment **automatically blocks the task's active pipeline run** until answered. `targetAgent` routes the question to a specific pipeline agent for auto-resolution (must be in the task's pipeline) — falls back to human escalation (`needsHuman: true`) if it can't resolve. Returns `{ comment, pipelineBlocked, runId? }`. |
+| `kanban_answer_comment` | `spaceId`, `taskId`, `commentId`, `answer` | `author` (def `'user'`) | Answer an open question comment. Creates an answer comment (`parentId = commentId`), marks the question `resolved: true`, and unblocks the run once no open questions remain. |
 
 ## Attachments
 
