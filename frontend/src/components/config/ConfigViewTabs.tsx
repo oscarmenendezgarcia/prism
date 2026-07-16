@@ -7,7 +7,7 @@
 
 import React from 'react';
 
-export type ConfigView = 'agents' | 'files';
+export type ConfigView = 'agents' | 'files' | 'preferences';
 
 interface ConfigViewTabsProps {
   view:     ConfigView;
@@ -15,8 +15,9 @@ interface ConfigViewTabsProps {
 }
 
 const TABS: { id: ConfigView; label: string; icon: string }[] = [
-  { id: 'agents', label: 'Agents & Routing', icon: 'smart_toy' },
-  { id: 'files',  label: 'Files',            icon: 'description' },
+  { id: 'agents',      label: 'Agents & Routing', icon: 'smart_toy' },
+  { id: 'files',       label: 'Files',            icon: 'description' },
+  { id: 'preferences', label: 'Preferences',      icon: 'tune' },
 ];
 
 export function ConfigViewTabs({ view, onChange }: ConfigViewTabsProps) {

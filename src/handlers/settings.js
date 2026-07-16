@@ -22,8 +22,6 @@ const { validateStageModelConfig }       = require('../services/modelConfigResol
 
 const DEFAULT_SETTINGS = {
   cli: {
-    tool:            'claude',
-    binary:          'claude',
     fileInputMethod: 'cat-subshell',
   },
   pipeline: {
@@ -40,7 +38,6 @@ const DEFAULT_SETTINGS = {
   },
 };
 
-const VALID_CLI_TOOLS    = ['claude', 'opencode', 'custom'];
 const VALID_FILE_METHODS = ['cat-subshell', 'stdin-redirect', 'flag-file'];
 
 // ---------------------------------------------------------------------------
@@ -187,13 +184,6 @@ async function handlePutSettings(req, res, dataDir) {
   if (!body || typeof body !== 'object') {
     return sendError(res, 400, 'VALIDATION_ERROR', 'The request body is empty or not valid JSON.', {
       suggestion: 'Send a partial settings object. Example: { "cli": { "tool": "opencode" } }',
-    });
-  }
-
-  if (body.cli && body.cli.tool !== undefined && !VALID_CLI_TOOLS.includes(body.cli.tool)) {
-    return sendError(res, 400, 'VALIDATION_ERROR', `The value '${body.cli.tool}' is not a valid CLI tool.`, {
-      suggestion: "Use one of: 'claude', 'opencode', 'custom'.",
-      field: 'cli.tool',
     });
   }
 

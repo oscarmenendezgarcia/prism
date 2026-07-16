@@ -17,6 +17,7 @@ import { useAppStore }           from '@/stores/useAppStore';
 import { ConfigFileSidebar }     from '@/components/config/ConfigFileSidebar';
 import { ConfigEditor }          from '@/components/config/ConfigEditor';
 import { AgentRoutingView }      from '@/components/config/AgentRoutingView';
+import { PreferencesView }       from '@/components/config/PreferencesView';
 import { ConfigViewTabs }        from '@/components/config/ConfigViewTabs';
 import type { ConfigView }       from '@/components/config/ConfigViewTabs';
 import { DiscardChangesDialog }  from '@/components/config/DiscardChangesDialog';
@@ -49,10 +50,11 @@ export function ConfigPanel() {
 
   const [view, setView]                 = useState<ConfigView>('agents');
   const [routingDirty, setRoutingDirty] = useState(false);
+  const [preferencesDirty, setPreferencesDirty] = useState(false);
   const [pendingNav, setPendingNav]     = useState<PendingNav | null>(null);
   const [promptOpen, setPromptOpen]     = useState(false);
 
-  const anyDirty = configDirty || routingDirty;
+  const anyDirty = configDirty || routingDirty || preferencesDirty;
 
   /** Resolve the config-file id for an agent's system-prompt .md. */
   const agentFileId = useCallback(
@@ -134,6 +136,7 @@ export function ConfigPanel() {
   const handleDiscard = useCallback(() => {
     if (!pendingNav) return;
     setRoutingDirty(false);
+    setPreferencesDirty(false);
     if (pendingNav.type === 'close') {
       setConfigPanelOpen(false);
     } else if (pendingNav.type === 'file') {
@@ -211,6 +214,16 @@ export function ConfigPanel() {
               className="flex flex-col flex-1 min-w-0 overflow-hidden"
             >
               <AgentRoutingView onDirtyChange={setRoutingDirty} onEditPrompt={handleEditPrompt} />
+            </div>
+          ) : view === 'preferences' ? (
+            /* Preferences — theme, CLI/prompt delivery, pipeline + prompt defaults */
+            <div
+              id="config-tabpanel-preferences"
+              role="tabpanel"
+              aria-labelledby="config-tab-preferences"
+              className="flex flex-col flex-1 min-w-0 overflow-hidden"
+            >
+              <PreferencesView onDirtyChange={setPreferencesDirty} />
             </div>
           ) : (
             /* Files — original sidebar + editor */

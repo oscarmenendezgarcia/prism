@@ -9,10 +9,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/shared/Button';
 import { Tooltip } from '@/components/shared/Tooltip';
 import { TerminalToggle } from '@/components/terminal/TerminalToggle';
-import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { ConfigToggle } from '@/components/config/ConfigToggle';
 import { RunIndicator } from '@/components/agent-launcher/RunIndicator';
-import { AgentSettingsToggle } from '@/components/agent-launcher/AgentSettingsToggle';
 import { RunsToggle } from '@/components/runs-panel/RunsToggle';
 import { FolioToggle } from '@/components/folio/FolioToggle';
 import { useAppStore } from '@/stores/useAppStore';
@@ -127,9 +125,6 @@ export function Header() {
           <Tooltip label="Terminal" description="Run shell commands on the server">
             <TerminalToggle />
           </Tooltip>
-          <Tooltip label="Agent Settings" description="Configure agents and pipeline stages">
-            <AgentSettingsToggle />
-          </Tooltip>
           <Tooltip label="Runs" description="Browse run history and pipeline logs">
             <RunsToggle />
           </Tooltip>
@@ -152,13 +147,6 @@ export function Header() {
             </span>
             New Task
           </Button>
-        </div>
-
-        <div className="hidden lg:block w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
-
-        {/* Theme — collapses into the hamburger below lg */}
-        <div className="hidden lg:block">
-          <ThemeToggle />
         </div>
 
         {/* Hamburger — shows below lg (holds the collapsed utility icons) */}
@@ -185,10 +173,8 @@ export function Header() {
               <div className="flex flex-col">
                 <MobileMenuRow label="Folio" icon="menu_book" toggle={<FolioToggle />} />
                 <MobileMenuRow label="Terminal" icon="terminal" toggle={<TerminalToggle />} />
-                <MobileMenuRow label="Agent Settings" icon="tune" toggle={<AgentSettingsToggle />} />
                 <MobileMenuRow label="Runs" icon="account_tree" toggle={<RunsToggle />} />
                 <MobileMenuRow label="Config" icon="settings" toggle={<ConfigToggle />} />
-                <MobileMenuRow label="Theme" icon="dark_mode" toggle={<ThemeToggle />} />
               </div>
             </div>
           )}

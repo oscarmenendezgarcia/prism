@@ -15,10 +15,13 @@
 const fs   = require('fs');
 const path = require('path');
 
-const { sendJSON, sendError, parseBody } = require('../utils/http');
-const { COLUMNS }                        = require('../constants');
-const { getAgentsDir, AGENT_ID_RE }      = require('./agents');
-const { readSettings }                   = require('./settings');
+const { sendJSON, sendError, parseBody }   = require('../utils/http');
+const { COLUMNS }                          = require('../constants');
+const { getAgentsDir, AGENT_ID_RE }        = require('./agents');
+const { readSettings }                     = require('./settings');
+const { resolveAgent, AgentNotFoundError } = require('../services/agentResolver');
+const { resolveStageModelConfig }          = require('../services/modelConfigResolver');
+const { resolveCliBinary }                 = require('../services/cliSpawn');
 const {
   buildKanbanBlock,
   buildGitInstructionsBlock,
@@ -36,12 +39,16 @@ const AGENT_PROMPT_ROUTE = /^\/api\/v1\/agent\/prompt$/;
 // ---------------------------------------------------------------------------
 
 /**
- * Build the CLI command string based on current settings and prompt file path.
+ * Build the CLI command string for the given (resolved) CLI tool/binary.
+ *
+ * `cliTool`/`binary` come from resolveStageModelConfig for this agentId — the
+ * same per-agent routing Agents & Routing already drives for pipeline runs,
+ * Generate Tasks, and Auto-tag. The Launcher no longer has its own separate
+ * "AI Provider" choice (removed — see .folio decision consolidating CLI
+ * selection into one place); only `fileInputMethod` stays a Prism-wide
+ * setting, since it's shell-syntax mechanics, not a model/provider choice.
  */
-function buildCliCommand(settings, promptPath, dangerouslySkipPermissions = false) {
-  const { tool, binary, fileInputMethod } = settings.cli;
-  const bin = binary || tool;
-
+function buildCliCommand({ fileInputMethod, cliTool, binary, promptPath, dangerouslySkipPermissions = false }) {
   let promptRef;
   if (fileInputMethod === 'stdin-redirect') {
     promptRef = `< "${promptPath}"`;
@@ -52,13 +59,13 @@ function buildCliCommand(settings, promptPath, dangerouslySkipPermissions = fals
     promptRef = `"$(cat ${promptPath})"`;
   }
 
-  if (tool === 'opencode') {
-    return `${bin} run ${promptRef}`;
+  if (cliTool === 'opencode') {
+    return `${binary} run ${promptRef}`;
   }
 
   // claude (default) — interactive mode so tool calls and thinking are visible in the TUI.
   const extraFlags = dangerouslySkipPermissions ? ' --dangerously-skip-permissions' : '';
-  return `${bin} ${promptRef}${extraFlags}`;
+  return `${binary} ${promptRef}${extraFlags}`;
 }
 
 /**
@@ -207,6 +214,30 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager, store) {
   const settings   = readSettings(dataDir);
   const promptsDir = path.join(dataDir, '.prompts');
 
+  // Resolve the CLI/model routed for this agent — same resolver used by the
+  // pipeline, Generate Tasks, and Auto-tag (Agents & Routing is the single
+  // source of truth for "which CLI runs this agent").
+  let agentSpec;
+  try {
+    agentSpec = resolveAgent(agentId, getAgentsDir(), workingDirectory || settings.prompts.workingDirectory);
+  } catch (err) {
+    if (!(err instanceof AgentNotFoundError)) throw err;
+    agentSpec = null;
+  }
+  const spaceModels = store ? (store.getSpace(spaceId)?.stageModels ?? null) : null;
+  const taskModels  = store ? (store.getTask(spaceId, taskId)?.stageModels ?? null) : null;
+  const modelConfig = resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, taskModels);
+
+  let cliBinary;
+  try {
+    cliBinary = resolveCliBinary(modelConfig.cliTool);
+  } catch {
+    return sendError(res, 502, 'GENERATE_PROMPT_CLI_ERROR',
+      `'${agentId}' is routed to the '${modelConfig.cliTool}' CLI in Agents & Routing, but that binary was not found on this machine.`, {
+        suggestion: `Install ${modelConfig.cliTool}, or change the routing for '${agentId}' in Config → Agents & Routing.`,
+      });
+  }
+
   const rawPromptText = buildPromptText({
     task:             taskResult.task,
     taskColumn:       taskResult.column,
@@ -240,7 +271,13 @@ async function handleGeneratePrompt(req, res, dataDir, spaceManager, store) {
     });
   }
 
-  const cliCommand      = buildCliCommand(settings, promptPath, dangerouslySkipPermissions === true);
+  const cliCommand      = buildCliCommand({
+    fileInputMethod: settings.cli.fileInputMethod,
+    cliTool:         modelConfig.cliTool,
+    binary:          cliBinary,
+    promptPath,
+    dangerouslySkipPermissions: dangerouslySkipPermissions === true,
+  });
   const promptPreview   = promptText.slice(0, 500);
   const estimatedTokens = Math.ceil(promptText.length / 4);
   const promptSizeBytes = Buffer.byteLength(promptText, 'utf8');
