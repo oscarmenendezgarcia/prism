@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-07-16
+
+Headline: **Polish pass** — a batch of accessibility, consistency, and tech-debt
+fixes across the board, plus a consolidated Preferences tab that removes a
+redundant, partially-broken settings surface.
+
 ### Added
 - **Keyboard-accessible in-column task reorder** — task cards are now focusable
   (`Tab`/`Shift+Tab`) with a visible focus ring, and a focused card responds to
@@ -45,6 +51,58 @@
   [agent-sync] first-sync updated: qa-engineer-e2e.md (no prior baseline)
   [agent-sync] synced 3, skipped (user-modified) 1
   ```
+
+- **Preferences tab in Config panel** — theme, prompt delivery method, pipeline
+  defaults, agent-prompt defaults, and custom instructions now live in a single
+  "Preferences" tab alongside "Agents & Routing" and "Files". (#176)
+- **Touch-friendly in-column reorder** — ↑ / ↓ buttons in the card action menu
+  work as a drag-and-drop alternative on touch devices, where the previous
+  HTML5 drag handle never fired. (#175)
+- Task rank is now included in the `POST /tasks` response body, so a newly
+  created card appears in its correct position without a reload. (#175)
+
+### Changed
+- **Removed the standalone "Agent Settings" panel and its header button.**
+  Its own copy claimed to govern Generate Tasks/Auto-tag, but those already
+  routed through Agents & Routing's per-agent resolver — the panel only
+  ever affected the ad-hoc prompt Launcher. (#176)
+- **Removed the redundant global "AI Provider" (CLI tool) picker.** The
+  Launcher now resolves each agent's CLI/model via the same per-agent
+  resolver as the pipeline, Generate Tasks, and Auto-tag — one source of
+  truth instead of two overlapping settings surfaces. Custom-binary support
+  is dropped for now; it returns as a routing option in Agents & Routing.
+  (#176)
+- `isMutating` is now scoped to the specific task being moved/deleted
+  instead of freezing every card on the board during a single mutation.
+  (#175)
+- Deduplicated column-label constants that were declared separately in
+  6+ frontend files into a single `constants/columns.ts` module. (#175)
+- Deleted the dead `RunHistoryPanel` component subtree (superseded by
+  `RunsPanel`) and its orphaned task-filter UI. (#175)
+- Extracted shared field-length validation between task create and update
+  in `tasks.js`, replacing two near-duplicate implementations. (#175)
+- Bumped dependencies within semver range: `better-sqlite3`, `ws` (root);
+  `react`, `react-dom`, `zustand`, `tailwindcss`, `@tailwindcss/vite`,
+  `@tanstack/react-virtual`, `fuse.js`, and related `@types/*` packages
+  (frontend). Major-version bumps (`vite` 5→8, `vitest` 2→4, `typescript`
+  5→7, `@xterm/xterm` 5→6, `@dnd-kit/sortable` 8→10) are deferred to a
+  dedicated migration — left as `npm outdated`.
+
+### Fixed
+- Atomic batch rank rebalance for drag-to-reorder (and, in a follow-up fix,
+  for the keyboard/button reorder path too) — a mid-batch failure could
+  previously leave a column with a mix of old and new ranks. (#175)
+- Stale drag-over indicator no longer stays pinned to the last card when
+  dropping in the empty space below all cards in a column. (#175)
+- Spanish copy leaking into the otherwise English-only header/search UI.
+  (#175)
+- Arc-strip banner (the coloured storyline label at the top of a card) now
+  bleeds flush to both edges — it previously left a gap on the left side
+  because it only compensated for the card's symmetric padding, not the
+  extra left padding reserved for the drag handle.
+- Drag-handle icon is now centred within its own gutter and on the card
+  body's height (excluding the arc-strip banner), instead of centring on
+  the whole card and nearly overlapping the title text.
 
 ## [1.3.0] — 2026-07-08
 
