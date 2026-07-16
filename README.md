@@ -17,7 +17,7 @@ and build up a shared knowledge base — all from a single interface you run loc
 
 <br>
 
-![Prism demo](docs/prism-demo.gif)
+![Prism demo — the board, per-stage agent routing, and launching a full pipeline from a task card](docs/prism-demo.gif)
 
 </div>
 
