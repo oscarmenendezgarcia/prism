@@ -479,8 +479,27 @@ function stageInjectPath(dataDir, runId, stageIndex) {
  * @returns {string[]}
  */
 function readInjectSignal(dataDir, runId, stageIndex, agentId, run) {
-  const injectFile = stageInjectPath(dataDir, runId, stageIndex);
-  if (!fs.existsSync(injectFile)) return [];
+  let injectFile = stageInjectPath(dataDir, runId, stageIndex);
+
+  // Fallback: some agents (esp. local models) miscompute $StageIndex as a
+  // 1-based "stage number" instead of the 0-based array index the prompt
+  // gives them, writing stage-<N+1>.inject instead of stage-<N>.inject.
+  // Only recover this when the CLOSING stage is the last one in the
+  // pipeline — stage-<length>.inject can never be a legitimate file for a
+  // real future stage (there is no stage at that index), so it's safe to
+  // treat it as this off-by-one miswrite. Mid-pipeline, stage-<N+1>.inject
+  // may simply belong to a later stage that hasn't closed yet; grabbing it
+  // early would misfire the injection at the wrong stage.
+  if (!fs.existsSync(injectFile)) {
+    const isLastStage = Array.isArray(run.stages) && stageIndex === run.stages.length - 1;
+    const offByOneFile = stageInjectPath(dataDir, runId, stageIndex + 1);
+    if (isLastStage && fs.existsSync(offByOneFile)) {
+      pipelineLog('run.inject_offbyone_recovered', { runId, stageIndex, agentId, foundAt: stageIndex + 1 });
+      injectFile = offByOneFile;
+    } else {
+      return [];
+    }
+  }
 
   let stages;
   try {
@@ -489,6 +508,10 @@ function readInjectSignal(dataDir, runId, stageIndex, agentId, run) {
     pipelineLog('run.inject_parse_error', { runId, stageIndex, agentId });
     return [];
   }
+
+  // Consume the signal file so a later stage closure (possibly at this same
+  // index after the array shifts from injection) can never re-read it.
+  try { fs.unlinkSync(injectFile); } catch { /* already gone */ }
 
   if (!Array.isArray(stages) || stages.length === 0) return [];
 
