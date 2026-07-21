@@ -42,6 +42,7 @@ import {
   searchTasks,
   startPipeline,
   getRunStatus,
+  getRunLogs,
   resumePipeline,
   stopPipeline,
   addComment,
@@ -56,7 +57,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const SERVER_NAME    = 'prism';
-const SERVER_VERSION = '2.2.0';
+const SERVER_VERSION = '2.3.0';
 const KANBAN_API_URL = process.env.KANBAN_API_URL ?? 'http://localhost:3000/api/v1';
 
 // ---------------------------------------------------------------------------
@@ -510,6 +511,36 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
+// Tool: kanban_get_run_logs (mcp-get-run-logs feature)
+// ---------------------------------------------------------------------------
+
+server.tool(
+  'kanban_get_run_logs',
+  'Read the stage-by-stage logs of a pipeline run, normalized to human-readable text. ' +
+  'Use this to inspect what a pipeline stage is doing (or did) without spawning a CLI or parsing raw output. ' +
+  'The `runId` may be an 8+ character prefix — the server resolves it to the full runId (returns 409 if the prefix is ambiguous). ' +
+  'Omit `stage` to receive all stages at once (typical case); pass a 0-based index to zoom in on one. ' +
+  'Stages produced by the `claude` CLI (stream-json) are parsed into readable markers ([system], [thinking], [tool], [result], [result-final]); ' +
+  '`opencode`-style ANSI-colored output is stripped and returned as plain text. ' +
+  'Pass `raw:true` to bypass normalization and receive the file bytes as-is (escape hatch for debugging). ' +
+  '`tail:N` returns only the last N normalized lines per stage. ' +
+  'Per-stage content is capped at 256 KB (older bytes dropped, `truncated:true`).',
+  {
+    runId: z.string().min(8, 'runId prefix must be at least 8 chars')
+      .describe('Full runId or a prefix of at least 8 characters.'),
+    stage: z.number().int().min(0).optional()
+      .describe('0-based stage index. Omit to return every stage.'),
+    tail:  z.number().int().min(1).max(10000).optional()
+      .describe('Return only the last N lines of each stage\'s normalized content.'),
+    raw:   z.boolean().optional()
+      .describe('When true, skip stream-json normalization and return the file bytes as-is (still ANSI-stripped for plain-text). Default: false.'),
+  },
+  withTiming('kanban_get_run_logs', async ({ runId, stage, tail, raw }) => {
+    return getRunLogs({ runId, stage, tail, raw });
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // Tool: kanban_resume_pipeline
 // ---------------------------------------------------------------------------
 
@@ -679,6 +710,6 @@ const transport = new StdioServerTransport();
 
 log('INFO', `Starting ${SERVER_NAME} v${SERVER_VERSION}`);
 log('INFO', `Kanban API URL: ${KANBAN_API_URL}`);
-log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_search_tasks, kanban_start_pipeline, kanban_get_run_status, kanban_resume_pipeline, kanban_stop_pipeline, kanban_add_comment, kanban_answer_comment');
+log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_search_tasks, kanban_start_pipeline, kanban_get_run_status, kanban_get_run_logs, kanban_resume_pipeline, kanban_stop_pipeline, kanban_add_comment, kanban_answer_comment');
 
 await server.connect(transport);

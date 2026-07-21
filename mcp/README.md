@@ -190,6 +190,116 @@ Permanently delete a task from any column. This action is irreversible.
 
 ---
 
+### `kanban_get_run_logs`
+
+Read the stage-by-stage logs of a pipeline run, normalized to human-readable
+text. Use this when you (as an agent) need to inspect what a pipeline stage is
+doing — or did — without spawning a CLI or parsing raw output.
+
+Full design: [ADR-1](../agent-docs/mcp-get-run-logs/ADR-1.md).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `runId` | string (≥ 8 chars) | Yes | Full runId or a prefix. Server resolves it via `runResolver`. Ambiguous prefix → 409. |
+| `stage` | integer ≥ 0 | No | 0-based stage index. Omit to receive **every** stage. |
+| `tail`  | integer 1..10000 | No | Return only the last N normalized lines per stage. |
+| `raw`   | boolean | No | When `true`, bypass stream-json normalization and return the file bytes untouched. Default `false`. |
+
+#### Format detection
+
+Each stage's log is auto-detected:
+
+- **`stream-json`** — one JSON object per line, produced by the Anthropic
+  `claude` CLI. The normalizer emits readable markers:
+  `[system]`, `[thinking]`, `[tool]`, `[result]`, `[result-final]`.
+  `rate_limit_event` lines are dropped. Malformed JSON survives as
+  `[?] <raw>`.
+- **`plain-text`** — pass-through (already legible, e.g. `opencode`). ANSI
+  escape sequences are stripped.
+
+#### Response shape
+
+```json
+{
+  "runId":       "cafebabe-…",
+  "spaceId":     "space-1",
+  "taskId":      "task-1",
+  "status":      "running",
+  "currentStage": 1,
+  "stages": [
+    {
+      "index":     0,
+      "agentId":   "senior-architect",
+      "cliTool":   "claude",
+      "status":    "completed",
+      "format":    "stream-json",
+      "content":   "[system] session=sess-abc model=claude-sonnet-4-6\n[thinking] Planning…\n[tool] Read({\"file_path\":\"…\"})\n[result] contents\n[result-final] Done.",
+      "bytes":     4213,
+      "linesOut":  5,
+      "truncated": false
+    },
+    {
+      "index":     1,
+      "agentId":   "developer-agent",
+      "cliTool":   "opencode",
+      "status":    "running",
+      "format":    "plain-text",
+      "content":   "[opencode] starting build…\nbuilding module A\n[error] module C failed",
+      "bytes":     412,
+      "linesOut":  3,
+      "truncated": false
+    }
+  ]
+}
+```
+
+Per-stage content is hard-capped at **256 KB**. When cut, the leading portion is
+dropped, a `… (truncated: N bytes removed) …` marker is prepended, and
+`truncated: true` is set.
+
+#### Error codes
+
+| HTTP | `error.code` | When |
+|------|--------------|------|
+| 400 | `BAD_REQUEST` | prefix < 8 chars, non-hex chars in runId, `stage` out of range, `tail` out of 1..10000. |
+| 404 | `RUN_NOT_FOUND` | No run matches the prefix. |
+| 409 | `AMBIGUOUS_RUN` | Prefix matches multiple runs. Response body includes `candidates: [runId…]`. |
+| 500 | `INTERNAL` | Unexpected I/O failure. |
+
+#### Worked example — polling a live run
+
+```
+> kanban_get_run_logs({ runId: "cafebabe", stage: 1, tail: 3 })
+
+{
+  "runId": "cafebabe-1234-4567-89ab-cdef01234567",
+  "status": "running",
+  "currentStage": 1,
+  "stages": [
+    {
+      "index": 1,
+      "agentId": "developer-agent",
+      "cliTool": "opencode",
+      "status": "running",
+      "format": "plain-text",
+      "content": "building module A\nbuilding module B\n[error] module C failed",
+      "bytes": 412,
+      "linesOut": 3,
+      "truncated": true
+    }
+  ]
+}
+```
+
+`raw: true` is the escape hatch when the normalizer's summary hides a detail
+you need — e.g. reading the raw `tool_use.input` of a specific call. Prefer
+the normalized default; reach for `raw` only when debugging.
+
+There is no follow/streaming mode — MCP is request/response. Poll the tool
+again to see new output.
+
+---
+
 ## Running Tests
 
 Unit tests for the HTTP client (no server required):
