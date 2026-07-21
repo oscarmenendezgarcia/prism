@@ -78,6 +78,7 @@ const {
   PIPELINE_RUNS_LIST_ROUTE,
   PIPELINE_RUNS_SINGLE_ROUTE,
   PIPELINE_RUNS_LOG_ROUTE,
+  PIPELINE_RUNS_LOGS_ROUTE,
   PIPELINE_RUNS_METRICS_ROUTE,
   PIPELINE_RUNS_EVENTS_ROUTE,
   PIPELINE_RUNS_PROMPT_ROUTE,
@@ -90,6 +91,7 @@ const {
   handleListRuns,
   handleGetRun,
   handleGetStageLog,
+  handleGetRunLogs,
   handleGetStageMetrics,
   handleGetStageEvents,
   handleGetStagePrompt,
@@ -770,6 +772,14 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       const runId      = pipelineEventsMatch[1];
       const stageIndex = parseInt(pipelineEventsMatch[2], 10);
       if (method === 'GET') return handleGetStageEvents(req, res, runId, stageIndex, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    // MCP get-run-logs: /runs/:id/logs — MUST be before SINGLE_ROUTE.
+    const pipelineLogsMatch = PIPELINE_RUNS_LOGS_ROUTE.exec(urlPath);
+    if (pipelineLogsMatch) {
+      const runId = pipelineLogsMatch[1];
+      if (method === 'GET') return handleGetRunLogs(req, res, runId, dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

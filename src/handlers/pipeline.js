@@ -20,6 +20,17 @@ const { sendJSON, sendError, parseBody } = require('../utils/http');
 const pipelineManager                    = require('../services/pipelineManager');
 const { resolveAgent, AgentNotFoundError } = require('../services/agentResolver');
 const { parseStageLog, parseStageEvents } = require('../services/logMetrics');
+const runResolver                         = require('../utils/runResolver');
+const { readRunLogs, BadRequestError }    = require('../services/runLogReader');
+
+// Runs-logs route (mcp-get-run-logs feature) — must be checked before the
+// single-run route to avoid `/runs/:id` swallowing `/runs/:id/logs`.
+const PIPELINE_RUNS_LOGS_ROUTE = /^\/api\/v1\/runs\/([^/]+)\/logs$/;
+
+// Restrictive runId shape — hex + hyphens only. Prevents path traversal and
+// stops queries with `../`, `%2e%2e`, or other weird prefixes from ever
+// reaching the resolver.
+const RUN_ID_ALLOWED = /^[a-fA-F0-9-]{8,}$/;
 
 // ---------------------------------------------------------------------------
 // Route patterns (compiled once at module load)
@@ -564,10 +575,92 @@ async function handlePreviewPrompts(req, res, dataDir, spaceManager) {
   return sendJSON(res, 200, { prompts });
 }
 
+/**
+ * GET /api/v1/runs/:runId/logs?stage=&tail=&raw=
+ *
+ * Returns a normalized, agent-consumable JSON view of a run's stage logs.
+ * See agent-docs/mcp-get-run-logs/blueprint.md §4 for the wire contract.
+ *
+ * The `runId` may be a prefix (≥ 8 chars). It is validated against
+ * `RUN_ID_ALLOWED` (hex + hyphens) before being handed to the resolver, so
+ * path traversal via `runId` is impossible.
+ */
+async function handleGetRunLogs(req, res, runIdInput, dataDir) {
+  const startedAt = Date.now();
+
+  // Path-traversal / shape guard. Must reject BEFORE resolver.
+  if (typeof runIdInput !== 'string' || !RUN_ID_ALLOWED.test(runIdInput)) {
+    return sendError(res, 400, 'BAD_REQUEST',
+      "runId must be at least 8 characters and contain only [a-f0-9-].");
+  }
+
+  // Parse query params.
+  const urlObj    = new URL(req.url, 'http://x');
+  const stageStr  = urlObj.searchParams.get('stage');
+  const tailStr   = urlObj.searchParams.get('tail');
+  const rawStr    = urlObj.searchParams.get('raw');
+
+  let stage;
+  if (stageStr !== null && stageStr !== '') {
+    stage = Number(stageStr);
+    if (!Number.isInteger(stage) || stage < 0) {
+      return sendError(res, 400, 'BAD_REQUEST', "'stage' must be a non-negative integer.");
+    }
+  }
+
+  let tail;
+  if (tailStr !== null && tailStr !== '') {
+    tail = Number(tailStr);
+    if (!Number.isInteger(tail) || tail < 1 || tail > 10000) {
+      return sendError(res, 400, 'BAD_REQUEST', "'tail' must be an integer between 1 and 10000.");
+    }
+  }
+
+  const raw = rawStr === 'true' || rawStr === '1';
+
+  try {
+    const payload = await readRunLogs({ runId: runIdInput, stage, tail, raw, dataDir });
+    const durationMs = Date.now() - startedAt;
+    process.stderr.write(JSON.stringify({
+      event: 'run_logs.request',
+      runId: payload.runId, stage: stage ?? null, tail: tail ?? null, raw,
+      bytesRead: payload.stages.reduce((n, s) => n + (s.bytes || 0), 0),
+      durationMs, outcome: 'ok',
+      ts: new Date().toISOString(),
+    }) + '\n');
+    return sendJSON(res, 200, payload);
+  } catch (err) {
+    const durationMs = Date.now() - startedAt;
+    if (err instanceof runResolver.ShortPrefixError) {
+      return sendError(res, 400, 'BAD_REQUEST', err.message);
+    }
+    if (err instanceof runResolver.RunNotFoundError) {
+      return sendError(res, 404, 'RUN_NOT_FOUND', err.message);
+    }
+    if (err instanceof runResolver.AmbiguousRunError) {
+      return sendError(res, 409, 'AMBIGUOUS_RUN', err.message, {
+        candidates: err.candidates.map((r) => r.runId),
+      });
+    }
+    if (err instanceof BadRequestError) {
+      return sendError(res, 400, err.code || 'BAD_REQUEST', err.message,
+        err.details ? { details: err.details } : {});
+    }
+    console.error(`[pipeline] ERROR reading run logs ${runIdInput}:`, err && err.stack || err);
+    process.stderr.write(JSON.stringify({
+      event: 'run_logs.request', runId: runIdInput,
+      durationMs, outcome: 'error', message: err.message,
+      ts: new Date().toISOString(),
+    }) + '\n');
+    return sendError(res, 500, 'INTERNAL', err.message || 'Failed to read run logs');
+  }
+}
+
 module.exports = {
   PIPELINE_RUNS_LIST_ROUTE,
   PIPELINE_RUNS_SINGLE_ROUTE,
   PIPELINE_RUNS_LOG_ROUTE,
+  PIPELINE_RUNS_LOGS_ROUTE,
   PIPELINE_RUNS_METRICS_ROUTE,
   PIPELINE_RUNS_EVENTS_ROUTE,
   PIPELINE_RUNS_PROMPT_ROUTE,
@@ -580,6 +673,7 @@ module.exports = {
   handleListRuns,
   handleGetRun,
   handleGetStageLog,
+  handleGetRunLogs,
   handleGetStageMetrics,
   handleGetStageEvents,
   handleGetStagePrompt,
