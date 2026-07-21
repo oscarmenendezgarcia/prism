@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * bin/pipeline-logs.js — `prism pipeline <runId> logs [-f]`
+ * bin/run-logs.js — `prism run <runId> logs [-f]`
  *
  * Print or follow the stage-log stream for one pipeline run.
  *
@@ -134,7 +134,6 @@ async function runFollowMode(runId, flags, deps) {
     _resolveDataDir = resolveDataDir,
     _readFile       = fs.promises.readFile,
     _stat           = fs.promises.stat,
-    _openRead       = (p, start) => fs.createReadStream(p, { start, encoding: 'utf8' }),
     _setInterval    = (fn, ms) => setInterval(fn, ms),
     _clearInterval  = (h) => clearInterval(h),
     _onSigint       = (fn) => { process.on('SIGINT', fn); return () => process.off('SIGINT', fn); },
@@ -167,8 +166,6 @@ async function runFollowMode(runId, flags, deps) {
   let currentOffset = 0;
   const totalStages = Array.isArray(currentRun.stages) ? currentRun.stages.length : 0;
 
-  const openStages = new Set(); // FD tracking helper (streams we haven't closed yet)
-
   async function safeStat(p) {
     try { return await _stat(p); }
     catch (err) { if (err.code === 'ENOENT') return null; throw err; }
@@ -179,19 +176,13 @@ async function runFollowMode(runId, flags, deps) {
   }
 
   async function readFromOffset(idx, start) {
-    return new Promise((resolve, reject) => {
-      const p = stagePath(idx);
-      const stream = _openRead(p, start);
-      openStages.add(stream);
-      let acc = '';
-      stream.on('data', (chunk) => { acc += chunk; });
-      stream.on('end', () => { openStages.delete(stream); resolve(acc); });
-      stream.on('error', (err) => {
-        openStages.delete(stream);
-        if (err.code === 'ENOENT') resolve('');
-        else reject(err);
-      });
-    });
+    try {
+      const content = await _readFile(stagePath(idx), 'utf8');
+      return content.slice(start);
+    } catch (err) {
+      if (err.code === 'ENOENT') return '';
+      throw err;
+    }
   }
 
   async function catchUpDelta(idx) {
@@ -218,9 +209,6 @@ async function runFollowMode(runId, flags, deps) {
       stopped = true;
       if (interval) _clearInterval(interval);
       try { removeSigint(); } catch { /* ignore */ }
-      // Close any lingering streams (defensive; readFromOffset already closes on end/error)
-      for (const s of openStages) { try { s.destroy(); } catch { /* ignore */ } }
-      openStages.clear();
       _exit(code);
       resolve();
     }

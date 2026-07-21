@@ -10,7 +10,8 @@
  *   prism init    [--data-dir <path>] [--force]
  *   prism update  [--no-update-check]
  *   prism doctor  [--data-dir <path>] [--json]
- *   prism pipeline [<runId> [logs [-f]]]
+ *   prism run list
+ *   prism run <runId> [logs [-f]]
  *   prism --version
  *   prism --help
  *
@@ -36,9 +37,9 @@ Usage:
   prism init    [--data-dir <path>] [--force]
   prism update
   prism doctor  [--data-dir <path>] [--json]
-  prism pipeline                       List last 10 pipeline runs
-  prism pipeline <runId>               Alias for 'pipeline <runId> logs'
-  prism pipeline <runId> logs [-f]     Print (or follow with -f) stage logs
+  prism run list                       List last 10 pipeline runs
+  prism run <runId>                    Alias for 'run <runId> logs'
+  prism run <runId> logs [-f]          Print (or follow with -f) stage logs
   prism --version
   prism --help
 
@@ -65,16 +66,16 @@ prism update:
   Fetches the latest version from npm and installs it globally.
   Prompts for confirmation (auto-confirms in non-TTY/CI environments).
 
-prism pipeline:
+prism run:
   Inspect pipeline runs from the terminal (reads data/runs/ directly, falls
   back to the HTTP API when --server-url is passed).
 
-    prism pipeline                       Print last N run summaries (default 10)
-    prism pipeline --limit <n>           Change the summary list size (max 100)
-    prism pipeline <runId>               Alias for pipeline <runId> logs
-    prism pipeline <runId> logs          Print all stage logs with headers
-    prism pipeline <runId> logs -f       Follow (Ctrl+C exits with 130)
-    prism pipeline <runId> logs --stage <n>  Print only stage <n>
+    prism run list                       Print last N run summaries (default 10)
+    prism run list --limit <n>           Change the summary list size (max 100)
+    prism run <runId>                    Alias for run <runId> logs
+    prism run <runId> logs               Print all stage logs with headers
+    prism run <runId> logs -f            Follow (Ctrl+C exits with 130)
+    prism run <runId> logs --stage <n>   Print only stage <n>
 
   runId is matched by prefix (≥ 8 hex chars). Ambiguous prefixes exit 2 with a
   list of candidates. Additional flags:
@@ -85,6 +86,20 @@ prism pipeline:
 // ---------------------------------------------------------------------------
 // Minimal argv parser — no third-party deps
 // ---------------------------------------------------------------------------
+
+// Value-taking flags shared by both "--flag value" and "--flag=value" forms.
+const VALUE_FLAGS = {
+  '--limit':      'limit',
+  '--poll-ms':    'pollMs',
+  '--stage':      'stage',
+  '--server-url': 'serverUrl',
+};
+
+// Returns the part of `arg` before its first "=", or `arg` itself if there is none.
+function eqPrefix(arg) {
+  const idx = arg.indexOf('=');
+  return idx === -1 ? arg : arg.slice(0, idx);
+}
 
 /**
  * Parse process.argv into { subcommand, flags, positional }.
@@ -128,22 +143,10 @@ function parseArgv(argv) {
       flags.json = true;
     } else if (arg === '--follow' || arg === '-f') {
       flags.follow = true;
-    } else if (arg.startsWith('--limit=')) {
-      flags.limit = arg.slice('--limit='.length);
-    } else if (arg === '--limit') {
-      flags.limit = args[++i];
-    } else if (arg.startsWith('--poll-ms=')) {
-      flags.pollMs = arg.slice('--poll-ms='.length);
-    } else if (arg === '--poll-ms') {
-      flags.pollMs = args[++i];
-    } else if (arg.startsWith('--stage=')) {
-      flags.stage = arg.slice('--stage='.length);
-    } else if (arg === '--stage') {
-      flags.stage = args[++i];
-    } else if (arg.startsWith('--server-url=')) {
-      flags.serverUrl = arg.slice('--server-url='.length);
-    } else if (arg === '--server-url') {
-      flags.serverUrl = args[++i];
+    } else if (arg in VALUE_FLAGS) {
+      flags[VALUE_FLAGS[arg]] = args[++i];
+    } else if (eqPrefix(arg) in VALUE_FLAGS) {
+      flags[VALUE_FLAGS[eqPrefix(arg)]] = arg.slice(eqPrefix(arg).length + 1);
     } else if (!arg.startsWith('-')) {
       positional.push(arg);
     } else if (arg.startsWith('-')) {
@@ -245,9 +248,9 @@ function runDoctor(flags) {
   require(path.join(__dirname, 'doctor.js')).run(flags);
 }
 
-function runPipeline(flags, positional) {
-  // positional[0] === 'pipeline'; forward the rest to the dispatcher
-  require(path.join(__dirname, 'pipeline.js'))
+function runRun(flags, positional) {
+  // positional[0] === 'run'; forward the rest to the dispatcher
+  require(path.join(__dirname, 'run.js'))
     .run(flags, positional.slice(1))
     .catch(err => {
       process.stderr.write(`Error: ${err.message}\n`);
@@ -307,8 +310,8 @@ if (require.main !== module) return;
       runDoctor(flags);
       break;
 
-    case 'pipeline':
-      runPipeline(flags, positional);
+    case 'run':
+      runRun(flags, positional);
       break;
 
     case null:

@@ -2,15 +2,15 @@
 'use strict';
 
 /**
- * bin/pipeline.js — `prism pipeline` verb dispatcher + list mode.
+ * bin/run.js — `prism run` verb dispatcher + list mode.
  *
  * Layout:
- *   prism pipeline                       → list N most-recent runs
- *   prism pipeline <runId>               → alias for `<runId> logs`
- *   prism pipeline <runId> <verb> ...    → dispatch to bin/pipeline-<verb>.js
+ *   prism run list                  → list N most-recent runs
+ *   prism run <runId>               → alias for `<runId> logs`
+ *   prism run <runId> <verb> ...    → dispatch to bin/run-<verb>.js
  *
  * Verbs currently supported:
- *   - logs   → bin/pipeline-logs.js
+ *   - logs   → bin/run-logs.js
  * (status, stop, resume land in follow-up ADRs.)
  */
 
@@ -44,11 +44,6 @@ function formatAgo(then, now = new Date()) {
   return `${days}d ago`;
 }
 
-function padRight(str, width) {
-  const s = String(str == null ? '' : str);
-  return s.length >= width ? s : s + ' '.repeat(width - s.length);
-}
-
 function truncate(str, max) {
   const s = String(str == null ? '' : str);
   if (s.length <= max) return s;
@@ -70,10 +65,10 @@ function formatRunRow(run, titleLookup, now) {
   const title      = (titleLookup && titleLookup(run.taskId)) || '';
 
   return {
-    runId:   padRight(shortId, 9),
-    status:  padRight(run.status || 'unknown', 12),
-    stage:   padRight(stageCol, 22),
-    updated: padRight(formatAgo(run.updatedAt || run.createdAt, now), 12),
+    runId:   String(shortId ?? '').padEnd(9),
+    status:  String(run.status || 'unknown').padEnd(12),
+    stage:   String(stageCol).padEnd(22),
+    updated: String(formatAgo(run.updatedAt || run.createdAt, now)).padEnd(12),
     title:   truncate(title, 40),
   };
 }
@@ -142,10 +137,10 @@ async function runListMode(flags, deps) {
   const titleLookup = _titleLookup || (flags.serverUrl ? () => '' : buildTitleLookup(dataDir));
 
   const header = {
-    runId:   padRight('RUN ID', 9),
-    status:  padRight('STATUS', 12),
-    stage:   padRight('STAGE', 22),
-    updated: padRight('UPDATED', 12),
+    runId:   'RUN ID'.padEnd(9),
+    status:  'STATUS'.padEnd(12),
+    stage:   'STAGE'.padEnd(22),
+    updated: 'UPDATED'.padEnd(12),
     title:   'TITLE',
   };
 
@@ -164,22 +159,29 @@ async function runListMode(flags, deps) {
 
 const VERB_HANDLERS = {
   logs: (runId, flags, deps) =>
-    require(path.join(__dirname, 'pipeline-logs.js')).run(runId, flags, deps),
+    require(path.join(__dirname, 'run-logs.js')).run(runId, flags, deps),
 };
 
 /**
  * Entry point invoked from bin/cli.js.
  *
  * @param {object} flags
- * @param {string[]} positional  argv after "pipeline"
+ * @param {string[]} positional  argv after "run"
  * @param {object} [deps]
  */
 async function run(flags = {}, positional = [], deps = {}) {
   const _stderr = deps._stderr || process.stderr;
   const _exit   = deps._exit   || ((n) => process.exit(n));
 
-  // Case: no positional → list mode
+  // Bare "prism run" (no subcommand) is a usage error — list is explicit.
   if (positional.length === 0) {
+    _stderr.write("Error: missing argument — did you mean 'prism run list'?\n");
+    _exit(2);
+    return;
+  }
+
+  // Case: "prism run list" → list mode
+  if (positional[0] === 'list') {
     await runListMode(flags, deps);
     return;
   }
@@ -201,14 +203,13 @@ module.exports = {
   // exported for unit tests
   formatAgo,
   formatRunRow,
-  padRight,
   truncate,
   runListMode,
   VERB_HANDLERS,
 };
 
 if (require.main === module) {
-  const argv = process.argv.slice(3); // strip node + cli.js + 'pipeline'
+  const argv = process.argv.slice(3); // strip node + cli.js + 'run'
   run({}, argv).catch(err => {
     process.stderr.write(`Error: ${err.message}\n`);
     process.exit(err.exitCode || 1);

@@ -1,41 +1,26 @@
 'use strict';
 
 /**
- * Unit tests for bin/pipeline.js — verb dispatcher + list mode.
+ * Unit tests for bin/run.js — verb dispatcher + list mode.
  */
 
 const { describe, it } = require('node:test');
 const assert           = require('node:assert/strict');
 
-const P = require('../bin/pipeline.js');
+const { mockDeps: baseMockDeps } = require('./helpers/cliDeps.js');
 
-function bufWriter() {
-  const chunks = [];
-  return {
-    write: (s) => { chunks.push(String(s)); return true; },
-    text:  () => chunks.join(''),
-  };
-}
+const P = require('../bin/run.js');
 
 function mockDeps(over = {}) {
-  const stdout = bufWriter();
-  const stderr = bufWriter();
-  const exits  = [];
-  return {
-    _stdout: stdout,
-    _stderr: stderr,
-    _exit:   (n) => exits.push(n),
+  return baseMockDeps({
     _now:    () => new Date('2026-07-21T12:00:00Z'),
-    _resolveDataDir: () => ({ path: '/tmp/fake-data', mode: 'env' }),
     _listRuns: async () => [],
     _titleLookup: () => '',
     ...over,
-    // expose captured state
-    _captured: { stdout, stderr, exits },
-  };
+  });
 }
 
-describe('bin/pipeline — formatAgo', () => {
+describe('bin/run — formatAgo', () => {
   const now = new Date('2026-07-21T12:00:00Z');
   it('formats seconds', () => {
     assert.equal(P.formatAgo(new Date('2026-07-21T11:59:55Z'), now), '5s ago');
@@ -54,13 +39,7 @@ describe('bin/pipeline — formatAgo', () => {
   });
 });
 
-describe('bin/pipeline — truncate + padRight', () => {
-  it('padRight fills to width', () => {
-    assert.equal(P.padRight('ab', 5), 'ab   ');
-  });
-  it('padRight is a no-op past width', () => {
-    assert.equal(P.padRight('abcdef', 3), 'abcdef');
-  });
+describe('bin/run — truncate', () => {
   it('truncate appends ellipsis', () => {
     assert.equal(P.truncate('abcdefghij', 5), 'abcd…');
   });
@@ -69,7 +48,7 @@ describe('bin/pipeline — truncate + padRight', () => {
   });
 });
 
-describe('bin/pipeline — formatRunRow', () => {
+describe('bin/run — formatRunRow', () => {
   it('renders runId shortened to 8 chars + agent name', () => {
     const now = new Date('2026-07-21T12:00:00Z');
     const row = P.formatRunRow(
@@ -93,7 +72,7 @@ describe('bin/pipeline — formatRunRow', () => {
   });
 });
 
-describe('bin/pipeline — list mode', () => {
+describe('bin/run — list mode', () => {
   it('prints header + row for a single run and exits 0', async () => {
     const deps = mockDeps({
       _listRuns: async () => [{
@@ -101,7 +80,7 @@ describe('bin/pipeline — list mode', () => {
         updatedAt: '2026-07-21T11:59:00Z',
       }],
     });
-    await P.run({}, [], deps);
+    await P.run({}, ['list'], deps);
     const out = deps._captured.stdout.text();
     assert.match(out, /RUN ID/);
     assert.match(out, /abcdef12/);
@@ -111,14 +90,14 @@ describe('bin/pipeline — list mode', () => {
 
   it('empty list writes "No runs yet." to stderr and exits 0', async () => {
     const deps = mockDeps({ _listRuns: async () => [] });
-    await P.run({}, [], deps);
+    await P.run({}, ['list'], deps);
     assert.match(deps._captured.stderr.text(), /No runs yet\./);
     assert.deepEqual(deps._captured.exits, [0]);
   });
 
   it('rejects non-numeric --limit with exit 2', async () => {
     const deps = mockDeps();
-    await P.run({ limit: 'twelve' }, [], deps);
+    await P.run({ limit: 'twelve' }, ['list'], deps);
     assert.match(deps._captured.stderr.text(), /--limit must be a positive integer/);
     assert.deepEqual(deps._captured.exits, [2]);
   });
@@ -128,15 +107,24 @@ describe('bin/pipeline — list mode', () => {
     const deps = mockDeps({
       _listRuns: async (opts) => { capturedLimit = opts.limit; return []; },
     });
-    await P.run({ limit: '9999' }, [], deps);
+    await P.run({ limit: '9999' }, ['list'], deps);
     assert.equal(capturedLimit, 100);
   });
 });
 
-describe('bin/pipeline — verb dispatch', () => {
+describe('bin/run — bare "prism run" (no subcommand)', () => {
+  it('is a usage error hinting at "run list", not an implicit list', async () => {
+    const deps = mockDeps();
+    await P.run({}, [], deps);
+    assert.match(deps._captured.stderr.text(), /run list/);
+    assert.deepEqual(deps._captured.exits, [2]);
+  });
+});
+
+describe('bin/run — verb dispatch', () => {
   it('with only runId, dispatches to logs verb', async () => {
     let sawCall = null;
-    // Monkey-patch VERB_HANDLERS to capture the invocation without touching pipeline-logs
+    // Monkey-patch VERB_HANDLERS to capture the invocation without touching run-logs
     const original = P.VERB_HANDLERS.logs;
     P.VERB_HANDLERS.logs = (runId, flags, deps) => {
       sawCall = { runId, flags, deps };

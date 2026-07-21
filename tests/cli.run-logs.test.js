@@ -1,39 +1,18 @@
 'use strict';
 
 /**
- * Unit tests for bin/pipeline-logs.js — print mode (mocked deps).
- * Integration tests for follow mode live in cli.pipeline-logs.integration.test.js.
+ * Unit tests for bin/run-logs.js — print mode (mocked deps).
+ * Integration tests for follow mode live in cli.run-logs.integration.test.js.
  */
 
 const { describe, it } = require('node:test');
 const assert           = require('node:assert/strict');
 
-const L = require('../bin/pipeline-logs.js');
+const { bufWriter, mockDeps } = require('./helpers/cliDeps.js');
 
-function bufWriter(isTTY = false) {
-  const chunks = [];
-  return {
-    write: (s) => { chunks.push(String(s)); return true; },
-    text:  () => chunks.join(''),
-    isTTY,
-  };
-}
+const L = require('../bin/run-logs.js');
 
-function mockDeps(over = {}) {
-  const stdout = bufWriter(false);
-  const stderr = bufWriter(false);
-  const exits  = [];
-  return {
-    _stdout: stdout,
-    _stderr: stderr,
-    _exit:   (n) => exits.push(n),
-    _resolveDataDir: () => ({ path: '/tmp/fake-data', mode: 'env' }),
-    ...over,
-    _captured: { stdout, stderr, exits },
-  };
-}
-
-describe('pipeline-logs — stageHeader / stageFooter', () => {
+describe('run-logs — stageHeader / stageFooter', () => {
   it('ANSI codes are absent when stream is not a TTY', () => {
     const h = L.stageHeader(1, 4, 'developer', 'running', { stream: bufWriter(false) });
     assert.ok(!/\x1b\[/.test(h), 'no ANSI when non-TTY');
@@ -54,7 +33,7 @@ describe('pipeline-logs — stageHeader / stageFooter', () => {
   });
 });
 
-describe('pipeline-logs — statusFor / normaliseStages', () => {
+describe('run-logs — statusFor / normaliseStages', () => {
   it('statusFor returns "pending" when stageStatuses is missing', () => {
     assert.equal(L.statusFor({}, 0), 'pending');
   });
@@ -70,7 +49,7 @@ describe('pipeline-logs — statusFor / normaliseStages', () => {
   });
 });
 
-describe('pipeline-logs — print mode (mocked)', () => {
+describe('run-logs — print mode (mocked)', () => {
   it('errors when runId is missing', async () => {
     const deps = mockDeps();
     await L.run('', {}, deps);
@@ -160,7 +139,7 @@ describe('pipeline-logs — print mode (mocked)', () => {
   });
 });
 
-describe('pipeline-logs — follow mode flag validation', () => {
+describe('run-logs — follow mode flag validation', () => {
   it('rejects --poll-ms below range', async () => {
     const deps = mockDeps({
       _resolveRun: async () => ({ run: { runId: 'r', stages: ['a'], stageStatuses: [], currentStage: 0 } }),

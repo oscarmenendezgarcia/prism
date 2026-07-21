@@ -4,8 +4,8 @@
  * runResolver.js — Prefix-match runId → full run, with FS-first / HTTP-fallback source.
  *
  * Consumers:
- *   - bin/pipeline.js         (list mode)
- *   - bin/pipeline-logs.js    (print + follow)
+ *   - bin/run.js         (list mode)
+ *   - bin/run-logs.js    (print + follow)
  *
  * Design notes:
  *   - FS-first: reads data/runs/runs.json + data/runs/<runId>/run.json directly, so the
@@ -87,34 +87,27 @@ function tryLoadStore(dataDir) {
   }
 }
 
-async function httpJson(url, _fetch) {
+/**
+ * Shared fetch wrapper for the two shapes runResolver needs: a parsed JSON
+ * body (`as: 'json'`, 404 → null) or raw text (`as: 'text'`, 404 → throws a
+ * typed 404 error so callers can map it to StageNotAvailableError).
+ */
+async function httpFetch(url, _fetch, { as }) {
   const fetchFn = _fetch || (typeof fetch === 'function' ? fetch : null);
   if (!fetchFn) {
     throw new Error('global fetch is unavailable (Node < 18) and no _fetch was injected');
   }
   const res = await fetchFn(url);
   if (!res.ok) {
-    if (res.status === 404) return null;
-    throw new Error(`HTTP ${res.status} for ${url}`);
-  }
-  return res.json();
-}
-
-async function httpText(url, _fetch) {
-  const fetchFn = _fetch || (typeof fetch === 'function' ? fetch : null);
-  if (!fetchFn) {
-    throw new Error('global fetch is unavailable and no _fetch was injected');
-  }
-  const res = await fetchFn(url);
-  if (!res.ok) {
     if (res.status === 404) {
+      if (as === 'json') return null;
       const err = new Error(`HTTP 404 for ${url}`);
       err.status = 404;
       throw err;
     }
     throw new Error(`HTTP ${res.status} for ${url}`);
   }
-  return res.text();
+  return as === 'json' ? res.json() : res.text();
 }
 
 // ---------------------------------------------------------------------------
@@ -139,7 +132,7 @@ async function listRuns(opts = {}) {
 
   if (serverUrl) {
     const base = serverUrl.replace(/\/+$/, '');
-    const json = await httpJson(`${base}/api/v1/runs`, _fetch);
+    const json = await httpFetch(`${base}/api/v1/runs`, _fetch, { as: 'json' });
     summaries = Array.isArray(json) ? json : [];
   } else {
     // Prefer SQLite store when available
@@ -197,7 +190,7 @@ async function resolveRun(prefix, opts = {}) {
 
   if (opts.serverUrl) {
     const base = opts.serverUrl.replace(/\/+$/, '');
-    const run  = await httpJson(`${base}/api/v1/runs/${runId}`, opts._fetch);
+    const run  = await httpFetch(`${base}/api/v1/runs/${runId}`, opts._fetch, { as: 'json' });
     if (!run) throw new RunNotFoundError(prefix);
     return { run, source: 'http' };
   }
@@ -233,7 +226,7 @@ async function readStageLog(runId, stageIndex, opts = {}) {
     const base = opts.serverUrl.replace(/\/+$/, '');
     const url  = `${base}/api/v1/runs/${runId}/stages/${stageIndex}/log`;
     try {
-      const content = await httpText(url, opts._fetch);
+      const content = await httpFetch(url, opts._fetch, { as: 'text' });
       return { content, fromHttp: true };
     } catch (err) {
       if (err.status === 404) {

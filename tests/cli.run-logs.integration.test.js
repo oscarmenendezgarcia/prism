@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Integration tests for `prism pipeline` — spawns the real CLI against a
+ * Integration tests for `prism run` — spawns the real CLI against a
  * temporary data-dir populated with fake run.json + stage-N.log files.
  *
  * No server is spawned; HTTP fallback is not exercised here (that path is
@@ -18,7 +18,7 @@ const { spawnSync, spawn } = require('child_process');
 const CLI = path.join(__dirname, '..', 'bin', 'cli.js');
 
 function mkFixture({ runId, stages, stageContents, status = 'completed', currentStage = null }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-cli-pipe-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-cli-run-'));
   const runsDir = path.join(dir, 'runs');
   const runDir  = path.join(runsDir, runId);
   fs.mkdirSync(runDir, { recursive: true });
@@ -60,11 +60,11 @@ function runCli(args, opts = {}) {
   });
 }
 
-describe('prism pipeline — list mode (integration)', () => {
+describe('prism run list — list mode (integration)', () => {
   it('prints an empty-list message when no runs exist', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-cli-empty-'));
     try {
-      const r = runCli(['pipeline', '--data-dir', dir]);
+      const r = runCli(['run', 'list', '--data-dir', dir]);
       assert.equal(r.status, 0, `stdout=${r.stdout}\nstderr=${r.stderr}`);
       assert.match(r.stderr, /No runs yet\./);
     } finally {
@@ -79,7 +79,7 @@ describe('prism pipeline — list mode (integration)', () => {
       stageContents: ['s0', 's1'],
     });
     try {
-      const r = runCli(['pipeline', '--data-dir', f.dir]);
+      const r = runCli(['run', 'list', '--data-dir', f.dir]);
       assert.equal(r.status, 0, `stdout=${r.stdout}\nstderr=${r.stderr}`);
       assert.match(r.stdout, /RUN ID/);
       assert.match(r.stdout, /abcdef12/);
@@ -88,9 +88,20 @@ describe('prism pipeline — list mode (integration)', () => {
       f.cleanup();
     }
   });
+
+  it('bare "prism run" (no subcommand) exits 2 with a hint at "run list"', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-cli-bare-'));
+    try {
+      const r = runCli(['run', '--data-dir', dir]);
+      assert.equal(r.status, 2, `stdout=${r.stdout}\nstderr=${r.stderr}`);
+      assert.match(r.stderr, /run list/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
-describe('prism pipeline — logs print mode (integration)', () => {
+describe('prism run — logs print mode (integration)', () => {
   it('prints all stage headers and file bodies', () => {
     const f = mkFixture({
       runId: 'abcdef12aaaa1111bbbb2222cccc3333',
@@ -98,7 +109,7 @@ describe('prism pipeline — logs print mode (integration)', () => {
       stageContents: ['STAGE_ZERO_BODY\n', 'STAGE_ONE_BODY\n', 'STAGE_TWO_BODY\n'],
     });
     try {
-      const r = runCli(['pipeline', 'abcdef12', 'logs', '--data-dir', f.dir]);
+      const r = runCli(['run', 'abcdef12', 'logs', '--data-dir', f.dir]);
       assert.equal(r.status, 0, `stderr=${r.stderr}`);
       assert.equal((r.stdout.match(/━━━ Stage/g) || []).length, 3);
       assert.match(r.stdout, /STAGE_ZERO_BODY/);
@@ -116,7 +127,7 @@ describe('prism pipeline — logs print mode (integration)', () => {
       stageContents: ['SOLO_BODY\n'],
     });
     try {
-      const r = runCli(['pipeline', 'defaultv', '--data-dir', f.dir]);
+      const r = runCli(['run', 'defaultv', '--data-dir', f.dir]);
       assert.equal(r.status, 0, `stderr=${r.stderr}`);
       assert.match(r.stdout, /SOLO_BODY/);
     } finally {
@@ -131,7 +142,7 @@ describe('prism pipeline — logs print mode (integration)', () => {
       stageContents: ['AA\n', 'BB\n', 'CC\n'],
     });
     try {
-      const r = runCli(['pipeline', 'stagearg', 'logs', '--stage', '1', '--data-dir', f.dir]);
+      const r = runCli(['run', 'stagearg', 'logs', '--stage', '1', '--data-dir', f.dir]);
       assert.equal(r.status, 0, `stderr=${r.stderr}`);
       assert.match(r.stdout, /BB/);
       assert.doesNotMatch(r.stdout, /AA/);
@@ -142,7 +153,7 @@ describe('prism pipeline — logs print mode (integration)', () => {
   });
 
   it('short prefix (<8 chars) exits 2', () => {
-    const r = runCli(['pipeline', 'abc', 'logs', '--data-dir', '/tmp']);
+    const r = runCli(['run', 'abc', 'logs', '--data-dir', '/tmp']);
     assert.equal(r.status, 2, `stdout=${r.stdout}\nstderr=${r.stderr}`);
     assert.match(r.stderr, /at least 8/);
   });
@@ -154,7 +165,7 @@ describe('prism pipeline — logs print mode (integration)', () => {
       stageContents: [''],
     });
     try {
-      const r = runCli(['pipeline', 'verbverb', 'bogus', '--data-dir', f.dir]);
+      const r = runCli(['run', 'verbverb', 'bogus', '--data-dir', f.dir]);
       assert.equal(r.status, 2, `stderr=${r.stderr}`);
       assert.match(r.stderr, /unknown verb 'bogus'/);
     } finally {
@@ -167,7 +178,7 @@ describe('prism pipeline — logs print mode (integration)', () => {
     fs.mkdirSync(path.join(dir, 'runs'));
     fs.writeFileSync(path.join(dir, 'runs', 'runs.json'), '[]');
     try {
-      const r = runCli(['pipeline', 'ghost1234', 'logs', '--data-dir', dir]);
+      const r = runCli(['run', 'ghost1234', 'logs', '--data-dir', dir]);
       assert.equal(r.status, 1);
       assert.match(r.stderr, /not found/);
     } finally {
@@ -176,7 +187,7 @@ describe('prism pipeline — logs print mode (integration)', () => {
   });
 });
 
-describe('prism pipeline logs -f — follow mode (integration)', () => {
+describe('prism run logs -f — follow mode (integration)', () => {
   it('captures appended bytes to the current stage log and exits on terminal status', async () => {
     const runId = 'followrunaaaa1111bbbb2222cccc3333';
     const f = mkFixture({
@@ -188,7 +199,7 @@ describe('prism pipeline logs -f — follow mode (integration)', () => {
     });
     try {
       const child = spawn(process.execPath, [
-        CLI, 'pipeline', runId.slice(0, 8), 'logs', '-f',
+        CLI, 'run', runId.slice(0, 8), 'logs', '-f',
         '--poll-ms', '80',
         '--data-dir', f.dir,
       ], { env: { ...process.env, PRISM_NO_UPDATE_CHECK: '1' } });

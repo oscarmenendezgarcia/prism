@@ -146,7 +146,7 @@ prism start          # start the server → http://localhost:3000
 prism stop           # SIGTERM, wait up to 35 s for clean exit (--force for SIGKILL)
 prism update         # update to the latest npm release
 prism doctor         # verify runtime dependencies (--json for CI)
-prism pipeline       # inspect pipeline runs from the terminal (see below)
+prism run list       # inspect pipeline runs from the terminal (see below)
 prism --help         # list all commands and flags
 ```
 
@@ -154,14 +154,14 @@ prism --help         # list all commands and flags
 
 `prism doctor` checks Node version, the `node-pty` spawn-helper bit, `better-sqlite3`, the `claude` CLI, data-dir writability, and server status. Exit `0` if all pass, `1` otherwise; `--json` emits `{ ok, checks: [...] }` for pipelines.
 
-### `prism pipeline` — tail pipeline runs from the terminal
+### `prism run` — tail pipeline runs from the terminal
 
 ```bash
-prism pipeline                       # list the 10 most-recent runs (--limit N to change)
-prism pipeline <runId>               # alias for `<runId> logs`
-prism pipeline <runId> logs          # print every stage log with headers
-prism pipeline <runId> logs -f       # follow: appends new bytes, switches on stage change
-prism pipeline <runId> logs --stage 2  # print only stage 2
+prism run list                       # list the 10 most-recent runs (--limit N to change)
+prism run <runId>                    # alias for `<runId> logs`
+prism run <runId> logs               # print every stage log with headers
+prism run <runId> logs -f            # follow: appends new bytes, switches on stage change
+prism run <runId> logs --stage 2     # print only stage 2
 ```
 
 `<runId>` accepts an **8-char prefix**; ambiguous prefixes exit 2 with a list of
@@ -169,7 +169,7 @@ candidates. Reads `data/runs/<runId>/` directly (works with the server stopped);
 pass `--server-url http://host:port` to force the HTTP fallback. Follow mode polls
 every 500 ms by default (`--poll-ms 50..10000`) and exits cleanly (code 0) when the
 run reaches a terminal status. Ctrl+C exits with code 130. See
-`agent-docs/cli-pipeline-logs/ADR-1.md` for the full design.
+`agent-docs/cli-run-logs/ADR-1.md` for the full design.
 
 ---
 
