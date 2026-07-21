@@ -33,7 +33,7 @@ Each agent-run record is created with `status: "running"`
 `useAgentCompletion`). Any completion the frontend does not personally observe
 leaves a permanent zombie `running` record:
 
-- Pipeline runs launched from **MCP / backend** (`kanban_start_pipeline`) —
+- Pipeline runs launched from **MCP / backend** (`kanban_start_run`, formerly `kanban_start_pipeline`) —
   the frontend never drove them, so it never PATCHes them to terminal.
 - **Server restarts** mid-run.
 - **Resumes / stage re-runs** append a *new* `running` record for an

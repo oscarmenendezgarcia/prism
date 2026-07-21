@@ -58,7 +58,7 @@ activity.json                ← ActivityEvent[] (global)
 Default order: `senior-architect → ux-api-designer → developer-agent → qa-engineer-e2e`
 
 Per-space custom pipelines can override this order. Triggered via:
-- `kanban_start_pipeline` MCP tool
+- `kanban_start_run` MCP tool (formerly `kanban_start_pipeline` — still accepted as a deprecated alias)
 - `POST /api/v1/runs`
 
 Runs are async — poll `kanban_get_run_status` or `GET /api/v1/runs/:runId`.
