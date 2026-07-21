@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+- **`prism pipeline` CLI** — inspect pipeline runs from the terminal. `prism
+  pipeline` lists recent runs; `prism pipeline <runId> logs [-f]` prints or
+  follows stage logs. Reads `data/runs/` directly (server-optional), falls back
+  to the HTTP API with `--server-url`. Prefix-matches runIds (≥ 8 chars),
+  supports `--stage N`, `--poll-ms`, `--limit`. Full design: `agent-docs/
+  cli-pipeline-logs/ADR-1.md`.
+
 ## [1.4.0] — 2026-07-16
 
 Headline: **Polish pass** — a batch of accessibility, consistency, and tech-debt

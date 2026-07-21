@@ -10,6 +10,7 @@
  *   prism init    [--data-dir <path>] [--force]
  *   prism update  [--no-update-check]
  *   prism doctor  [--data-dir <path>] [--json]
+ *   prism pipeline [<runId> [logs [-f]]]
  *   prism --version
  *   prism --help
  *
@@ -35,6 +36,9 @@ Usage:
   prism init    [--data-dir <path>] [--force]
   prism update
   prism doctor  [--data-dir <path>] [--json]
+  prism pipeline                       List last 10 pipeline runs
+  prism pipeline <runId>               Alias for 'pipeline <runId> logs'
+  prism pipeline <runId> logs [-f]     Print (or follow with -f) stage logs
   prism --version
   prism --help
 
@@ -60,6 +64,22 @@ prism doctor:
 prism update:
   Fetches the latest version from npm and installs it globally.
   Prompts for confirmation (auto-confirms in non-TTY/CI environments).
+
+prism pipeline:
+  Inspect pipeline runs from the terminal (reads data/runs/ directly, falls
+  back to the HTTP API when --server-url is passed).
+
+    prism pipeline                       Print last N run summaries (default 10)
+    prism pipeline --limit <n>           Change the summary list size (max 100)
+    prism pipeline <runId>               Alias for pipeline <runId> logs
+    prism pipeline <runId> logs          Print all stage logs with headers
+    prism pipeline <runId> logs -f       Follow (Ctrl+C exits with 130)
+    prism pipeline <runId> logs --stage <n>  Print only stage <n>
+
+  runId is matched by prefix (≥ 8 hex chars). Ambiguous prefixes exit 2 with a
+  list of candidates. Additional flags:
+    --poll-ms <n>       Follow-mode poll interval (default 500, range 50..10000)
+    --server-url <url>  Force the HTTP fallback path (e.g. http://localhost:3000)
 `.trim();
 
 // ---------------------------------------------------------------------------
@@ -67,16 +87,20 @@ prism update:
 // ---------------------------------------------------------------------------
 
 /**
- * Parse process.argv into { subcommand, flags }.
+ * Parse process.argv into { subcommand, flags, positional }.
  * Supports:
  *   --flag value
  *   --flag=value
  *   --boolean-flag
+ *
+ * `positional` contains every non-flag argument in order (including the
+ * subcommand at index 0). `subcommand` mirrors positional[0] for backwards
+ * compatibility with the existing switch/case.
  */
 function parseArgv(argv) {
   const args = argv.slice(2); // strip node + script path
   const flags = {};
-  let subcommand = null;
+  const positional = [];
 
   let i = 0;
   while (i < args.length) {
@@ -102,8 +126,26 @@ function parseArgv(argv) {
       flags.dataDir = args[++i];
     } else if (arg === '--json') {
       flags.json = true;
-    } else if (!arg.startsWith('-') && subcommand === null) {
-      subcommand = arg;
+    } else if (arg === '--follow' || arg === '-f') {
+      flags.follow = true;
+    } else if (arg.startsWith('--limit=')) {
+      flags.limit = arg.slice('--limit='.length);
+    } else if (arg === '--limit') {
+      flags.limit = args[++i];
+    } else if (arg.startsWith('--poll-ms=')) {
+      flags.pollMs = arg.slice('--poll-ms='.length);
+    } else if (arg === '--poll-ms') {
+      flags.pollMs = args[++i];
+    } else if (arg.startsWith('--stage=')) {
+      flags.stage = arg.slice('--stage='.length);
+    } else if (arg === '--stage') {
+      flags.stage = args[++i];
+    } else if (arg.startsWith('--server-url=')) {
+      flags.serverUrl = arg.slice('--server-url='.length);
+    } else if (arg === '--server-url') {
+      flags.serverUrl = args[++i];
+    } else if (!arg.startsWith('-')) {
+      positional.push(arg);
     } else if (arg.startsWith('-')) {
       // Unknown flag — warn but do not hard-fail here; subcommand handler decides
       process.stderr.write(`Warning: unknown flag '${arg}'\n`);
@@ -112,7 +154,7 @@ function parseArgv(argv) {
     i++;
   }
 
-  return { subcommand, flags };
+  return { subcommand: positional[0] || null, flags, positional };
 }
 
 // ---------------------------------------------------------------------------
@@ -203,12 +245,27 @@ function runDoctor(flags) {
   require(path.join(__dirname, 'doctor.js')).run(flags);
 }
 
+function runPipeline(flags, positional) {
+  // positional[0] === 'pipeline'; forward the rest to the dispatcher
+  require(path.join(__dirname, 'pipeline.js'))
+    .run(flags, positional.slice(1))
+    .catch(err => {
+      process.stderr.write(`Error: ${err.message}\n`);
+      process.exit(err && Number.isInteger(err.exitCode) ? err.exitCode : 1);
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
+// Exported for unit testing
+module.exports = { parseArgv };
+
+if (require.main !== module) return;
+
 (function main() {
-  const { subcommand, flags } = parseArgv(process.argv);
+  const { subcommand, flags, positional } = parseArgv(process.argv);
 
   // Apply env var equivalent for --no-update-check
   if (process.env.PRISM_NO_UPDATE_CHECK) {
@@ -248,6 +305,10 @@ function runDoctor(flags) {
 
     case 'doctor':
       runDoctor(flags);
+      break;
+
+    case 'pipeline':
+      runPipeline(flags, positional);
       break;
 
     case null:
