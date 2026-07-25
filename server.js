@@ -114,6 +114,16 @@ function startServer(options = {}) {
   // Step 2b: Initialize pipeline manager (startup recovery).
   // Marks any run with status='running' as 'interrupted' from a previous crash.
   pipelineManager.init(dataDir, store);
+
+  // Step 2c: Backfill orphaned "running" agent-runs entries whose parent
+  // pipeline run is already terminal (see ADR runs-zombie-active-fix).
+  // Non-fatal — a failure must never block server startup.
+  try {
+    const { runBackfill } = require('./src/services/agentRunsBackfill');
+    runBackfill({ dataDir, store });
+  } catch (err) {
+    console.warn(`[agent-runs-backfill] load failed (non-fatal): ${err.message}`);
+  }
   // Propagate pipeline.agentsDir from settings to env (if not already set via env var).
   if (!process.env.PIPELINE_AGENTS_DIR) {
     const startupSettings = readSettings(dataDir);
