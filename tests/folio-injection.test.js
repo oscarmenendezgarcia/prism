@@ -344,6 +344,68 @@ describe('T-002 buildContext', () => {
     assert.doesNotThrow(() => buildContext(store, folio.id, ''));
   });
 
+  // ── Regression: FTS5 syntax error on punctuation ─────────────────────────
+  // Observed in production (data/server.log, run a8b38f23, all 7 stages):
+  //   [folio.store] searchPages: FTS query error — fts5: syntax error near "."
+  // The sanitizer stripped -"^*():;,!? but NOT '.', so a term ending in a period
+  // reached FTS5 verbatim, threw, and was swallowed into zero hits — injection
+  // silently produced an index-only block for every stage of every run.
+
+  it('regression: punctuation-heavy queries do not error and still reach their page', () => {
+    addPage('arch', 'module', 'pipelineManager orchestrates stage execution and injection');
+    const queries = [
+      'Fix pipelineManager.js stage injection.',                 // the exact production failure
+      'Release v1.4.0: fix injection.',
+      'Task (urgent!) — review src/services/folio/injection.js; then QA?',
+      'Refactor "stage-aware" injection: tiers, budgets & caps.',
+      'Ampliar la inyección — ¿qué páginas? Ninguna aún.',
+    ];
+    for (const q of queries) {
+      // scoreThreshold 0 — this asserts reachability, not ranking.
+      const result = buildContext(store, folio.id, q, { scoreThreshold: 0 });
+      assert.equal(result.searchError, false, `must not error on: ${q}`);
+    }
+
+    const hit = buildContext(store, folio.id, 'Fix pipelineManager.js stage injection.', {
+      scoreThreshold: 0,
+    });
+    assert.ok(hit.searchHits > 0, 'query with periods must produce BM25 hits');
+    assert.ok(
+      hit.inline.some((i) => i.slug === 'arch/module'),
+      'matching page must be inlined, not silently dropped',
+    );
+  });
+
+  it('reports searchHits and searchError so an empty injection is distinguishable', () => {
+    addPage('arch', 'page', 'architecture module design');
+    const hit = buildContext(store, folio.id, 'architecture module design', { scoreThreshold: 0.1 });
+    assert.equal(typeof hit.searchHits, 'number');
+    assert.equal(hit.searchError, false);
+    assert.ok(hit.searchHits > 0, 'a real match reports hits');
+
+    const miss = buildContext(store, folio.id, 'zzzznonexistentterm');
+    assert.equal(miss.searchError, false, 'no matches is not an error');
+    assert.equal(miss.searchHits, 0, 'no matches reports zero hits');
+  });
+
+  it('searchError is reported, but never changes what gets inlined', () => {
+    addPage('arch', 'pinned-doc', 'Completely unrelated topic about cooking recipes', { pinned: true });
+
+    // A store whose search always fails, mimicking an FTS parse error.
+    const failingStore = {
+      ...store,
+      searchPages(folioId, q, opts = {}) {
+        if (typeof opts.onError === 'function') opts.onError(new Error('fts5: syntax error'));
+        return [];
+      },
+    };
+    const errored = buildContext(failingStore, folio.id, 'anything at all');
+    assert.equal(errored.searchError, true, 'the failure is reported to the caller');
+    assert.equal(errored.inline.length, 0,
+      'a broken search degrades to index-only — it does not substitute unrelated pages');
+    assert.ok(errored.text.includes('Index — chapters'), 'index layer still present');
+  });
+
   it('uses injected countTokens when provided via opts', () => {
     let callCount = 0;
     function myCounter(text) {

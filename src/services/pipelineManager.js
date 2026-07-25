@@ -1403,8 +1403,14 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     referencedCount: injectionResult?.referenced?.length ?? 0,
     truncatedCount:  injectionResult?.truncated?.length  ?? 0,
     tokens:          injectionResult?.tokens             ?? 0,
+    searchHits:      injectionResult?.searchHits          ?? 0,
+    searchError:     injectionResult?.searchError         ?? false,
     queryLen:        injectionResult !== null ? (task?.title?.length ?? 0) + (task?.description?.length ?? 0) : 0,
   });
+  // To find silently-degraded injection, filter this event for
+  // `folioBound:true && inlineCount:0` — a bound folio that inlines nothing is a
+  // failure, not a quiet success, and reads as healthy without that filter.
+  // `searchError:true` narrows it further to an FTS query that actually threw.
 
   let promptText = task
     ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
