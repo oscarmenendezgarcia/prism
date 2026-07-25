@@ -52,7 +52,7 @@ export function Tooltip({ label, description, children, position = 'bottom' }: T
           {label}
         </p>
         {description && (
-          <p className="text-xs text-text-secondary mt-0.5 whitespace-nowrap leading-snug">
+          <p className="text-xs text-text-secondary mt-0.5 leading-snug">
             {description}
           </p>
         )}

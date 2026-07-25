@@ -96,6 +96,20 @@ describe('Tooltip — TC-004: description rendered when provided', () => {
     expect(paragraphs.length).toBe(2);
     expect(paragraphs[1].className).toContain('text-text-secondary');
   });
+
+  // Regression: long descriptions must wrap inside max-w-[220px] instead of
+  // overflowing the bubble. The description paragraph must NOT set
+  // whitespace-nowrap; the label paragraph MAY keep it because it is short.
+  it('description paragraph does NOT have whitespace-nowrap (wraps within max-w)', () => {
+    const { container } = renderTooltip({
+      label: 'Folio',
+      description: 'Browse and edit the space knowledge base',
+    });
+    const tooltip = container.querySelector('[role="tooltip"]')!;
+    const paragraphs = tooltip.querySelectorAll('p');
+    expect(paragraphs.length).toBe(2);
+    expect(paragraphs[1].className).not.toContain('whitespace-nowrap');
+  });
 });
 
 // ---------------------------------------------------------------------------
