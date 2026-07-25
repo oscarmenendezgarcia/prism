@@ -80,8 +80,8 @@ function readJSONSafe(filePath, fallback) {
  */
 function tryLoadStore(dataDir) {
   try {
-    const { openStore } = require(path.join(__dirname, '..', 'services', 'store.js'));
-    return openStore(dataDir);
+    const { createStore } = require(path.join(__dirname, '..', 'services', 'store.js'));
+    return createStore(dataDir);
   } catch {
     return null;
   }

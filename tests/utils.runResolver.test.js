@@ -200,3 +200,46 @@ describe('runResolver — readStageLog', () => {
     );
   });
 });
+
+// Every other test in this file injects `_openStore`, which bypasses the real
+// require of store.js. That seam hid a wrong factory name (`openStore` instead
+// of `createStore`) that made every real run unresolvable: the require threw,
+// the catch swallowed it, and the resolver fell through to a `run.json` that
+// no longer exists since runs moved to SQLite. These tests take no seam.
+describe('runResolver — real SQLite store (no _openStore injection)', () => {
+  const RUN_ID = 'aabbccdd-1111-2222-3333-444455556666';
+
+  function seedStore(dataDir) {
+    const { createStore } = require('../src/services/store.js');
+    const store = createStore(dataDir);
+    store.upsertRun({
+      runId:     RUN_ID,
+      spaceId:   'space-1',
+      taskId:    'task-1',
+      status:    'completed',
+      stages:    ['developer-agent'],
+      createdAt: '2026-07-25T10:00:00.000Z',
+      updatedAt: '2026-07-25T10:05:00.000Z',
+    });
+    store.close();
+  }
+
+  it('lists runs from the store when no run.json exists on disk', async () => {
+    const dataDir = mkTmpDataDir();
+    seedStore(dataDir);
+
+    const runs = await R.listRuns({ dataDir });
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].runId, RUN_ID);
+  });
+
+  it('resolves a prefix to source "store", not the run.json fallback', async () => {
+    const dataDir = mkTmpDataDir();
+    seedStore(dataDir);
+
+    const { run, source } = await R.resolveRun(RUN_ID.slice(0, 8), { dataDir });
+    assert.equal(source, 'store');
+    assert.equal(run.runId, RUN_ID);
+    assert.equal(run.status, 'completed');
+  });
+});
