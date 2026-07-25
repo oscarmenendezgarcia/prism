@@ -42,6 +42,7 @@ import {
   searchTasks,
   startPipeline,
   getRunStatus,
+  getRunLogs,
   resumePipeline,
   stopPipeline,
   addComment,
@@ -56,7 +57,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const SERVER_NAME    = 'prism';
-const SERVER_VERSION = '2.2.0';
+const SERVER_VERSION = '2.3.0';
 const KANBAN_API_URL = process.env.KANBAN_API_URL ?? 'http://localhost:3000/api/v1';
 
 // ---------------------------------------------------------------------------
@@ -472,29 +473,53 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
-// Tool: kanban_start_pipeline (new — ADR-1 mcp-start-pipeline)
+// Run tools (canonical) + deprecated pipeline aliases
 // ---------------------------------------------------------------------------
+//
+// Vocabulary: `run` is a concrete execution (with a runId); `pipeline` is the
+// static list of stages configured on a task/space. The three tools below
+// operate on a runId, so they are named `kanban_<verb>_run`. The historical
+// `kanban_<verb>_pipeline` names are kept as deprecated aliases that delegate
+// to the exact same handler (via a shared closure — see ADR-1
+// mcp-pipeline-run-rename) so any client currently invoking the old names
+// continues to work unchanged. On alias invocation the server emits a single
+// WARN log line: `deprecated_tool_call name=<old> replacement=<new>`.
+//
+// Removal of the aliases is deferred to a future ADR once telemetry shows
+// they are no longer in use.
 
-server.tool(
-  'kanban_start_pipeline',
+// -- kanban_start_run -------------------------------------------------------
+
+const startRunDescription =
   'Launch the Prism agent pipeline on a kanban task. ' +
   'The task must be in the "todo" column. Returns a runId immediately — ' +
   'the pipeline executes asynchronously. Poll kanban_get_run_status for progress. ' +
-  'Default pipeline: senior-architect → ux-api-designer → developer-agent → qa-engineer-e2e.',
-  {
-    spaceId: z.string().describe('Space ID containing the task.'),
-    taskId:  z.string().describe('ID of a task in the "todo" column.'),
-    stages:  z.array(z.string()).optional()
-              .describe('Ordered agent IDs to run. Defaults to the standard 4-stage pipeline.'),
+  'Default pipeline: senior-architect → ux-api-designer → developer-agent → qa-engineer-e2e.';
+
+const startRunSchema = {
+  spaceId: z.string().describe('Space ID containing the task.'),
+  taskId:  z.string().describe('ID of a task in the "todo" column.'),
+  stages:  z.array(z.string()).optional()
+            .describe('Ordered agent IDs to run. Defaults to the standard 4-stage pipeline.'),
+};
+
+const startRunHandler = withTiming('kanban_start_run', async ({ spaceId, taskId, stages }) => {
+  return startPipeline({ spaceId, taskId, stages });
+});
+
+server.tool('kanban_start_run', startRunDescription, startRunSchema, startRunHandler);
+
+server.tool(
+  'kanban_start_pipeline',
+  `[DEPRECATED — use kanban_start_run] ${startRunDescription}`,
+  startRunSchema,
+  async (args) => {
+    log('WARN', 'deprecated_tool_call name=kanban_start_pipeline replacement=kanban_start_run');
+    return startRunHandler(args);
   },
-  withTiming('kanban_start_pipeline', async ({ spaceId, taskId, stages }) => {
-    return startPipeline({ spaceId, taskId, stages });
-  })
 );
 
-// ---------------------------------------------------------------------------
-// Tool: kanban_get_run_status (new — ADR-1 mcp-start-pipeline)
-// ---------------------------------------------------------------------------
+// -- kanban_get_run_status (already canonical, no alias) -------------------
 
 server.tool(
   'kanban_get_run_status',
@@ -502,7 +527,7 @@ server.tool(
   'Returns the full run object including per-stage statuses, currentStage, and overall status. ' +
   'Possible statuses: pending, running, completed, failed, interrupted.',
   {
-    runId: z.string().describe('The runId returned by kanban_start_pipeline.'),
+    runId: z.string().describe('The runId returned by kanban_start_run.'),
   },
   withTiming('kanban_get_run_status', async ({ runId }) => {
     return getRunStatus(runId);
@@ -510,40 +535,90 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
-// Tool: kanban_resume_pipeline
+// Tool: kanban_get_run_logs (mcp-get-run-logs feature)
 // ---------------------------------------------------------------------------
+
+server.tool(
+  'kanban_get_run_logs',
+  'Read the stage-by-stage logs of a pipeline run, normalized to human-readable text. ' +
+  'Use this to inspect what a pipeline stage is doing (or did) without spawning a CLI or parsing raw output. ' +
+  'The `runId` may be an 8+ character prefix — the server resolves it to the full runId (returns 409 if the prefix is ambiguous). ' +
+  'Omit `stage` to receive all stages at once (typical case); pass a 0-based index to zoom in on one. ' +
+  'Stages produced by the `claude` CLI (stream-json) are parsed into readable markers ([system], [thinking], [tool], [result], [result-final]); ' +
+  '`opencode`-style ANSI-colored output is stripped and returned as plain text. ' +
+  'Pass `raw:true` to bypass normalization and receive the file bytes as-is (escape hatch for debugging). ' +
+  '`tail:N` returns only the last N normalized lines per stage. ' +
+  'Per-stage content is capped at 256 KB (older bytes dropped, `truncated:true`).',
+  {
+    runId: z.string().min(8, 'runId prefix must be at least 8 chars')
+      .describe('Full runId or a prefix of at least 8 characters.'),
+    stage: z.number().int().min(0).optional()
+      .describe('0-based stage index. Omit to return every stage.'),
+    tail:  z.number().int().min(1).max(10000).optional()
+      .describe('Return only the last N lines of each stage\'s normalized content.'),
+    raw:   z.boolean().optional()
+      .describe('When true, skip stream-json normalization and return the file bytes as-is (still ANSI-stripped for plain-text). Default: false.'),
+  },
+  withTiming('kanban_get_run_logs', async ({ runId, stage, tail, raw }) => {
+    return getRunLogs({ runId, stage, tail, raw });
+  }),
+);
+
+// -- kanban_resume_run ------------------------------------------------------
+
+const resumeRunDescription =
+  'Resume an interrupted or failed pipeline run. ' +
+  'Use this when a run was interrupted by a server restart but the current stage actually completed. ' +
+  'Pass fromStage (zero-based) to skip to a specific stage, or omit it to resume from the first non-completed stage.';
+
+const resumeRunSchema = {
+  runId:     z.string().describe('The runId of the interrupted or failed run.'),
+  fromStage: z.number().int().optional()
+              .describe('Zero-based index of the stage to resume from. Omit to auto-detect the first non-completed stage.'),
+};
+
+const resumeRunHandler = withTiming('kanban_resume_run', async ({ runId, fromStage }) => {
+  return resumePipeline({ runId, fromStage });
+});
+
+server.tool('kanban_resume_run', resumeRunDescription, resumeRunSchema, resumeRunHandler);
 
 server.tool(
   'kanban_resume_pipeline',
-  'Resume an interrupted or failed pipeline run. ' +
-  'Use this when a run was interrupted by a server restart but the current stage actually completed. ' +
-  'Pass fromStage (zero-based) to skip to a specific stage, or omit it to resume from the first non-completed stage.',
-  {
-    runId:     z.string().describe('The runId of the interrupted or failed run.'),
-    fromStage: z.number().int().optional()
-                .describe('Zero-based index of the stage to resume from. Omit to auto-detect the first non-completed stage.'),
+  `[DEPRECATED — use kanban_resume_run] ${resumeRunDescription}`,
+  resumeRunSchema,
+  async (args) => {
+    log('WARN', 'deprecated_tool_call name=kanban_resume_pipeline replacement=kanban_resume_run');
+    return resumeRunHandler(args);
   },
-  withTiming('kanban_resume_pipeline', async ({ runId, fromStage }) => {
-    return resumePipeline({ runId, fromStage });
-  })
 );
 
-// ---------------------------------------------------------------------------
-// Tool: kanban_stop_pipeline
-// ---------------------------------------------------------------------------
+// -- kanban_stop_run --------------------------------------------------------
+
+const stopRunDescription =
+  'Stop a running pipeline by sending SIGTERM to the active stage process. ' +
+  'The run is marked as "interrupted" and its state is preserved — ' +
+  'use kanban_resume_run to restart it from where it left off. ' +
+  'Returns 422 if the run is already in a terminal state (completed, failed, interrupted).';
+
+const stopRunSchema = {
+  runId: z.string().describe('The runId of the pipeline run to stop.'),
+};
+
+const stopRunHandler = withTiming('kanban_stop_run', async ({ runId }) => {
+  return stopPipeline(runId);
+});
+
+server.tool('kanban_stop_run', stopRunDescription, stopRunSchema, stopRunHandler);
 
 server.tool(
   'kanban_stop_pipeline',
-  'Stop a running pipeline by sending SIGTERM to the active stage process. ' +
-  'The run is marked as "interrupted" and its state is preserved — ' +
-  'use kanban_resume_pipeline to restart it from where it left off. ' +
-  'Returns 422 if the run is already in a terminal state (completed, failed, interrupted).',
-  {
-    runId: z.string().describe('The runId of the pipeline run to stop.'),
+  `[DEPRECATED — use kanban_stop_run] ${stopRunDescription}`,
+  stopRunSchema,
+  async (args) => {
+    log('WARN', 'deprecated_tool_call name=kanban_stop_pipeline replacement=kanban_stop_run');
+    return stopRunHandler(args);
   },
-  withTiming('kanban_stop_pipeline', async ({ runId }) => {
-    return stopPipeline(runId);
-  })
 );
 
 // ---------------------------------------------------------------------------
@@ -679,6 +754,6 @@ const transport = new StdioServerTransport();
 
 log('INFO', `Starting ${SERVER_NAME} v${SERVER_VERSION}`);
 log('INFO', `Kanban API URL: ${KANBAN_API_URL}`);
-log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_search_tasks, kanban_start_pipeline, kanban_get_run_status, kanban_resume_pipeline, kanban_stop_pipeline, kanban_add_comment, kanban_answer_comment');
+log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_search_tasks, kanban_start_run, kanban_get_run_status, kanban_get_run_logs, kanban_resume_run, kanban_stop_run, kanban_add_comment, kanban_answer_comment (deprecated aliases: kanban_start_pipeline, kanban_resume_pipeline, kanban_stop_pipeline)');
 
 await server.connect(transport);

@@ -52,14 +52,16 @@ Activity event types: `task.created`, `task.moved`, `task.updated`, `task.delete
 
 | Tool | Required params | Optional params | Description |
 |------|----------------|----------------|-------------|
-| `kanban_start_pipeline` | `spaceId`, `taskId` | `stages` | Launch pipeline on a `todo` task. Returns `{ runId }` immediately |
+| `kanban_start_run` | `spaceId`, `taskId` | `stages` | Launch pipeline on a `todo` task. Returns `{ runId }` immediately |
 | `kanban_get_run_status` | `runId` | — | Poll run status |
-| `kanban_stop_pipeline` | `runId` | — | Send SIGTERM to active stage; mark run as `interrupted`. Run can be resumed later |
-| `kanban_resume_pipeline` | `runId` | `fromStage` | Resume an `interrupted` or `failed` run. `fromStage` is zero-based; omit to auto-detect |
+| `kanban_stop_run` | `runId` | — | Send SIGTERM to active stage; mark run as `interrupted`. Run can be resumed later |
+| `kanban_resume_run` | `runId` | `fromStage` | Resume an `interrupted` or `failed` run. `fromStage` is zero-based; omit to auto-detect |
 
 Run statuses: `pending`, `running`, `completed`, `failed`, `interrupted`
 
-**Stop vs delete:** `kanban_stop_pipeline` marks the run as `interrupted` and preserves the run directory so it can be resumed. `DELETE /api/v1/runs/:runId` removes the run permanently.
+**Stop vs delete:** `kanban_stop_run` marks the run as `interrupted` and preserves the run directory so it can be resumed. `DELETE /api/v1/runs/:runId` removes the run permanently.
+
+**Deprecated aliases:** the previous names `kanban_start_pipeline`, `kanban_stop_pipeline`, and `kanban_resume_pipeline` remain registered as thin wrappers that delegate to the new run-verb tools. Invoking an alias produces a single WARN log line (`deprecated_tool_call name=<old> replacement=<new>`) but is otherwise a no-op difference for callers. They will be removed in a future release once telemetry shows no clients still use them — prefer the new names in any new integration.
 
 ### Comment tools
 

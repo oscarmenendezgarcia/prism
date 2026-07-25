@@ -47,6 +47,7 @@ const {
   blockRun,
   unblockRun,
   findActiveRunForTask,
+  getRunLogs,
 } = await import('../kanban-client.js');
 
 // ---------------------------------------------------------------------------
@@ -772,5 +773,62 @@ describe('findActiveRunForTask', () => {
 
     const result = await findActiveRunForTask({ spaceId: 's1', taskId: 't1' });
     assert.equal(result.error, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getRunLogs (mcp-get-run-logs feature)
+// ---------------------------------------------------------------------------
+
+describe('getRunLogs', () => {
+  before(async () => {
+    if (!mockServer.listening) await new Promise((r) => mockServer.listen(TEST_PORT, r));
+  });
+
+  it('serializes only provided params into the query string', async () => {
+    let observedUrl;
+    mockHandler = (req, res) => {
+      observedUrl = req.url;
+      respond(res, 200, { runId: 'abcdef12', stages: [] });
+    };
+
+    await getRunLogs({ runId: 'abcdef12' });
+    assert.equal(observedUrl, '/api/v1/runs/abcdef12/logs');
+
+    await getRunLogs({ runId: 'abcdef12', stage: 1, tail: 50, raw: true });
+    assert.equal(observedUrl, '/api/v1/runs/abcdef12/logs?stage=1&tail=50&raw=true');
+
+    await getRunLogs({ runId: 'abcdef12', raw: false });
+    assert.equal(observedUrl, '/api/v1/runs/abcdef12/logs');
+  });
+
+  it('happy path returns the parsed JSON payload', async () => {
+    mockHandler = (req, res) => {
+      respond(res, 200, {
+        runId: 'abcdef1234567890', status: 'running',
+        stages: [{ index: 0, agentId: 'a', content: 'hi' }],
+      });
+    };
+    const result = await getRunLogs({ runId: 'abcdef12' });
+    assert.equal(result.runId, 'abcdef1234567890');
+    assert.equal(result.stages.length, 1);
+  });
+
+  it('404 → typed error with RUN_NOT_FOUND', async () => {
+    mockHandler = (req, res) => {
+      respond(res, 404, { error: { code: 'RUN_NOT_FOUND', message: "run 'abcdef12' not found" } });
+    };
+    const result = await getRunLogs({ runId: 'abcdef12' });
+    assert.equal(result.error, true);
+    assert.equal(result.code, 'RUN_NOT_FOUND');
+  });
+
+  it('409 → typed error with AMBIGUOUS_RUN', async () => {
+    mockHandler = (req, res) => {
+      respond(res, 409, { error: { code: 'AMBIGUOUS_RUN', message: 'ambiguous', candidates: ['a', 'b'] } });
+    };
+    const result = await getRunLogs({ runId: 'abcdef12' });
+    assert.equal(result.error, true);
+    assert.equal(result.code, 'AMBIGUOUS_RUN');
   });
 });
