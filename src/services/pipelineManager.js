@@ -1256,8 +1256,23 @@ function bridgeUpdateRunFinished(dataDir, runId, stageIndex, status, completedAt
   try {
     const entryId = `${runId}-${stageIndex}`;
     const records = readAgentRuns(dataDir);
-    const idx     = records.findIndex((r) => r.id === entryId);
-    if (idx === -1) return; // entry may not exist (e.g. PIPELINE_NO_SPAWN=1 without bridgeWrite)
+    // After a resume, multiple records may share the same id: previous attempts
+    // were flipped to 'cancelled' by resumeRun's cleanup pass and a new
+    // 'running' record was appended by bridgeWriteRunStarted. Target the last
+    // still-'running' record so we always close the actual current attempt,
+    // never a historical one.
+    const idx = records.findLastIndex(
+      (r) => r.id === entryId && r.status === 'running',
+    );
+    if (idx === -1) {
+      // No live record — either the entry was never written (PIPELINE_NO_SPAWN=1
+      // without bridgeWrite) or it has already been closed. Make the skip
+      // observable instead of silent so operators can spot double-closes.
+      pipelineLog('agent_run_entry.update_skipped', {
+        runId, stageIndex, entryId, reason: 'no_running_record',
+      });
+      return;
+    }
 
     records[idx] = { ...records[idx], status, completedAt, durationMs };
     writeAgentRuns(dataDir, records);
@@ -3757,6 +3772,8 @@ module.exports = {
   readConsolidationSignalWithRetry,
   finalizeRun,
   // Exported for testing and preview endpoint:
+  bridgeWriteRunStarted,
+  bridgeUpdateRunFinished,
   runsDir,
   runDir,
   stageLogPath,
