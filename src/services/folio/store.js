@@ -528,7 +528,7 @@ function createFolioStore(db) {
    *
    * @param {string} folioId
    * @param {string} query
-   * @param {{ limit?: number }} [opts]
+   * @param {{ limit?: number, prebuilt?: boolean, onError?: (err: Error) => void }} [opts]
    * @returns {Array<{ page: Page, score: number }>}
    */
   function searchPages(folioId, query, opts = {}) {
@@ -549,8 +549,11 @@ function createFolioStore(db) {
     try {
       rows = stmts.searchPages.all(match, folioId, limit);
     } catch (err) {
-      // FTS MATCH syntax error — return empty rather than crashing
+      // FTS MATCH syntax error — return empty rather than crashing.
+      // opts.onError lets a caller distinguish "query failed" from "no matches";
+      // without it the two are indistinguishable and a broken query looks healthy.
       console.warn('[folio.store] searchPages: FTS query error —', err.message);
+      if (typeof opts.onError === 'function') opts.onError(err);
       return [];
     }
 
