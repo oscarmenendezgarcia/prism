@@ -448,6 +448,60 @@ describe('kanban_search_tasks', () => {
 });
 
 // ---------------------------------------------------------------------------
+// kanban_get_run_logs smoke test
+// ---------------------------------------------------------------------------
+
+describe('kanban_get_run_logs', () => {
+  it('is listed in tools/list with required schema fields', async () => {
+    const resp = await rpc('tools/list', {}, 900);
+    const tool = resp.result.tools.find((t) => t.name === 'kanban_get_run_logs');
+    assert.ok(tool, 'kanban_get_run_logs should be registered');
+    // Description should mention prefix + all-stages + normalization
+    assert.match(tool.description, /prefix/i);
+    assert.match(tool.description, /all stages|every stage|all at once/i);
+    assert.match(tool.description, /normali[sz]/i);
+
+    const schema = tool.inputSchema;
+    assert.ok(schema && schema.properties, 'schema should have properties');
+    assert.ok(schema.properties.runId, 'runId in schema');
+    assert.ok(schema.properties.stage, 'stage in schema');
+    assert.ok(schema.properties.tail,  'tail in schema');
+    assert.ok(schema.properties.raw,   'raw in schema');
+  });
+
+  it('returns a payload with a stages array when the run exists', async () => {
+    // Seed a synthetic run into the test kanban server's PIPELINE_RUNS_DIR.
+    // The kanban_test server uses DATA_DIR=TEST_DATA_DIR, so runs live at
+    // TEST_DATA_DIR/runs by default.
+    const FULL = 'cafebabe-1234-4567-89ab-cdef01234567';
+    const runsDir = join(TEST_DATA_DIR, 'runs');
+    mkdirSync(runsDir, { recursive: true });
+    const runDir = join(runsDir, FULL);
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runsDir, 'runs.json'), JSON.stringify([
+      { runId: FULL, spaceId: 's', taskId: 't', status: 'running',
+        createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' },
+    ]));
+    writeFileSync(join(runDir, 'run.json'), JSON.stringify({
+      runId: FULL, spaceId: 's', taskId: 't', status: 'running',
+      currentStage: 0,
+      stages: ['senior-architect'],
+      stageStatuses: [{ status: 'running', cliTool: 'claude' }],
+    }));
+    writeFileSync(join(runDir, 'stage-0.log'),
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-xxxx', model: 'm' }) + '\n');
+
+    const resp = await callTool('kanban_get_run_logs', { runId: 'cafebabe' }, 901);
+    assert.ok(resp.result, 'should have result');
+    assert.equal(resp.result.isError, undefined, `should not be an error, got: ${JSON.stringify(resp.result)}`);
+    const payload = JSON.parse(resp.result.content[0].text);
+    assert.ok(Array.isArray(payload.stages), 'payload.stages should be an array');
+    assert.equal(payload.stages.length, 1);
+    assert.match(payload.stages[0].content, /\[system\]/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Test 9: Error path — Kanban server unavailable
 // ---------------------------------------------------------------------------
 

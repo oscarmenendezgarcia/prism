@@ -380,6 +380,25 @@ export async function resumePipeline({ runId, fromStage }) {
 }
 
 /**
+ * Read the logs of a pipeline run, normalized to human-readable text.
+ *
+ * The `runId` may be a prefix ≥ 8 characters — the server resolves it to
+ * the full runId. Omit `stage` to receive all stages. Set `raw:true` to
+ * bypass the stream-json normalizer and receive the file bytes untouched.
+ *
+ * @param {{ runId: string, stage?: number, tail?: number, raw?: boolean }} params
+ * @returns {Promise<object|{ error: true, code: string, message: string }>}
+ */
+export async function getRunLogs({ runId, stage, tail, raw } = {}) {
+  const qs = new URLSearchParams();
+  if (stage !== undefined && stage !== null) qs.set('stage', String(stage));
+  if (tail  !== undefined && tail  !== null) qs.set('tail',  String(tail));
+  if (raw === true)                          qs.set('raw',   'true');
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return request('GET', `/runs/${encodeURIComponent(runId)}/logs${suffix}`);
+}
+
+/**
  * Stop a running pipeline run by sending SIGTERM to the active stage process.
  * The run is marked as `interrupted` and its directory is preserved so it can
  * be resumed later with resumePipeline.
