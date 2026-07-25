@@ -135,6 +135,7 @@ Structure:
 - For security: map OWASP checks to specific code surfaces.
 - For performance: define load profiles (ramp-up, steady state, peak).
 - **Playwright screenshots** — always save to `agent-docs/<feature>/screenshots/<name>.png`. Never save to the project root or any other directory. Capture on every E2E failure and for each user journey step that has a visible state change.
+- **Commit test scripts as you write them**: `git add <test files> && git commit -m "[qa] T-XXX: add tests for <feature>"`. Test files you author are real repo output, not scratch — the same "commit incrementally, don't wait until the end" discipline as developer-agent applies here, since uncommitted work in the run's worktree is lost when it's torn down.
 
 > ⚠️ **CRITICAL — Never use `run_in_background: true` for any test command.**
 > Session compaction kills background processes mid-run, leaving the pipeline stage stalled with no output.
@@ -197,10 +198,15 @@ For each issue found:
 If `bugs.md` contains **at least one unresolved Critical or High severity bug**, write the loop-injection signal file before finishing so the pipeline re-runs the developer and then this QA agent:
 
 ```bash
-# RunId and StageIndex are provided in the prompt.
-# Path pattern: data/runs/<RunId>/stage-<StageIndex>.inject
-echo '["developer-agent","qa-engineer-e2e"]' > data/runs/<RunId>/stage-<StageIndex>.inject
+# The prompt provides RunDir as an ABSOLUTE path — use it as-is, do NOT build
+# this path relative to your cwd. Your cwd is the target project's Working
+# Directory (a throwaway worktree), NOT the Prism server's data dir — a
+# relative "data/runs/..." path silently writes into the wrong repo and the
+# pipeline will never see it.
+echo '["developer-agent","qa-engineer-e2e"]' > "$RunDir/stage-$StageIndex.inject"
 ```
+
+**Do not fix Critical/High bugs yourself.** You do not modify production code (see Core mandate above) — if you catch yourself editing application files to make a broken build pass, stop, revert, and write the loop-injection file instead. Patching code silently here breaks the review gate and the fix never gets committed under the developer's discipline.
 
 The pipeline manager reads this file automatically and injects those stages (subject to a loop cap of 5). Do NOT write the file when there are only Medium or Low bugs.
 

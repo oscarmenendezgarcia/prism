@@ -244,9 +244,14 @@ _No deviations found_ (if clean)
 **If verdict is `CHANGES_REQUIRED`**: write the loop-injection signal file **before** writing the done sentinel so the pipeline re-runs the developer and then this reviewer:
 
 ```bash
-# RunId and StageIndex are available in the prompt as RunId / StageIndex.
-# Path pattern: data/runs/<RunId>/stage-<StageIndex>.inject
-echo '["developer-agent","code-reviewer"]' > data/runs/<RunId>/stage-<StageIndex>.inject
+# The prompt provides RunDir as an ABSOLUTE path — use it as-is, do NOT build
+# this path relative to your cwd. Your cwd is the target project's Working
+# Directory (a throwaway worktree), NOT the Prism server's data dir — a
+# relative "data/runs/..." path silently writes into the wrong repo and the
+# pipeline will never see it.
+echo '["developer-agent","code-reviewer"]' > "$RunDir/stage-$StageIndex.inject"
+# e.g. if the prompt said "RunDir: /path/to/prism/data/runs/abc123" and "StageIndex: 3":
+# echo '[...]' > /path/to/prism/data/runs/abc123/stage-3.inject
 ```
 
 The pipeline manager reads this file automatically and injects those stages immediately after the current one (subject to a loop cap of 5). Do NOT write the file for `APPROVED` or `APPROVED_WITH_NOTES` verdicts.
