@@ -1256,8 +1256,23 @@ function bridgeUpdateRunFinished(dataDir, runId, stageIndex, status, completedAt
   try {
     const entryId = `${runId}-${stageIndex}`;
     const records = readAgentRuns(dataDir);
-    const idx     = records.findIndex((r) => r.id === entryId);
-    if (idx === -1) return; // entry may not exist (e.g. PIPELINE_NO_SPAWN=1 without bridgeWrite)
+    // After a resume, multiple records may share the same id: previous attempts
+    // were flipped to 'cancelled' by resumeRun's cleanup pass and a new
+    // 'running' record was appended by bridgeWriteRunStarted. Target the last
+    // still-'running' record so we always close the actual current attempt,
+    // never a historical one.
+    const idx = records.findLastIndex(
+      (r) => r.id === entryId && r.status === 'running',
+    );
+    if (idx === -1) {
+      // No live record — either the entry was never written (PIPELINE_NO_SPAWN=1
+      // without bridgeWrite) or it has already been closed. Make the skip
+      // observable instead of silent so operators can spot double-closes.
+      pipelineLog('agent_run_entry.update_skipped', {
+        runId, stageIndex, entryId, reason: 'no_running_record',
+      });
+      return;
+    }
 
     records[idx] = { ...records[idx], status, completedAt, durationMs };
     writeAgentRuns(dataDir, records);
@@ -1388,8 +1403,14 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     referencedCount: injectionResult?.referenced?.length ?? 0,
     truncatedCount:  injectionResult?.truncated?.length  ?? 0,
     tokens:          injectionResult?.tokens             ?? 0,
+    searchHits:      injectionResult?.searchHits          ?? 0,
+    searchError:     injectionResult?.searchError         ?? false,
     queryLen:        injectionResult !== null ? (task?.title?.length ?? 0) + (task?.description?.length ?? 0) : 0,
   });
+  // To find silently-degraded injection, filter this event for
+  // `folioBound:true && inlineCount:0` — a bound folio that inlines nothing is a
+  // failure, not a quiet success, and reads as healthy without that filter.
+  // `searchError:true` narrows it further to an FTS query that actually threw.
 
   let promptText = task
     ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
@@ -3751,6 +3772,8 @@ module.exports = {
   readConsolidationSignalWithRetry,
   finalizeRun,
   // Exported for testing and preview endpoint:
+  bridgeWriteRunStarted,
+  bridgeUpdateRunFinished,
   runsDir,
   runDir,
   stageLogPath,

@@ -153,7 +153,7 @@ function extractTerms(text, seen, max) {
  *
  * The query is assembled from `task.title + task.description + stage descriptor`.
  * We need it to:
- *  1. Not crash FTS5 (strip operator chars: hyphens, quotes, etc.).
+ *  1. Not crash FTS5 (strip everything that is not a letter/digit/underscore).
  *  2. Not be so long that AND semantics produce zero hits (FTS5 requires ALL
  *     terms to appear in a document — a 30-word query almost always returns nothing).
  *  3. Preserve per-stage differentiation — the stage descriptor must contribute
@@ -168,8 +168,14 @@ function extractTerms(text, seen, max) {
  * @returns {string}     - FTS5-safe OR query, or '' if no valid terms.
  */
 function sanitizeFtsQuery(raw) {
+  // Strip every character that is not a letter, digit or underscore.  An
+  // allow-list is used rather than a deny-list of known FTS5 operators: the
+  // previous deny-list omitted '.', so any term ending in a period (a sentence
+  // boundary, "pipelineManager.js", "v1.4.0") reached FTS5 verbatim and raised
+  // `fts5: syntax error near "."`, which searchPages swallows into an empty
+  // result — silently disabling injection for the whole stage.
   const cleaned = raw
-    .replace(/[-"^*():;,!?]/g, ' ')  // strip FTS5 operator chars + punctuation
+    .replace(/[^\p{L}\p{N}_]+/gu, ' ')
     .replace(/\s+/g, ' ')
     .toLowerCase()
     .trim();
@@ -192,7 +198,12 @@ function sanitizeFtsQuery(raw) {
 
   // OR semantics: rank by how many query terms appear in a document.
   // BM25 scores higher for documents with more matching terms.
-  return allTerms.join(' OR ');
+  //
+  // Each term is double-quoted so FTS5 treats it as a literal string rather
+  // than a potential operator or column qualifier — the same defence
+  // folio/store.js applies on its own sanitization path.  Quoting is belt and
+  // braces on top of the allow-list above: neither alone should be relied on.
+  return allTerms.map((t) => `"${t}"`).join(' OR ');
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +225,8 @@ function sanitizeFtsQuery(raw) {
  * @param {number}      [opts.pinnedBoost]         - Added to normalised rel for pinned pages.
  * @param {number}      [opts.searchLimit]         - Max BM25 candidates to retrieve.
  * @param {Function}    [opts.countTokens]         - Pluggable token counter.
- * @returns {{ text: string, tokens: number, inline: Array, referenced: Array, truncated: Array }}
+ * @returns {{ text: string, tokens: number, inline: Array, referenced: Array,
+ *             truncated: Array, searchHits: number, searchError: boolean }}
  */
 function buildContext(store, folioId, query, opts = {}) {
   const cfg = {
@@ -261,7 +273,12 @@ function buildContext(store, folioId, query, opts = {}) {
   // (hyphens in compound words like "stage-aware", "trade-offs") from being
   // interpreted as FTS5 NOT operators and causing parse errors.
 
-  const hits    = store.searchPages(folioId, sanitizeFtsQuery(query), { limit: cfg.searchLimit, prebuilt: true });
+  let searchError = false;
+  const hits    = store.searchPages(folioId, sanitizeFtsQuery(query), {
+    limit:    cfg.searchLimit,
+    prebuilt: true,
+    onError:  () => { searchError = true; },
+  });
   /** @type {Map<string, { page: Page, rel: number }>} */
   const hitMap  = new Map();
   for (const { page, score } of hits) {
@@ -370,6 +387,8 @@ function buildContext(store, folioId, query, opts = {}) {
     inline:     inlineItems.map(({ slug, title, truncated }) => ({ slug, title, truncated })),
     referenced: referencedItems,
     truncated:  truncatedItems,
+    searchHits: hitMap.size,
+    searchError,
   };
 }
 
