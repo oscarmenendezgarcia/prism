@@ -161,8 +161,10 @@ Prism ships two MCP servers:
 
 | Server | Tools |
 |--------|-------|
-| `mcp/mcp-server.js` | The full Kanban API — `kanban_list_tasks`, `kanban_create_task`, `kanban_update_task`, `kanban_move_task`, `kanban_start_run`, `kanban_get_run_status`, and more. |
+| `mcp/mcp-server.js` | The full Kanban API — `kanban_list_tasks`, `kanban_create_task`, `kanban_update_task`, `kanban_move_task`, `kanban_start_run`, `kanban_get_run_status`, `kanban_get_run_logs`, and more. |
 | `mcp/folio-mcp-server.js` | Folio read/write — `folio_search`, `folio_get_page`, `folio_create_page`, `folio_update_page`, `folio_list_chapters`, … |
+
+Pipeline runs are driven by `kanban_start_run` / `kanban_stop_run` / `kanban_resume_run`, and inspected with `kanban_get_run_status` (state) and `kanban_get_run_logs` (per-stage logs, by full run id or unique prefix). The older `kanban_*_pipeline` names still work as deprecated aliases.
 
 > **Prerequisite:** the server (`prism start` or `docker compose up`) must be running before starting any agent session.
 >
