@@ -2,6 +2,51 @@
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-08-04
+
+Headline: **Pipeline runs become legible to agents** — a canonical `kanban_*_run`
+tool family plus `kanban_get_run_logs`, so an agent CLI can read what a run
+actually did instead of only knowing whether it finished. Alongside it, a set of
+fixes for runs that reported success while silently dropping work.
+
+### Added
+- **`kanban_get_run_logs` MCP tool** — returns the per-stage logs of a pipeline
+  run in agent-readable form, resolvable by full run id or unique prefix. An
+  agent can now diagnose a failed or looping run without shelling into
+  `data/runs/`. (#181)
+- **Canonical `kanban_start_run` / `kanban_stop_run` / `kanban_resume_run`.**
+  The previous `kanban_*_pipeline` names remain registered as `[DEPRECATED]`
+  aliases delegating to the same handlers, with identical schemas and return
+  shapes — no breaking change for existing clients. Each alias call emits a
+  single `deprecated_tool_call` WARN line. (#179)
+
+### Changed
+- Docs and the Folio lesson pages now reference the canonical run-verb tool
+  names. (#179)
+
+### Fixed
+- **`kanban_get_run_logs` could not read any run on a live install.** The run
+  resolver destructured a non-existent `openStore` export, threw, and fell back
+  to `data/runs/<runId>/run.json` — a file that stopped existing once runs moved
+  to SQLite. Every real run resolved to `RUN_NOT_FOUND` even though
+  `kanban_get_run_status` found the same id. (#186)
+- **Loop-injection signals were silently dropped at the last pipeline stage.**
+  An agent writing `stage-<N+1>.inject` instead of `stage-<N>.inject` self-healed
+  mid-pipeline but was permanently orphaned at the final stage — a QA agent
+  requesting a developer re-run after a Critical bug got no re-run, and the
+  pipeline reported success anyway. The last stage now falls back to the
+  off-by-one filename, and consumed inject files are deleted so a reindexed
+  stage can't re-read a stale signal. (#181)
+- **Resumed runs stayed stuck as ACTIVE in the Runs panel.** (#182)
+- **Folio stage injection was silently disabled by an FTS5 syntax error** —
+  the search query threw, was swallowed, and stages ran with no injected
+  context. (#183)
+- **Tooltip descriptions overflowed the bubble on long text** — the description
+  paragraph no longer carries `whitespace-nowrap` and wraps within the bubble's
+  max width. (#184)
+- Demo GIF: fixed a lingering icon-font race and raised capture quality
+  (760 → 900px, less lossy). (#178)
+
 ## [1.4.0] — 2026-07-16
 
 Headline: **Polish pass** — a batch of accessibility, consistency, and tech-debt
