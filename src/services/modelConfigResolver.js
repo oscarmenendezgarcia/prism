@@ -66,6 +66,7 @@ function resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, task
     model:        current.model    || base.model,
     cliTool:      current.cliTool  || 'claude',
     command:      current.command  || null,
+    fallback:     current.fallback || null,
     resolvedFrom,
   };
 }
@@ -130,6 +131,22 @@ function validateStageModelConfig(config) {
     }
   } else if ('command' in config && config.command !== null) {
     errors.push("The 'command' field is only valid for cliTool 'custom'.");
+  }
+
+  // MODEL-3: fallback — optional { cliTool, model } that replaces the primary on
+  // binary health-check failure.
+  if ('fallback' in config && config.fallback !== null && config.fallback !== undefined) {
+    const fb = config.fallback;
+    if (typeof fb !== 'object' || Array.isArray(fb)) {
+      errors.push('fallback must be an object { cliTool, model } or null.');
+    } else {
+      if (typeof fb.cliTool !== 'string' || !VALID_CLI_TOOLS.includes(fb.cliTool)) {
+        errors.push(`Invalid fallback.cliTool '${fb.cliTool}'. Valid CLI tools are: ${VALID_CLI_TOOLS.join(', ')}.`);
+      }
+      if (fb.cliTool && SLASH_MODEL_CLI_TOOLS.includes(fb.cliTool) && 'model' in fb && typeof fb.model === 'string' && fb.model.trim().length > 0 && !fb.model.includes('/')) {
+        errors.push(`fallback ${fb.cliTool} model must be in <provider>/<model> format.`);
+      }
+    }
   }
 
   return { valid: errors.length === 0, errors };
