@@ -16,6 +16,8 @@ import { SegmentedControl } from './SegmentedControl';
 const OPTIONS: ReadonlyArray<{ value: ModelCliTool; label: string }> = [
   { value: 'claude',   label: 'Claude' },
   { value: 'opencode', label: 'opencode' },
+  { value: 'pi',       label: 'pi' },
+  { value: 'hermes',   label: 'hermes' },
 ];
 
 interface CliToolSelectorProps {
