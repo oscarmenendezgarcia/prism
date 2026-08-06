@@ -41,11 +41,15 @@ const {
 const { readSettings }              = require('../handlers/settings');
 const { resolveStageModelConfig }   = require('./modelConfigResolver');
 const cliSpawn                      = require('./cliSpawn');
+const cliAdapters                   = require('./cliAdapters');
 
 // Binary resolution (claude/opencode) and shell escaping live in cliSpawn.js —
-// the single source of truth shared with folioBootstrap.js.
+// the single source of truth shared with folioBootstrap.js. Per-harness spawn
+// logic (prompt files, shell builders, sentinel wrappers) lives in cliAdapters.js —
+// see getAdapter().
 const resolveCliBinary        = cliSpawn.resolveCliBinary;
 const { shellEscape, cmdEscape } = cliSpawn;
+const getAdapter              = cliAdapters.getAdapter;
 
 /**
  * Read a task from the kanban column files by ID.
@@ -334,113 +338,48 @@ function consolidationPromptPath(dataDir, runId) {
  * @param {string} doneFile
  * @returns {string}
  */
+// ---------------------------------------------------------------------------
+// CLI harness builders (MODEL-3 refactor)
+//
+// The sentinel wrappers and per-harness shell builders moved to cliAdapters.js
+// (the pluggable adapter registry). The thin wrappers below keep the historical
+// exported test hooks (`_buildOpencode*ForTest`, `wrap*Sentinel`) pointing at the
+// registry so existing opencode tests keep passing unchanged.
+// ---------------------------------------------------------------------------
+
+/** @deprecated Use cliAdapters.wrapUnixSentinel. */
 function wrapUnixSentinel(cliLine, doneFile) {
-  return [
-    `_DONE=${shellEscape(doneFile)}`,
-    '_EXIT=1',
-    "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
-    cliLine,
-    '_EXIT=$?',
-  ].join('; ');
+  return cliAdapters.wrapUnixSentinel(cliLine, doneFile);
 }
 
-/**
- * Wrap a CLI invocation line in the Windows cmd.exe done-sentinel scaffold (no trap
- * available; the sentinel is written before exit). `cliLine` is the full tool
- * invocation including its redirects.
- *
- * @param {string} cliLine
- * @param {string} doneFile
- * @returns {string}
- */
+/** @deprecated Use cliAdapters.wrapWindowsSentinel. */
 function wrapWindowsSentinel(cliLine, doneFile) {
-  return [
-    cliLine,
-    'set _EXIT=!ERRORLEVEL!',
-    `if not exist ${cmdEscape(doneFile)} echo !_EXIT! > ${cmdEscape(doneFile)}`,
-    'exit /B 0',
-  ].join(' & ');
+  return cliAdapters.wrapWindowsSentinel(cliLine, doneFile);
 }
 
-/**
- * Build the Unix sh command that runs the claude CLI, captures its exit code, and
- * writes the done-sentinel.
- *
- * @param {{ binary: string, finalArgs: string[], promptPath: string, logPath: string, doneFile: string }} opts
- * @returns {string}
- */
-function buildUnixShellCommand({ binary, finalArgs, promptPath, logPath, doneFile }) {
-  const escapedArgs = finalArgs.map(shellEscape).join(' ');
-  const cliLine = `${binary} ${escapedArgs} < ${shellEscape(promptPath)} >> ${shellEscape(logPath)} 2>&1`;
-  return wrapUnixSentinel(cliLine, doneFile);
+/** @deprecated Use getAdapter('claude').buildUnixCommand. */
+function buildUnixShellCommand(opts) {
+  return getAdapter('claude').buildUnixCommand(opts);
 }
 
-/**
- * Build the Windows cmd.exe command that runs the claude CLI, captures its exit code,
- * and writes the done-sentinel before exit.
- *
- * @param {{ binary: string, finalArgs: string[], promptPath: string, logPath: string, doneFile: string }} opts
- * @returns {string}
- */
-function buildWindowsShellCommand({ binary, finalArgs, promptPath, logPath, doneFile }) {
-  const escapedArgs = finalArgs.map(cmdEscape).join(' ');
-  const cliLine = `${cmdEscape(binary)} ${escapedArgs} < ${cmdEscape(promptPath)} >> ${cmdEscape(logPath)} 2>&1`;
-  return wrapWindowsSentinel(cliLine, doneFile);
+/** @deprecated Use getAdapter('claude').buildWindowsCommand. */
+function buildWindowsShellCommand(opts) {
+  return getAdapter('claude').buildWindowsCommand(opts);
 }
 
-// ---------------------------------------------------------------------------
-// MODEL-2: opencode helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Write the merged prompt file for an opencode stage.
- * Content = agentSpec.systemPrompt + "\n\n---\n\n" + taskPromptContent.
- * If agentSpec is absent/empty, writes only the task prompt (graceful fallback).
- *
- * @param {{ systemPrompt?: string }|null} agentSpec   - from agentResolver; systemPrompt is the .md body
- * @param {string}                         taskPromptPath  - absolute path to stage-N-prompt.md
- * @param {string}                         runDirPath  - absolute path to data/runs/<runId>/
- * @param {number}                         stageIndex  - stage index (for file naming)
- * @returns {string}  Absolute path to the written stage-N-oc-prompt.md
- */
+/** @deprecated Use getAdapter('opencode').buildPromptFile. */
 function buildOpencodePromptFile(agentSpec, taskPromptPath, runDirPath, stageIndex) {
-  const taskPromptContent = fs.readFileSync(taskPromptPath, 'utf8');
-  const merged = cliSpawn.buildMergedPrompt(agentSpec, taskPromptContent);
-
-  const outPath = path.join(runDirPath, `stage-${stageIndex}-oc-prompt.md`);
-  fs.writeFileSync(outPath, merged, 'utf8');
-
-  pipelineLog('stage.opencode_prompt_written', {
-    stageIndex,
-    mergedPromptPath: outPath,
-    bytes: Buffer.byteLength(merged, 'utf8'),
-  });
-
-  return outPath;
+  return getAdapter('opencode').buildPromptFile({ agentSpec, taskPromptPath, runDirPath, stageIndex });
 }
 
-/**
- * Build the Unix sh command that runs opencode, captures its exit code, and
- * writes the done-sentinel. Uses the same EXIT-trap sentinel pattern as buildUnixShellCommand.
- *
- * @param {{ binary: string, model: string, mergedPromptPath: string, logPath: string, doneFile: string }} opts
- * @returns {string}
- */
-function buildOpencodeUnixShellCommand({ binary, model, mergedPromptPath, logPath, doneFile }) {
-  const cliLine = cliSpawn.opencodeCliLine({ binary, model, mergedPromptPath, logPath, platform: 'unix' });
-  return wrapUnixSentinel(cliLine, doneFile);
+/** @deprecated Use getAdapter('opencode').buildUnixCommand. */
+function buildOpencodeUnixShellCommand(opts) {
+  return getAdapter('opencode').buildUnixCommand(opts);
 }
 
-/**
- * Build the Windows cmd.exe command that runs opencode, captures its exit code,
- * and writes the done-sentinel.
- *
- * @param {{ binary: string, model: string, mergedPromptPath: string, logPath: string, doneFile: string }} opts
- * @returns {string}
- */
-function buildOpencodeWindowsShellCommand({ binary, model, mergedPromptPath, logPath, doneFile }) {
-  const cliLine = cliSpawn.opencodeCliLine({ binary, model, mergedPromptPath, logPath, platform: 'win32' });
-  return wrapWindowsSentinel(cliLine, doneFile);
+/** @deprecated Use getAdapter('opencode').buildWindowsCommand. */
+function buildOpencodeWindowsShellCommand(opts) {
+  return getAdapter('opencode').buildWindowsCommand(opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -1639,8 +1578,14 @@ async function spawnStage(dataDir, run, stageIndex) {
     run.stageStatuses[stageIndex].provider     = earlyConfig.provider;
     run.stageStatuses[stageIndex].resolvedFrom = earlyConfig.resolvedFrom;
     writeRun(dataDir, run);
-    if (earlyConfig.cliTool === 'opencode') {
-      buildOpencodePromptFile(null, promptFilePath, runDir(dataDir, run.runId), stageIndex);
+    const earlyAdapter = getAdapter(earlyConfig.cliTool);
+    if (earlyAdapter.needsPromptFile) {
+      earlyAdapter.buildPromptFile({
+        agentSpec:      null,
+        taskPromptPath: promptFilePath,
+        runDirPath:     runDir(dataDir, run.runId),
+        stageIndex,
+      });
     }
     fs.writeFileSync(doneFile, '0', 'utf8');
     // null PID: no real process — deleteRun/abortAll will skip the kill() call
@@ -1729,17 +1674,27 @@ async function spawnStage(dataDir, run, stageIndex) {
     }
   }
 
-  // MODEL-2: for opencode stages, write the merged prompt file with the actual
-  // agentSpec.systemPrompt + task prompt (the real spawn path runs once here).
-  if (modelConfig.cliTool === 'opencode') {
-    mergedPromptPath = buildOpencodePromptFile(agentSpec, promptFilePath, runDir(dataDir, run.runId), stageIndex);
+  // MODEL-3: resolve the harness adapter once, then delegate prompt-file, binary
+  // resolution, and shell-command building to it. Adding a harness = adding an
+  // adapter to cliAdapters.js — no branching here.
+  const adapter = getAdapter(modelConfig.cliTool);
+
+  // MODEL-2/3: for harnesses that take a merged prompt file (opencode, pi), write
+  // it with the actual agentSpec.systemPrompt + task prompt (real spawn path runs here).
+  if (adapter.needsPromptFile) {
+    mergedPromptPath = adapter.buildPromptFile({
+      agentSpec,
+      taskPromptPath: promptFilePath,
+      runDirPath:     runDir(dataDir, run.runId),
+      stageIndex,
+    });
   }
 
-  // MODEL-2: Resolve the CLI binary for this stage.
+  // MODEL-2/3: Resolve the CLI binary for this stage via the adapter.
   // resolveCliBinary() throws 'BINARY_NOT_FOUND:<cliTool>' if the binary is missing.
   let stageBinary;
   try {
-    stageBinary = resolveCliBinary(modelConfig.cliTool);
+    stageBinary = adapter.resolveBinary();
     pipelineLog('stage.binary_resolved', { runId: run.runId, stageIndex, cliTool: modelConfig.cliTool, binary: stageBinary });
   } catch (binErr) {
     run.stageStatuses[stageIndex].status        = 'failed';
@@ -1770,9 +1725,15 @@ async function spawnStage(dataDir, run, stageIndex) {
   if (process.platform === 'win32') {
     // /V:ON enables delayed variable expansion so !ERRORLEVEL! is evaluated
     // after the CLI exits, not at parse time (the %VAR% behaviour).
-    const windowsCmd = modelConfig.cliTool === 'opencode'
-      ? buildOpencodeWindowsShellCommand({ binary: stageBinary, model: modelConfig.model, mergedPromptPath, logPath, doneFile })
-      : buildWindowsShellCommand({ binary: stageBinary, finalArgs: effectiveArgs, promptPath: promptFilePath, logPath, doneFile });
+    const windowsCmd = adapter.buildWindowsCommand({
+      binary: stageBinary,
+      model: modelConfig.model,
+      mergedPromptPath,
+      finalArgs: effectiveArgs,
+      promptPath: promptFilePath,
+      logPath,
+      doneFile,
+    });
     child = spawn('cmd.exe', ['/V:ON', '/C', windowsCmd], {
       stdio:    'ignore',
       detached: true,
@@ -1780,9 +1741,15 @@ async function spawnStage(dataDir, run, stageIndex) {
       env:      { ...process.env },
     });
   } else {
-    const unixCmd = modelConfig.cliTool === 'opencode'
-      ? buildOpencodeUnixShellCommand({ binary: stageBinary, model: modelConfig.model, mergedPromptPath, logPath, doneFile })
-      : buildUnixShellCommand({ binary: stageBinary, finalArgs: effectiveArgs, promptPath: promptFilePath, logPath, doneFile });
+    const unixCmd = adapter.buildUnixCommand({
+      binary: stageBinary,
+      model: modelConfig.model,
+      mergedPromptPath,
+      finalArgs: effectiveArgs,
+      promptPath: promptFilePath,
+      logPath,
+      doneFile,
+    });
     child = spawn('sh', ['-c', unixCmd], {
       stdio:    'ignore',
       detached: true,
@@ -3071,15 +3038,25 @@ async function maybeConsolidate(dataDir, run) {
     });
 
     let shellCmd;
-    if (consModelConfig.cliTool === 'opencode') {
-      const mergedPromptPath = path.join(runDir(dataDir, surfaceRunId), 'consolidation-oc-prompt.md');
-      fs.writeFileSync(mergedPromptPath, cliSpawn.buildMergedPrompt(agentSpec, fs.readFileSync(promptFile, 'utf8')), 'utf8');
-      const cliLine = cliSpawn.opencodeCliLine({ binary: consBinary, model: consModelConfig.model, mergedPromptPath, logPath, platform: 'unix' });
-      shellCmd = `${cliLine}; echo $? > ${shellEscape(doneFile)}`;
-    } else {
-      const escapedArgs = finalArgs.map(shellEscape).join(' ');
-      shellCmd = `${consBinary} ${escapedArgs} < ${shellEscape(promptFile)} >> ${shellEscape(logPath)} 2>&1; echo $? > ${shellEscape(doneFile)}`;
-    }
+    const consAdapter = getAdapter(consModelConfig.cliTool);
+    const mergedPromptPath = consAdapter.needsPromptFile
+      ? consAdapter.buildPromptFile({
+          agentSpec,
+          taskPromptPath: promptFile,
+          runDirPath:     runDir(dataDir, surfaceRunId),
+          stageIndex:     0,
+          fileName:       'consolidation-oc-prompt.md',
+        })
+      : null;
+    shellCmd = consAdapter.buildUnixCommand({
+      binary:        consBinary,
+      model:         consModelConfig.model,
+      mergedPromptPath,
+      finalArgs,
+      promptPath:    promptFile,
+      logPath,
+      doneFile,
+    });
 
     const child = spawn('sh', ['-c', shellCmd], {
       stdio:    'ignore',
@@ -3230,15 +3207,26 @@ function attemptCrossAgentResolution(dataDir, run, comment) {
 
   const _playwrightCleanup2 = `pkill -f 'ms-playwright' 2>/dev/null; true`;
   let shellCmd;
-  if (resModelConfig.cliTool === 'opencode') {
-    const mergedPromptPath = path.join(runDir(dataDir, run.runId), `resolver-${comment.id}-oc-prompt.md`);
-    fs.writeFileSync(mergedPromptPath, cliSpawn.buildMergedPrompt(agentSpec, fs.readFileSync(promptFilePath, 'utf8')), 'utf8');
-    const cliLine = cliSpawn.opencodeCliLine({ binary: resBinary, model: resModelConfig.model, mergedPromptPath, logPath, platform: 'unix' });
-    shellCmd = `${cliLine}; _EXIT=$?; ${_playwrightCleanup2}; echo $_EXIT > ${shellEscape(doneFile)}`;
-  } else {
-    const escapedArgs = finalArgs.map(shellEscape).join(' ');
-    shellCmd = `${resBinary} ${escapedArgs} < ${shellEscape(promptFilePath)} >> ${shellEscape(logPath)} 2>&1; _EXIT=$?; ${_playwrightCleanup2}; echo $_EXIT > ${shellEscape(doneFile)}`;
-  }
+  const resAdapter = getAdapter(resModelConfig.cliTool);
+  const mergedPromptPath = resAdapter.needsPromptFile
+    ? resAdapter.buildPromptFile({
+        agentSpec,
+        taskPromptPath: promptFilePath,
+        runDirPath:     runDir(dataDir, run.runId),
+        stageIndex:     0,
+        fileName:       `resolver-${comment.id}-oc-prompt.md`,
+      })
+    : null;
+  shellCmd = resAdapter.buildUnixCommand({
+    binary:          resBinary,
+    model:           resModelConfig.model,
+    mergedPromptPath,
+    finalArgs,
+    promptPath:      promptFilePath,
+    logPath,
+    doneFile,
+    preDoneLine:     _playwrightCleanup2,
+  });
 
   const child = spawn('sh', ['-c', shellCmd], {
     stdio:    'ignore',
