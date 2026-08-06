@@ -22,6 +22,7 @@ const { readSettings }                     = require('./settings');
 const { resolveAgent, AgentNotFoundError } = require('../services/agentResolver');
 const { resolveStageModelConfig }          = require('../services/modelConfigResolver');
 const { resolveCliBinary }                 = require('../services/cliSpawn');
+const cliAdapters                          = require('../services/cliAdapters');
 const {
   buildKanbanBlock,
   buildGitInstructionsBlock,
@@ -49,23 +50,18 @@ const AGENT_PROMPT_ROUTE = /^\/api\/v1\/agent\/prompt$/;
  * setting, since it's shell-syntax mechanics, not a model/provider choice.
  */
 function buildCliCommand({ fileInputMethod, cliTool, binary, promptPath, dangerouslySkipPermissions = false }) {
-  let promptRef;
-  if (fileInputMethod === 'stdin-redirect') {
-    promptRef = `< "${promptPath}"`;
-  } else if (fileInputMethod === 'flag-file') {
-    promptRef = `--file "${promptPath}"`;
-  } else {
-    // cat-subshell (default)
-    promptRef = `"$(cat ${promptPath})"`;
+  // MODEL-3: delegate the preview command to the harness adapter so the Launcher
+  // preview matches pipeline routing (claude/opencode/pi/hermes/custom).
+  const base = cliAdapters.buildLauncherCommand({
+    cliTool, binary, promptPath,
+    fileInputMethod: fileInputMethod || 'cat-subshell',
+  });
+  // claude (default) supports --dangerously-skip-permissions for unattended runs;
+  // other harnesses handle permissions via their own flags (opencode, hermes).
+  if (cliTool === 'claude' && dangerouslySkipPermissions) {
+    return `${base} --dangerously-skip-permissions`;
   }
-
-  if (cliTool === 'opencode') {
-    return `${binary} run ${promptRef}`;
-  }
-
-  // claude (default) — interactive mode so tool calls and thinking are visible in the TUI.
-  const extraFlags = dangerouslySkipPermissions ? ' --dangerously-skip-permissions' : '';
-  return `${binary} ${promptRef}${extraFlags}`;
+  return base;
 }
 
 /**

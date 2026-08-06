@@ -184,3 +184,118 @@ describe('expandCustomCommand', () => {
     assert.equal(out, 'm');
   });
 });
+
+// ---------------------------------------------------------------------------
+// buildArgs (direct-spawn invocation, used by autoTask)
+// ---------------------------------------------------------------------------
+
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+
+describe('buildArgs — claude', () => {
+  it('builds claude print-mode args with stdin prompt', () => {
+    const { args, stdin } = cliAdapters.getAdapter('claude').buildArgs({
+      model: 'claude-sonnet-4-5', systemPrompt: 'You classify.', prompt: 'Classify these',
+    });
+    assert.ok(args.includes('--print'));
+    assert.ok(args.includes('--system-prompt'));
+    assert.ok(args.includes('--model'));
+    assert.ok(args.includes('claude-sonnet-4-5'));
+    assert.equal(stdin, 'Classify these');
+  });
+});
+
+describe('buildArgs — pi', () => {
+  it('builds pi print-mode args with merged prompt on stdin', () => {
+    const { args, stdin } = cliAdapters.getAdapter('pi').buildArgs({
+      model: 'gb10/deepseek-v4-flash', systemPrompt: 'Sys.', prompt: 'Task.',
+    });
+    assert.deepEqual(args, ['-p', '--model', 'gb10/deepseek-v4-flash']);
+    assert.ok(stdin.includes('Sys.'), 'stdin should carry the system prompt');
+    assert.ok(stdin.includes('Task.'), 'stdin should carry the task prompt');
+  });
+});
+
+describe('buildArgs — hermes', () => {
+  it('builds hermes chat args with -q prompt and optional -m', () => {
+    const { args, stdin } = cliAdapters.getAdapter('hermes').buildArgs({
+      model: 'deepseek-v4-flash', systemPrompt: 'Sys.', prompt: 'Task.',
+    });
+    assert.ok(args.includes('chat'));
+    assert.ok(args.includes('-q'));
+    assert.ok(args.includes('--cli'));
+    assert.ok(args.includes('-Q'));
+    assert.ok(args.includes('-m'));
+    assert.equal(stdin, null);
+  });
+
+  it('omits -m when model is absent', () => {
+    const { args } = cliAdapters.getAdapter('hermes').buildArgs({
+      systemPrompt: 'Sys.', prompt: 'Task.',
+    });
+    assert.ok(!args.includes('-m'));
+  });
+});
+
+describe('buildArgs — opencode', () => {
+  it('writes a merged prompt temp file and lists it in cleanup', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-test-'));
+    try {
+      const { args, stdin, cleanup } = cliAdapters.getAdapter('opencode').buildArgs({
+        model: 'vllm-local/qwen', systemPrompt: 'Sys.', prompt: 'Task.', tmpDir,
+      });
+      assert.ok(args.includes('run'));
+      assert.ok(args.includes('--model'));
+      assert.ok(args.includes('--file'));
+      assert.equal(stdin, null);
+      assert.ok(Array.isArray(cleanup) && cleanup.length === 1, 'should return one temp file');
+      assert.ok(fs.existsSync(cleanup[0]), 'temp prompt file should exist');
+      assert.ok(fs.readFileSync(cleanup[0], 'utf8').includes('Sys.'));
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildLauncherCommand (Launcher preview)
+// ---------------------------------------------------------------------------
+
+describe('buildLauncherCommand', () => {
+  const opts = { binary: '/usr/local/bin/claude', promptPath: '/tmp/p.md' };
+
+  it('builds a claude command with cat-subshell by default', () => {
+    const cmd = cliAdapters.buildLauncherCommand({ ...opts, cliTool: 'claude' });
+    assert.ok(cmd.startsWith('/usr/local/bin/claude'));
+    assert.ok(cmd.includes('"$(cat /tmp/p.md)"'));
+  });
+
+  it('builds an opencode run command', () => {
+    const cmd = cliAdapters.buildLauncherCommand({ ...opts, cliTool: 'opencode' });
+    assert.ok(cmd.includes('run'));
+  });
+
+  it('builds a pi command with --model', () => {
+    const cmd = cliAdapters.buildLauncherCommand({
+      cliTool: 'pi', binary: '/opt/bin/pi', model: 'gb10/deepseek-v4-flash', promptPath: '/tmp/p.md',
+    });
+    assert.ok(cmd.startsWith('/opt/bin/pi -p'));
+    assert.ok(cmd.includes('--model gb10/deepseek-v4-flash'));
+  });
+
+  it('builds a hermes command with --cli -Q', () => {
+    const cmd = cliAdapters.buildLauncherCommand({
+      cliTool: 'hermes', binary: '/opt/bin/hermes', model: 'deepseek-v4-flash', promptPath: '/tmp/p.md',
+    });
+    assert.ok(cmd.includes('chat'));
+    assert.ok(cmd.includes('--cli -Q'));
+  });
+
+  it('honours fileInputMethod stdin-redirect', () => {
+    const cmd = cliAdapters.buildLauncherCommand({
+      cliTool: 'claude', binary: 'claude', promptPath: '/tmp/p.md', fileInputMethod: 'stdin-redirect',
+    });
+    assert.ok(cmd.includes('< "/tmp/p.md"'));
+  });
+});
