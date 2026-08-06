@@ -44,8 +44,8 @@ function wrapUnixSentinel(cliLine, doneFile, preDoneLine) {
     '_EXIT=1',
     "trap '[ -e \"$_DONE\" ] || echo $_EXIT > \"$_DONE\"' EXIT",
     cliLine,
-    ...(preDoneLine ? [preDoneLine] : []),
     '_EXIT=$?',
+    ...(preDoneLine ? [preDoneLine] : []),
   ].join('; ');
 }
 
@@ -122,6 +122,8 @@ const opencodeAdapter = {
     const name = fileName || `stage-${stageIndex}-oc-prompt.md`;
     const outPath = path.join(runDirPath, name);
     fs.writeFileSync(outPath, merged, 'utf8');
+    // Preserve the pre-refactor telemetry event (was emitted by buildOpencodePromptFile).
+    process.stderr.write(`[PIPELINE] ${JSON.stringify({ event: 'stage.opencode_prompt_written', stageIndex, mergedPromptPath: outPath, bytes: Buffer.byteLength(merged, 'utf8'), ts: new Date().toISOString() })}\n`);
     return outPath;
   },
 

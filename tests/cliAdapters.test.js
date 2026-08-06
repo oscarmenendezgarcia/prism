@@ -98,13 +98,16 @@ describe('wrapUnixSentinel', () => {
     assert.ok(cmd.includes('_EXIT=$?'));
   });
 
-  it('injects preDoneLine after the cli line when provided', () => {
+  it('injects preDoneLine after the cli line and after _EXIT=$? capture', () => {
     const cmd = cliAdapters.wrapUnixSentinel('claude -p hi', '/tmp/s.done', 'pkill -f x');
     assert.ok(cmd.includes('claude -p hi'));
     assert.ok(cmd.includes('pkill -f x'));
     const cliIdx = cmd.indexOf('claude -p hi');
+    const exitIdx = cmd.indexOf('_EXIT=$?');
     const preIdx = cmd.indexOf('pkill -f x');
+    // cli runs → _EXIT captures the CLI's real exit code → cleanup runs after
     assert.ok(preIdx > cliIdx, 'preDoneLine should come after the cli line');
+    assert.ok(exitIdx < preIdx, '_EXIT=$? must be captured before preDoneLine so the CLI exit code is preserved');
   });
 });
 
