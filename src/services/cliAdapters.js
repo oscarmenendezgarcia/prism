@@ -241,6 +241,66 @@ const hermesAdapter = {
 };
 
 // ---------------------------------------------------------------------------
+// custom adapter (MODEL-3)
+//
+// A user-supplied arbitrary command template. The template may reference the
+// placeholders {binary}, {model}, {prompt}, {log}, {done}. Placeholders are
+// substituted at spawn time; the expanded command is wrapped in the standard
+// done-sentinel scaffold.
+// ---------------------------------------------------------------------------
+
+/**
+ * Expand {placeholder}s in a custom command template.
+ * Unknown braces are left as-is (validation happens in modelConfigResolver).
+ *
+ * @param {string} command
+ * @param {{ binary?: string, model?: string, prompt?: string, log?: string, done?: string }} values
+ * @returns {string}
+ */
+function expandCustomCommand(command, values) {
+  const map = {
+    '{binary}': values.binary || '',
+    '{model}':  values.model  || '',
+    '{prompt}': values.prompt || '',
+    '{log}':    values.log    || '',
+    '{done}':   values.done   || '',
+  };
+  return String(command).replace(/\{[a-zA-Z_]+\}/g, (m) => (m in map ? map[m] : m));
+}
+
+const customAdapter = {
+  name:            'custom',
+  needsPromptFile: false,
+
+  /** No single binary — the command template is the executable. */
+  resolveBinary() {
+    return null;
+  },
+
+  buildPromptFile() {
+    return null;
+  },
+
+  buildUnixCommand({ command, model, promptPath, logPath, doneFile, preDoneLine }) {
+    const expanded = expandCustomCommand(command, {
+      model, prompt: promptPath, log: logPath, done: doneFile,
+    });
+    return wrapUnixSentinel(expanded, doneFile, preDoneLine);
+  },
+
+  buildWindowsCommand({ command, model, promptPath, logPath, doneFile }) {
+    const expanded = expandCustomCommand(command, {
+      model, prompt: promptPath, log: logPath, done: doneFile,
+    });
+    return wrapWindowsSentinel(expanded, doneFile);
+  },
+
+  metaSource() {
+    return 'plain';
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Registry + lookup
 // ---------------------------------------------------------------------------
 
@@ -250,6 +310,7 @@ const ADAPTERS = {
   opencode: opencodeAdapter,
   pi:       piAdapter,
   hermes:   hermesAdapter,
+  custom:   customAdapter,
 };
 
 /**
@@ -280,4 +341,5 @@ module.exports = {
   registerAdapter,
   wrapUnixSentinel,
   wrapWindowsSentinel,
+  expandCustomCommand,
 };

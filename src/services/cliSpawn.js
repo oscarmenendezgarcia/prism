@@ -102,7 +102,10 @@ function resolveCliBinary(cliTool) {
     return HERMES_BIN;
   }
 
-  // 'custom' has no binary-resolution strategy yet (parity with pipelineManager).
+  // 'custom' has no single binary — the adapter resolves the command template
+  // itself (resolveCliBinary('custom') is not a meaningful concept). Keep the
+  // error so the adapter contract stays uniform; cliAdapters.custom handles the
+  // custom case before reaching this point.
   throw new Error(`BINARY_NOT_FOUND:${cliTool}`);
 }
 

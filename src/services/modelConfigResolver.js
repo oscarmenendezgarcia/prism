@@ -32,6 +32,7 @@ function resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, task
     provider: 'claude',
     model:    (agentSpec && agentSpec.model) ? agentSpec.model : 'claude-sonnet-4-5',
     cliTool:  'claude',
+    command:  null,
   };
 
   let resolvedFrom = 'frontmatter';
@@ -60,6 +61,7 @@ function resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, task
     provider:     current.provider || 'claude',
     model:        current.model    || base.model,
     cliTool:      current.cliTool  || 'claude',
+    command:      current.command  || null,
     resolvedFrom,
   };
 }
@@ -107,6 +109,25 @@ function validateStageModelConfig(config) {
     if (typeof config.model === 'string' && !config.model.includes('/')) {
       errors.push(`${config.cliTool} model must be in <provider>/<model> format (e.g. gb10/deepseek-v4-flash).`);
     }
+  }
+
+  // MODEL-3: 'custom' cliTool requires a command template.
+  const VALID_CUSTOM_PLACEHOLDERS = ['{binary}', '{model}', '{prompt}', '{log}', '{done}'];
+  if (config.cliTool === 'custom') {
+    if (typeof config.command !== 'string' || config.command.trim().length === 0) {
+      errors.push('custom cliTool requires a non-empty command template.');
+    } else {
+      const unknown = VALID_CUSTOM_PLACEHOLDERS.filter((ph) => config.command.includes(ph));
+      // Validate that only known placeholders appear (if any braces exist).
+      const braceMatch = config.command.match(/\{[a-zA-Z_]+\}/g) || [];
+      for (const m of braceMatch) {
+        if (!VALID_CUSTOM_PLACEHOLDERS.includes(m)) {
+          errors.push(`Unknown placeholder '${m}' in custom command. Valid: ${VALID_CUSTOM_PLACEHOLDERS.join(', ')}.`);
+        }
+      }
+    }
+  } else if ('command' in config && config.command !== null) {
+    errors.push("The 'command' field is only valid for cliTool 'custom'.");
   }
 
   return { valid: errors.length === 0, errors };

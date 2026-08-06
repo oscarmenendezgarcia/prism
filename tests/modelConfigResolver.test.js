@@ -226,9 +226,11 @@ describe('validateStageModelConfig — opencode', () => {
   });
 
   it('custom cliTool accepts any non-empty provider (not whitelisted)', () => {
-    // MINOR fix: 'custom' is a reserved placeholder — provider should be open-ended
-    // like opencode, not constrained to the claude whitelist.
-    const result = validateStageModelConfig({ cliTool: 'custom', provider: 'my-provider' });
+    const result = validateStageModelConfig({
+      cliTool:  'custom',
+      provider: 'my-provider',
+      command:  '{binary} --model {model} < {prompt} >> {log}',
+    });
     assert.equal(result.valid, true, 'custom cliTool with non-claude provider should be valid');
   });
 
@@ -331,5 +333,47 @@ describe('validateStageModelConfig — hermes', () => {
       model:    'deepseek-v4-flash',
     });
     assert.equal(result.valid, false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MODEL-3: custom cliTool validation
+// ---------------------------------------------------------------------------
+
+describe('validateStageModelConfig — custom', () => {
+  it('accepts custom with a command template', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'custom',
+      provider: 'my-provider',
+      command:  '{binary} --model {model} < {prompt} >> {log}',
+    });
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it('rejects custom without a command', () => {
+    const result = validateStageModelConfig({ cliTool: 'custom' });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].includes('command'));
+  });
+
+  it('rejects custom with an empty command', () => {
+    const result = validateStageModelConfig({ cliTool: 'custom', command: '   ' });
+    assert.equal(result.valid, false);
+  });
+
+  it('rejects custom with an unknown placeholder', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'custom',
+      command:  '{binary} --bogus {nonexistent}',
+    });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].includes('Unknown placeholder'));
+  });
+
+  it('rejects command field on non-custom cliTools', () => {
+    const result = validateStageModelConfig({ cliTool: 'claude', command: 'echo hi' });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((e) => e.includes('only valid for cliTool')));
   });
 });
