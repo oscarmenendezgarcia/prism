@@ -60,6 +60,11 @@ describe('resolveCliBinary', () => {
     const second = cliSpawn.resolveCliBinary('claude');
     assert.equal(first, second);
   });
+
+  it('resolves pi to a non-empty binary path/name', () => {
+    const bin = cliSpawn.resolveCliBinary('pi');
+    assert.ok(typeof bin === 'string' && bin.length > 0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -115,5 +120,74 @@ describe('opencodeCliLine', () => {
   it('defaults to unix quoting when platform is omitted', () => {
     const line = cliSpawn.opencodeCliLine(opts);
     assert.ok(line.startsWith("'/opt/opencode/bin/opencode'"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// piCliLine
+// ---------------------------------------------------------------------------
+
+describe('piCliLine', () => {
+  const opts = {
+    binary:          '/opt/homebrew/bin/pi',
+    model:           'gb10/deepseek-v4-flash',
+    mergedPromptPath: '/tmp/run-1/stage-0-pi-prompt.md',
+    logPath:         '/tmp/run-1/stage-0.log',
+  };
+
+  it('builds a unix-quoted print-mode invocation with stdin redirect', () => {
+    const line = cliSpawn.piCliLine({ ...opts, platform: 'unix' });
+    assert.equal(
+      line,
+      "'/opt/homebrew/bin/pi' -p --model 'gb10/deepseek-v4-flash' < '/tmp/run-1/stage-0-pi-prompt.md' >> '/tmp/run-1/stage-0.log' 2>&1"
+    );
+  });
+
+  it('builds a windows-quoted invocation line', () => {
+    const line = cliSpawn.piCliLine({ ...opts, platform: 'win32' });
+    assert.equal(
+      line,
+      '"/opt/homebrew/bin/pi" -p --model "gb10/deepseek-v4-flash" < "/tmp/run-1/stage-0-pi-prompt.md" >> "/tmp/run-1/stage-0.log" 2>&1'
+    );
+  });
+
+  it('defaults to unix quoting when platform is omitted', () => {
+    const line = cliSpawn.piCliLine(opts);
+    assert.ok(line.startsWith("'/opt/homebrew/bin/pi'"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hermesCliLine
+// ---------------------------------------------------------------------------
+
+describe('hermesCliLine', () => {
+  const opts = {
+    binary:           '/opt/homebrew/bin/hermes',
+    model:            'deepseek-v4-flash',
+    mergedPromptPath: '/tmp/run-1/stage-0-hermes-prompt.md',
+    logPath:          '/tmp/run-1/stage-0.log',
+  };
+
+  it('builds a unix-quoted headless chat invocation with cat-subshell query', () => {
+    const line = cliSpawn.hermesCliLine({ ...opts, platform: 'unix' });
+    assert.ok(line.startsWith("'/opt/homebrew/bin/hermes' chat"));
+    assert.ok(line.includes('-q "$(cat '), 'should use cat-subshell for the query');
+    assert.ok(line.includes("-m 'deepseek-v4-flash'"), 'should include the model flag');
+    assert.ok(line.includes('--cli -Q'), 'should include headless quiet flags');
+    assert.ok(line.endsWith(" >> '/tmp/run-1/stage-0.log' 2>&1"));
+  });
+
+  it('omits the model flag when model is not provided', () => {
+    const { model, ...noModel } = opts;
+    const line = cliSpawn.hermesCliLine({ ...noModel, platform: 'unix' });
+    assert.ok(!line.includes('-m '), 'should not include -m when model omitted');
+  });
+
+  it('builds a windows-quoted invocation line (best-effort, path literal)', () => {
+    const line = cliSpawn.hermesCliLine({ ...opts, platform: 'win32' });
+    assert.ok(line.startsWith('"'));
+    assert.ok(line.includes('-q '), 'should include the query flag');
+    assert.ok(line.includes('--cli -Q'));
   });
 });

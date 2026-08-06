@@ -13,7 +13,10 @@
 // For 'opencode', the provider string is open-ended (defined in opencode.jsonc)
 // and validated only for non-emptiness.
 const VALID_PROVIDERS = ['claude'];
-const VALID_CLI_TOOLS = ['claude', 'opencode', 'custom'];
+const VALID_CLI_TOOLS = ['claude', 'opencode', 'pi', 'hermes', 'custom'];
+// cliTools whose model string must be in <provider>/<model> format (like opencode).
+const SLASH_MODEL_CLI_TOOLS = ['opencode', 'pi'];
+const SLASH_MODEL_CLI_TOOLS_LABEL = 'opencode/pi';
 
 /**
  * Resolve effective model config for a stage.
@@ -81,8 +84,8 @@ function validateStageModelConfig(config) {
   }
 
   if ('provider' in config) {
-    if (config.cliTool === 'opencode' || config.cliTool === 'custom') {
-      // opencode / custom: providers are user-defined — accept any non-empty string.
+    if (config.cliTool === 'opencode' || config.cliTool === 'pi' || config.cliTool === 'hermes' || config.cliTool === 'custom') {
+      // opencode / pi / hermes / custom: providers are user-defined — accept any non-empty string.
       // 'custom' is a reserved placeholder; spawning is not yet implemented.
       if (typeof config.provider !== 'string' || config.provider.trim().length === 0) {
         errors.push('provider must be a non-empty string.');
@@ -100,10 +103,10 @@ function validateStageModelConfig(config) {
     }
   }
 
-  // MODEL-2: opencode model must be in <provider>/<model> format.
-  if (config.cliTool === 'opencode' && 'model' in config) {
+  // MODEL-2/3: opencode/pi model must be in <provider>/<model> format.
+  if (SLASH_MODEL_CLI_TOOLS.includes(config.cliTool) && 'model' in config) {
     if (typeof config.model === 'string' && !config.model.includes('/')) {
-      errors.push('opencode model must be in <provider>/<model> format (e.g. vllm-local/nvidia/model-name).');
+      errors.push(`${config.cliTool} model must be in <provider>/<model> format (e.g. gb10/deepseek-v4-flash).`);
     }
   }
 
@@ -115,4 +118,5 @@ module.exports = {
   validateStageModelConfig,
   VALID_PROVIDERS,
   VALID_CLI_TOOLS,
+  SLASH_MODEL_CLI_TOOLS,
 };

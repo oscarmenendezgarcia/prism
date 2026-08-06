@@ -428,6 +428,59 @@ describe('pipelineManager integration — opencode stage (PIPELINE_NO_SPAWN=1)',
     fs.rmSync(agentsDir, { recursive: true, force: true });
   });
 
+  test('stageStatuses[i].cliTool is pi and stage-0-pi-prompt.md exists in run dir', async () => {
+    const dataDir   = tmpDir();
+    const agentsDir = tmpDir();
+    writeAgentFile(agentsDir, 'developer-agent');
+
+    process.env.PIPELINE_AGENTS_DIR   = agentsDir;
+    process.env.PIPELINE_AGENT_MODE   = 'subagent';
+    process.env.PIPELINE_NO_SPAWN     = '1';
+    process.env.PIPELINE_MAX_CONCURRENT = '5';
+
+    const { spaceId, taskId } = createSpaceWithTask(dataDir);
+
+    const settingsPath = path.join(dataDir, 'settings.json');
+    fs.writeFileSync(settingsPath, JSON.stringify({
+      pipeline: {
+        stageModels: {
+          'developer-agent': { cliTool: 'pi', provider: 'gb10', model: 'gb10/deepseek-v4-flash' },
+        },
+      },
+    }), 'utf8');
+
+    const pm = freshPM();
+    const run = await pm.createRun({
+      spaceId,
+      taskId,
+      stages: ['developer-agent'],
+      dataDir,
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    const runJsonData = fs.readFileSync(
+      path.join(dataDir, 'runs', run.runId, 'run.json'), 'utf8',
+    );
+    const persistedRun = JSON.parse(runJsonData);
+
+    assert.equal(
+      persistedRun.stageStatuses[0].cliTool,
+      'pi',
+      'stageStatuses[0].cliTool should be pi',
+    );
+
+    const promptFile = path.join(dataDir, 'runs', run.runId, 'stage-0-pi-prompt.md');
+    assert.ok(fs.existsSync(promptFile), 'stage-0-pi-prompt.md should exist in run dir');
+
+    delete process.env.PIPELINE_AGENTS_DIR;
+    delete process.env.PIPELINE_AGENT_MODE;
+    delete process.env.PIPELINE_NO_SPAWN;
+    delete process.env.PIPELINE_MAX_CONCURRENT;
+    fs.rmSync(dataDir,   { recursive: true, force: true });
+    fs.rmSync(agentsDir, { recursive: true, force: true });
+  });
+
   test('stageStatuses[i].failureReason is "binary_missing" when opencode binary not found', async () => {
     // Binary resolution runs AFTER the PIPELINE_NO_SPAWN guard, so we must NOT
     // set PIPELINE_NO_SPAWN — we need it to reach the resolveCliBinary() call.

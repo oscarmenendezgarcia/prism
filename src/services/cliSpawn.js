@@ -39,6 +39,8 @@ function cmdEscape(s) {
 
 let CLAUDE_BIN = null;
 let OPENCODE_BIN = null;
+let PI_BIN = null;
+let HERMES_BIN = null;
 
 /** Return the first candidate whose resolved path exists on disk, or null. */
 function firstExistingPath(candidates) {
@@ -86,8 +88,56 @@ function resolveCliBinary(cliTool) {
     throw new Error('BINARY_NOT_FOUND:opencode');
   }
 
+  if (cliTool === 'pi') {
+    const found = piBinary();
+    // piBinary() falls back to bare 'pi' (rely on PATH); treat a resolved absolute
+    // path as successais, but bare 'pi' is acceptable too (PATH resolution at spawn).
+    PI_BIN = found;
+    return PI_BIN;
+  }
+
+  if (cliTool === 'hermes') {
+    const found = hermesBinary();
+    HERMES_BIN = found;
+    return HERMES_BIN;
+  }
+
   // 'custom' has no binary-resolution strategy yet (parity with pipelineManager).
   throw new Error(`BINARY_NOT_FOUND:${cliTool}`);
+}
+
+/**
+ * Resolve (and cache) the pi binary path, falling back through common locations.
+ *
+ * @returns {string}  Absolute pi binary path, or 'pi' if not found (rely on PATH).
+ */
+function piBinary() {
+  if (PI_BIN) return PI_BIN;
+  const home = process.env.HOME ?? '';
+  PI_BIN = firstExistingPath([
+    () => execSync('which pi 2>/dev/null', { encoding: 'utf8', env: process.env }).trim(),
+    () => `${home}/.local/bin/pi`,
+    () => '/usr/local/bin/pi',
+    () => '/opt/homebrew/bin/pi',
+  ]) ?? 'pi';
+  return PI_BIN;
+}
+
+/**
+ * Resolve (and cache) the hermes binary path, falling back through common locations.
+ *
+ * @returns {string}  Absolute hermes binary path, or 'hermes' if not found (rely on PATH).
+ */
+function hermesBinary() {
+  if (HERMES_BIN) return HERMES_BIN;
+  const home = process.env.HOME ?? '';
+  HERMES_BIN = firstExistingPath([
+    () => execSync('which hermes 2>/dev/null', { encoding: 'utf8', env: process.env }).trim(),
+    () => `${home}/.local/bin/hermes`,
+    () => '/usr/local/bin/hermes',
+    () => '/opt/homebrew/bin/hermes',
+  ]) ?? 'hermes';
+  return HERMES_BIN;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,10 +174,49 @@ function opencodeCliLine({ binary, model, mergedPromptPath, logPath, platform })
   return `${esc(binary)} run --model ${esc(model)} --dangerously-skip-permissions --format default ${proceed} --file ${esc(mergedPromptPath)} >> ${esc(logPath)} 2>&1`;
 }
 
+/**
+ * Build the pi CLI invocation line (print mode + model + stdin prompt redirect),
+ * WITHOUT the done-sentinel scaffold — callers wrap it with their own sentinel.
+ *
+ * pi reads the prompt from stdin in print mode, so the merged prompt file is
+ * redirected via `<` (same pattern as claude).
+ *
+ * @param {{ binary: string, model: string, mergedPromptPath: string, logPath: string, platform?: string }} opts
+ * @returns {string}
+ */
+function piCliLine({ binary, model, mergedPromptPath, logPath, platform }) {
+  const esc = platform === 'win32' ? cmdEscape : shellEscape;
+  return `${esc(binary)} -p --model ${esc(model)} < ${esc(mergedPromptPath)} >> ${esc(logPath)} 2>&1`;
+}
+
+/**
+ * Build the hermes CLI invocation line (headless chat + model + query), WITHOUT
+ * the done-sentinel scaffold — callers wrap it with their own sentinel.
+ *
+ * hermes takes the prompt via `-q <query>` (flag, not stdin). The merged prompt
+ * file is read with a cat-subshell so large prompts (8–15 KB) never hit ARG_MAX.
+ *
+ * @param {{ binary: string, model?: string, mergedPromptPath: string, logPath: string, platform?: string }} opts
+ * @returns {string}
+ */
+function hermesCliLine({ binary, model, mergedPromptPath, logPath, platform }) {
+  const esc = platform === 'win32' ? cmdEscape : shellEscape;
+  const modelFlag = model ? ` -m ${esc(model)}` : '';
+  // `-q "$(cat file)"` — quoted cat-subshell so the prompt is a single arg.
+  // Windows cmd.exe has no $(...) subshell, so it passes the merged prompt path
+  // literally (best-effort; the primary target is unix/macOS where cat works).
+  const query = platform === 'win32'
+    ? `-q ${esc(mergedPromptPath)}`
+    : `-q "$(cat ${esc(mergedPromptPath)})"`;
+  return `${esc(binary)} chat ${query}${modelFlag} --cli -Q >> ${esc(logPath)} 2>&1`;
+}
+
 module.exports = {
   shellEscape,
   cmdEscape,
   resolveCliBinary,
   buildMergedPrompt,
   opencodeCliLine,
+  piCliLine,
+  hermesCliLine,
 };

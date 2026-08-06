@@ -28,15 +28,25 @@ describe('getAdapter', () => {
     assert.equal(cliAdapters.getAdapter('opencode').name, 'opencode');
   });
 
+  it('returns the pi adapter for "pi"', () => {
+    assert.equal(cliAdapters.getAdapter('pi').name, 'pi');
+  });
+
+  it('returns the hermes adapter for "hermes"', () => {
+    assert.equal(cliAdapters.getAdapter('hermes').name, 'hermes');
+  });
+
   it('throws CLI_ADAPTER_NOT_FOUND for an unknown cliTool', () => {
     assert.throws(() => cliAdapters.getAdapter('unknown-tool'), /CLI_ADAPTER_NOT_FOUND:unknown-tool/);
   });
 });
 
 describe('ADAPTERS', () => {
-  it('registers claude and opencode', () => {
+  it('registers claude, opencode, pi, and hermes', () => {
     assert.ok(cliAdapters.ADAPTERS.claude, 'claude adapter present');
     assert.ok(cliAdapters.ADAPTERS.opencode, 'opencode adapter present');
+    assert.ok(cliAdapters.ADAPTERS.pi, 'pi adapter present');
+    assert.ok(cliAdapters.ADAPTERS.hermes, 'hermes adapter present');
   });
 });
 
@@ -46,7 +56,7 @@ describe('ADAPTERS', () => {
 
 describe('adapter contract', () => {
   it('each adapter exposes the full harness interface', () => {
-    for (const name of ['claude', 'opencode']) {
+    for (const name of ['claude', 'opencode', 'pi', 'hermes']) {
       const a = cliAdapters.getAdapter(name);
       assert.equal(typeof a.resolveBinary, 'function', `${name}: resolveBinary`);
       assert.equal(typeof a.buildUnixCommand, 'function', `${name}: buildUnixCommand`);
@@ -56,9 +66,11 @@ describe('adapter contract', () => {
     }
   });
 
-  it('claude does not need a prompt file; opencode does', () => {
+  it('claude does not need a prompt file; opencode, pi, and hermes do', () => {
     assert.equal(cliAdapters.getAdapter('claude').needsPromptFile, false);
     assert.equal(cliAdapters.getAdapter('opencode').needsPromptFile, true);
+    assert.equal(cliAdapters.getAdapter('pi').needsPromptFile, true);
+    assert.equal(cliAdapters.getAdapter('hermes').needsPromptFile, true);
   });
 });
 
