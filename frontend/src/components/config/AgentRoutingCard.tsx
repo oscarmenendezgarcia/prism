@@ -397,13 +397,8 @@ export function AgentRoutingCard({
               aria-expanded={fallbackOpen}
               className="flex w-full items-center justify-between gap-3 group"
             >
-              <span className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[15px] leading-none text-text-secondary/70" aria-hidden="true">
-                  swap_vert
-                </span>
-                <span className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary group-hover:text-primary transition-colors duration-fast">
-                  Fallback (advanced)
-                </span>
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary group-hover:text-primary transition-colors duration-fast">
+                Fallback (advanced)
               </span>
               <span className="flex items-center gap-2">
                 {fallback?.cliTool && !fallbackOpen && (
