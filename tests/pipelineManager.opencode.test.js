@@ -500,7 +500,7 @@ describe('pipelineManager integration — opencode stage (PIPELINE_NO_SPAWN=1)',
           'developer-agent': {
             cliTool: 'custom',
             provider: 'my-provider',
-            command: '{binary} --model {model} < {prompt} >> {log}',
+            command: 'my-tool --model {model} < {prompt} >> {log}',
           },
         },
       },

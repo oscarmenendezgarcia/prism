@@ -229,7 +229,7 @@ describe('validateStageModelConfig — opencode', () => {
     const result = validateStageModelConfig({
       cliTool:  'custom',
       provider: 'my-provider',
-      command:  '{binary} --model {model} < {prompt} >> {log}',
+      command:  'my-tool --model {model} < {prompt} >> {log}',
     });
     assert.equal(result.valid, true, 'custom cliTool with non-claude provider should be valid');
   });
@@ -345,7 +345,7 @@ describe('validateStageModelConfig — custom', () => {
     const result = validateStageModelConfig({
       cliTool:  'custom',
       provider: 'my-provider',
-      command:  '{binary} --model {model} < {prompt} >> {log}',
+      command:  'my-tool --model {model} < {prompt} >> {log}',
     });
     assert.equal(result.valid, true);
     assert.equal(result.errors.length, 0);
@@ -365,7 +365,16 @@ describe('validateStageModelConfig — custom', () => {
   it('rejects custom with an unknown placeholder', () => {
     const result = validateStageModelConfig({
       cliTool:  'custom',
-      command:  '{binary} --bogus {nonexistent}',
+      command:  'my-tool --bogus {nonexistent}',
+    });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].includes('Unknown placeholder'));
+  });
+
+  it('rejects the removed {binary} placeholder as unknown', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'custom',
+      command:  '{binary} --model {model}',
     });
     assert.equal(result.valid, false);
     assert.ok(result.errors[0].includes('Unknown placeholder'));

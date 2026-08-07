@@ -243,10 +243,13 @@ const hermesAdapter = {
 // ---------------------------------------------------------------------------
 // custom adapter (MODEL-3)
 //
-// A user-supplied arbitrary command template. The template may reference the
-// placeholders {binary}, {model}, {prompt}, {log}, {done}. Placeholders are
-// substituted at spawn time; the expanded command is wrapped in the standard
-// done-sentinel scaffold.
+// A user-supplied arbitrary command template. The template is the full
+// executable command (the user writes the binary themselves) and may reference
+// the placeholders {model}, {prompt}, {log}, {done}. Placeholders are
+// substituted raw at spawn time (no shell-escaping — custom is intentionally
+// arbitrary shell, so the user must quote {model} and any path that may
+// contain spaces). The expanded command is wrapped in the standard done-sentinel
+// scaffold.
 // ---------------------------------------------------------------------------
 
 /**
@@ -254,12 +257,11 @@ const hermesAdapter = {
  * Unknown braces are left as-is (validation happens in modelConfigResolver).
  *
  * @param {string} command
- * @param {{ binary?: string, model?: string, prompt?: string, log?: string, done?: string }} values
+ * @param {{ model?: string, prompt?: string, log?: string, done?: string }} values
  * @returns {string}
  */
 function expandCustomCommand(command, values) {
   const map = {
-    '{binary}': values.binary || '',
     '{model}':  values.model  || '',
     '{prompt}': values.prompt || '',
     '{log}':    values.log    || '',

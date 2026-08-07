@@ -168,19 +168,19 @@ describe('custom adapter', () => {
 describe('expandCustomCommand', () => {
   it('substitutes all known placeholders', () => {
     const out = cliAdapters.expandCustomCommand(
-      '{binary} -m {model} < {prompt} >> {log} # {done}',
-      { binary: 'b', model: 'm', prompt: 'p', log: 'l', done: 'd' },
+      'my-tool -m {model} < {prompt} >> {log} # {done}',
+      { model: 'm', prompt: 'p', log: 'l', done: 'd' },
     );
-    assert.equal(out, 'b -m m < p >> l # d');
+    assert.equal(out, 'my-tool -m m < p >> l # d');
   });
 
   it('leaves unknown braces untouched', () => {
-    const out = cliAdapters.expandCustomCommand('{binary} {wat}', { binary: 'b' });
-    assert.equal(out, 'b {wat}');
+    const out = cliAdapters.expandCustomCommand('my-tool {wat}', { model: 'm' });
+    assert.equal(out, 'my-tool {wat}');
   });
 
   it('substitutes missing values with empty string', () => {
-    const out = cliAdapters.expandCustomCommand('{binary}{model}', { binary: 'b' });
-    assert.equal(out, 'b');
+    const out = cliAdapters.expandCustomCommand('{prompt}{model}', { model: 'm' });
+    assert.equal(out, 'm');
   });
 });

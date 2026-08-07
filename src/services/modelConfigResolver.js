@@ -17,6 +17,10 @@ const VALID_CLI_TOOLS = ['claude', 'opencode', 'pi', 'hermes', 'custom'];
 // cliTools whose model string must be in <provider>/<model> format (like opencode).
 const SLASH_MODEL_CLI_TOOLS = ['opencode', 'pi'];
 
+// Placeholders allowed inside a 'custom' command template. 'binary' is
+// deliberately absent — the template IS the full executable command.
+const VALID_CUSTOM_PLACEHOLDERS = ['{model}', '{prompt}', '{log}', '{done}'];
+
 /**
  * Resolve effective model config for a stage.
  *
@@ -87,7 +91,7 @@ function validateStageModelConfig(config) {
   if ('provider' in config) {
     if (config.cliTool === 'opencode' || config.cliTool === 'pi' || config.cliTool === 'hermes' || config.cliTool === 'custom') {
       // opencode / pi / hermes / custom: providers are user-defined — accept any non-empty string.
-      // 'custom' is a reserved placeholder; spawning is not yet implemented.
+      // 'custom' is a working harness (arbitrary command template), not a placeholder.
       if (typeof config.provider !== 'string' || config.provider.trim().length === 0) {
         errors.push('provider must be a non-empty string.');
       }
@@ -112,12 +116,10 @@ function validateStageModelConfig(config) {
   }
 
   // MODEL-3: 'custom' cliTool requires a command template.
-  const VALID_CUSTOM_PLACEHOLDERS = ['{binary}', '{model}', '{prompt}', '{log}', '{done}'];
   if (config.cliTool === 'custom') {
     if (typeof config.command !== 'string' || config.command.trim().length === 0) {
       errors.push('custom cliTool requires a non-empty command template.');
     } else {
-      const unknown = VALID_CUSTOM_PLACEHOLDERS.filter((ph) => config.command.includes(ph));
       // Validate that only known placeholders appear (if any braces exist).
       const braceMatch = config.command.match(/\{[a-zA-Z_]+\}/g) || [];
       for (const m of braceMatch) {
