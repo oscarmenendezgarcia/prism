@@ -123,3 +123,29 @@ describe('ScopeSelector — callbacks', () => {
     expect(onChange).toHaveBeenCalledWith('global');
   });
 });
+
+describe('ScopeSelector — keyboard navigation (roving tabindex)', () => {
+  it('only the selected radio is tabbable', () => {
+    renderScope({ scope: 'global', spaceName: 'Prism' });
+    expect(screen.getByRole('radio', { name: /global/i }).getAttribute('tabindex')).toBe('0');
+    expect(screen.getByRole('radio', { name: /space · prism/i }).getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('ArrowRight moves selection to the next radio', () => {
+    const onChange = vi.fn();
+    renderScope({ scope: 'global', spaceName: 'Prism', onChange });
+    const global = screen.getByRole('radio', { name: /global/i });
+    global.focus();
+    fireEvent.keyDown(global, { key: 'ArrowRight' });
+    expect(onChange).toHaveBeenCalledWith('space');
+  });
+
+  it('ArrowLeft moves selection to the previous radio', () => {
+    const onChange = vi.fn();
+    renderScope({ scope: 'space', spaceName: 'Prism', onChange });
+    const space = screen.getByRole('radio', { name: /space · prism/i });
+    space.focus();
+    fireEvent.keyDown(space, { key: 'ArrowLeft' });
+    expect(onChange).toHaveBeenCalledWith('global');
+  });
+});

@@ -43,6 +43,7 @@ export function Tooltip({ label, description, children, position = 'bottom' }: T
           // Enter / exit animation
           'opacity-0 translate-y-1',
           'group-hover/tt:opacity-100 group-hover/tt:translate-y-0',
+          'group-focus-within/tt:opacity-100 group-focus-within/tt:translate-y-0',
           'transition-all duration-fast ease-default',
           '[transition-delay:400ms]',
           'group-hover/tt:[transition-delay:400ms]',

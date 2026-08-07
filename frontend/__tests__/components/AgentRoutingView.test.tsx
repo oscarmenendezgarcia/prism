@@ -255,7 +255,7 @@ describe('AgentRoutingView — Save / Reset', () => {
   it('Save button is disabled when not dirty', () => {
     setup();
     renderView();
-    const saveBtn = screen.getByRole('button', { name: /save/i });
+    const saveBtn = screen.getByRole('button', { name: /^Save/i });
     expect(saveBtn.hasAttribute('disabled')).toBe(true);
   });
 
@@ -274,7 +274,7 @@ describe('AgentRoutingView — Save / Reset', () => {
     fireEvent.click(opusChip);
 
     // Save should now be enabled
-    const saveBtn = screen.getByRole('button', { name: /save/i });
+    const saveBtn = screen.getByRole('button', { name: /^Save/i });
     expect(saveBtn.hasAttribute('disabled')).toBe(false);
 
     fireEvent.click(saveBtn);
@@ -304,7 +304,7 @@ describe('AgentRoutingView — Save / Reset', () => {
     fireEvent.click(card!.querySelector('button')!);
     fireEvent.click(screen.getByText('opus-4-8'));
 
-    const saveBtn = screen.getByRole('button', { name: /save/i });
+    const saveBtn = screen.getByRole('button', { name: /^Save/i });
     expect(saveBtn.hasAttribute('disabled')).toBe(false);
 
     fireEvent.click(screen.getByRole('button', { name: /reset/i }));

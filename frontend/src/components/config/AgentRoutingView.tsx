@@ -353,7 +353,7 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
           onChange={setScope}
         />
         {/* Search */}
-        <div className="flex items-center gap-2 bg-surface border border-border rounded-sm px-3 py-2 focus-within:ring-1 focus-within:ring-primary focus-within:border-primary">
+        <div className="flex items-center gap-2 bg-surface border border-border rounded-md px-3 py-2 focus-within:ring-1 focus-within:ring-primary focus-within:border-primary">
           <span className="material-symbols-outlined text-base text-text-secondary leading-none shrink-0" aria-hidden="true">
             search
           </span>
@@ -394,7 +394,7 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
             <p className="text-sm text-text-secondary">
               No agents match &ldquo;{search}&rdquo;
             </p>
-            <p className="text-[11px] text-text-secondary/70">
+            <p className="text-[11px] text-text-secondary">
               Try searching by agent name, model, or skill
             </p>
             <Button variant="ghost" size="sm" className="mt-1" onClick={() => setSearch('')}>

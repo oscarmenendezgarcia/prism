@@ -11,9 +11,10 @@
  * model selection.
  */
 
-import React, { useId, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { SOURCE_CLASSES, SOURCE_MUTED_CLASSES } from './ModelInheritanceBadge';
 import { EffortSegmented }       from './EffortSegmented';
+import { Button }                from '@/components/shared/Button';
 import { SkillsReadOnly }        from './SkillsReadOnly';
 import { CliToolSelector }       from './CliToolSelector';
 import { SegmentedControl }      from './SegmentedControl';
@@ -107,10 +108,10 @@ export function AgentRoutingCard({
   harnesses,
   onEditPrompt,
 }: AgentRoutingCardProps) {
-  const detailId  = useId();
   // Fallback is an advanced/power config — collapsed behind a toggle so the
   // expanded card doesn't show resilience wiring to everyone.
   const [fallbackOpen, setFallbackOpen] = useState(false);
+  const presetGroupRef = useRef<HTMLDivElement | null>(null);
   const dotClass  = agentDotColor(agentId);
 
   /** Model shown in the mini-pill and in the preset/input area. */
@@ -125,8 +126,30 @@ export function AgentRoutingCard({
   const isInherited = !isScopeOverride && source !== 'default';
   /** Slash-model harnesses (opencode/pi/hermes) require a `provider/model` string — flag an invalid local edit. */
   const slashInvalid = isSlashHarness && !!displayModel && !isValidSlashModel(displayModel);
+  /** Slash-model harnesses (opencode/pi/hermes) require a `provider/model` string — flag an invalid fallback edit. */
+  const fallbackInvalid =
+    !!fallback?.cliTool &&
+    isSlashModelHarness(fallback.cliTool) &&
+    !!fallback.model &&
+    !isValidSlashModel(fallback.model);
   /** Slash-model harness selected but no valid provider/model yet → show an example, not the inherited Claude model. */
   const needsSlashModel = isSlashHarness && !isValidSlashModel(displayModel);
+
+  // Arrow-key navigation for the Claude preset radiogroup (roving tabindex).
+  const onPresetKeyDown = (e: React.KeyboardEvent) => {
+    if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
+    const radios = Array.from(
+      presetGroupRef.current?.querySelectorAll('[role="radio"]') ?? [],
+    ) as HTMLElement[];
+    if (radios.length === 0) return;
+    const idx = radios.indexOf(document.activeElement as HTMLElement);
+    if (idx === -1) return;
+    e.preventDefault();
+    const forward = e.key === 'ArrowRight' || e.key === 'ArrowDown';
+    const next = radios[(idx + (forward ? 1 : -1) + radios.length) % radios.length];
+    next.focus();
+    onChange(agentId, next.getAttribute('data-preset') as string);
+  };
 
   return (
     <article
@@ -142,10 +165,10 @@ export function AgentRoutingCard({
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        aria-controls={detailId}
         className={[
           'w-full flex items-center gap-2.5 px-4 py-3 text-left',
           'transition-colors duration-fast',
+          'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
           open ? 'bg-surface-variant/30' : 'hover:bg-surface-variant',
         ].join(' ')}
       >
@@ -169,10 +192,10 @@ export function AgentRoutingCard({
 
         {/* Unsaved-edit indicator — the pill/badge already reflect the pending value, this
             just makes clear it hasn't been persisted yet (distinct from an already-saved override) */}
-        {!open && unsaved && (
+        {unsaved && (
           <span
             className="w-1.5 h-1.5 rounded-full bg-primary shrink-0"
-            title="Unsaved change — click Save to persist it"
+            role="img"
             aria-label="Unsaved change"
           />
         )}
@@ -183,7 +206,7 @@ export function AgentRoutingCard({
             editable via CliToolSelector in the expanded card. */}
         {!open && isSlashHarness && (
           <span
-            className="hidden sm:inline-flex items-center font-mono text-[11px] px-2 py-0.5 rounded-md bg-surface-variant text-text-secondary border border-border/60 whitespace-nowrap"
+            className="hidden sm:inline-flex items-center font-mono text-[11px] px-2 py-0.5 rounded-xs bg-surface-variant text-text-secondary border border-border-subtle whitespace-nowrap"
             title={`Runs via the ${cliTool} CLI`}
           >
             {cliTool}
@@ -197,9 +220,9 @@ export function AgentRoutingCard({
         {!open && (
           <span
             className={[
-              'inline-flex items-center gap-1 min-w-0 shrink max-w-[110px] font-mono text-[11px] px-2 py-0.5 rounded-md border',
+              'inline-flex items-center gap-1 min-w-0 shrink max-w-[110px] font-mono text-[11px] px-2 py-0.5 rounded-xs border',
               needsSlashModel
-                ? 'text-text-secondary/50 border-border border-dashed bg-transparent'
+                ? 'text-text-tertiary border-border border-dashed bg-transparent'
                 : isScopeOverride
                   ? SOURCE_CLASSES[source]
                   : isInherited
@@ -228,7 +251,7 @@ export function AgentRoutingCard({
         {/* Skill count — demoted (tertiary, no icon): secondary info, doesn't compete with the model pill */}
         {!open && (
           <span
-            className="text-[11px] text-text-tertiary shrink-0 w-5 text-right tabular-nums"
+            className="text-[11px] text-text-tertiary shrink-0 min-w-5 text-right tabular-nums"
             title={metadata.loading ? undefined : `${metadata.skills.length} skill${metadata.skills.length === 1 ? '' : 's'}`}
           >
             {metadata.loading ? '…' : metadata.skills.length}
@@ -239,7 +262,7 @@ export function AgentRoutingCard({
         <span
           className={[
             'material-symbols-outlined text-lg text-text-secondary leading-none shrink-0 ml-auto',
-            'transition-transform duration-fast motion-safe:transition-transform',
+            'motion-safe:transition-transform duration-fast',
             open ? 'rotate-90' : '',
           ].join(' ')}
           aria-hidden="true"
@@ -248,14 +271,14 @@ export function AgentRoutingCard({
         </span>
       </button>
 
-      {/* ── Expanded detail ────────────────────────────────────────────── */}
+      {/* ── Expanded detail — mounted only while open (no dangling
+          aria-controls; the expand button is the single source of truth) ── */}
       {open && (
         <div
-          id={detailId}
-          className="bg-surface px-4 pt-1 pb-5 flex flex-col gap-0 motion-safe:animate-fade-in-up"
+          className="bg-surface px-4 pb-5 flex flex-col gap-0 motion-safe:animate-fade-in-up"
         >
           {/* Model + Effort row */}
-          <div className="flex flex-col md:flex-row items-start gap-6 md:gap-10 py-5 border-b border-border/50">
+          <div className="flex flex-col md:flex-row items-start gap-6 md:gap-10 pt-5">
             {/* Harness section — the CLI tool + its model */}
             <div className="flex flex-col gap-3 min-w-0 flex-1">
               <label className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
@@ -275,7 +298,7 @@ export function AgentRoutingCard({
                   className={[
                     'inline-flex items-center gap-1.5 font-mono text-[12px] px-2.5 py-1 rounded-lg border',
                     needsSlashModel
-                      ? 'text-text-secondary/50 border-border border-dashed bg-transparent'
+                      ? 'text-text-tertiary border-border border-dashed bg-transparent'
                       : isScopeOverride
                         ? SOURCE_CLASSES[source]
                         : isInherited
@@ -307,7 +330,7 @@ export function AgentRoutingCard({
 
               {/* Microcopy — names where the value actually comes from and what clicking a preset does */}
               {isInherited && (
-                <p className="text-[11px] leading-tight text-text-secondary/70">
+                <p className="text-[11px] leading-tight text-text-secondary">
                   Inherited from {source} — pick a preset below to override it for this scope.
                 </p>
               )}
@@ -315,9 +338,11 @@ export function AgentRoutingCard({
               {/* Preset chips — Claude only (slash-model harnesses are open-ended) */}
               {isManagedClaude && (
                 <div
+                  ref={presetGroupRef}
                   className="flex flex-wrap gap-2"
                   role="radiogroup"
                   aria-label={`Model presets for ${displayName}`}
+                  onKeyDown={onPresetKeyDown}
                 >
                   {CLAUDE_PRESETS.map((preset) => {
                     const short     = preset.replace('claude-', '');
@@ -327,14 +352,16 @@ export function AgentRoutingCard({
                         key={preset}
                         type="button"
                         role="radio"
+                        data-preset={preset}
                         aria-checked={selected}
+                        tabIndex={selected ? 0 : -1}
                         onClick={() => onChange(agentId, preset)}
                         className={[
-                          'px-2.5 py-1 text-[12px] font-mono rounded-lg border',
+                          'px-2.5 py-1 text-[12px] font-mono rounded-xs border',
                           'transition-all duration-fast active:scale-[0.97]',
                           'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
                           selected
-                            ? 'bg-primary text-white border-primary'
+                            ? 'bg-primary text-on-primary border-primary'
                             : 'bg-surface border-border text-text-secondary hover:border-primary/50 hover:text-text-primary',
                         ].join(' ')}
                       >
@@ -358,8 +385,8 @@ export function AgentRoutingCard({
                 value={isSlashHarness ? (localModel || '') : (!isPreset ? (localModel || '') : '')}
                 onChange={(e) => onChange(agentId, e.target.value)}
                 className={[
-                  'w-full bg-surface border rounded-lg px-3 py-1.5',
-                  'text-[12px] text-text-primary placeholder:text-text-secondary/50',
+                  'w-full bg-surface border rounded-md px-3 py-1.5',
+                  'text-[12px] text-text-primary placeholder:text-text-disabled',
                   'focus:outline-none focus:ring-1 transition-all duration-fast font-mono',
                   slashInvalid
                     ? 'border-error focus:ring-error/50 focus:border-error'
@@ -371,7 +398,7 @@ export function AgentRoutingCard({
               {isSlashHarness && (
                 <p className={[
                   'text-[11px] leading-tight',
-                  slashInvalid ? 'text-error' : 'text-text-secondary/70',
+                  slashInvalid ? 'text-error' : 'text-text-secondary',
                 ].join(' ')}>
                   {slashInvalid
                     ? `${cliTool} needs a provider/model string (must contain "/").`
@@ -382,9 +409,9 @@ export function AgentRoutingCard({
 
             {/* Effort section */}
             <div className="flex flex-col gap-3 shrink-0">
-              <label className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
                 Effort
-              </label>
+              </span>
               <EffortSegmented value={metadata.effort} loading={metadata.loading} />
             </div>
           </div>
@@ -402,11 +429,11 @@ export function AgentRoutingCard({
               </span>
               <span className="flex items-center gap-2">
                 {fallback?.cliTool && !fallbackOpen && (
-                  <span className="inline-flex items-center px-1.5 py-[1px] rounded text-[10px] font-mono leading-none bg-surface-elevated border border-border text-text-secondary">
+                  <span className="inline-flex items-center px-1.5 py-[1px] rounded-xs text-[10px] font-mono leading-none bg-surface-elevated border border-border text-text-secondary">
                     {fallback.cliTool}
                   </span>
                 )}
-                <span className={`material-symbols-outlined text-[15px] leading-none text-text-secondary/70 transition-transform duration-fast ${fallbackOpen ? 'rotate-180' : ''}`} aria-hidden="true">
+                <span className={`material-symbols-outlined text-[15px] leading-none text-text-secondary transition-transform duration-fast ${fallbackOpen ? 'rotate-180' : ''}`} aria-hidden="true">
                   expand_more
                 </span>
               </span>
@@ -432,6 +459,7 @@ export function AgentRoutingCard({
                   <input
                     type="text"
                     aria-label={`Fallback model for ${displayName}`}
+                    aria-invalid={fallbackInvalid}
                     placeholder={
                       isSlashModelHarness(fallback.cliTool)
                         ? 'provider/model'
@@ -439,12 +467,21 @@ export function AgentRoutingCard({
                     }
                     value={fallback.model ?? ''}
                     onChange={(e) => onChangeFallback(agentId, { cliTool: fallback.cliTool, model: e.target.value })}
-                    className="w-full bg-surface border rounded-lg px-3 py-1.5 text-[12px] text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 transition-all duration-fast font-mono"
+                    className={[
+                      'w-full bg-surface border rounded-md px-3 py-1.5 text-[12px] text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 transition-all duration-fast font-mono',
+                      fallbackInvalid
+                        ? 'border-error focus:ring-error/50 focus:border-error'
+                        : 'border-border focus:ring-primary/50 focus:border-primary',
+                    ].join(' ')}
                   />
                 )}
-                <p className="text-[11px] leading-tight text-text-secondary/70">
-                  Used when the primary harness can't run — the CLI isn't
-                  installed, or a stage fails and is retried once on this harness.
+                <p className={[
+                  'text-[11px] leading-tight',
+                  fallbackInvalid ? 'text-error' : 'text-text-secondary',
+                ].join(' ')}>
+                  {fallbackInvalid
+                    ? `${fallback?.cliTool} needs a provider/model string (must contain "/").`
+                    : "Used when the primary harness can't run — the CLI isn't installed, or a stage fails and is retried once on this harness."}
                 </p>
               </div>
             )}
@@ -452,28 +489,24 @@ export function AgentRoutingCard({
 
           {/* Skills section */}
           <div className="pt-5">
-            <label className="block text-[11px] font-semibold uppercase tracking-widest text-text-secondary mb-3">
+            <span className="block text-[11px] font-semibold uppercase tracking-widest text-text-secondary mb-3">
               Skills
-            </label>
+            </span>
             <SkillsReadOnly skills={metadata.skills} loading={metadata.loading} />
           </div>
 
           {/* System prompt — opens the agent's .md in the editor */}
           {onEditPrompt && (
             <div className="pt-5">
-              <label className="block text-[11px] font-semibold uppercase tracking-widest text-text-secondary mb-3">
+              <span className="block text-[11px] font-semibold uppercase tracking-widest text-text-secondary mb-3">
                 System prompt
-              </label>
-              <button
-                type="button"
-                onClick={() => onEditPrompt(agentId)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border bg-surface text-[12px] text-text-primary hover:border-primary/50 hover:text-primary transition-all duration-fast active:scale-[0.97]"
-              >
-                <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
-                  description
-                </span>
-                View / edit .md
-              </button>
+              </span>
+                <Button variant="outlined" size="sm" onClick={() => onEditPrompt(agentId)}>
+                  <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
+                    description
+                  </span>
+                  View / edit .md
+                </Button>
             </div>
           )}
         </div>
