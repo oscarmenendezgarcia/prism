@@ -326,9 +326,11 @@ describe('AgentRoutingView — scope selector', () => {
     expect(spaceBtn.hasAttribute('disabled')).toBe(true);
   });
 
-  it('Space option is enabled when an active space is present', () => {
+  it('Space option is enabled when an active space is present', async () => {
     setup({ spaces: [SPACE_WITH_MODELS], activeSpaceId: 'space-1' });
     renderView();
+    // Flush the harness-discovery microtask so React 19 act strictness is satisfied.
+    await act(async () => {});
     const spaceBtn = screen.getByRole('radio', { name: /space · prism/i });
     expect(spaceBtn.hasAttribute('disabled')).toBe(false);
   });

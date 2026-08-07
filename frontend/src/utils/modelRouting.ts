@@ -79,11 +79,6 @@ export function isSlashModelHarness(cliTool: ModelCliTool): boolean {
   return SLASH_MODEL_CLI_TOOLS.includes(cliTool);
 }
 
-/** True when an opencode model string is in the required `provider/model` format. */
-export function isValidOpencodeModel(model: string): boolean {
-  return model.trim().includes('/');
-}
-
 /** True when a model string is in the `provider/model` format (slash harnesses). */
 export function isValidSlashModel(model: string): boolean {
   return model.trim().includes('/');
@@ -163,14 +158,15 @@ export function localModelsToStageModelsMap(
 
 /**
  * Convert the AgentRoutingView's `agentId → {model, cliTool}` map into a
- * {@link StageModelsMap}, preserving the per-agent CLI tool (claude / opencode).
+ * {@link StageModelsMap}, preserving the per-agent CLI tool (claude / opencode)
+ * and the declared fallback harness.
  */
 export function localRoutingToStageModelsMap(
   localRouting: Record<string, RoutingEntry>,
 ): StageModelsMap {
   const stageModels: StageModelsMap = {};
   for (const [agentId, entry] of Object.entries(localRouting)) {
-    stageModels[agentId] = buildStageModelConfig(entry.model, entry.cliTool);
+    stageModels[agentId] = buildStageModelConfig(entry.model, entry.cliTool, entry.fallback);
   }
   return stageModels;
 }

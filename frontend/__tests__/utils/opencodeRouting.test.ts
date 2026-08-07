@@ -1,6 +1,7 @@
 /**
- * Unit tests for the MODEL-2 opencode-aware routing utilities:
- * buildStageModelConfig, localRoutingToStageModelsMap, isValidOpencodeModel.
+ * Unit tests for the MODEL-2/3 opencode-aware routing utilities:
+ * buildStageModelConfig, buildFallbackConfig, localRoutingToStageModelsMap,
+ * isValidSlashModel, isSlashModelHarness.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -8,16 +9,15 @@ import {
   buildStageModelConfig,
   buildFallbackConfig,
   localRoutingToStageModelsMap,
-  isValidOpencodeModel,
   isValidSlashModel,
   isSlashModelHarness,
 } from '../../src/utils/modelRouting';
 
-describe('isValidOpencodeModel', () => {
+describe('isValidSlashModel', () => {
   it('requires a provider/model slash', () => {
-    expect(isValidOpencodeModel('vllm-local/qwen2.5-coder')).toBe(true);
-    expect(isValidOpencodeModel('claude-sonnet-4-5')).toBe(false);
-    expect(isValidOpencodeModel('')).toBe(false);
+    expect(isValidSlashModel('vllm-local/qwen2.5-coder')).toBe(true);
+    expect(isValidSlashModel('claude-sonnet-4-5')).toBe(false);
+    expect(isValidSlashModel('')).toBe(false);
   });
 });
 
@@ -114,6 +114,22 @@ describe('localRoutingToStageModelsMap', () => {
       'qa-engineer-e2e': { model: '', cliTool: 'opencode' },
     });
     expect(map['qa-engineer-e2e']).toBeNull();
+  });
+
+  it('preserves the declared fallback harness', () => {
+    const map = localRoutingToStageModelsMap({
+      'build-engineer': {
+        model: 'claude-sonnet-4-5',
+        cliTool: 'claude',
+        fallback: { cliTool: 'opencode', model: 'gb10/deepseek-v4-flash' },
+      },
+    });
+    expect(map['build-engineer']).toEqual({
+      provider: 'claude',
+      model: 'claude-sonnet-4-5',
+      cliTool: 'claude',
+      fallback: { cliTool: 'opencode', model: 'gb10/deepseek-v4-flash', provider: 'gb10' },
+    });
   });
 });
 
