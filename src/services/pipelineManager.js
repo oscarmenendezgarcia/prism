@@ -52,6 +52,63 @@ const { shellEscape, cmdEscape } = cliSpawn;
 const getAdapter              = cliAdapters.getAdapter;
 
 /**
+ * Health-check: return true if the adapter's binary resolves without throwing.
+ * Used for fallback activation (MODEL-3). 'custom' adapters return null from
+ * resolveBinary() — treat as healthy (the template is the executable).
+ */
+function adapterBinaryExists(adapter) {
+  if (!adapter || typeof adapter.resolveBinary !== 'function') return false;
+  try {
+    const bin = adapter.resolveBinary();
+    // A null return (custom adapter: template is the executable) is healthy.
+    return bin == null || String(bin).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the harness adapter for a stage, applying health-check + fallback
+ * (MODEL-3). If the primary adapter's binary is missing and the stage declares a
+ * fallback, returns the fallback adapter + an effectiveConfig reflecting the
+ * fallback (with usedFallback=true). Otherwise returns the primary unchanged.
+ *
+ * @param {object} modelConfig   - Resolved stage model config (has .cliTool, .fallback).
+ * @param {function} [onFallback] - Optional callback(payload) for logging when a fallback activates.
+ * @returns {{ adapter: object, effectiveConfig: object }}
+ */
+function resolveAdapterWithFallback(modelConfig, onFallback) {
+  let adapter = getAdapter(modelConfig.cliTool);
+  let effectiveConfig = modelConfig;
+  if (modelConfig.fallback && typeof modelConfig.fallback === 'object') {
+    const primaryOk = adapterBinaryExists(adapter);
+    if (!primaryOk) {
+      const fb = modelConfig.fallback;
+      try {
+        adapter = getAdapter(fb.cliTool);
+        effectiveConfig = {
+          ...modelConfig,
+          cliTool:  fb.cliTool,
+          model:    fb.model  || modelConfig.model,
+          provider: fb.provider || modelConfig.provider,
+          command:  fb.command || modelConfig.command,
+          usedFallback: true,
+        };
+        if (onFallback) {
+          onFallback({ from: modelConfig.cliTool, to: fb.cliTool, model: effectiveConfig.model });
+        }
+      } catch (fbErr) {
+        // fallback adapter unknown — fall through to the normal binary path, which
+        // will fail cleanly for the primary.
+        adapter = getAdapter(modelConfig.cliTool);
+        effectiveConfig = modelConfig;
+      }
+    }
+  }
+  return { adapter, effectiveConfig };
+}
+
+/**
  * Read a task from the kanban column files by ID.
  * Searches todo, in-progress, and done columns.
  * Returns null if not found.
@@ -1619,6 +1676,13 @@ async function spawnStage(dataDir, run, stageIndex) {
   // MODEL-1: Full model config resolution with actual agentSpec (overrides early resolution).
   const modelConfig = resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, taskModels);
 
+  // MODEL-3: resolve the harness adapter, then health-check + fallback. If the
+  // primary adapter's binary is missing (BINARY_NOT_FOUND) and the stage declares
+  // a fallback, switch to the fallback harness — the stage runs on the fallback.
+  const { adapter, effectiveConfig } = resolveAdapterWithFallback(modelConfig, (payload) => {
+    pipelineLog('stage.fallback_activated', { runId: run.runId, stageIndex, agentId, ...payload });
+  });
+
   // Backend spawns always get --permission-mode bypassPermissions: there is no user
   // present to respond to permission prompts, so any interactive pause would
   // hang the stage until the stall watchdog kills it.
@@ -1630,23 +1694,27 @@ async function spawnStage(dataDir, run, stageIndex) {
   // MODEL-1: inject --model override if the resolved model differs from agent default.
   const agentDefaultModel = agentSpec.model || null;
   const effectiveArgs = [...baseArgs];
-  if (modelConfig.model && modelConfig.model !== agentDefaultModel) {
-    effectiveArgs.push('--model', modelConfig.model);
+  if (effectiveConfig.model && effectiveConfig.model !== agentDefaultModel) {
+    effectiveArgs.push('--model', effectiveConfig.model);
   }
 
-  // MODEL-1: record model info in stageStatuses at spawn time.
-  run.stageStatuses[stageIndex].model        = modelConfig.model;
-  run.stageStatuses[stageIndex].provider     = modelConfig.provider;
-  run.stageStatuses[stageIndex].cliTool      = modelConfig.cliTool;
-  run.stageStatuses[stageIndex].resolvedFrom = modelConfig.resolvedFrom;
+  // MODEL-1/3: record model info in stageStatuses at spawn time (reflects fallback).
+  run.stageStatuses[stageIndex].model        = effectiveConfig.model;
+  run.stageStatuses[stageIndex].provider     = effectiveConfig.provider;
+  run.stageStatuses[stageIndex].cliTool      = effectiveConfig.cliTool;
+  run.stageStatuses[stageIndex].resolvedFrom = effectiveConfig.resolvedFrom;
+  if (effectiveConfig.usedFallback) {
+    run.stageStatuses[stageIndex].fallbackFrom = modelConfig.cliTool;
+  }
   writeRun(dataDir, run);
 
   pipelineLog('stage.model_resolved', {
     runId: run.runId, stageIndex, agentId,
-    model:        modelConfig.model,
-    provider:     modelConfig.provider,
-    cliTool:      modelConfig.cliTool,
-    resolvedFrom: modelConfig.resolvedFrom,
+    model:        effectiveConfig.model,
+    provider:     effectiveConfig.provider,
+    cliTool:      effectiveConfig.cliTool,
+    resolvedFrom: effectiveConfig.resolvedFrom,
+    usedFallback: effectiveConfig.usedFallback || false,
   });
 
   // MODEL-1: rewrite meta.json now that model config is resolved.
@@ -1657,7 +1725,7 @@ async function spawnStage(dataDir, run, stageIndex) {
   // final_result, every line an "unknownEvent") even though the run itself was fine.
   {
     const agentMode = process.env.PIPELINE_AGENT_MODE || 'subagent';
-    const source    = (modelConfig.cliTool === 'claude' && agentMode === 'subagent') ? 'claude-code' : 'plain';
+    const source    = (effectiveConfig.cliTool === 'claude' && agentMode === 'subagent') ? 'claude-code' : 'plain';
     const metaPath  = path.join(runDir(dataDir, run.runId), `stage-${stageIndex}.meta.json`);
     try {
       fs.writeFileSync(metaPath, JSON.stringify({
@@ -1665,19 +1733,15 @@ async function spawnStage(dataDir, run, stageIndex) {
         schemaVersion: 1,
         agentId,
         startedAt: run.stageStatuses[stageIndex].startedAt,
-        model:    modelConfig.model,
-        provider: modelConfig.provider,
-        cliTool:  modelConfig.cliTool,
+        model:    effectiveConfig.model,
+        provider: effectiveConfig.provider,
+        cliTool:  effectiveConfig.cliTool,
+        fallbackFrom: effectiveConfig.usedFallback ? modelConfig.cliTool : undefined,
       }), 'utf8');
     } catch (metaErr) {
       console.warn(`[pipelineManager] WARN: could not rewrite meta.json (model) for stage ${stageIndex}:`, metaErr.message);
     }
   }
-
-  // MODEL-3: resolve the harness adapter once, then delegate prompt-file, binary
-  // resolution, and shell-command building to it. Adding a harness = adding an
-  // adapter to cliAdapters.js — no branching here.
-  const adapter = getAdapter(modelConfig.cliTool);
 
   // MODEL-2/3: for harnesses that take a merged prompt file (opencode, pi), write
   // it with the actual agentSpec.systemPrompt + task prompt (real spawn path runs here).
@@ -1695,7 +1759,7 @@ async function spawnStage(dataDir, run, stageIndex) {
   let stageBinary;
   try {
     stageBinary = adapter.resolveBinary();
-    pipelineLog('stage.binary_resolved', { runId: run.runId, stageIndex, cliTool: modelConfig.cliTool, binary: stageBinary });
+    pipelineLog('stage.binary_resolved', { runId: run.runId, stageIndex, cliTool: effectiveConfig.cliTool, binary: stageBinary });
   } catch (binErr) {
     run.stageStatuses[stageIndex].status        = 'failed';
     run.stageStatuses[stageIndex].exitCode      = -1;
@@ -1703,7 +1767,7 @@ async function spawnStage(dataDir, run, stageIndex) {
     run.stageStatuses[stageIndex].failureReason = 'binary_missing';
     run.status = 'failed';
     writeRun(dataDir, run);
-    pipelineLog('stage.binary_missing', { runId: run.runId, stageIndex, agentId, cliTool: modelConfig.cliTool });
+    pipelineLog('stage.binary_missing', { runId: run.runId, stageIndex, agentId, cliTool: effectiveConfig.cliTool });
     return;
   }
 
@@ -1727,9 +1791,9 @@ async function spawnStage(dataDir, run, stageIndex) {
     // after the CLI exits, not at parse time (the %VAR% behaviour).
     const windowsCmd = adapter.buildWindowsCommand({
       binary: stageBinary,
-      model: modelConfig.model,
+      model: effectiveConfig.model,
       mergedPromptPath,
-      command: modelConfig.command,
+      command: effectiveConfig.command,
       finalArgs: effectiveArgs,
       promptPath: promptFilePath,
       logPath,
@@ -1744,9 +1808,9 @@ async function spawnStage(dataDir, run, stageIndex) {
   } else {
     const unixCmd = adapter.buildUnixCommand({
       binary: stageBinary,
-      model: modelConfig.model,
+      model: effectiveConfig.model,
       mergedPromptPath,
-      command: modelConfig.command,
+      command: effectiveConfig.command,
       finalArgs: effectiveArgs,
       promptPath: promptFilePath,
       logPath,
@@ -3793,4 +3857,7 @@ module.exports = {
   _buildOpencodePromptFileForTest:       buildOpencodePromptFile,
   _buildOpencodeUnixShellCommandForTest: buildOpencodeUnixShellCommand,
   _buildOpencodeWindowsShellCommandForTest: buildOpencodeWindowsShellCommand,
+  // MODEL-3: fallback/health-check helpers — exported for testing only.
+  _adapterBinaryExistsForTest:           adapterBinaryExists,
+  _resolveAdapterWithFallbackForTest:    resolveAdapterWithFallback,
 };

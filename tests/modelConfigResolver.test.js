@@ -386,3 +386,49 @@ describe('validateStageModelConfig — custom', () => {
     assert.ok(result.errors.some((e) => e.includes('only valid for cliTool')));
   });
 });
+
+// ---------------------------------------------------------------------------
+// MODEL-3: fallback validation
+// ---------------------------------------------------------------------------
+
+describe('validateStageModelConfig — fallback', () => {
+  it('accepts a valid fallback object', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'pi',
+      provider: 'gb10',
+      model:    'gb10/deepseek-v4-flash',
+      fallback: { cliTool: 'claude', model: 'claude-sonnet-4-5' },
+    });
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it('accepts fallback: null (explicit disable)', () => {
+    const result = validateStageModelConfig({ cliTool: 'pi', fallback: null });
+    assert.equal(result.valid, true);
+  });
+
+  it('rejects a non-object fallback', () => {
+    const result = validateStageModelConfig({ cliTool: 'pi', fallback: 'claude' });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].includes('fallback'));
+  });
+
+  it('rejects a fallback with an invalid cliTool', () => {
+    const result = validateStageModelConfig({
+      cliTool: 'pi',
+      fallback: { cliTool: 'not-a-tool' },
+    });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].includes('fallback.cliTool'));
+  });
+
+  it('rejects a fallback pi/opencode model without slash', () => {
+    const result = validateStageModelConfig({
+      cliTool: 'claude',
+      fallback: { cliTool: 'pi', model: 'no-slash' },
+    });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((e) => e.includes('provider>/<model')));
+  });
+});

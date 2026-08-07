@@ -647,3 +647,71 @@ describe('spawnCwd', () => {
     assert.equal(pm.spawnCwd(run), pm.effectiveCwd(run));
   });
 });
+
+// ---------------------------------------------------------------------------
+// MODEL-3: fallback / health-check
+// ---------------------------------------------------------------------------
+
+const cliAdapters = require('../src/services/cliAdapters');
+
+describe('adapterBinaryExists', () => {
+  test('returns false when resolveBinary throws (binary missing)', () => {
+    const pm = freshPM();
+    const badAdapter = { resolveBinary() { throw new Error('BINARY_NOT_FOUND:x'); } };
+    assert.equal(pm._adapterBinaryExistsForTest(badAdapter), false);
+  });
+
+  test('returns true when resolveBinary returns a path', () => {
+    const pm = freshPM();
+    const goodAdapter = { resolveBinary() { return '/usr/local/bin/claude'; } };
+    assert.equal(pm._adapterBinaryExistsForTest(goodAdapter), true);
+  });
+
+  test('returns true for custom adapter (null binary, template is executable)', () => {
+    const pm = freshPM();
+    assert.equal(pm._adapterBinaryExistsForTest(cliAdapters.getAdapter('custom')), true);
+  });
+});
+
+describe('resolveAdapterWithFallback', () => {
+  test('uses the primary adapter when no fallback is declared', () => {
+    const pm = freshPM();
+    const { adapter, effectiveConfig } = pm._resolveAdapterWithFallbackForTest({
+      cliTool: 'custom', command: 'echo {prompt}', fallback: null,
+    });
+    assert.equal(adapter.name, 'custom');
+    assert.equal(effectiveConfig.usedFallback, undefined);
+  });
+
+  test('activates fallback when the primary binary is missing', () => {
+    const pm = freshPM();
+    // Register a fake adapter that always throws on resolveBinary.
+    cliAdapters.registerAdapter('__missing__', {
+      name: '__missing__', needsPromptFile: false,
+      resolveBinary() { throw new Error('BINARY_NOT_FOUND:__missing__'); },
+      buildUnixCommand() { return 'true'; },
+      buildWindowsCommand() { return 'true'; },
+      metaSource() { return 'plain'; },
+    });
+    let called = false;
+    const { adapter, effectiveConfig } = pm._resolveAdapterWithFallbackForTest({
+      cliTool: '__missing__',
+      fallback: { cliTool: 'claude', model: 'claude-sonnet-4-5' },
+    }, () => { called = true; });
+    assert.equal(called, true, 'onFallback should fire');
+    assert.equal(adapter.name, 'claude');
+    assert.equal(effectiveConfig.cliTool, 'claude');
+    assert.equal(effectiveConfig.model, 'claude-sonnet-4-5');
+    assert.equal(effectiveConfig.usedFallback, true);
+  });
+
+  test('keeps the primary when its binary exists despite a fallback', () => {
+    const pm = freshPM();
+    const { adapter, effectiveConfig } = pm._resolveAdapterWithFallbackForTest({
+      cliTool: 'claude',
+      fallback: { cliTool: 'pi', model: 'gb10/x' },
+    });
+    assert.equal(adapter.name, 'claude');
+    assert.equal(effectiveConfig.usedFallback, undefined);
+  });
+});
