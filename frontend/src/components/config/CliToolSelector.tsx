@@ -39,7 +39,9 @@ export function CliToolSelector({ value, onChange, agentLabel, harnesses }: CliT
     const unavailable = !!harnesses && !!info && !info.available;
     return {
       value: v,
-      label,
+      // Harness names are technical identifiers — render them mono (matches
+      // the collapsed CLI tag and fallback summary pill).
+      label: <span className="font-mono">{label}</span>,
       disabled: unavailable,
       disabledTitle: unavailable ? `${label} not installed — click to install` : undefined,
       disabledHref:  unavailable ? info?.installUrl : undefined,

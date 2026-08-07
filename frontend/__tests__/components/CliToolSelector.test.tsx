@@ -41,23 +41,25 @@ describe('CliToolSelector — unavailable harnesses', () => {
     hermes:   { cliTool: 'hermes',   available: false, path: null,            modelFormat: 'provider/model', installUrl: 'https://hermes.example' },
   } as const;
 
-  it('marks unavailable harnesses as aria-disabled', () => {
+  it('renders an unavailable harness as an install link and an available one as a radio', () => {
     render(<CliToolSelector value="claude" onChange={vi.fn()} agentLabel="Architect" harnesses={harnesses} />);
-    expect(screen.getByRole('radio', { name: 'opencode' }).getAttribute('aria-disabled')).toBe('true');
+    // Uninstalled harnesses are external-link affordances, not dead radios.
+    expect(screen.getByRole('link', { name: 'opencode' })).toBeDefined();
+    expect(screen.getByRole('link', { name: 'hermes' })).toBeDefined();
     expect(screen.getByRole('radio', { name: 'pi' }).getAttribute('aria-disabled')).toBe('false');
   });
 
-  it('does not select a disabled harness on click', () => {
+  it('does not select an unavailable harness on click', () => {
     const onChange = vi.fn();
     render(<CliToolSelector value="claude" onChange={onChange} agentLabel="Architect" harnesses={harnesses} />);
-    fireEvent.click(screen.getByRole('radio', { name: 'opencode' }));
+    fireEvent.click(screen.getByRole('link', { name: 'opencode' }));
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('opens the install link when a disabled harness is clicked', () => {
+  it('opens the install link when an unavailable harness is clicked', () => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null);
     render(<CliToolSelector value="claude" onChange={vi.fn()} agentLabel="Architect" harnesses={harnesses} />);
-    fireEvent.click(screen.getByRole('radio', { name: 'opencode' }));
+    fireEvent.click(screen.getByRole('link', { name: 'opencode' }));
     expect(open).toHaveBeenCalledWith('https://opencode.example', '_blank', 'noopener,noreferrer');
     open.mockRestore();
   });

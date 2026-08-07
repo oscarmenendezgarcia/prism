@@ -30,7 +30,7 @@ export function EffortSegmented({ value, loading = false }: EffortSegmentedProps
 
   return (
     <Tooltip label="Editing coming in Phase 2" description="Effort level is read-only in this release">
-      <span className="text-[12px] font-semibold font-mono text-text-primary" title="Editing coming in Phase 2">
+      <span className="text-[12px] font-semibold text-text-primary" title="Editing coming in Phase 2">
         {active}
       </span>
     </Tooltip>

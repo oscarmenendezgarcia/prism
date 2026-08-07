@@ -176,6 +176,19 @@ describe('AgentRoutingCard — expanded state', () => {
     expect(onChange).toHaveBeenCalledWith('ux-api-designer', 'claude-opus-4-8');
   });
 
+  it('supports roving tabindex and Arrow-key navigation on preset chips', () => {
+    const onChange = vi.fn();
+    renderCard({ open: true, onChange, localModel: 'claude-opus-4-8' });
+    const group = screen.getByRole('radiogroup', { name: /Model presets/i });
+    const selected = within(group).getByRole('radio', { name: 'opus-4-8' });
+    expect(selected.getAttribute('tabindex')).toBe('0');
+    expect(within(group).getByRole('radio', { name: 'sonnet-5' }).getAttribute('tabindex')).toBe('-1');
+    // ArrowRight from the selected preset selects the next preset.
+    selected.focus();
+    fireEvent.keyDown(selected, { key: 'ArrowRight' });
+    expect(onChange).toHaveBeenCalledWith('ux-api-designer', 'claude-sonnet-5');
+  });
+
   it('calls onChange when custom input changes', () => {
     const onChange = vi.fn();
     renderCard({ open: true, onChange, localModel: '' });
@@ -236,12 +249,35 @@ describe('AgentRoutingCard — expanded state', () => {
 // ---------------------------------------------------------------------------
 
 describe('AgentRoutingCard — accessibility', () => {
-  it('button aria-controls points to the detail panel id', () => {
-    renderCard({ open: true });
+  it('reflects the open state in aria-expanded and mounts the detail panel only when open', () => {
+    const defaults = {
+      agentId: 'ux-api-designer',
+      displayName: 'UX / API Designer',
+      effectiveModel: 'claude-sonnet-4-5',
+      source: 'default' as const,
+      scope: 'global' as const,
+      localModel: '',
+      metadata: DEFAULT_META,
+      open: false,
+      onToggle: vi.fn(),
+      onChange: vi.fn(),
+      onClear: vi.fn(),
+      hasOverride: false,
+      cliTool: 'claude' as const,
+      onChangeCliTool: vi.fn(),
+      fallback: null as const,
+      onChangeFallback: vi.fn(),
+    };
+    const { rerender } = render(<AgentRoutingCard {...defaults} />);
     const btn = screen.getByRole('button', { name: /ux \/ api designer/i, hidden: true });
-    const controlId = btn.getAttribute('aria-controls');
-    expect(controlId).toBeTruthy();
-    expect(document.getElementById(controlId!)).toBeDefined();
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    // Panel is not mounted while collapsed (single source of truth is the toggle).
+    expect(screen.queryByText(/Harness/i)).toBeNull();
+
+    rerender(<AgentRoutingCard {...defaults} open={true} />);
+    const openBtn = screen.getByRole('button', { name: /ux \/ api designer/i, hidden: true });
+    expect(openBtn.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByText(/Harness/i)).not.toBeNull();
   });
 });
 
@@ -353,6 +389,24 @@ describe('AgentRoutingCard — fallback harness', () => {
     fireEvent.click(within(screen.getByRole('radiogroup', { name: /Fallback harness/i })).getByRole('radio', { name: 'None' }));
     expect(onChangeFallback).toHaveBeenCalledWith('ux-api-designer', null);
   });
+
+  it('flags an invalid slash-format fallback model as aria-invalid', () => {
+    const onChangeFallback = vi.fn();
+    renderCard({ open: true, fallback: { cliTool: 'opencode', model: 'sonnet' }, onChangeFallback });
+    expandFallback();
+    const input = screen.getByLabelText(/Fallback model for/i);
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    // Inline error helper mirrors the primary input's validation copy.
+    expect(screen.getByText(/needs a provider\/model string/i)).toBeDefined();
+  });
+
+  it('accepts a valid slash-format fallback model', () => {
+    const onChangeFallback = vi.fn();
+    renderCard({ open: true, fallback: { cliTool: 'opencode', model: 'anthropic/sonnet' }, onChangeFallback });
+    expandFallback();
+    const input = screen.getByLabelText(/Fallback model for/i);
+    expect(input.getAttribute('aria-invalid')).toBe('false');
+  });
 });
 
 describe('AgentRoutingCard — unavailable fallback harnesses', () => {
@@ -363,25 +417,26 @@ describe('AgentRoutingCard — unavailable fallback harnesses', () => {
     hermes:   { cliTool: 'hermes',   available: false, path: null,            modelFormat: 'provider/model', installUrl: 'https://hermes.example' },
   } as const;
 
-  it('marks an unavailable fallback harness as aria-disabled', () => {
+  it('renders an unavailable fallback harness as an install link', () => {
     renderCard({ open: true, harnesses });
     fireEvent.click(screen.getByRole('button', { name: /Fallback \(advanced\)/i }));
-    expect(within(screen.getByRole('radiogroup', { name: /Fallback harness/i })).getByRole('radio', { name: 'hermes' }).getAttribute('aria-disabled')).toBe('true');
+    // Uninstalled fallback harnesses are external links, not dead radios.
+    expect(within(screen.getByRole('radiogroup', { name: /Fallback harness/i })).getByRole('link', { name: 'hermes' })).toBeDefined();
   });
 
-  it('does not select a disabled fallback harness on click', () => {
+  it('does not select an unavailable fallback harness on click', () => {
     const onChangeFallback = vi.fn();
     renderCard({ open: true, harnesses, onChangeFallback });
     fireEvent.click(screen.getByRole('button', { name: /Fallback \(advanced\)/i }));
-    fireEvent.click(within(screen.getByRole('radiogroup', { name: /Fallback harness/i })).getByRole('radio', { name: 'hermes' }));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: /Fallback harness/i })).getByRole('link', { name: 'hermes' }));
     expect(onChangeFallback).not.toHaveBeenCalled();
   });
 
-  it('opens the install link when a disabled fallback harness is clicked', () => {
+  it('opens the install link when an unavailable fallback harness is clicked', () => {
     const open = vi.spyOn(window, 'open').mockImplementation(() => null);
     renderCard({ open: true, harnesses });
     fireEvent.click(screen.getByRole('button', { name: /Fallback \(advanced\)/i }));
-    fireEvent.click(within(screen.getByRole('radiogroup', { name: /Fallback harness/i })).getByRole('radio', { name: 'hermes' }));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: /Fallback harness/i })).getByRole('link', { name: 'hermes' }));
     expect(open).toHaveBeenCalledWith('https://hermes.example', '_blank', 'noopener,noreferrer');
     open.mockRestore();
   });

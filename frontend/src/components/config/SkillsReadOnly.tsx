@@ -44,7 +44,7 @@ export function SkillsReadOnly({ skills, loading = false }: SkillsReadOnlyProps)
           key={skill}
           className={[
             'inline-flex items-center gap-1.5',
-            'px-2.5 py-1 rounded-lg',
+            'px-2.5 py-1 rounded-xs',
             'text-[11px] font-medium font-mono',
             'bg-surface-variant text-text-secondary',
             'border border-border',
