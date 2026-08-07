@@ -17,6 +17,9 @@ vi.mock('../../src/api/client', () => ({
   getConfigFiles: vi.fn(),
   getConfigFile: vi.fn(),
   saveConfigFile: vi.fn(),
+  getAgents: vi.fn().mockResolvedValue([]),
+  getSettings: vi.fn(),
+  getHarnesses: vi.fn().mockResolvedValue({ harnesses: [] }),
 }));
 
 const mockGetConfigFiles = vi.mocked(api.getConfigFiles);

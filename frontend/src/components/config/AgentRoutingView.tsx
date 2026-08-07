@@ -21,10 +21,12 @@ import { AgentRoutingCard }    from './AgentRoutingCard';
 import { ScopeSelector }       from './ScopeSelector';
 import type { Scope }          from './ScopeSelector';
 import { Button }              from '@/components/shared/Button';
+import { getHarnesses }        from '@/api/client';
+import type { HarnessInfo }    from '@/types';
 import { useAgentMetadata }    from '@/hooks/useAgentMetadata';
 import { resolveEffectiveModel }  from '@/utils/modelRouting';
-import { localRoutingToStageModelsMap, isValidOpencodeModel } from '@/utils/modelRouting';
-import type { RoutingEntry }    from '@/utils/modelRouting';
+import { localRoutingToStageModelsMap, isSlashModelHarness, isValidSlashModel } from '@/utils/modelRouting';
+import type { RoutingEntry, RoutingFallback } from '@/utils/modelRouting';
 import { STAGE_DISPLAY }       from '@/utils/agentName';
 import type { StageModelsMap, ModelCliTool } from '@/types';
 
@@ -47,12 +49,18 @@ interface AgentRoutingViewProps {
   onEditPrompt?: (agentId: string) => void;
 }
 
-/** Convert a StageModelsMap (server) → local Record<agentId, {model, cliTool}>. */
+/** Convert a StageModelsMap (server) → local Record<agentId, {model, cliTool, fallback}>. */
 function stageModelsToLocal(map: StageModelsMap | null | undefined): Record<string, RoutingEntry> {
   if (!map) return {};
   const result: Record<string, RoutingEntry> = {};
   for (const [id, cfg] of Object.entries(map)) {
-    if (cfg?.model) result[id] = { model: cfg.model, cliTool: cfg.cliTool ?? 'claude' };
+    if (cfg && (cfg.model || cfg.fallback)) {
+      result[id] = {
+        model:    cfg.model ?? '',
+        cliTool:  cfg.cliTool ?? 'claude',
+        fallback: cfg.fallback ?? null,
+      };
+    }
   }
   return result;
 }
@@ -105,6 +113,9 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
   const [saving,      setSaving]      = useState(false);
   const [justSaved,   setJustSaved]   = useState(false);
   const [agentsLoading, setAgentsLoading] = useState(availableAgents.length === 0);
+  // Harness discovery (GET /api/v1/harnesses). Fail-soft: on any error we treat
+  // every harness as available so routing stays usable (e.g. older backend).
+  const [harnesses, setHarnesses] = useState<Record<string, HarnessInfo>>({});
 
   // ── Ensure the full agent registry is loaded (panel doesn't load it) ──────
   // Tracks its own loading flag so the empty state below can tell "still fetching"
@@ -118,6 +129,20 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableAgents.length, loadAgents, activeSpace?.workingDirectory]);
+
+  // ── Discover installed harnesses (fail-soft) ─────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    getHarnesses()
+      .then((res) => {
+        if (cancelled) return;
+        const map: Record<string, HarnessInfo> = {};
+        for (const h of res.harnesses) map[h.cliTool] = h;
+        setHarnesses(map);
+      })
+      .catch(() => { /* fail-soft: empty map → all harnesses enabled */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Fetch agent metadata (model/effort/skills) for every agent ────────────
   const metadata = useAgentMetadata(agentIds);
@@ -169,8 +194,9 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
     setLocal((prev) => {
       const next = { ...prev };
       const prevModel = prev[agentId]?.model ?? '';
-      // Drop a Claude model when switching to opencode (it can't be a provider/model string).
-      const model = (cliTool === 'opencode' && !isValidOpencodeModel(prevModel)) ? '' : prevModel;
+      // Drop a Claude model when switching to a slash-model harness (opencode/
+      // pi/hermes) — a Claude model can't be a provider/model string.
+      const model = (isSlashModelHarness(cliTool) && !isValidSlashModel(prevModel)) ? '' : prevModel;
       if (cliTool === 'claude' && !model) {
         delete next[agentId];
       } else {
@@ -190,13 +216,38 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
     setDirty(true);
   }, [setLocal, setDirty]);
 
+  const handleChangeFallback = useCallback((agentId: string, fallback: RoutingFallback | null) => {
+    setLocal((prev) => {
+      const next = { ...prev };
+      const cliTool = prev[agentId]?.cliTool ?? 'claude';
+      const model   = prev[agentId]?.model ?? '';
+      if (fallback && fallback.cliTool) {
+        next[agentId] = { model, cliTool, fallback };
+      } else {
+        // None → clear the fallback but keep the primary routing.
+        next[agentId] = { model, cliTool, fallback: null };
+      }
+      return next;
+    });
+    setDirty(true);
+  }, [setLocal, setDirty]);
+
   const handleSave = useCallback(async () => {
-    // Guard: opencode overrides must carry a provider/model string.
-    const badOpencode = Object.entries(localMap).find(
-      ([, e]) => e.cliTool === 'opencode' && e.model.trim() !== '' && !isValidOpencodeModel(e.model),
+    // Guard: slash-model harness overrides must carry a provider/model string.
+    const badSlash = Object.entries(localMap).find(
+      ([, e]) => isSlashModelHarness(e.cliTool) && e.model.trim() !== '' && !isValidSlashModel(e.model),
     );
-    if (badOpencode) {
-      showToast(`opencode model for "${badOpencode[0]}" must be in provider/model format`, 'error');
+    if (badSlash) {
+      showToast(`model for "${badSlash[0]}" must be in provider/model format`, 'error');
+      return;
+    }
+    // Guard: a slash-model fallback harness must also carry a provider/model string.
+    const badFbSlash = Object.entries(localMap).find(
+      ([, e]) => e.fallback && isSlashModelHarness(e.fallback.cliTool) &&
+        !!e.fallback.model && !isValidSlashModel(e.fallback.model),
+    );
+    if (badFbSlash) {
+      showToast(`fallback model for "${badFbSlash[0]}" must be in provider/model format`, 'error');
       return;
     }
 
@@ -363,12 +414,14 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
               ? (spaceStageModels?.[agentId] ?? globalStageModels[agentId])
               : globalStageModels[agentId];
             const cliTool      = localEntry?.cliTool ?? serverEntry?.cliTool ?? 'claude';
+            const fallback     = localEntry?.fallback ?? serverEntry?.fallback ?? null;
             // A local edit that hasn't been persisted yet — the card shows the override badge
             // immediately for feedback, but this flags it as not-yet-saved so it doesn't look
             // like a decision that's already taken effect.
             const isUnsaved    = !!localEntry && (
               localEntry.model !== (serverEntry?.model ?? '') ||
-              localEntry.cliTool !== (serverEntry?.cliTool ?? 'claude')
+              localEntry.cliTool !== (serverEntry?.cliTool ?? 'claude') ||
+              JSON.stringify(localEntry.fallback ?? null) !== JSON.stringify(serverEntry?.fallback ?? null)
             );
 
             return (
@@ -389,6 +442,9 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
                 hasOverride={hasOverride}
                 cliTool={cliTool}
                 onChangeCliTool={handleChangeCliTool}
+                fallback={fallback}
+                onChangeFallback={handleChangeFallback}
+                harnesses={harnesses}
                 onEditPrompt={onEditPrompt}
               />
             );

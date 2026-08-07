@@ -61,9 +61,17 @@ describe('resolveCliBinary', () => {
     assert.equal(first, second);
   });
 
-  it('resolves pi to a non-empty binary path/name', () => {
-    const bin = cliSpawn.resolveCliBinary('pi');
-    assert.ok(typeof bin === 'string' && bin.length > 0);
+  it('resolves pi to a real path, never the bare fallback name', () => {
+    // Either pi is installed (real path) or genuinely missing (throws
+    // BINARY_NOT_FOUND:pi so the pipeline fallback can activate). It must never
+    // return the bare 'pi' name, which would silently mask a missing binary.
+    try {
+      const bin = cliSpawn.resolveCliBinary('pi');
+      assert.ok(typeof bin === 'string' && bin.length > 0);
+      assert.notEqual(bin, 'pi');
+    } catch (err) {
+      assert.ok(err.message.includes('BINARY_NOT_FOUND:pi'));
+    }
   });
 });
 

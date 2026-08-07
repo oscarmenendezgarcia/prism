@@ -3,27 +3,46 @@
  *
  * Collapsed: dot, name, role subtitle, mini model pill (tinted when overridden),
  *            skill count, chevron.
- * Expanded:  Model picker (badge + presets + custom input + Clear), read-only
- *            EffortSegmented, read-only SkillsReadOnly.
+ * Expanded:  Harness picker (CLI tool + model pill + presets + input + Clear),
+ *            read-only EffortSegmented, collapsible Fallback harness (advanced),
+ *            read-only SkillsReadOnly, System-prompt editor link.
  *
  * Model edits are lifted up via callbacks; the card itself is stateless w.r.t.
  * model selection.
  */
 
-import React, { useId } from 'react';
+import React, { useId, useState } from 'react';
 import { SOURCE_CLASSES, SOURCE_MUTED_CLASSES } from './ModelInheritanceBadge';
 import { EffortSegmented }       from './EffortSegmented';
 import { SkillsReadOnly }        from './SkillsReadOnly';
 import { CliToolSelector }       from './CliToolSelector';
+import { SegmentedControl }      from './SegmentedControl';
 import { agentDotColor }         from '@/utils/agentName';
-import { isValidOpencodeModel }  from '@/utils/modelRouting';
+import { isSlashModelHarness, isValidSlashModel } from '@/utils/modelRouting';
+import type { RoutingFallback }  from '@/utils/modelRouting';
+import type { HarnessInfo }      from '@/types';
 import type { ModelSource }      from '@/utils/modelRouting';
 import type { Scope }            from './ScopeSelector';
 import type { ModelCliTool }     from '@/types';
 import type { AgentMetadataEntry } from '@/hooks/useAgentMetadata';
 
 const CLAUDE_PRESETS = ['claude-opus-4-8', 'claude-sonnet-5', 'claude-opus-4-7'] as const;
-const OPENCODE_HINT = 'provider/model';
+const SLASH_HINT = 'provider/model';
+
+/**
+ * Build the disabled/install-link fragment for a fallback selector option.
+ * Returns {} when the harness is available (or discovery is unavailable).
+ */
+function fallbackOption(cliTool: ModelCliTool, harnesses?: Record<string, HarnessInfo>) {
+  const info = harnesses?.[cliTool];
+  const unavailable = !!harnesses && !!info && !info.available;
+  if (!unavailable) return {};
+  return {
+    disabled:      true as const,
+    disabledTitle: `${cliTool} not installed — click to install`,
+    disabledHref:  info?.installUrl,
+  };
+}
 
 interface AgentRoutingCardProps {
   agentId:      string;
@@ -54,6 +73,15 @@ interface AgentRoutingCardProps {
   cliTool: ModelCliTool;
   /** Called when the user switches the CLI tool (claude ⇄ opencode). */
   onChangeCliTool: (agentId: string, cliTool: ModelCliTool) => void;
+  /** Optional fallback harness used when the primary binary is missing. */
+  fallback: RoutingFallback | null;
+  /** Called when the user changes the fallback harness (null = none). */
+  onChangeFallback: (agentId: string, fallback: RoutingFallback | null) => void;
+  /**
+   * Optional harness discovery info; unavailable harnesses render disabled
+   * with an install link opened on click.
+   */
+  harnesses?: Record<string, HarnessInfo>;
   /** Called when the user wants to view/edit the agent's system prompt (.md). */
   onEditPrompt?: (agentId: string) => void;
 }
@@ -74,24 +102,31 @@ export function AgentRoutingCard({
   hasOverride,
   cliTool,
   onChangeCliTool,
+  fallback,
+  onChangeFallback,
+  harnesses,
   onEditPrompt,
 }: AgentRoutingCardProps) {
   const detailId  = useId();
+  // Fallback is an advanced/power config — collapsed behind a toggle so the
+  // expanded card doesn't show resilience wiring to everyone.
+  const [fallbackOpen, setFallbackOpen] = useState(false);
   const dotClass  = agentDotColor(agentId);
 
   /** Model shown in the mini-pill and in the preset/input area. */
   const displayModel = localModel || effectiveModel;
-  const isOpencode   = cliTool === 'opencode';
-  const isPreset     = !isOpencode && CLAUDE_PRESETS.includes(displayModel as typeof CLAUDE_PRESETS[number]);
+  const isManagedClaude = cliTool === 'claude';
+  const isSlashHarness  = isSlashModelHarness(cliTool);
+  const isPreset     = isManagedClaude && CLAUDE_PRESETS.includes(displayModel as typeof CLAUDE_PRESETS[number]);
   /** True when the model is overridden at the scope being edited (the actionable deviation). */
   const isScopeOverride = source === scope;
   /** True when the value is inherited from a higher scope (e.g. Global while viewing Space) —
    *  distinct from both "overridden here" and "default" (agent's own frontmatter). */
   const isInherited = !isScopeOverride && source !== 'default';
-  /** opencode requires a `provider/model` string — flag an invalid local edit. */
-  const opencodeInvalid = isOpencode && !!displayModel && !isValidOpencodeModel(displayModel);
-  /** opencode selected but no valid provider/model yet → show an example, not the inherited Claude model. */
-  const needsOpencodeModel = isOpencode && !isValidOpencodeModel(displayModel);
+  /** Slash-model harnesses (opencode/pi/hermes) require a `provider/model` string — flag an invalid local edit. */
+  const slashInvalid = isSlashHarness && !!displayModel && !isValidSlashModel(displayModel);
+  /** Slash-model harness selected but no valid provider/model yet → show an example, not the inherited Claude model. */
+  const needsSlashModel = isSlashHarness && !isValidSlashModel(displayModel);
 
   return (
     <article
@@ -146,12 +181,12 @@ export function AgentRoutingCard({
             Hidden below sm: at narrow/mobile widths there isn't room for it next to the
             model pill without both garbling — the CLI tool is still fully visible and
             editable via CliToolSelector in the expanded card. */}
-        {!open && isOpencode && (
+        {!open && isSlashHarness && (
           <span
             className="hidden sm:inline-flex items-center font-mono text-[11px] px-2 py-0.5 rounded-md bg-surface-variant text-text-secondary border border-border/60 whitespace-nowrap"
-            title="Runs via the opencode CLI"
+            title={`Runs via the ${cliTool} CLI`}
           >
-            opencode
+            {cliTool}
           </span>
         )}
 
@@ -163,7 +198,7 @@ export function AgentRoutingCard({
           <span
             className={[
               'inline-flex items-center gap-1 min-w-0 shrink max-w-[110px] font-mono text-[11px] px-2 py-0.5 rounded-md border',
-              needsOpencodeModel
+              needsSlashModel
                 ? 'text-text-secondary/50 border-border border-dashed bg-transparent'
                 : isScopeOverride
                   ? SOURCE_CLASSES[source]
@@ -172,8 +207,8 @@ export function AgentRoutingCard({
                     : 'text-text-secondary border-border bg-surface',
             ].join(' ')}
             title={
-              needsOpencodeModel
-                ? 'No opencode model set yet — example shown'
+              needsSlashModel
+                ? `No ${cliTool} model set yet — example shown`
                 : isInherited
                   ? `Inherited from ${source} settings — not set at this scope`
                   : (displayModel ?? undefined)
@@ -185,7 +220,7 @@ export function AgentRoutingCard({
               </span>
             )}
             <span className="truncate min-w-0">
-              {needsOpencodeModel ? OPENCODE_HINT : (displayModel || '—')}
+              {needsSlashModel ? SLASH_HINT : (displayModel || '—')}
             </span>
           </span>
         )}
@@ -221,16 +256,17 @@ export function AgentRoutingCard({
         >
           {/* Model + Effort row */}
           <div className="flex flex-col md:flex-row items-start gap-6 md:gap-10 py-5 border-b border-border/50">
-            {/* Model section */}
+            {/* Harness section — the CLI tool + its model */}
             <div className="flex flex-col gap-3 min-w-0 flex-1">
               <label className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
-                Model
+                Harness
               </label>
-              {/* CLI tool: Claude (managed) vs opencode (local/self-hosted via MODEL-2) */}
+              {/* CLI tool: Claude (managed) vs opencode/pi/hermes (local/self-hosted via MODEL-2/3) */}
               <CliToolSelector
                 value={cliTool}
                 onChange={(next) => onChangeCliTool(agentId, next)}
                 agentLabel={displayName}
+                harnesses={harnesses}
               />
               {/* Current model — one pill, not badge + pill: the source label lives inside it
                   so there's a single colour to keep in sync, not two elements that can drift. */}
@@ -238,7 +274,7 @@ export function AgentRoutingCard({
                 <span
                   className={[
                     'inline-flex items-center gap-1.5 font-mono text-[12px] px-2.5 py-1 rounded-lg border',
-                    needsOpencodeModel
+                    needsSlashModel
                       ? 'text-text-secondary/50 border-border border-dashed bg-transparent'
                       : isScopeOverride
                         ? SOURCE_CLASSES[source]
@@ -246,16 +282,16 @@ export function AgentRoutingCard({
                           ? SOURCE_MUTED_CLASSES[source]
                           : SOURCE_MUTED_CLASSES.default,
                   ].join(' ')}
-                  title={needsOpencodeModel
-                    ? 'No opencode model set yet — example shown; set it in the field below'
+                  title={needsSlashModel
+                    ? `No ${cliTool} model set yet — example shown; set it in the field below`
                     : 'Current model — change it with the presets or the input below'}
                 >
-                  {!needsOpencodeModel && (
+                  {!needsSlashModel && (
                     <span className="font-sans font-semibold uppercase tracking-wide text-[11px] opacity-80">
                       {isScopeOverride ? source : isInherited ? 'inherited' : 'default'}
                     </span>
                   )}
-                  {needsOpencodeModel ? OPENCODE_HINT : (displayModel || <span className="text-text-secondary">—</span>)}
+                  {needsSlashModel ? SLASH_HINT : (displayModel || <span className="text-text-secondary">—</span>)}
                 </span>
                 {hasOverride && (
                   <button
@@ -276,8 +312,8 @@ export function AgentRoutingCard({
                 </p>
               )}
 
-              {/* Preset chips — Claude only (opencode models are open-ended) */}
-              {!isOpencode && (
+              {/* Preset chips — Claude only (slash-model harnesses are open-ended) */}
+              {isManagedClaude && (
                 <div
                   className="flex flex-wrap gap-2"
                   role="radiogroup"
@@ -312,34 +348,34 @@ export function AgentRoutingCard({
               {/* Custom / opencode model input */}
               <input
                 type="text"
-                aria-label={isOpencode ? `opencode model for ${displayName}` : `Custom model for ${displayName}`}
-                aria-invalid={opencodeInvalid}
+                aria-label={isSlashHarness ? `${cliTool} model for ${displayName}` : `Custom model for ${displayName}`}
+                aria-invalid={slashInvalid}
                 placeholder={
-                  isOpencode
-                    ? OPENCODE_HINT
+                  isSlashHarness
+                    ? SLASH_HINT
                     : (isPreset ? 'Custom model string…' : (displayModel || 'Custom model string…'))
                 }
-                value={isOpencode ? (localModel || '') : (!isPreset ? (localModel || '') : '')}
+                value={isSlashHarness ? (localModel || '') : (!isPreset ? (localModel || '') : '')}
                 onChange={(e) => onChange(agentId, e.target.value)}
                 className={[
                   'w-full bg-surface border rounded-lg px-3 py-1.5',
                   'text-[12px] text-text-primary placeholder:text-text-secondary/50',
                   'focus:outline-none focus:ring-1 transition-all duration-fast font-mono',
-                  opencodeInvalid
+                  slashInvalid
                     ? 'border-error focus:ring-error/50 focus:border-error'
                     : 'border-border focus:ring-primary/50 focus:border-primary',
                 ].join(' ')}
               />
 
-              {/* opencode format helper / inline validation */}
-              {isOpencode && (
+              {/* slash-model format helper / inline validation */}
+              {isSlashHarness && (
                 <p className={[
                   'text-[11px] leading-tight',
-                  opencodeInvalid ? 'text-error' : 'text-text-secondary/70',
+                  slashInvalid ? 'text-error' : 'text-text-secondary/70',
                 ].join(' ')}>
-                  {opencodeInvalid
-                    ? 'opencode needs a provider/model string (must contain “/”).'
-                    : 'Runs via the opencode CLI — use a provider/model string from your opencode config.'}
+                  {slashInvalid
+                    ? `${cliTool} needs a provider/model string (must contain "/").`
+                    : `Runs via the ${cliTool} CLI — use a provider/model string from your ${cliTool} config.`}
                 </p>
               )}
             </div>
@@ -351,6 +387,67 @@ export function AgentRoutingCard({
               </label>
               <EffortSegmented value={metadata.effort} loading={metadata.loading} />
             </div>
+          </div>
+
+          {/* Fallback harness — advanced/power config, collapsed behind a toggle */}
+          <div className="pt-5">
+            <button
+              type="button"
+              onClick={() => setFallbackOpen((v) => !v)}
+              aria-expanded={fallbackOpen}
+              className="flex w-full items-center justify-between gap-3 group"
+            >
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary group-hover:text-primary transition-colors duration-fast">
+                Fallback (advanced)
+              </span>
+              <span className="flex items-center gap-2">
+                {fallback?.cliTool && !fallbackOpen && (
+                  <span className="inline-flex items-center px-1.5 py-[1px] rounded text-[10px] font-mono leading-none bg-surface-elevated border border-border text-text-secondary">
+                    {fallback.cliTool}
+                  </span>
+                )}
+                <span className={`material-symbols-outlined text-[15px] leading-none text-text-secondary/70 transition-transform duration-fast ${fallbackOpen ? 'rotate-180' : ''}`} aria-hidden="true">
+                  expand_more
+                </span>
+              </span>
+            </button>
+            {fallbackOpen && (
+              <div className="mt-3 flex flex-col gap-2">
+                <SegmentedControl<'none' | ModelCliTool>
+                  ariaLabel={`Fallback harness for ${displayName}`}
+                  value={fallback?.cliTool ?? 'none'}
+                  onChange={(v) => onChangeFallback(
+                    agentId,
+                    v === 'none' ? null : { cliTool: v, model: fallback?.model },
+                  )}
+                  options={[
+                    { value: 'none', label: 'None' },
+                    { value: 'claude',   label: 'claude',   ...fallbackOption('claude', harnesses) },
+                    { value: 'opencode', label: 'opencode', ...fallbackOption('opencode', harnesses) },
+                    { value: 'pi',       label: 'pi',       ...fallbackOption('pi', harnesses) },
+                    { value: 'hermes',   label: 'hermes',   ...fallbackOption('hermes', harnesses) },
+                  ]}
+                />
+                {fallback?.cliTool && (
+                  <input
+                    type="text"
+                    aria-label={`Fallback model for ${displayName}`}
+                    placeholder={
+                      isSlashModelHarness(fallback.cliTool)
+                        ? 'provider/model'
+                        : 'Custom model string…'
+                    }
+                    value={fallback.model ?? ''}
+                    onChange={(e) => onChangeFallback(agentId, { cliTool: fallback.cliTool, model: e.target.value })}
+                    className="w-full bg-surface border rounded-lg px-3 py-1.5 text-[12px] text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 transition-all duration-fast font-mono"
+                  />
+                )}
+                <p className="text-[11px] leading-tight text-text-secondary/70">
+                  Used when the primary harness can't run — the CLI isn't
+                  installed, or a stage fails and is retried once on this harness.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Skills section */}

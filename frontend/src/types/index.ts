@@ -15,6 +15,19 @@ export type Column = 'todo' | 'in-progress' | 'done';
 export type ModelProvider = 'claude' | (string & {});
 export type ModelCliTool  = 'claude' | 'opencode' | 'pi' | 'hermes' | 'custom';
 
+/** A harness discovered on this machine via GET /api/v1/harnesses. */
+export interface HarnessInfo {
+  cliTool:     Exclude<ModelCliTool, 'custom'>;
+  available:   boolean;
+  path:        string | null;
+  modelFormat: 'preset' | 'provider/model';
+  installUrl:  string;
+}
+
+export interface HarnessesResponse {
+  harnesses: HarnessInfo[];
+}
+
 /** Per-stage model routing config stored in stageModels maps. */
 export interface StageModelConfig {
   provider: ModelProvider;

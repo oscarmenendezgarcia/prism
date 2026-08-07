@@ -15,7 +15,7 @@
 const VALID_PROVIDERS = ['claude'];
 const VALID_CLI_TOOLS = ['claude', 'opencode', 'pi', 'hermes', 'custom'];
 // cliTools whose model string must be in <provider>/<model> format (like opencode).
-const SLASH_MODEL_CLI_TOOLS = ['opencode', 'pi'];
+const SLASH_MODEL_CLI_TOOLS = ['opencode', 'pi', 'hermes'];
 
 // Placeholders allowed inside a 'custom' command template. 'binary' is
 // deliberately absent — the template IS the full executable command.
@@ -109,7 +109,7 @@ function validateStageModelConfig(config) {
     }
   }
 
-  // MODEL-2/3: opencode/pi model must be in <provider>/<model> format.
+  // MODEL-2/3: opencode/pi/hermes model must be in <provider>/<model> format.
   if (SLASH_MODEL_CLI_TOOLS.includes(config.cliTool) && 'model' in config) {
     if (typeof config.model === 'string' && !config.model.includes('/')) {
       errors.push(`${config.cliTool} model must be in <provider>/<model> format (e.g. gb10/deepseek-v4-flash).`);

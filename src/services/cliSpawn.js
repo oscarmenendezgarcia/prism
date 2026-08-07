@@ -90,14 +90,14 @@ function resolveCliBinary(cliTool) {
 
   if (cliTool === 'pi') {
     const found = piBinary();
-    // piBinary() falls back to bare 'pi' (rely on PATH); treat a resolved absolute
-    // path as success, but bare 'pi' is acceptable too (PATH resolution at spawn).
+    if (!found) throw new Error('BINARY_NOT_FOUND:pi');
     PI_BIN = found;
     return PI_BIN;
   }
 
   if (cliTool === 'hermes') {
     const found = hermesBinary();
+    if (!found) throw new Error('BINARY_NOT_FOUND:hermes');
     HERMES_BIN = found;
     return HERMES_BIN;
   }
@@ -122,7 +122,7 @@ function piBinary() {
     () => `${home}/.local/bin/pi`,
     () => '/usr/local/bin/pi',
     () => '/opt/homebrew/bin/pi',
-  ]) ?? 'pi';
+  ]) ?? null;
   return PI_BIN;
 }
 
@@ -139,7 +139,7 @@ function hermesBinary() {
     () => `${home}/.local/bin/hermes`,
     () => '/usr/local/bin/hermes',
     () => '/opt/homebrew/bin/hermes',
-  ]) ?? 'hermes';
+  ]) ?? null;
   return HERMES_BIN;
 }
 
