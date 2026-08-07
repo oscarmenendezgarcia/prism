@@ -23,22 +23,22 @@ const HARNESSES = [
   {
     cliTool:     'claude',
     modelFormat: 'preset',
-    installUrl:  'https://docs.anthropic.com/en/docs/claude-code/setup',
+    installUrl:  'https://www.anthropic.com/product/claude-code',
   },
   {
     cliTool:     'opencode',
     modelFormat: 'provider/model',
-    installUrl:  'https://opencode.ai/docs',
+    installUrl:  'https://opencode.ai/',
   },
   {
     cliTool:     'pi',
     modelFormat: 'provider/model',
-    installUrl:  'https://github.com/earendil-works/pi-coding-agent',
+    installUrl:  'https://pi.dev/',
   },
   {
     cliTool:     'hermes',
     modelFormat: 'provider/model',
-    installUrl:  'https://nousresearch.com/hermes',
+    installUrl:  'https://hermes-agent.nousresearch.co/',
   },
 ];
 
