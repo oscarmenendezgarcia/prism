@@ -414,28 +414,26 @@ function registerAdapter(name, adapter) {
  * @returns {string}
  */
 function buildLauncherCommand({ cliTool, binary, model, promptPath, fileInputMethod = 'cat-subshell' }) {
+  // pi and hermes have a fixed prompt channel independent of fileInputMethod:
+  // pi reads the prompt from stdin (`< file`), hermes via `-q "$(cat file)"`.
+  if (cliTool === 'pi') {
+    return `${binary} -p ${model ? `--model ${model} ` : ''}< "${promptPath}"`;
+  }
+  if (cliTool === 'hermes') {
+    return `${binary} chat -q "$(cat ${promptPath})" --cli -Q${model ? ` -m ${model}` : ''}`;
+  }
+
   let promptRef;
   if (fileInputMethod === 'stdin-redirect') {
-    promptRef = `< \"${promptPath}\"`;
+    promptRef = `< "${promptPath}"`;
   } else if (fileInputMethod === 'flag-file') {
-    promptRef = `--file \"${promptPath}\"`;
+    promptRef = `--file "${promptPath}"`;
   } else {
-    promptRef = `\"$(cat ${promptPath})\"`;
+    promptRef = `"$(cat ${promptPath})"`;
   }
 
   if (cliTool === 'opencode') {
     return `${binary} run ${promptRef}`;
-  }
-  if (cliTool === 'pi') {
-    return `${binary} -p ${model ? `--model ${model} ` : ''}${promptRef}`;
-  }
-  if (cliTool === 'hermes') {
-    return `${binary} chat -q ${promptRef} --cli -Q${model ? ` -m ${model}` : ''}`;
-  }
-  if (cliTool === 'custom') {
-    // The Launcher does not resolve a full template; best-effort preview shows
-    // the binary + prompt ref.
-    return `${binary} ${promptRef}`;
   }
   // claude (default)
   return `${binary} ${promptRef}`;

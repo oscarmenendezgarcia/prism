@@ -276,20 +276,22 @@ describe('buildLauncherCommand', () => {
     assert.ok(cmd.includes('run'));
   });
 
-  it('builds a pi command with --model', () => {
+  it('builds a pi command with --model and stdin redirect', () => {
     const cmd = cliAdapters.buildLauncherCommand({
       cliTool: 'pi', binary: '/opt/bin/pi', model: 'gb10/deepseek-v4-flash', promptPath: '/tmp/p.md',
     });
     assert.ok(cmd.startsWith('/opt/bin/pi -p'));
     assert.ok(cmd.includes('--model gb10/deepseek-v4-flash'));
+    assert.ok(cmd.includes('< "/tmp/p.md"'), 'pi reads the prompt from stdin regardless of fileInputMethod');
   });
 
-  it('builds a hermes command with --cli -Q', () => {
+  it('builds a hermes command with --cli -Q and -q cat-subshell', () => {
     const cmd = cliAdapters.buildLauncherCommand({
       cliTool: 'hermes', binary: '/opt/bin/hermes', model: 'deepseek-v4-flash', promptPath: '/tmp/p.md',
     });
     assert.ok(cmd.includes('chat'));
     assert.ok(cmd.includes('--cli -Q'));
+    assert.ok(cmd.includes('-q "$(cat /tmp/p.md)"'), 'hermes takes the prompt via -q cat-subshell');
   });
 
   it('honours fileInputMethod stdin-redirect', () => {

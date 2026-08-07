@@ -325,7 +325,26 @@ async function handleAutoTaskGenerate(req, res, spaceId, store, workingDirectory
   const spaceModels = store.getSpace(spaceId)?.stageModels ?? null;
   const modelConfig = resolveStageModelConfig('autotask', agentSpec, settings, spaceModels, null);
 
-  const cli   = process.env.TAGGER_CLI || resolveCliBinary(modelConfig.cliTool);
+  // 'custom' is a shell-command template (pipeline-stage only) and has no single
+  // binary or direct-spawn buildArgs, so Generate Tasks cannot run it. Reject it
+  // with a clean error instead of crashing the handler.
+  if (modelConfig.cliTool === 'custom') {
+    runningSpaces.delete(spaceId);
+    return sendError(res, 502, 'AUTOTASK_CLI_ERROR',
+      "cliTool 'custom' is not supported by Generate Tasks (pipeline-stage only)");
+  }
+
+  // Resolving the binary can throw (missing opencode/pi/hermes, unknown tool).
+  // Keep it inside its own try/catch so a mis-configured agent returns a clean
+  // 502 instead of an uncaught rejection that leaks the space lock.
+  let cli;
+  try {
+    cli = process.env.TAGGER_CLI || resolveCliBinary(modelConfig.cliTool);
+  } catch (err) {
+    runningSpaces.delete(spaceId);
+    return sendError(res, 502, 'AUTOTASK_CLI_ERROR',
+      `Cannot resolve CLI binary for cliTool '${modelConfig.cliTool}': ${err.message}`);
+  }
   const model = process.env.TAGGER_MODEL || modelConfig.model;
 
   try {
