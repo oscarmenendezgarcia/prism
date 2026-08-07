@@ -91,7 +91,7 @@ function resolveCliBinary(cliTool) {
   if (cliTool === 'pi') {
     const found = piBinary();
     // piBinary() falls back to bare 'pi' (rely on PATH); treat a resolved absolute
-    // path as successais, but bare 'pi' is acceptable too (PATH resolution at spawn).
+    // path as success, but bare 'pi' is acceptable too (PATH resolution at spawn).
     PI_BIN = found;
     return PI_BIN;
   }

@@ -16,7 +16,6 @@ const VALID_PROVIDERS = ['claude'];
 const VALID_CLI_TOOLS = ['claude', 'opencode', 'pi', 'hermes', 'custom'];
 // cliTools whose model string must be in <provider>/<model> format (like opencode).
 const SLASH_MODEL_CLI_TOOLS = ['opencode', 'pi'];
-const SLASH_MODEL_CLI_TOOLS_LABEL = 'opencode/pi';
 
 /**
  * Resolve effective model config for a stage.

@@ -143,6 +143,34 @@ const opencodeAdapter = {
 };
 
 // ---------------------------------------------------------------------------
+// Shared prompt-file writer (used by needsPromptFile harnesses)
+// ---------------------------------------------------------------------------
+
+/**
+ * Write the merged prompt file (systemPrompt + task prompt) for a harness whose
+ * needsPromptFile is true. Shared by the pi and hermes adapters — opencode keeps
+ * its own copy because it additionally emits a telemetry event.
+ *
+ * @param {object} opts
+ * @param {object|null} opts.agentSpec      - Parsed agent spec (for system prompt).
+ * @param {string}      opts.taskPromptPath - Path to the task prompt file.
+ * @param {string}      opts.runDirPath     - Directory to write the prompt into.
+ * @param {number}      opts.stageIndex     - Pipeline stage index (default file name).
+ * @param {string}      [opts.fileName]     - Explicit prompt file name (overrides default).
+ * @param {string}      [opts.defaultName]  - Default file name when fileName is absent.
+ * @returns {string|null} Absolute path to the written file, or null if the task
+ *                        prompt file cannot be read.
+ */
+function writeMergedPromptFile({ agentSpec, taskPromptPath, runDirPath, stageIndex, fileName, defaultName }) {
+  const taskPromptContent = fs.readFileSync(taskPromptPath, 'utf8');
+  const merged = cliSpawn.buildMergedPrompt(agentSpec, taskPromptContent);
+  const name = fileName || defaultName || `stage-${stageIndex}-prompt.md`;
+  const outPath = path.join(runDirPath, name);
+  fs.writeFileSync(outPath, merged, 'utf8');
+  return outPath;
+}
+
+// ---------------------------------------------------------------------------
 // pi adapter (MODEL-3)
 // ---------------------------------------------------------------------------
 
@@ -158,13 +186,8 @@ const piAdapter = {
    * Write the merged prompt file for a pi stage (systemPrompt + task prompt).
    * pi reads it from stdin, so the merged content is redirected via `<`.
    */
-  buildPromptFile({ agentSpec, taskPromptPath, runDirPath, stageIndex, fileName }) {
-    const taskPromptContent = fs.readFileSync(taskPromptPath, 'utf8');
-    const merged = cliSpawn.buildMergedPrompt(agentSpec, taskPromptContent);
-    const name = fileName || `stage-${stageIndex}-pi-prompt.md`;
-    const outPath = path.join(runDirPath, name);
-    fs.writeFileSync(outPath, merged, 'utf8');
-    return outPath;
+  buildPromptFile(opts) {
+    return writeMergedPromptFile({ ...opts, defaultName: `stage-${opts.stageIndex}-pi-prompt.md` });
   },
 
   buildUnixCommand({ binary, model, mergedPromptPath, logPath, doneFile, preDoneLine }) {
@@ -198,13 +221,8 @@ const hermesAdapter = {
    * Write the merged prompt file for a hermes stage (systemPrompt + task prompt).
    * hermes reads it via `-q "$(cat file)"` (no stdin prompt channel).
    */
-  buildPromptFile({ agentSpec, taskPromptPath, runDirPath, stageIndex, fileName }) {
-    const taskPromptContent = fs.readFileSync(taskPromptPath, 'utf8');
-    const merged = cliSpawn.buildMergedPrompt(agentSpec, taskPromptContent);
-    const name = fileName || `stage-${stageIndex}-hermes-prompt.md`;
-    const outPath = path.join(runDirPath, name);
-    fs.writeFileSync(outPath, merged, 'utf8');
-    return outPath;
+  buildPromptFile(opts) {
+    return writeMergedPromptFile({ ...opts, defaultName: `stage-${opts.stageIndex}-hermes-prompt.md` });
   },
 
   buildUnixCommand({ binary, model, mergedPromptPath, logPath, doneFile, preDoneLine }) {
