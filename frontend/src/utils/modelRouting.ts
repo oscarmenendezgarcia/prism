@@ -59,8 +59,25 @@ export interface RoutingEntry {
   cliTool: ModelCliTool;
 }
 
+/**
+ * Harnesses whose model string must be in `<provider>/<model>` format
+ * (mirrors backend `SLASH_MODEL_CLI_TOOLS` in modelConfigResolver.js).
+ */
+export const SLASH_MODEL_CLI_TOOLS: readonly ModelCliTool[] =
+  ['opencode', 'pi', 'hermes'];
+
+/** True when the harness requires a `provider/model` model string. */
+export function isSlashModelHarness(cliTool: ModelCliTool): boolean {
+  return SLASH_MODEL_CLI_TOOLS.includes(cliTool);
+}
+
 /** True when an opencode model string is in the required `provider/model` format. */
 export function isValidOpencodeModel(model: string): boolean {
+  return model.trim().includes('/');
+}
+
+/** True when a model string is in the `provider/model` format (slash harnesses). */
+export function isValidSlashModel(model: string): boolean {
   return model.trim().includes('/');
 }
 
@@ -81,12 +98,14 @@ export function buildStageModelConfig(
   const trimmed = model.trim();
   if (!trimmed) return null; // null = clear override
 
-  if (cliTool === 'opencode') {
-    const provider = trimmed.split('/')[0] || 'opencode';
-    return { provider, model: trimmed, cliTool: 'opencode' };
-  }
   if (cliTool === 'custom') {
     return { provider: 'custom', model: trimmed, cliTool: 'custom' };
+  }
+  if (isSlashModelHarness(cliTool)) {
+    // opencode / pi / hermes — provider is the segment before the first '/'
+    // (runtime only consumes `model`; the provider is carried for validation).
+    const provider = trimmed.split('/')[0] || cliTool;
+    return { provider, model: trimmed, cliTool };
   }
   return { provider: 'claude', model: trimmed, cliTool: 'claude' };
 }

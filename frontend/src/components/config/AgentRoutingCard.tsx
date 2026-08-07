@@ -16,14 +16,14 @@ import { EffortSegmented }       from './EffortSegmented';
 import { SkillsReadOnly }        from './SkillsReadOnly';
 import { CliToolSelector }       from './CliToolSelector';
 import { agentDotColor }         from '@/utils/agentName';
-import { isValidOpencodeModel }  from '@/utils/modelRouting';
+import { isSlashModelHarness, isValidSlashModel } from '@/utils/modelRouting';
 import type { ModelSource }      from '@/utils/modelRouting';
 import type { Scope }            from './ScopeSelector';
 import type { ModelCliTool }     from '@/types';
 import type { AgentMetadataEntry } from '@/hooks/useAgentMetadata';
 
 const CLAUDE_PRESETS = ['claude-opus-4-8', 'claude-sonnet-5', 'claude-opus-4-7'] as const;
-const OPENCODE_HINT = 'provider/model';
+const SLASH_HINT = 'provider/model';
 
 interface AgentRoutingCardProps {
   agentId:      string;
@@ -81,17 +81,18 @@ export function AgentRoutingCard({
 
   /** Model shown in the mini-pill and in the preset/input area. */
   const displayModel = localModel || effectiveModel;
-  const isOpencode   = cliTool === 'opencode';
-  const isPreset     = !isOpencode && CLAUDE_PRESETS.includes(displayModel as typeof CLAUDE_PRESETS[number]);
+  const isManagedClaude = cliTool === 'claude';
+  const isSlashHarness  = isSlashModelHarness(cliTool);
+  const isPreset     = isManagedClaude && CLAUDE_PRESETS.includes(displayModel as typeof CLAUDE_PRESETS[number]);
   /** True when the model is overridden at the scope being edited (the actionable deviation). */
   const isScopeOverride = source === scope;
   /** True when the value is inherited from a higher scope (e.g. Global while viewing Space) —
    *  distinct from both "overridden here" and "default" (agent's own frontmatter). */
   const isInherited = !isScopeOverride && source !== 'default';
-  /** opencode requires a `provider/model` string — flag an invalid local edit. */
-  const opencodeInvalid = isOpencode && !!displayModel && !isValidOpencodeModel(displayModel);
-  /** opencode selected but no valid provider/model yet → show an example, not the inherited Claude model. */
-  const needsOpencodeModel = isOpencode && !isValidOpencodeModel(displayModel);
+  /** Slash-model harnesses (opencode/pi/hermes) require a `provider/model` string — flag an invalid local edit. */
+  const slashInvalid = isSlashHarness && !!displayModel && !isValidSlashModel(displayModel);
+  /** Slash-model harness selected but no valid provider/model yet → show an example, not the inherited Claude model. */
+  const needsSlashModel = isSlashHarness && !isValidSlashModel(displayModel);
 
   return (
     <article
@@ -146,12 +147,12 @@ export function AgentRoutingCard({
             Hidden below sm: at narrow/mobile widths there isn't room for it next to the
             model pill without both garbling — the CLI tool is still fully visible and
             editable via CliToolSelector in the expanded card. */}
-        {!open && isOpencode && (
+        {!open && isSlashHarness && (
           <span
             className="hidden sm:inline-flex items-center font-mono text-[11px] px-2 py-0.5 rounded-md bg-surface-variant text-text-secondary border border-border/60 whitespace-nowrap"
-            title="Runs via the opencode CLI"
+            title={`Runs via the ${cliTool} CLI`}
           >
-            opencode
+            {cliTool}
           </span>
         )}
 
@@ -163,7 +164,7 @@ export function AgentRoutingCard({
           <span
             className={[
               'inline-flex items-center gap-1 min-w-0 shrink max-w-[110px] font-mono text-[11px] px-2 py-0.5 rounded-md border',
-              needsOpencodeModel
+              needsSlashModel
                 ? 'text-text-secondary/50 border-border border-dashed bg-transparent'
                 : isScopeOverride
                   ? SOURCE_CLASSES[source]
@@ -172,7 +173,7 @@ export function AgentRoutingCard({
                     : 'text-text-secondary border-border bg-surface',
             ].join(' ')}
             title={
-              needsOpencodeModel
+              needsSlashModel
                 ? 'No opencode model set yet — example shown'
                 : isInherited
                   ? `Inherited from ${source} settings — not set at this scope`
@@ -185,7 +186,7 @@ export function AgentRoutingCard({
               </span>
             )}
             <span className="truncate min-w-0">
-              {needsOpencodeModel ? OPENCODE_HINT : (displayModel || '—')}
+              {needsSlashModel ? SLASH_HINT : (displayModel || '—')}
             </span>
           </span>
         )}
@@ -221,12 +222,12 @@ export function AgentRoutingCard({
         >
           {/* Model + Effort row */}
           <div className="flex flex-col md:flex-row items-start gap-6 md:gap-10 py-5 border-b border-border/50">
-            {/* Model section */}
+            {/* Harness section — the CLI tool + its model */}
             <div className="flex flex-col gap-3 min-w-0 flex-1">
               <label className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary">
-                Model
+                Harness
               </label>
-              {/* CLI tool: Claude (managed) vs opencode (local/self-hosted via MODEL-2) */}
+              {/* CLI tool: Claude (managed) vs opencode/pi/hermes (local/self-hosted via MODEL-2/3) */}
               <CliToolSelector
                 value={cliTool}
                 onChange={(next) => onChangeCliTool(agentId, next)}
@@ -238,7 +239,7 @@ export function AgentRoutingCard({
                 <span
                   className={[
                     'inline-flex items-center gap-1.5 font-mono text-[12px] px-2.5 py-1 rounded-lg border',
-                    needsOpencodeModel
+                    needsSlashModel
                       ? 'text-text-secondary/50 border-border border-dashed bg-transparent'
                       : isScopeOverride
                         ? SOURCE_CLASSES[source]
@@ -246,16 +247,16 @@ export function AgentRoutingCard({
                           ? SOURCE_MUTED_CLASSES[source]
                           : SOURCE_MUTED_CLASSES.default,
                   ].join(' ')}
-                  title={needsOpencodeModel
+                  title={needsSlashModel
                     ? 'No opencode model set yet — example shown; set it in the field below'
                     : 'Current model — change it with the presets or the input below'}
                 >
-                  {!needsOpencodeModel && (
+                  {!needsSlashModel && (
                     <span className="font-sans font-semibold uppercase tracking-wide text-[11px] opacity-80">
                       {isScopeOverride ? source : isInherited ? 'inherited' : 'default'}
                     </span>
                   )}
-                  {needsOpencodeModel ? OPENCODE_HINT : (displayModel || <span className="text-text-secondary">—</span>)}
+                  {needsSlashModel ? SLASH_HINT : (displayModel || <span className="text-text-secondary">—</span>)}
                 </span>
                 {hasOverride && (
                   <button
@@ -276,8 +277,8 @@ export function AgentRoutingCard({
                 </p>
               )}
 
-              {/* Preset chips — Claude only (opencode models are open-ended) */}
-              {!isOpencode && (
+              {/* Preset chips — Claude only (slash-model harnesses are open-ended) */}
+              {isManagedClaude && (
                 <div
                   className="flex flex-wrap gap-2"
                   role="radiogroup"
@@ -312,32 +313,32 @@ export function AgentRoutingCard({
               {/* Custom / opencode model input */}
               <input
                 type="text"
-                aria-label={isOpencode ? `opencode model for ${displayName}` : `Custom model for ${displayName}`}
-                aria-invalid={opencodeInvalid}
+                aria-label={isSlashHarness ? `${cliTool} model for ${displayName}` : `Custom model for ${displayName}`}
+                aria-invalid={slashInvalid}
                 placeholder={
-                  isOpencode
-                    ? OPENCODE_HINT
+                  isSlashHarness
+                    ? SLASH_HINT
                     : (isPreset ? 'Custom model string…' : (displayModel || 'Custom model string…'))
                 }
-                value={isOpencode ? (localModel || '') : (!isPreset ? (localModel || '') : '')}
+                value={isSlashHarness ? (localModel || '') : (!isPreset ? (localModel || '') : '')}
                 onChange={(e) => onChange(agentId, e.target.value)}
                 className={[
                   'w-full bg-surface border rounded-lg px-3 py-1.5',
                   'text-[12px] text-text-primary placeholder:text-text-secondary/50',
                   'focus:outline-none focus:ring-1 transition-all duration-fast font-mono',
-                  opencodeInvalid
+                  slashInvalid
                     ? 'border-error focus:ring-error/50 focus:border-error'
                     : 'border-border focus:ring-primary/50 focus:border-primary',
                 ].join(' ')}
               />
 
               {/* opencode format helper / inline validation */}
-              {isOpencode && (
+              {isSlashHarness && (
                 <p className={[
                   'text-[11px] leading-tight',
-                  opencodeInvalid ? 'text-error' : 'text-text-secondary/70',
+                  slashInvalid ? 'text-error' : 'text-text-secondary/70',
                 ].join(' ')}>
-                  {opencodeInvalid
+                  {slashInvalid
                     ? 'opencode needs a provider/model string (must contain “/”).'
                     : 'Runs via the opencode CLI — use a provider/model string from your opencode config.'}
                 </p>

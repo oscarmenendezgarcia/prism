@@ -3,10 +3,11 @@
  *
  * MODEL-2 wired `opencode` end-to-end in the backend (binary resolution +
  * provider/model routing for local/self-hosted models, e.g. a GB10/DGX box).
- * This control exposes that choice per agent in the Proposal D expanded card.
+ * MODEL-3 added `pi` and `hermes`; all three are `provider/model` harnesses.
  *
- * `custom` is a reserved backend value (spawning not implemented) and is not
- * offered here.
+ * `custom` is intentionally not offered here: it is a pipeline-stage-only
+ * shell-command template (no single binary, no direct-spawn buildArgs) and is
+ * not supported by Generate Tasks / the Launcher, which reject it with a 502.
  */
 
 import React from 'react';

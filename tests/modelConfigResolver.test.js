@@ -299,13 +299,13 @@ describe('validateStageModelConfig — hermes', () => {
     assert.equal(validateStageModelConfig({ cliTool: 'hermes' }).valid, true);
   });
 
-  it('accepts hermes with a plain model (no slash required)', () => {
+  it('rejects hermes without a slash (provider/model required)', () => {
     const result = validateStageModelConfig({
       cliTool: 'hermes',
       model:   'deepseek-v4-flash',
     });
-    assert.equal(result.valid, true);
-    assert.equal(result.errors.length, 0);
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].includes('provider>/<model'));
   });
 
   it('accepts hermes with provider/model format', () => {
@@ -321,7 +321,7 @@ describe('validateStageModelConfig — hermes', () => {
     const result = validateStageModelConfig({
       cliTool:  'hermes',
       provider: 'Local',
-      model:    'deepseek-v4-flash',
+      model:    'Local/deepseek-v4-flash',
     });
     assert.equal(result.valid, true);
   });
@@ -423,10 +423,19 @@ describe('validateStageModelConfig — fallback', () => {
     assert.ok(result.errors[0].includes('fallback.cliTool'));
   });
 
-  it('rejects a fallback pi/opencode model without slash', () => {
+  it('rejects a fallback pi/opencode/hermes model without slash', () => {
     const result = validateStageModelConfig({
       cliTool: 'claude',
       fallback: { cliTool: 'pi', model: 'no-slash' },
+    });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some((e) => e.includes('provider>/<model')));
+  });
+
+  it('rejects a fallback hermes model without slash', () => {
+    const result = validateStageModelConfig({
+      cliTool: 'claude',
+      fallback: { cliTool: 'hermes', model: 'plain' },
     });
     assert.equal(result.valid, false);
     assert.ok(result.errors.some((e) => e.includes('provider>/<model')));

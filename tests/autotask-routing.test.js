@@ -110,7 +110,7 @@ describe('autoTask routing — non-claude cliTool (hermes)', () => {
   });
 
   it('parses tasks from non-claude output (hermes) end-to-end', async () => {
-    setup(tmpDir, { cliTool: 'hermes', provider: 'local', model: 'deepseek-v4-flash' });
+    setup(tmpDir, { cliTool: 'hermes', provider: 'local', model: 'local/deepseek-v4-flash' });
 
     let spawnedArgs = null;
     mock.method(child_process, 'spawn', (cmd, args) => {

@@ -23,7 +23,7 @@ import type { Scope }          from './ScopeSelector';
 import { Button }              from '@/components/shared/Button';
 import { useAgentMetadata }    from '@/hooks/useAgentMetadata';
 import { resolveEffectiveModel }  from '@/utils/modelRouting';
-import { localRoutingToStageModelsMap, isValidOpencodeModel } from '@/utils/modelRouting';
+import { localRoutingToStageModelsMap, isSlashModelHarness, isValidSlashModel } from '@/utils/modelRouting';
 import type { RoutingEntry }    from '@/utils/modelRouting';
 import { STAGE_DISPLAY }       from '@/utils/agentName';
 import type { StageModelsMap, ModelCliTool } from '@/types';
@@ -169,8 +169,9 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
     setLocal((prev) => {
       const next = { ...prev };
       const prevModel = prev[agentId]?.model ?? '';
-      // Drop a Claude model when switching to opencode (it can't be a provider/model string).
-      const model = (cliTool === 'opencode' && !isValidOpencodeModel(prevModel)) ? '' : prevModel;
+      // Drop a Claude model when switching to a slash-model harness (opencode/
+      // pi/hermes) — a Claude model can't be a provider/model string.
+      const model = (isSlashModelHarness(cliTool) && !isValidSlashModel(prevModel)) ? '' : prevModel;
       if (cliTool === 'claude' && !model) {
         delete next[agentId];
       } else {
@@ -191,12 +192,12 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
   }, [setLocal, setDirty]);
 
   const handleSave = useCallback(async () => {
-    // Guard: opencode overrides must carry a provider/model string.
-    const badOpencode = Object.entries(localMap).find(
-      ([, e]) => e.cliTool === 'opencode' && e.model.trim() !== '' && !isValidOpencodeModel(e.model),
+    // Guard: slash-model harness overrides must carry a provider/model string.
+    const badSlash = Object.entries(localMap).find(
+      ([, e]) => isSlashModelHarness(e.cliTool) && e.model.trim() !== '' && !isValidSlashModel(e.model),
     );
-    if (badOpencode) {
-      showToast(`opencode model for "${badOpencode[0]}" must be in provider/model format`, 'error');
+    if (badSlash) {
+      showToast(`model for "${badSlash[0]}" must be in provider/model format`, 'error');
       return;
     }
 
