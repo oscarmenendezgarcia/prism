@@ -79,6 +79,23 @@ const claudeAdapter = {
     return null;
   },
 
+  /**
+   * Build direct spawn args for one-shot headless use (autoTask / launcher).
+   * claude takes the prompt on stdin and the system prompt via --system-prompt.
+   *
+   * @returns {{ args: string[], stdin: string|null, cleanup?: string[] }}
+   */
+  buildArgs({ model, systemPrompt, prompt }) {
+    const args = [
+      '--print',
+      '--system-prompt', systemPrompt,
+      '--model', model,
+      '--dangerously-skip-permissions',
+      '--no-session-persistence',
+    ];
+    return { args, stdin: prompt };
+  },
+
   buildUnixCommand({ binary, finalArgs, promptPath, logPath, doneFile, preDoneLine }) {
     const escapedArgs = finalArgs.map(cliSpawn.shellEscape).join(' ');
     const cliLine = `${binary} ${escapedArgs} < ${cliSpawn.shellEscape(promptPath)} >> ${cliSpawn.shellEscape(logPath)} 2>&1`;
@@ -106,6 +123,31 @@ const opencodeAdapter = {
 
   resolveBinary() {
     return cliSpawn.resolveCliBinary('opencode');
+  },
+
+  /**
+   * Build direct spawn args for one-shot headless use (autoTask / launcher).
+   * opencode needs the merged system+task prompt as a file (`--file`); the
+   * caller must clean up the temp file listed in `cleanup`.
+   *
+   * @returns {{ args: string[], stdin: string|null, cleanup?: string[] }}
+   */
+  buildArgs({ model, systemPrompt, prompt, tmpDir }) {
+    const merged = cliSpawn.buildMergedPrompt({ systemPrompt }, prompt);
+    const tmpFile = path.join(tmpDir, `oc-autotask-${Date.now()}.md`);
+    fs.writeFileSync(tmpFile, merged, 'utf8');
+    return {
+      args: [
+        'run',
+        '--model', model,
+        '--dangerously-skip-permissions',
+        '--format', 'default',
+        'Proceed.',
+        '--file', tmpFile,
+      ],
+      stdin: null,
+      cleanup: [tmpFile],
+    };
   },
 
   /**
@@ -183,6 +225,17 @@ const piAdapter = {
   },
 
   /**
+   * Build direct spawn args for one-shot headless use (autoTask / launcher).
+   * pi reads the prompt from stdin; the system+task prompt is merged on stdin.
+   *
+   * @returns {{ args: string[], stdin: string|null }}
+   */
+  buildArgs({ model, systemPrompt, prompt }) {
+    const merged = cliSpawn.buildMergedPrompt({ systemPrompt }, prompt);
+    return { args: ['-p', '--model', model], stdin: merged };
+  },
+
+  /**
    * Write the merged prompt file for a pi stage (systemPrompt + task prompt).
    * pi reads it from stdin, so the merged content is redirected via `<`.
    */
@@ -215,6 +268,20 @@ const hermesAdapter = {
 
   resolveBinary() {
     return cliSpawn.resolveCliBinary('hermes');
+  },
+
+  /**
+   * Build direct spawn args for one-shot headless use (autoTask / launcher).
+   * hermes takes the prompt via `-q` (flag); the merged system+task prompt is
+   * passed inline. Auto-task prompts are small, so ARG_MAX is not a concern here.
+   *
+   * @returns {{ args: string[], stdin: string|null }}
+   */
+  buildArgs({ model, systemPrompt, prompt }) {
+    const merged = cliSpawn.buildMergedPrompt({ systemPrompt }, prompt);
+    const args = ['chat', '-q', merged, '--cli', '-Q'];
+    if (model) args.push('-m', model);
+    return { args, stdin: null };
   },
 
   /**
@@ -337,6 +404,41 @@ function registerAdapter(name, adapter) {
   ADAPTERS[name] = adapter;
 }
 
+/**
+ * Build the one-shot Launcher preview command for a harness (MODEL-3).
+ * Delegates to the harness adapter so the Launcher preview matches the pipeline
+ * routing (claude/opencode/pi/hermes). The command is shown to the user, not
+ * spawned here, so no done-sentinel is attached.
+ *
+ * @param {{ cliTool: string, binary: string, model?: string, promptPath: string, fileInputMethod?: string }} opts
+ * @returns {string}
+ */
+function buildLauncherCommand({ cliTool, binary, model, promptPath, fileInputMethod = 'cat-subshell' }) {
+  // pi and hermes have a fixed prompt channel independent of fileInputMethod:
+  // pi reads the prompt from stdin (`< file`), hermes via `-q "$(cat file)"`.
+  if (cliTool === 'pi') {
+    return `${binary} -p ${model ? `--model ${model} ` : ''}< "${promptPath}"`;
+  }
+  if (cliTool === 'hermes') {
+    return `${binary} chat -q "$(cat ${promptPath})" --cli -Q${model ? ` -m ${model}` : ''}`;
+  }
+
+  let promptRef;
+  if (fileInputMethod === 'stdin-redirect') {
+    promptRef = `< "${promptPath}"`;
+  } else if (fileInputMethod === 'flag-file') {
+    promptRef = `--file "${promptPath}"`;
+  } else {
+    promptRef = `"$(cat ${promptPath})"`;
+  }
+
+  if (cliTool === 'opencode') {
+    return `${binary} run ${promptRef}`;
+  }
+  // claude (default)
+  return `${binary} ${promptRef}`;
+}
+
 module.exports = {
   ADAPTERS,
   getAdapter,
@@ -344,4 +446,5 @@ module.exports = {
   wrapUnixSentinel,
   wrapWindowsSentinel,
   expandCustomCommand,
+  buildLauncherCommand,
 };

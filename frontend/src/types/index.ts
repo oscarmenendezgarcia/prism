@@ -10,16 +10,20 @@ export type Column = 'todo' | 'in-progress' | 'done';
 // MODEL-1: per-stage model routing types
 // ---------------------------------------------------------------------------
 
-// 'claude' is the managed provider (whitelisted backend-side). For opencode/custom
+// 'claude' is the managed provider (whitelisted backend-side). For opencode/pi/hermes/custom
 // CLI tools the provider is open-ended (e.g. 'vllm-local'), so any string is allowed.
 export type ModelProvider = 'claude' | (string & {});
-export type ModelCliTool  = 'claude' | 'opencode' | 'custom';
+export type ModelCliTool  = 'claude' | 'opencode' | 'pi' | 'hermes' | 'custom';
 
 /** Per-stage model routing config stored in stageModels maps. */
 export interface StageModelConfig {
   provider: ModelProvider;
   model:    string;
   cliTool:  ModelCliTool;
+  /** Arbitrary command template for cliTool: 'custom' (placeholders {binary} {model} {prompt} {log} {done}). */
+  command?: string | null;
+  /** Fallback harness to use if the primary's binary is missing (MODEL-3). */
+  fallback?: { cliTool: ModelCliTool; model?: string; provider?: string; command?: string } | null;
 }
 
 /** Map of agentId → StageModelConfig (null = clear override for that agent). */

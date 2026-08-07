@@ -139,18 +139,24 @@ function buildSystemPrompt(knownAgents) {
  * @returns {Promise<Array<{ title: string, type: string, description: string }>>}
  * @throws {Error} on spawn failure, non-zero exit, or invalid JSON response
  */
-function callCLI(prompt, systemPrompt, cli, model) {
+function callCLI(prompt, systemPrompt, cliTool, model, cli) {
 
   return new Promise((resolve, reject) => {
+    // MODEL-3: build the invocation from the harness adapter so autoTask honours
+    // the per-agent routing (claude/opencode/pi/hermes/custom), not just claude.
+    const adapter = require('../services/cliAdapters').getAdapter(cliTool);
+    const tmpDir  = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-autotask-'));
+    let built;
+    try {
+      built = adapter.buildArgs({ model, systemPrompt, prompt, tmpDir });
+    } catch (buildErr) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      return reject(new Error(`Cannot build ${cliTool} invocation: ${buildErr.message}`));
+    }
+
     const child = require('child_process').spawn(
-      cli,
-      [
-        '--print',
-        '--system-prompt', systemPrompt,
-        '--model', model,
-        '--dangerously-skip-permissions',
-        '--no-session-persistence',
-      ],
+      cli || adapter.resolveBinary(),
+      built.args,
       { env: { ...process.env }, stdio: ['pipe', 'pipe', 'pipe'] },
     );
 
@@ -204,10 +210,20 @@ function callCLI(prompt, systemPrompt, cli, model) {
         return;
       }
 
+      // Clean up any temp files the adapter created (e.g. opencode --file).
+      if (built.cleanup) {
+        for (const f of built.cleanup) {
+          try { fs.rmSync(f, { force: true }); } catch { /* best-effort */ }
+        }
+      }
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+
       resolve(parsed.tasks);
     });
 
-    child.stdin.write(prompt);
+    if (built.stdin != null) {
+      child.stdin.write(built.stdin);
+    }
     child.stdin.end();
   });
 }
@@ -309,13 +325,26 @@ async function handleAutoTaskGenerate(req, res, spaceId, store, workingDirectory
   const spaceModels = store.getSpace(spaceId)?.stageModels ?? null;
   const modelConfig = resolveStageModelConfig('autotask', agentSpec, settings, spaceModels, null);
 
-  if (!process.env.TAGGER_CLI && modelConfig.cliTool !== 'claude') {
+  // 'custom' is a shell-command template (pipeline-stage only) and has no single
+  // binary or direct-spawn buildArgs, so Generate Tasks cannot run it. Reject it
+  // with a clean error instead of crashing the handler.
+  if (modelConfig.cliTool === 'custom') {
     runningSpaces.delete(spaceId);
     return sendError(res, 502, 'AUTOTASK_CLI_ERROR',
-      `Generate Tasks only supports the 'claude' CLI tool today — '${modelConfig.cliTool}' is routed for this agent in Agents & Routing. Clear its override or set it back to a Claude preset.`);
+      "cliTool 'custom' is not supported by Generate Tasks (pipeline-stage only)");
   }
 
-  const cli   = process.env.TAGGER_CLI || resolveCliBinary(modelConfig.cliTool);
+  // Resolving the binary can throw (missing opencode/pi/hermes, unknown tool).
+  // Keep it inside its own try/catch so a mis-configured agent returns a clean
+  // 502 instead of an uncaught rejection that leaks the space lock.
+  let cli;
+  try {
+    cli = process.env.TAGGER_CLI || resolveCliBinary(modelConfig.cliTool);
+  } catch (err) {
+    runningSpaces.delete(spaceId);
+    return sendError(res, 502, 'AUTOTASK_CLI_ERROR',
+      `Cannot resolve CLI binary for cliTool '${modelConfig.cliTool}': ${err.message}`);
+  }
   const model = process.env.TAGGER_MODEL || modelConfig.model;
 
   try {
@@ -324,7 +353,7 @@ async function handleAutoTaskGenerate(req, res, spaceId, store, workingDirectory
     const systemPrompt = buildSystemPrompt(knownAgents);
     let rawTasks;
     try {
-      rawTasks = await callCLI(prompt, systemPrompt, cli, model);
+      rawTasks = await callCLI(prompt, systemPrompt, modelConfig.cliTool, model, cli);
     } catch (err) {
       const durationMs = Date.now() - startMs;
       console.error(JSON.stringify({
