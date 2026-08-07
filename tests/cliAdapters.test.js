@@ -131,3 +131,56 @@ describe('wrapWindowsSentinel', () => {
     assert.ok(cmd.includes('exit /B 0'));
   });
 });
+
+// ---------------------------------------------------------------------------
+// custom adapter
+// ---------------------------------------------------------------------------
+
+describe('custom adapter', () => {
+  it('is registered and needs no prompt file', () => {
+    assert.equal(cliAdapters.getAdapter('custom').name, 'custom');
+    assert.equal(cliAdapters.getAdapter('custom').needsPromptFile, false);
+  });
+
+  it('resolveBinary returns null (no single binary)', () => {
+    assert.equal(cliAdapters.getAdapter('custom').resolveBinary(), null);
+  });
+
+  it('builds a unix command with placeholders substituted', () => {
+    const cmd = cliAdapters.getAdapter('custom').buildUnixCommand({
+      command:    'my-tool --model {model} < {prompt} >> {log}',
+      model:      'deepseek-v4-flash',
+      promptPath: '/tmp/stage-0-prompt.md',
+      logPath:    '/tmp/stage-0.log',
+      doneFile:   '/tmp/stage-0.done',
+    });
+    assert.ok(cmd.includes('--model deepseek-v4-flash'));
+    assert.ok(cmd.includes('< /tmp/stage-0-prompt.md'));
+    assert.ok(cmd.includes('>> /tmp/stage-0.log'));
+    assert.ok(cmd.includes('_EXIT='), 'should include EXIT sentinel');
+  });
+
+  it('metaSource is plain', () => {
+    assert.equal(cliAdapters.getAdapter('custom').metaSource(), 'plain');
+  });
+});
+
+describe('expandCustomCommand', () => {
+  it('substitutes all known placeholders', () => {
+    const out = cliAdapters.expandCustomCommand(
+      'my-tool -m {model} < {prompt} >> {log} # {done}',
+      { model: 'm', prompt: 'p', log: 'l', done: 'd' },
+    );
+    assert.equal(out, 'my-tool -m m < p >> l # d');
+  });
+
+  it('leaves unknown braces untouched', () => {
+    const out = cliAdapters.expandCustomCommand('my-tool {wat}', { model: 'm' });
+    assert.equal(out, 'my-tool {wat}');
+  });
+
+  it('substitutes missing values with empty string', () => {
+    const out = cliAdapters.expandCustomCommand('{prompt}{model}', { model: 'm' });
+    assert.equal(out, 'm');
+  });
+});

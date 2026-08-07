@@ -17,6 +17,10 @@ const VALID_CLI_TOOLS = ['claude', 'opencode', 'pi', 'hermes', 'custom'];
 // cliTools whose model string must be in <provider>/<model> format (like opencode).
 const SLASH_MODEL_CLI_TOOLS = ['opencode', 'pi'];
 
+// Placeholders allowed inside a 'custom' command template. 'binary' is
+// deliberately absent — the template IS the full executable command.
+const VALID_CUSTOM_PLACEHOLDERS = ['{model}', '{prompt}', '{log}', '{done}'];
+
 /**
  * Resolve effective model config for a stage.
  *
@@ -32,6 +36,7 @@ function resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, task
     provider: 'claude',
     model:    (agentSpec && agentSpec.model) ? agentSpec.model : 'claude-sonnet-4-5',
     cliTool:  'claude',
+    command:  null,
   };
 
   let resolvedFrom = 'frontmatter';
@@ -60,6 +65,7 @@ function resolveStageModelConfig(agentId, agentSpec, settings, spaceModels, task
     provider:     current.provider || 'claude',
     model:        current.model    || base.model,
     cliTool:      current.cliTool  || 'claude',
+    command:      current.command  || null,
     resolvedFrom,
   };
 }
@@ -85,7 +91,7 @@ function validateStageModelConfig(config) {
   if ('provider' in config) {
     if (config.cliTool === 'opencode' || config.cliTool === 'pi' || config.cliTool === 'hermes' || config.cliTool === 'custom') {
       // opencode / pi / hermes / custom: providers are user-defined — accept any non-empty string.
-      // 'custom' is a reserved placeholder; spawning is not yet implemented.
+      // 'custom' is a working harness (arbitrary command template), not a placeholder.
       if (typeof config.provider !== 'string' || config.provider.trim().length === 0) {
         errors.push('provider must be a non-empty string.');
       }
@@ -107,6 +113,23 @@ function validateStageModelConfig(config) {
     if (typeof config.model === 'string' && !config.model.includes('/')) {
       errors.push(`${config.cliTool} model must be in <provider>/<model> format (e.g. gb10/deepseek-v4-flash).`);
     }
+  }
+
+  // MODEL-3: 'custom' cliTool requires a command template.
+  if (config.cliTool === 'custom') {
+    if (typeof config.command !== 'string' || config.command.trim().length === 0) {
+      errors.push('custom cliTool requires a non-empty command template.');
+    } else {
+      // Validate that only known placeholders appear (if any braces exist).
+      const braceMatch = config.command.match(/\{[a-zA-Z_]+\}/g) || [];
+      for (const m of braceMatch) {
+        if (!VALID_CUSTOM_PLACEHOLDERS.includes(m)) {
+          errors.push(`Unknown placeholder '${m}' in custom command. Valid: ${VALID_CUSTOM_PLACEHOLDERS.join(', ')}.`);
+        }
+      }
+    }
+  } else if ('command' in config && config.command !== null) {
+    errors.push("The 'command' field is only valid for cliTool 'custom'.");
   }
 
   return { valid: errors.length === 0, errors };
