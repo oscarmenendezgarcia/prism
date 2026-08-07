@@ -21,6 +21,8 @@ import { AgentRoutingCard }    from './AgentRoutingCard';
 import { ScopeSelector }       from './ScopeSelector';
 import type { Scope }          from './ScopeSelector';
 import { Button }              from '@/components/shared/Button';
+import { getHarnesses }        from '@/api/client';
+import type { HarnessInfo }    from '@/types';
 import { useAgentMetadata }    from '@/hooks/useAgentMetadata';
 import { resolveEffectiveModel }  from '@/utils/modelRouting';
 import { localRoutingToStageModelsMap, isSlashModelHarness, isValidSlashModel } from '@/utils/modelRouting';
@@ -111,6 +113,9 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
   const [saving,      setSaving]      = useState(false);
   const [justSaved,   setJustSaved]   = useState(false);
   const [agentsLoading, setAgentsLoading] = useState(availableAgents.length === 0);
+  // Harness discovery (GET /api/v1/harnesses). Fail-soft: on any error we treat
+  // every harness as available so routing stays usable (e.g. older backend).
+  const [harnesses, setHarnesses] = useState<Record<string, HarnessInfo>>({});
 
   // ── Ensure the full agent registry is loaded (panel doesn't load it) ──────
   // Tracks its own loading flag so the empty state below can tell "still fetching"
@@ -124,6 +129,20 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availableAgents.length, loadAgents, activeSpace?.workingDirectory]);
+
+  // ── Discover installed harnesses (fail-soft) ─────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    getHarnesses()
+      .then((res) => {
+        if (cancelled) return;
+        const map: Record<string, HarnessInfo> = {};
+        for (const h of res.harnesses) map[h.cliTool] = h;
+        setHarnesses(map);
+      })
+      .catch(() => { /* fail-soft: empty map → all harnesses enabled */ });
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Fetch agent metadata (model/effort/skills) for every agent ────────────
   const metadata = useAgentMetadata(agentIds);
@@ -425,6 +444,7 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
                 onChangeCliTool={handleChangeCliTool}
                 fallback={fallback}
                 onChangeFallback={handleChangeFallback}
+                harnesses={harnesses}
                 onEditPrompt={onEditPrompt}
               />
             );

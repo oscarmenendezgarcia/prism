@@ -19,6 +19,7 @@ import { SegmentedControl }      from './SegmentedControl';
 import { agentDotColor }         from '@/utils/agentName';
 import { isSlashModelHarness, isValidSlashModel } from '@/utils/modelRouting';
 import type { RoutingFallback }  from '@/utils/modelRouting';
+import type { HarnessInfo }      from '@/types';
 import type { ModelSource }      from '@/utils/modelRouting';
 import type { Scope }            from './ScopeSelector';
 import type { ModelCliTool }     from '@/types';
@@ -26,6 +27,21 @@ import type { AgentMetadataEntry } from '@/hooks/useAgentMetadata';
 
 const CLAUDE_PRESETS = ['claude-opus-4-8', 'claude-sonnet-5', 'claude-opus-4-7'] as const;
 const SLASH_HINT = 'provider/model';
+
+/**
+ * Build the disabled/install-link fragment for a fallback selector option.
+ * Returns {} when the harness is available (or discovery is unavailable).
+ */
+function fallbackOption(cliTool: ModelCliTool, harnesses?: Record<string, HarnessInfo>) {
+  const info = harnesses?.[cliTool];
+  const unavailable = !!harnesses && !!info && !info.available;
+  if (!unavailable) return {};
+  return {
+    disabled:      true as const,
+    disabledTitle: `${cliTool} not installed — click to install`,
+    disabledHref:  info?.installUrl,
+  };
+}
 
 interface AgentRoutingCardProps {
   agentId:      string;
@@ -60,6 +76,11 @@ interface AgentRoutingCardProps {
   fallback: RoutingFallback | null;
   /** Called when the user changes the fallback harness (null = none). */
   onChangeFallback: (agentId: string, fallback: RoutingFallback | null) => void;
+  /**
+   * Optional harness discovery info; unavailable harnesses render disabled
+   * with an install link opened on click.
+   */
+  harnesses?: Record<string, HarnessInfo>;
   /** Called when the user wants to view/edit the agent's system prompt (.md). */
   onEditPrompt?: (agentId: string) => void;
 }
@@ -82,6 +103,7 @@ export function AgentRoutingCard({
   onChangeCliTool,
   fallback,
   onChangeFallback,
+  harnesses,
   onEditPrompt,
 }: AgentRoutingCardProps) {
   const detailId  = useId();
@@ -243,6 +265,7 @@ export function AgentRoutingCard({
                 value={cliTool}
                 onChange={(next) => onChangeCliTool(agentId, next)}
                 agentLabel={displayName}
+                harnesses={harnesses}
               />
               {/* Current model — one pill, not badge + pill: the source label lives inside it
                   so there's a single colour to keep in sync, not two elements that can drift. */}
@@ -403,10 +426,10 @@ export function AgentRoutingCard({
                   )}
                   options={[
                     { value: 'none', label: 'None' },
-                    { value: 'claude',   label: 'Claude' },
-                    { value: 'opencode', label: 'opencode' },
-                    { value: 'pi',       label: 'pi' },
-                    { value: 'hermes',   label: 'hermes' },
+                    { value: 'claude',   label: 'claude',   ...fallbackOption('claude', harnesses) },
+                    { value: 'opencode', label: 'opencode', ...fallbackOption('opencode', harnesses) },
+                    { value: 'pi',       label: 'pi',       ...fallbackOption('pi', harnesses) },
+                    { value: 'hermes',   label: 'hermes',   ...fallbackOption('hermes', harnesses) },
                   ]}
                 />
                 {fallback?.cliTool && (

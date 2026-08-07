@@ -15,6 +15,7 @@ const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { createApp }       = require('../handlers/tasks');
 const { handleStatic }                   = require('../handlers/static');
 const { handleGetSettings, handlePutSettings } = require('../handlers/settings');
+const { handleGetHarnesses } = require('../handlers/harnesses');
 const {
   CONFIG_FILES_LIST_ROUTE,
   CONFIG_FILES_SINGLE_ROUTE,
@@ -144,6 +145,7 @@ const SEARCH_ROUTE        = /^\/api\/v1\/tasks\/search(\?|$)/;
 const LEGACY_TASKS_ROUTE  = /^\/api\/v1(\/tasks.*)$/;
 // Settings route
 const SETTINGS_ROUTE      = /^\/api\/v1\/settings$/;
+const HARNESSES_ROUTE     = /^\/api\/v1\/harnesses$/;
 
 // ---------------------------------------------------------------------------
 // Router factory
@@ -667,6 +669,14 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     if (SETTINGS_ROUTE.test(urlPath)) {
       if (method === 'GET') return handleGetSettings(req, res, dataDir);
       if (method === 'PUT') return handlePutSettings(req, res, dataDir);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    // -------------------------------------------------------------------------
+    // Harness discovery routes
+    // -------------------------------------------------------------------------
+    if (HARNESSES_ROUTE.test(urlPath)) {
+      if (method === 'GET') return handleGetHarnesses(req, res);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

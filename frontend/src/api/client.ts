@@ -33,6 +33,7 @@ import type {
   ValidationResult,
   HomeDirectoryResponse,
   StageModelsMap,
+  HarnessesResponse,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -385,6 +386,14 @@ export const generatePrompt = (req: PromptGenerationRequest): Promise<PromptGene
  */
 export const getSettings = (): Promise<AgentSettings> =>
   apiFetch<AgentSettings>('/settings');
+
+/**
+ * Discover installed CLI harnesses and their availability.
+ * Fail-soft: callers should fall back to all-available when this is unavailable
+ * (e.g. older backend without the endpoint) so routing stays usable.
+ */
+export const getHarnesses = (): Promise<HarnessesResponse> =>
+  apiFetch<HarnessesResponse>('/harnesses');
 
 /**
  * Partially update launcher settings (deep merge). Returns the full merged settings.

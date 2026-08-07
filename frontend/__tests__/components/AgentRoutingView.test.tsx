@@ -14,7 +14,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { AgentRoutingView } from '../../src/components/config/AgentRoutingView';
 import { useAppStore } from '../../src/stores/useAppStore';
 import type { AgentSettings, Space } from '../../src/types';
@@ -37,6 +37,7 @@ vi.mock('../../src/api/client', () => ({
   generatePrompt:       vi.fn(),
   getSettings:          vi.fn(),
   saveSettings:         vi.fn().mockResolvedValue({}),
+  getHarnesses:         vi.fn().mockResolvedValue({ harnesses: [] }),
   getAgent:             vi.fn().mockResolvedValue({
     id: 'ux-api-designer',
     name: 'ux-api-designer.md',
@@ -316,9 +317,11 @@ describe('AgentRoutingView — Save / Reset', () => {
 // ---------------------------------------------------------------------------
 
 describe('AgentRoutingView — scope selector', () => {
-  it('Space option is disabled when no active space matches', () => {
+  it('Space option is disabled when no active space matches', async () => {
     setup({ spaces: [], activeSpaceId: '' });
     renderView();
+    // Flush the harness-discovery microtask so React 19 act strictness is satisfied.
+    await act(async () => {});
     const spaceBtn = screen.getByRole('radio', { name: /space/i });
     expect(spaceBtn.hasAttribute('disabled')).toBe(true);
   });

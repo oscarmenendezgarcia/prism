@@ -254,7 +254,7 @@ describe('AgentRoutingCard — CLI tool selector', () => {
     renderCard({ open: true });
     expect(screen.getByRole('radiogroup', { name: /CLI tool/i })).toBeDefined();
     const primary = screen.getByRole('radiogroup', { name: /CLI tool/i });
-    expect(within(primary).getByRole('radio', { name: 'Claude' })).toBeDefined();
+    expect(within(primary).getByRole('radio', { name: 'claude' })).toBeDefined();
     expect(within(primary).getByRole('radio', { name: 'opencode' })).toBeDefined();
   });
 
@@ -352,5 +352,37 @@ describe('AgentRoutingCard — fallback harness', () => {
     expandFallback();
     fireEvent.click(within(screen.getByRole('radiogroup', { name: /Fallback harness/i })).getByRole('radio', { name: 'None' }));
     expect(onChangeFallback).toHaveBeenCalledWith('ux-api-designer', null);
+  });
+});
+
+describe('AgentRoutingCard — unavailable fallback harnesses', () => {
+  const harnesses = {
+    claude:   { cliTool: 'claude',   available: true,  path: '/bin/claude',   modelFormat: 'preset',         installUrl: 'https://claude.example' },
+    opencode: { cliTool: 'opencode', available: false, path: null,            modelFormat: 'provider/model', installUrl: 'https://opencode.example' },
+    pi:       { cliTool: 'pi',       available: true,  path: '/bin/pi',       modelFormat: 'provider/model', installUrl: 'https://pi.example' },
+    hermes:   { cliTool: 'hermes',   available: false, path: null,            modelFormat: 'provider/model', installUrl: 'https://hermes.example' },
+  } as const;
+
+  it('marks an unavailable fallback harness as aria-disabled', () => {
+    renderCard({ open: true, harnesses });
+    fireEvent.click(screen.getByRole('button', { name: /Fallback \(advanced\)/i }));
+    expect(within(screen.getByRole('radiogroup', { name: /Fallback harness/i })).getByRole('radio', { name: 'hermes' }).getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('does not select a disabled fallback harness on click', () => {
+    const onChangeFallback = vi.fn();
+    renderCard({ open: true, harnesses, onChangeFallback });
+    fireEvent.click(screen.getByRole('button', { name: /Fallback \(advanced\)/i }));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: /Fallback harness/i })).getByRole('radio', { name: 'hermes' }));
+    expect(onChangeFallback).not.toHaveBeenCalled();
+  });
+
+  it('opens the install link when a disabled fallback harness is clicked', () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    renderCard({ open: true, harnesses });
+    fireEvent.click(screen.getByRole('button', { name: /Fallback \(advanced\)/i }));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: /Fallback harness/i })).getByRole('radio', { name: 'hermes' }));
+    expect(open).toHaveBeenCalledWith('https://hermes.example', '_blank', 'noopener,noreferrer');
+    open.mockRestore();
   });
 });

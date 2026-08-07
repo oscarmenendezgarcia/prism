@@ -18,6 +18,8 @@ export interface SegmentedOption<T extends string> {
   disabled?: boolean;
   /** Shown via Tooltip when the option is disabled. */
   disabledTitle?: string;
+  /** When disabled, clicking opens this install link in a new tab. */
+  disabledHref?: string;
 }
 
 interface SegmentedControlProps<T extends string> {
@@ -41,8 +43,9 @@ export function SegmentedControl<T extends string>({
           key={opt.value}
           active={opt.value === value}
           disabled={opt.disabled}
-          title={opt.disabled ? opt.disabledTitle : undefined}
-          onClick={() => !opt.disabled && onChange(opt.value)}
+          disabledTitle={opt.disabled ? opt.disabledTitle : undefined}
+          disabledHref={opt.disabled ? opt.disabledHref : undefined}
+          onSelect={() => onChange(opt.value)}
         >
           {opt.label}
         </SegmentedButton>
@@ -52,23 +55,36 @@ export function SegmentedControl<T extends string>({
 }
 
 interface SegmentedButtonProps {
-  active:    boolean;
-  disabled?: boolean;
-  title?:    string;
-  onClick:   () => void;
-  children:  React.ReactNode;
+  active:         boolean;
+  disabled?:      boolean;
+  disabledTitle?: string;
+  /** Install link opened in a new tab when a disabled option is clicked. */
+  disabledHref?:  string;
+  onSelect:       () => void;
+  children:       React.ReactNode;
 }
 
-function SegmentedButton({ active, disabled, title, onClick, children }: SegmentedButtonProps) {
+function SegmentedButton({ active, disabled, disabledTitle, disabledHref, onSelect, children }: SegmentedButtonProps) {
+  // A disabled option stays clickable when it carries an install link (so the
+  // link can open), but is aria-disabled and ignores selection. Options disabled
+  // without a link keep the native `disabled` (e.g. ScopeSelector's Space option).
+  const handleClick = () => {
+    if (disabled) {
+      if (disabledHref) window.open(disabledHref, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    onSelect();
+  };
+
   const button = (
     <button
       type="button"
       role="radio"
       aria-checked={active}
       aria-disabled={disabled}
-      disabled={disabled}
-      title={title}
-      onClick={onClick}
+      disabled={disabled && !disabledHref}
+      title={disabled ? disabledTitle : undefined}
+      onClick={handleClick}
       className={[
         'px-3 py-[5px] text-[12px] font-semibold rounded-md transition-all duration-fast',
         'whitespace-nowrap',
@@ -86,8 +102,8 @@ function SegmentedButton({ active, disabled, title, onClick, children }: Segment
 
   // A native title tooltip needs a long hover and doesn't reach keyboard/touch users —
   // the shared Tooltip surfaces the same explanation reliably for everyone.
-  if (disabled && title) {
-    return <Tooltip label={title}>{button}</Tooltip>;
+  if (disabled && disabledTitle) {
+    return <Tooltip label={disabledTitle}>{button}</Tooltip>;
   }
   return button;
 }
