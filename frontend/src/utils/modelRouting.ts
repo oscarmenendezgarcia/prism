@@ -53,10 +53,18 @@ export function resolveEffectiveModel(
   return { model: defaultModel, source: 'default' };
 }
 
-/** One agent's local routing edit (model + CLI tool). */
+/** One agent's local routing edit (model + CLI tool + optional fallback harness). */
 export interface RoutingEntry {
   model:   string;
   cliTool: ModelCliTool;
+  /** Optional fallback harness used when the primary binary is missing. */
+  fallback?: RoutingFallback | null;
+}
+
+/** A fallback harness choice: a cliTool + (for slash harnesses) a model. */
+export interface RoutingFallback {
+  cliTool: ModelCliTool;
+  model?: string;
 }
 
 /**
@@ -91,23 +99,50 @@ export function isValidSlashModel(model: string): boolean {
  *   `vllm-local/qwen2.5-coder` → `{ provider: 'vllm-local', model, cliTool: 'opencode' }`
  * - `custom`   → `{ provider: 'custom', model, cliTool: 'custom' }`
  */
+/**
+ * Build the {@link StageModelConfig.fallback} fragment from a routing fallback
+ * entry. Slash-model harnesses (opencode/pi/hermes) carry the provider derived
+ * from the model prefix for backend validation. Returns null when unset.
+ */
+export function buildFallbackConfig(
+  fallback?: RoutingFallback | null,
+): StageModelConfig['fallback'] {
+  if (!fallback || !fallback.cliTool) return null;
+  const model = fallback.model?.trim();
+  const fb: NonNullable<StageModelConfig['fallback']> = { cliTool: fallback.cliTool };
+  if (model) {
+    if (isSlashModelHarness(fallback.cliTool)) {
+      fb.provider = model.split('/')[0] || fallback.cliTool;
+    }
+    fb.model = model;
+  }
+  return fb;
+}
+
 export function buildStageModelConfig(
   model: string,
   cliTool: ModelCliTool = 'claude',
+  fallback?: RoutingFallback | null,
 ): StageModelConfig | null {
   const trimmed = model.trim();
-  if (!trimmed) return null; // null = clear override
+  if (!trimmed && !fallback) return null; // nothing set → clear override
 
+  const fb = buildFallbackConfig(fallback);
+
+  let cfg: StageModelConfig;
   if (cliTool === 'custom') {
-    return { provider: 'custom', model: trimmed, cliTool: 'custom' };
-  }
-  if (isSlashModelHarness(cliTool)) {
+    cfg = { provider: 'custom', model: trimmed, cliTool: 'custom' };
+  } else if (isSlashModelHarness(cliTool)) {
     // opencode / pi / hermes — provider is the segment before the first '/'
     // (runtime only consumes `model`; the provider is carried for validation).
     const provider = trimmed.split('/')[0] || cliTool;
-    return { provider, model: trimmed, cliTool };
+    cfg = { provider, model: trimmed, cliTool };
+  } else {
+    cfg = { provider: 'claude', model: trimmed, cliTool: 'claude' };
   }
-  return { provider: 'claude', model: trimmed, cliTool: 'claude' };
+
+  if (fb) cfg.fallback = fb;
+  return cfg;
 }
 
 /**

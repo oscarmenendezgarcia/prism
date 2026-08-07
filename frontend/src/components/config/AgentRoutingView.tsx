@@ -24,7 +24,7 @@ import { Button }              from '@/components/shared/Button';
 import { useAgentMetadata }    from '@/hooks/useAgentMetadata';
 import { resolveEffectiveModel }  from '@/utils/modelRouting';
 import { localRoutingToStageModelsMap, isSlashModelHarness, isValidSlashModel } from '@/utils/modelRouting';
-import type { RoutingEntry }    from '@/utils/modelRouting';
+import type { RoutingEntry, RoutingFallback } from '@/utils/modelRouting';
 import { STAGE_DISPLAY }       from '@/utils/agentName';
 import type { StageModelsMap, ModelCliTool } from '@/types';
 
@@ -47,12 +47,18 @@ interface AgentRoutingViewProps {
   onEditPrompt?: (agentId: string) => void;
 }
 
-/** Convert a StageModelsMap (server) → local Record<agentId, {model, cliTool}>. */
+/** Convert a StageModelsMap (server) → local Record<agentId, {model, cliTool, fallback}>. */
 function stageModelsToLocal(map: StageModelsMap | null | undefined): Record<string, RoutingEntry> {
   if (!map) return {};
   const result: Record<string, RoutingEntry> = {};
   for (const [id, cfg] of Object.entries(map)) {
-    if (cfg?.model) result[id] = { model: cfg.model, cliTool: cfg.cliTool ?? 'claude' };
+    if (cfg && (cfg.model || cfg.fallback)) {
+      result[id] = {
+        model:    cfg.model ?? '',
+        cliTool:  cfg.cliTool ?? 'claude',
+        fallback: cfg.fallback ?? null,
+      };
+    }
   }
   return result;
 }
@@ -191,6 +197,22 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
     setDirty(true);
   }, [setLocal, setDirty]);
 
+  const handleChangeFallback = useCallback((agentId: string, fallback: RoutingFallback | null) => {
+    setLocal((prev) => {
+      const next = { ...prev };
+      const cliTool = prev[agentId]?.cliTool ?? 'claude';
+      const model   = prev[agentId]?.model ?? '';
+      if (fallback && fallback.cliTool) {
+        next[agentId] = { model, cliTool, fallback };
+      } else {
+        // None → clear the fallback but keep the primary routing.
+        next[agentId] = { model, cliTool, fallback: null };
+      }
+      return next;
+    });
+    setDirty(true);
+  }, [setLocal, setDirty]);
+
   const handleSave = useCallback(async () => {
     // Guard: slash-model harness overrides must carry a provider/model string.
     const badSlash = Object.entries(localMap).find(
@@ -198,6 +220,15 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
     );
     if (badSlash) {
       showToast(`model for "${badSlash[0]}" must be in provider/model format`, 'error');
+      return;
+    }
+    // Guard: a slash-model fallback harness must also carry a provider/model string.
+    const badFbSlash = Object.entries(localMap).find(
+      ([, e]) => e.fallback && isSlashModelHarness(e.fallback.cliTool) &&
+        !!e.fallback.model && !isValidSlashModel(e.fallback.model),
+    );
+    if (badFbSlash) {
+      showToast(`fallback model for "${badFbSlash[0]}" must be in provider/model format`, 'error');
       return;
     }
 
@@ -364,12 +395,14 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
               ? (spaceStageModels?.[agentId] ?? globalStageModels[agentId])
               : globalStageModels[agentId];
             const cliTool      = localEntry?.cliTool ?? serverEntry?.cliTool ?? 'claude';
+            const fallback     = localEntry?.fallback ?? serverEntry?.fallback ?? null;
             // A local edit that hasn't been persisted yet — the card shows the override badge
             // immediately for feedback, but this flags it as not-yet-saved so it doesn't look
             // like a decision that's already taken effect.
             const isUnsaved    = !!localEntry && (
               localEntry.model !== (serverEntry?.model ?? '') ||
-              localEntry.cliTool !== (serverEntry?.cliTool ?? 'claude')
+              localEntry.cliTool !== (serverEntry?.cliTool ?? 'claude') ||
+              JSON.stringify(localEntry.fallback ?? null) !== JSON.stringify(serverEntry?.fallback ?? null)
             );
 
             return (
@@ -390,6 +423,8 @@ export function AgentRoutingView({ onDirtyChange, onEditPrompt }: AgentRoutingVi
                 hasOverride={hasOverride}
                 cliTool={cliTool}
                 onChangeCliTool={handleChangeCliTool}
+                fallback={fallback}
+                onChangeFallback={handleChangeFallback}
                 onEditPrompt={onEditPrompt}
               />
             );

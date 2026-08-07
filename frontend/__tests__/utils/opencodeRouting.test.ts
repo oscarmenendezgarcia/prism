@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildStageModelConfig,
+  buildFallbackConfig,
   localRoutingToStageModelsMap,
   isValidOpencodeModel,
   isValidSlashModel,
@@ -60,6 +61,15 @@ describe('buildStageModelConfig', () => {
     });
   });
 
+  it('attaches a fallback harness to the config', () => {
+    expect(buildStageModelConfig('claude-sonnet-4-5', 'claude', {
+      cliTool: 'opencode', model: 'gb10/deepseek-v4-flash',
+    })).toEqual({
+      provider: 'claude', model: 'claude-sonnet-4-5', cliTool: 'claude',
+      fallback: { cliTool: 'opencode', model: 'gb10/deepseek-v4-flash', provider: 'gb10' },
+    });
+  });
+
   it('falls back to the harness name when the provider prefix is empty', () => {
     expect(buildStageModelConfig('/justmodel', 'opencode')).toEqual({
       provider: 'opencode', model: '/justmodel', cliTool: 'opencode',
@@ -104,5 +114,28 @@ describe('localRoutingToStageModelsMap', () => {
       'qa-engineer-e2e': { model: '', cliTool: 'opencode' },
     });
     expect(map['qa-engineer-e2e']).toBeNull();
+  });
+});
+
+describe('buildFallbackConfig', () => {
+  it('returns null when unset', () => {
+    expect(buildFallbackConfig(undefined)).toBeNull();
+    expect(buildFallbackConfig(null)).toBeNull();
+  });
+
+  it('builds a claude fallback with a model', () => {
+    expect(buildFallbackConfig({ cliTool: 'claude', model: 'claude-haiku-4-5' })).toEqual({
+      cliTool: 'claude', model: 'claude-haiku-4-5',
+    });
+  });
+
+  it('derives the provider for a slash-model fallback harness', () => {
+    expect(buildFallbackConfig({ cliTool: 'hermes', model: 'local/deepseek-v4-flash' })).toEqual({
+      cliTool: 'hermes', model: 'local/deepseek-v4-flash', provider: 'local',
+    });
+  });
+
+  it('returns only cliTool when the model is blank', () => {
+    expect(buildFallbackConfig({ cliTool: 'pi', model: '' })).toEqual({ cliTool: 'pi' });
   });
 });

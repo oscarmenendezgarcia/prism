@@ -10,13 +10,15 @@
  * model selection.
  */
 
-import React, { useId } from 'react';
+import React, { useId, useState } from 'react';
 import { SOURCE_CLASSES, SOURCE_MUTED_CLASSES } from './ModelInheritanceBadge';
 import { EffortSegmented }       from './EffortSegmented';
 import { SkillsReadOnly }        from './SkillsReadOnly';
 import { CliToolSelector }       from './CliToolSelector';
+import { SegmentedControl }      from './SegmentedControl';
 import { agentDotColor }         from '@/utils/agentName';
 import { isSlashModelHarness, isValidSlashModel } from '@/utils/modelRouting';
+import type { RoutingFallback }  from '@/utils/modelRouting';
 import type { ModelSource }      from '@/utils/modelRouting';
 import type { Scope }            from './ScopeSelector';
 import type { ModelCliTool }     from '@/types';
@@ -54,6 +56,10 @@ interface AgentRoutingCardProps {
   cliTool: ModelCliTool;
   /** Called when the user switches the CLI tool (claude ⇄ opencode). */
   onChangeCliTool: (agentId: string, cliTool: ModelCliTool) => void;
+  /** Optional fallback harness used when the primary binary is missing. */
+  fallback: RoutingFallback | null;
+  /** Called when the user changes the fallback harness (null = none). */
+  onChangeFallback: (agentId: string, fallback: RoutingFallback | null) => void;
   /** Called when the user wants to view/edit the agent's system prompt (.md). */
   onEditPrompt?: (agentId: string) => void;
 }
@@ -74,9 +80,14 @@ export function AgentRoutingCard({
   hasOverride,
   cliTool,
   onChangeCliTool,
+  fallback,
+  onChangeFallback,
   onEditPrompt,
 }: AgentRoutingCardProps) {
   const detailId  = useId();
+  // Fallback is an advanced/power config — collapsed behind a toggle so the
+  // expanded card doesn't show resilience wiring to everyone.
+  const [fallbackOpen, setFallbackOpen] = useState(false);
   const dotClass  = agentDotColor(agentId);
 
   /** Model shown in the mini-pill and in the preset/input area. */
@@ -352,6 +363,72 @@ export function AgentRoutingCard({
               </label>
               <EffortSegmented value={metadata.effort} loading={metadata.loading} />
             </div>
+          </div>
+
+          {/* Fallback harness — advanced/power config, collapsed behind a toggle */}
+          <div className="pt-5 border-t border-border/50">
+            <button
+              type="button"
+              onClick={() => setFallbackOpen((v) => !v)}
+              aria-expanded={fallbackOpen}
+              className="flex w-full items-center justify-between gap-3 group"
+            >
+              <span className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[15px] leading-none text-text-secondary/70" aria-hidden="true">
+                  swap_vert
+                </span>
+                <span className="text-[11px] font-semibold uppercase tracking-widest text-text-secondary group-hover:text-primary transition-colors duration-fast">
+                  Fallback (advanced)
+                </span>
+              </span>
+              <span className="flex items-center gap-2">
+                {fallback?.cliTool && !fallbackOpen && (
+                  <span className="inline-flex items-center px-1.5 py-[1px] rounded text-[10px] font-mono leading-none bg-surface-elevated border border-border text-text-secondary">
+                    {fallback.cliTool}
+                  </span>
+                )}
+                <span className={`material-symbols-outlined text-[15px] leading-none text-text-secondary/70 transition-transform duration-fast ${fallbackOpen ? 'rotate-180' : ''}`} aria-hidden="true">
+                  expand_more
+                </span>
+              </span>
+            </button>
+            {fallbackOpen && (
+              <div className="mt-3 flex flex-col gap-2">
+                <SegmentedControl<'none' | ModelCliTool>
+                  ariaLabel={`Fallback harness for ${displayName}`}
+                  value={fallback?.cliTool ?? 'none'}
+                  onChange={(v) => onChangeFallback(
+                    agentId,
+                    v === 'none' ? null : { cliTool: v, model: fallback?.model },
+                  )}
+                  options={[
+                    { value: 'none', label: 'None' },
+                    { value: 'claude',   label: 'Claude' },
+                    { value: 'opencode', label: 'opencode' },
+                    { value: 'pi',       label: 'pi' },
+                    { value: 'hermes',   label: 'hermes' },
+                  ]}
+                />
+                {fallback?.cliTool && (
+                  <input
+                    type="text"
+                    aria-label={`Fallback model for ${displayName}`}
+                    placeholder={
+                      isSlashModelHarness(fallback.cliTool)
+                        ? 'provider/model'
+                        : 'Custom model string…'
+                    }
+                    value={fallback.model ?? ''}
+                    onChange={(e) => onChangeFallback(agentId, { cliTool: fallback.cliTool, model: e.target.value })}
+                    className="w-full bg-surface border rounded-lg px-3 py-1.5 text-[12px] text-text-primary placeholder:text-text-secondary/50 focus:outline-none focus:ring-1 transition-all duration-fast font-mono"
+                  />
+                )}
+                <p className="text-[11px] leading-tight text-text-secondary/70">
+                  Used when the primary harness binary is missing on this machine (e.g. a stage
+                  configured for opencode/pi/hermes but the CLI is not installed).
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Skills section */}
