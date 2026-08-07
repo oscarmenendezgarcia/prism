@@ -160,8 +160,8 @@ describe('exported constants', () => {
     assert.ok(VALID_PROVIDERS.includes('claude'));
   });
 
-  it('VALID_CLI_TOOLS contains claude, opencode, custom', () => {
-    assert.deepEqual(VALID_CLI_TOOLS, ['claude', 'opencode', 'custom']);
+  it('VALID_CLI_TOOLS contains claude, opencode, pi, hermes, custom', () => {
+    assert.deepEqual(VALID_CLI_TOOLS, ['claude', 'opencode', 'pi', 'hermes', 'custom']);
   });
 
   it('accepts opencode as a valid cliTool', () => {
@@ -239,5 +239,97 @@ describe('validateStageModelConfig — opencode', () => {
       model:    'vllm-local/nvidia/Qwen3.6-35B-A3B-NVFP4',
     });
     assert.equal(result.valid, true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MODEL-3: pi-specific validation
+// ---------------------------------------------------------------------------
+
+describe('validateStageModelConfig — pi', () => {
+  it('accepts pi as a valid cliTool', () => {
+    assert.equal(validateStageModelConfig({ cliTool: 'pi' }).valid, true);
+  });
+
+  it('accepts pi with provider/model format', () => {
+    const result = validateStageModelConfig({
+      cliTool: 'pi',
+      model:   'gb10/deepseek-v4-flash',
+    });
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it('rejects pi model without slash (not provider/model format)', () => {
+    const result = validateStageModelConfig({
+      cliTool: 'pi',
+      model:   'no-slash-model',
+    });
+    assert.equal(result.valid, false);
+    assert.ok(result.errors[0].includes('provider>/<model'));
+  });
+
+  it('accepts pi with any non-empty provider string', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'pi',
+      provider: 'gb10',
+      model:    'gb10/deepseek-v4-flash',
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it('rejects pi with empty provider', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'pi',
+      provider: '',
+      model:    'gb10/deepseek-v4-flash',
+    });
+    assert.equal(result.valid, false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MODEL-3: hermes validation
+// ---------------------------------------------------------------------------
+
+describe('validateStageModelConfig — hermes', () => {
+  it('accepts hermes as a valid cliTool', () => {
+    assert.equal(validateStageModelConfig({ cliTool: 'hermes' }).valid, true);
+  });
+
+  it('accepts hermes with a plain model (no slash required)', () => {
+    const result = validateStageModelConfig({
+      cliTool: 'hermes',
+      model:   'deepseek-v4-flash',
+    });
+    assert.equal(result.valid, true);
+    assert.equal(result.errors.length, 0);
+  });
+
+  it('accepts hermes with provider/model format', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'hermes',
+      provider: 'Local',
+      model:    'Local/deepseek-v4-flash',
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it('accepts hermes with any non-empty provider string', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'hermes',
+      provider: 'Local',
+      model:    'deepseek-v4-flash',
+    });
+    assert.equal(result.valid, true);
+  });
+
+  it('rejects hermes with empty provider', () => {
+    const result = validateStageModelConfig({
+      cliTool:  'hermes',
+      provider: '',
+      model:    'deepseek-v4-flash',
+    });
+    assert.equal(result.valid, false);
   });
 });
