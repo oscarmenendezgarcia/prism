@@ -632,6 +632,25 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
   stage.finishedAt = new Date().toISOString();
 
   if (exitCode !== 0) {
+    // MODEL-3 (runtime retry): the primary harness ran but failed. If the stage
+    // declares a fallback and hasn't already been retried (and isn't already
+    // running on a fallback from a spawn-time health check), re-spawn this stage
+    // once on the fallback harness instead of failing the whole run.
+    const fb = stage.fallback && stage.fallback.cliTool ? stage.fallback : null;
+    if (fb && !stage.retriedWithFallback && !stage.fallbackFrom) {
+      stage.retriedWithFallback = true;
+      stage.status   = 'pending';
+      stage.exitCode = null;
+      stage.finishedAt = null;
+      writeRun(dataDir, run);
+      pipelineLog('stage.fallback_retry', { runId, stageIndex, agentId, exitCode, from: stage.cliTool, to: fb.cliTool });
+      // Remove the stale sentinel so the re-spawn's poll loop sees the fresh run.
+      try { fs.unlinkSync(stageDonePath(dataDir, runId, stageIndex)); } catch { /* already gone */ }
+      spawnStage(dataDir, run, stageIndex, { forceFallback: true }).catch((err) => {
+        pipelineLog('stage.fallback_retry_error', { runId, stageIndex, message: err.message });
+      });
+      return;
+    }
     stage.status = 'failed';
     run.status   = 'failed';
     writeRun(dataDir, run);
@@ -1535,7 +1554,7 @@ async function executeNextStage(dataDir, runId) {
  * @param {object} run       - Current run state object.
  * @param {number} stageIndex
  */
-async function spawnStage(dataDir, run, stageIndex) {
+async function spawnStage(dataDir, run, stageIndex, opts = {}) {
   const agentId     = run.stages[stageIndex];
   const baseTimeout = parseInt(process.env.PIPELINE_STAGE_TIMEOUT_MS || String(DEFAULT_STAGE_TIMEOUT_MS), 10);
   // Orchestrator coordinates the full pipeline internally — give it 6× the per-stage timeout.
@@ -1634,6 +1653,7 @@ async function spawnStage(dataDir, run, stageIndex) {
     run.stageStatuses[stageIndex].cliTool      = earlyConfig.cliTool;
     run.stageStatuses[stageIndex].provider     = earlyConfig.provider;
     run.stageStatuses[stageIndex].resolvedFrom = earlyConfig.resolvedFrom;
+    run.stageStatuses[stageIndex].fallback     = earlyConfig.fallback ?? null;
     writeRun(dataDir, run);
     const earlyAdapter = getAdapter(earlyConfig.cliTool);
     if (earlyAdapter.needsPromptFile) {
@@ -1679,9 +1699,30 @@ async function spawnStage(dataDir, run, stageIndex) {
   // MODEL-3: resolve the harness adapter, then health-check + fallback. If the
   // primary adapter's binary is missing (BINARY_NOT_FOUND) and the stage declares
   // a fallback, switch to the fallback harness — the stage runs on the fallback.
-  const { adapter, effectiveConfig } = resolveAdapterWithFallback(modelConfig, (payload) => {
+  let { adapter, effectiveConfig } = resolveAdapterWithFallback(modelConfig, (payload) => {
     pipelineLog('stage.fallback_activated', { runId: run.runId, stageIndex, agentId, ...payload });
   });
+
+  // MODEL-3 (runtime retry): when opts.forceFallback is set (a previous attempt
+  // failed at runtime and handleStageClose re-spawned this stage), force the
+  // declared fallback harness regardless of the primary's binary health — the
+  // primary already ran once and failed, so retry on the fallback.
+  if (opts.forceFallback && modelConfig.fallback && modelConfig.fallback.cliTool) {
+    const fb = modelConfig.fallback;
+    adapter = getAdapter(fb.cliTool);
+    effectiveConfig = {
+      ...modelConfig,
+      cliTool:  fb.cliTool,
+      model:    fb.model  || modelConfig.model,
+      provider: fb.provider || modelConfig.provider,
+      command:  fb.command || modelConfig.command,
+      usedFallback: true,
+    };
+    pipelineLog('stage.fallback_retry', { runId: run.runId, stageIndex, agentId, from: modelConfig.cliTool, to: fb.cliTool });
+  }
+
+  // Record the declared fallback on the stage so a runtime failure can retry on it.
+  run.stageStatuses[stageIndex].fallback = modelConfig.fallback ?? null;
 
   // Backend spawns always get --permission-mode bypassPermissions: there is no user
   // present to respond to permission prompts, so any interactive pause would

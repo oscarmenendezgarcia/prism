@@ -3,8 +3,9 @@
  *
  * Collapsed: dot, name, role subtitle, mini model pill (tinted when overridden),
  *            skill count, chevron.
- * Expanded:  Model picker (badge + presets + custom input + Clear), read-only
- *            EffortSegmented, read-only SkillsReadOnly.
+ * Expanded:  Harness picker (CLI tool + model pill + presets + input + Clear),
+ *            read-only EffortSegmented, collapsible Fallback harness (advanced),
+ *            read-only SkillsReadOnly, System-prompt editor link.
  *
  * Model edits are lifted up via callbacks; the card itself is stateless w.r.t.
  * model selection.
@@ -389,7 +390,7 @@ export function AgentRoutingCard({
           </div>
 
           {/* Fallback harness — advanced/power config, collapsed behind a toggle */}
-          <div className="pt-5 border-t border-border/50">
+          <div className="pt-5">
             <button
               type="button"
               onClick={() => setFallbackOpen((v) => !v)}
@@ -447,8 +448,8 @@ export function AgentRoutingCard({
                   />
                 )}
                 <p className="text-[11px] leading-tight text-text-secondary/70">
-                  Used when the primary harness binary is missing on this machine (e.g. a stage
-                  configured for opencode/pi/hermes but the CLI is not installed).
+                  Used when the primary harness can't run — the CLI isn't
+                  installed, or a stage fails and is retried once on this harness.
                 </p>
               </div>
             )}

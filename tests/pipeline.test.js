@@ -820,6 +820,67 @@ describe('pipelineManager — init() startup recovery', () => {
 
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
+
+  test('init re-spawns a failed stage on its fallback harness (runtime retry)', async () => {
+    const dataDir = tmpDir();
+    const runsDir = path.join(dataDir, 'runs');
+    const runId   = 'run-fallback-retry';
+    const runDir  = path.join(runsDir, runId);
+    fs.mkdirSync(runDir, { recursive: true });
+
+    const runState = {
+      runId,
+      spaceId:      'fake-space',
+      taskId:       'fake-task',
+      stages:       ['developer-agent'],
+      currentStage: 0,
+      status:       'running',
+      stageStatuses: [{
+        index: 0, agentId: 'developer-agent', status: 'running',
+        pid: null, exitCode: null,
+        startedAt: new Date(Date.now() - 60_000).toISOString(),
+        finishedAt: null,
+        // Declares a fallback harness — a runtime failure should retry on it.
+        fallback: { cliTool: 'claude', model: 'claude-sonnet-4-5' },
+      }],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    fs.writeFileSync(path.join(runDir, 'run.json'), JSON.stringify(runState), 'utf8');
+
+    const registry = [{ runId, spaceId: 'fake-space', taskId: 'fake-task', status: 'running', createdAt: runState.createdAt }];
+    fs.writeFileSync(path.join(runsDir, 'runs.json'), JSON.stringify(registry), 'utf8');
+
+    // Simulate a runtime failure: the primary harness ran and exited non-zero.
+    fs.writeFileSync(path.join(runDir, 'stage-0.done'), '1', 'utf8');
+
+    const savedUrl = process.env.KANBAN_API_URL;
+    process.env.KANBAN_API_URL = 'http://localhost:19999/api/v1';
+    process.env.PIPELINE_NO_SPAWN = '1';
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+    pm.init(dataDir);
+
+    // Wait for: sentinel detection → handleStageClose retry → re-spawn (NO_SPAWN
+    // writes a success sentinel) → poll loop completes the stage.
+    await new Promise((r) => setTimeout(r, 3000));
+
+    const recovered = JSON.parse(fs.readFileSync(path.join(runDir, 'run.json'), 'utf8'));
+    assert.notEqual(recovered.status, 'interrupted', 'run should not be interrupted');
+    assert.equal(recovered.stageStatuses[0].retriedWithFallback, true,
+      'stage should be marked as retried with fallback');
+    assert.equal(recovered.stageStatuses[0].status, 'completed',
+      'stage should complete on the fallback harness after the retry');
+    assert.notEqual(recovered.status, 'failed',
+      'run should not fail — the fallback retry took over');
+
+    delete process.env.PIPELINE_NO_SPAWN;
+    if (savedUrl !== undefined) process.env.KANBAN_API_URL = savedUrl;
+    else delete process.env.KANBAN_API_URL;
+
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
 });
 
 // ---------------------------------------------------------------------------
