@@ -174,7 +174,7 @@ export function AgentRoutingCard({
             ].join(' ')}
             title={
               needsSlashModel
-                ? 'No opencode model set yet — example shown'
+                ? `No ${cliTool} model set yet — example shown`
                 : isInherited
                   ? `Inherited from ${source} settings — not set at this scope`
                   : (displayModel ?? undefined)
@@ -248,7 +248,7 @@ export function AgentRoutingCard({
                           : SOURCE_MUTED_CLASSES.default,
                   ].join(' ')}
                   title={needsSlashModel
-                    ? 'No opencode model set yet — example shown; set it in the field below'
+                    ? `No ${cliTool} model set yet — example shown; set it in the field below`
                     : 'Current model — change it with the presets or the input below'}
                 >
                   {!needsSlashModel && (
@@ -332,15 +332,15 @@ export function AgentRoutingCard({
                 ].join(' ')}
               />
 
-              {/* opencode format helper / inline validation */}
+              {/* slash-model format helper / inline validation */}
               {isSlashHarness && (
                 <p className={[
                   'text-[11px] leading-tight',
                   slashInvalid ? 'text-error' : 'text-text-secondary/70',
                 ].join(' ')}>
                   {slashInvalid
-                    ? 'opencode needs a provider/model string (must contain “/”).'
-                    : 'Runs via the opencode CLI — use a provider/model string from your opencode config.'}
+                    ? `${cliTool} needs a provider/model string (must contain "/").`
+                    : `Runs via the ${cliTool} CLI — use a provider/model string from your ${cliTool} config.`}
                 </p>
               )}
             </div>
