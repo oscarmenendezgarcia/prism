@@ -114,6 +114,23 @@ Params: `?type=`, `?limit=` (default 20, max 200), `?from=`, `?to=`, `?cursor=`
 | `space-project` | `<space.workingDirectory>/CLAUDE.md` |
 | `space-agent` | `<space.workingDirectory>/.claude/agents/*.md` |
 
+## Harnesses
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/harnesses` | Resolve which CLI harnesses (`claude`, `opencode`, `pi`, `hermes`) are installed on this machine, with an `installUrl` for each unavailable one (for the UI's install links). |
+
+Response shape:
+
+```jsonc
+{
+  "harnesses": [
+    { "cliTool": "claude",  "modelFormat": "preset",        "available": true,  "path": "/usr/local/bin/claude",  "installUrl": "https://www.anthropic.com/product/claude-code" },
+    { "cliTool": "opencode", "modelFormat": "provider/model", "available": false, "path": null,                       "installUrl": "https://opencode.ai/" }
+  ]
+}
+```
+
 ## Legacy routes
 
 `/api/v1/tasks/*` → redirected to default space (backward compat shim).
