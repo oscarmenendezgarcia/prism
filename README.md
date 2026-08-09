@@ -31,7 +31,7 @@ Most Kanban tools are built for humans tracking human work. **Prism is built for
 |---|---|
 | **Agents manage the board** | Via MCP tools, agents create tasks, update status, and attach artifacts as they work. |
 | **Pipelines from any task** | One click launches a multi-stage pipeline (architect → UX → developer → code review → QA) against a task card, with live stage-by-stage logs and automatic QA/review → developer feedback loops. |
-| **Per-stage model & CLI routing** | Every agent in the pipeline can run on a different model and CLI — mix Claude with **opencode** against any OpenAI-compatible endpoint (local, self-hosted, or a third-party provider), overridable at the global, space, or task level. [See below](#agents--routing--bring-your-own-model). |
+| **Per-stage harness & model routing** | Every agent in the pipeline can run on its own CLI harness + model — Claude Code, **opencode**, **pi**, **hermes**, or a custom command — with a per-agent fallback harness, overridable at the global, space, or task level. [See below](#agents--routing--bring-your-own-model). |
 | **Folio — shared knowledge** | Agents stop starting every task from zero — [see below](#folio--knowledge-that-grows-with-use). |
 | **Global search** | <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> across all spaces, powered by SQLite FTS5. |
 | **Embedded terminal** | A full PTY shell inside the UI. |
@@ -61,14 +61,16 @@ Agents reach Folio through its own MCP server (`folio_search`, `folio_get_page`,
 
 ## Agents & Routing — bring your own model
 
-Prism doesn't just run pipelines on Claude. Every agent (`senior-architect`, `developer-agent`, `code-reviewer`, `qa-engineer-e2e`, …) has an independent **CLI tool + model** setting, resolved per stage in this order: task override → space override → global setting → the agent's own frontmatter default.
+Prism doesn't just run pipelines on Claude. Every agent (`senior-architect`, `developer-agent`, `code-reviewer`, `qa-engineer-e2e`, …) has an independent **Harness + model** setting, resolved per stage in this order: task override → space override → global setting → the agent's own frontmatter default.
 
-- **Two CLI tools today**: `claude` (Claude Code) and [**opencode**](https://opencode.ai) — a model-agnostic coding CLI that can point at any OpenAI-compatible endpoint: local inference (e.g. vLLM on your own hardware), a self-hosted proxy, or a third-party provider.
-- **Configure it from the UI** — the *Agents & Routing* panel (⚙ → Agents & Routing) lists every agent with its resolved model, source (global/space/task), and CLI tool, editable inline.
+- **Four harnesses + custom**: `claude` (Claude Code), [**opencode**](https://opencode.ai), [**pi**](https://pi.dev), and [**hermes**](https://hermes-agent.nousresearch.co/), or a `custom` command template for any other CLI or wrapper. opencode and pi can point at any OpenAI-compatible endpoint: local inference (e.g. vLLM on your own hardware), a self-hosted proxy, or a third-party provider.
+- **Configure it from the UI** — the *Agents & Routing* panel (⚙ → Agents & Routing) lists every agent with its resolved harness + model, source (global/space/task), and a fallback harness, editable inline.
+- **Per-agent fallback (advanced)** — each agent can declare a fallback harness + model, used when the primary CLI isn't installed, or when a stage fails at runtime and is retried once on the fallback before the pipeline marks it failed.
+- **Harness discovery** — the panel shows which CLIs (`claude`, `opencode`, `pi`, `hermes`) are installed on this machine and turns unavailable ones into install links, so you never wonder why a harness option is missing.
 - **Mix and match** — keep the highest-stakes reasoning (architecture, irreversible decisions) on a frontier model while running implementation/QA stages on a local model, or vice versa.
-- **Isolated per run** — regardless of which CLI a stage runs on, it still executes inside its own git worktree ([see below](#parallel-pipeline-runs--git-worktree-isolation)), so a local model's mistakes never touch your working branch.
+- **Isolated per run** — regardless of which harness a stage runs on, it still executes inside its own git worktree ([see below](#parallel-pipeline-runs--git-worktree-isolation)), so a local model's mistakes never touch your working branch.
 
-opencode isn't bundled in the Docker image (only Claude Code is pre-installed) — install and configure it yourself, then point Prism's routing config at your endpoint. See [opencode's docs](https://opencode.ai/docs) for provider setup.
+Only Claude Code is bundled in the Docker image — install opencode, pi, or hermes yourself and point Prism's routing config at them (the UI links to each product's install page when a CLI isn't found). See opencode's docs for provider setup.
 
 ---
 
@@ -168,7 +170,7 @@ Pipeline runs are driven by `kanban_start_run` / `kanban_stop_run` / `kanban_res
 
 > **Prerequisite:** the server (`prism start` or `docker compose up`) must be running before starting any agent session.
 >
-> Registration is per CLI tool — an agent pipeline stage routed to opencode ([see above](#agents--routing--bring-your-own-model)) needs the `prism` MCP server registered in *opencode's own config*, separate from any Claude Code registration. Without it, that stage can't move tasks, leave comments, or attach artifacts, even though the model itself is running fine.
+> Registration is per harness — an agent pipeline stage routed to opencode, pi, or hermes ([see above](#agents--routing--bring-your-own-model)) needs the `prism` MCP server registered in *that CLI's own config*, separate from any Claude Code registration. Without it, that stage can't move tasks, leave comments, or attach artifacts, even though the model itself is running fine.
 
 **Claude Code** — one-liner from the project root:
 
@@ -267,7 +269,7 @@ The worktree path and branch are git-ignored and never committed.
 | `PORT` | `3000` | HTTP server port |
 | `DATA_DIR` | *(resolved, see below)* | Directory where `prism.db` is stored |
 | `ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173` | Allowed WebSocket origins — set to your public URL behind a reverse proxy |
-| `ANTHROPIC_API_KEY` | — | Required for any stage/agent routed to Claude (the default). Not needed for stages routed to opencode against a local or self-hosted model — [see Agents & Routing](#agents--routing--bring-your-own-model). |
+| `ANTHROPIC_API_KEY` | — | Required for any stage/agent routed to Claude (the default). Not needed for stages routed to opencode, pi, or hermes against a local or self-hosted model — [see Agents & Routing](#agents--routing--bring-your-own-model). |
 
 `DATA_DIR` isn't a flat default — without an explicit override it's resolved in this order: **(1)** `DATA_DIR` env var if set; **(2)** `<packageRoot>/data` when running from a git checkout (has a `.git` directory — this repo, or a dev clone); **(3)** `$XDG_DATA_HOME/prism` if `XDG_DATA_HOME` is set; **(4)** `~/.local/share/prism` otherwise. A global `npm install -g prism-kanban` install lands on (3) or (4), *not* `./data` — the Docker image sets `DATA_DIR=/app/data` explicitly, which is why that path shows up there.
 

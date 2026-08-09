@@ -1,6 +1,41 @@
 # Changelog
 
-## [Unreleased]
+## [1.6.0] — 2026-08-09
+
+Headline: **Bring your own harness.** The Agents & Routing stack lets every agent in the
+pipeline run on its own CLI + model — Claude Code, **opencode**, **pi**, **hermes**, or an
+arbitrary **custom** command — resolved per stage with a per-agent **fallback** harness that
+activates when the primary CLI is missing or a stage fails at runtime, plus in-UI **harness
+discovery** that surfaces install links for CLIs not yet on the machine.
+
+### Added
+- **Pluggable CLI-harness adapter registry.** A stage's `cliTool` is resolved through a
+  registered adapter instead of a hard-coded branch, so new harnesses plug in without touching
+  the pipeline core. (#188)
+- **`pi` and `hermes` CLI harnesses.** Beyond Claude Code and opencode, agents can now route to
+  the `pi` and `hermes` CLIs (both `provider/model` style), each with its own spawn adapter. (#189)
+- **`custom` cliTool — arbitrary command template.** Route a stage to any executable/command
+  string with its own model, for harnesses or wrappers without a first-class adapter. (#190)
+- **Per-agent fallback harness (advanced).** The *Agents & Routing* UI now has a collapsed
+  *Fallback (advanced)* section per agent: pick a secondary CLI + model used when the primary
+  harness can't run — the binary isn't installed, or a stage fails and is retried once on the
+  fallback. (#191, #194)
+- **Runtime fallback retry.** A stage that fails at runtime (non-zero exit) is re-spawned once
+  on its fallback harness before the pipeline marks it failed. (#191)
+- **Harness discovery — `GET /api/v1/harnesses`.** The backend reports which CLIs
+  (`claude`, `opencode`, `pi`, `hermes`) are installed, with install links for the ones that
+  aren't; the UI renders unavailable harnesses as install links instead of dead options. (#194)
+- **Harness identity in the UI.** The *Agents & Routing* panel renames **Model → Harness** to
+  reflect that the setting is a CLI harness + model pair, and shows harness names in mono. (#194)
+
+### Changed
+- **`autoTask` and the Launcher now use adapter routing** — the same `cliTool`/model resolution
+  the pipeline uses, closing gaps where those entry points previously hard-coded Claude. (#192)
+- **Design hardening** of the Agents & Routing panel (a11y, tokens, contrast) from an
+  independent Opus design review. (#195)
+
+### Fixed
+- Harness adapters, fallback, and health-check correctness across the routing stack. (#188, #189, #190, #191, #192, #194)
 
 ## [1.5.0] — 2026-08-04
 
