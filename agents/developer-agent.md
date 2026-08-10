@@ -109,6 +109,18 @@ Priority:
 
 ## Step 3 — Implement
 
+**Write the least code that fully works (ponytail discipline).** Before writing anything, walk this ladder and stop at the first rung that works:
+1. Does it need to exist? Skip speculative work (YAGNI) — the cheapest code is the code you don't write.
+2. Standard library covers it? Use it.
+3. Native platform feature? Prefer it (e.g. `<input type="date">`, CSS over a JS animation lib, `Intl`, `URL`, `structuredClone`).
+4. Existing dependency or existing repo code? Reuse it — never add a dependency, or new code, for what's already there. Check `frontend/src/components/shared/`, `utils/`, and `hooks/` first.
+5. One-liner possible? Write it.
+6. Only then: the minimum working solution.
+
+Boring beats clever; the shortest working diff wins. No unrequested abstractions (no interface with one implementation, no factory for one product, no config for values that never change, no wrapper that only forwards). Mark any deliberate shortcut with a `// ponytail:` comment naming its ceiling and upgrade path — e.g. `// ponytail: global lock; per-account if throughput matters`.
+
+**Never simplify these away** (they are not over-engineering): input validation at trust boundaries, error handling that prevents data loss, security, accessibility, the project design system (Tailwind tokens / shared components), and explicitly requested features. Remove the calculation, not the tuning knob.
+
 Order: data models/types → core logic → edge cases → error handling → integration points.
 
 Rules:
