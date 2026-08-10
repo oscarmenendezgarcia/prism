@@ -109,6 +109,18 @@ Priority:
 
 ## Step 3 — Implement
 
+**Write the least code that fully works (ponytail discipline).** Before writing anything, walk this ladder and stop at the first rung that works:
+1. Does it need to exist? Skip speculative work (YAGNI) — the cheapest code is the code you don't write.
+2. Standard library covers it? Use it.
+3. Native platform feature? Prefer it (e.g. `<input type="date">`, CSS over a JS animation lib, `Intl`, `URL`, `structuredClone`).
+4. Existing dependency or existing repo code? Reuse it — never add a dependency, or new code, for what's already there. Check `frontend/src/components/shared/`, `utils/`, and `hooks/` first.
+5. One-liner possible? Write it.
+6. Only then: the minimum working solution.
+
+Boring beats clever; the shortest working diff wins. No unrequested abstractions (no interface with one implementation, no factory for one product, no config for values that never change, no wrapper that only forwards). Mark any deliberate shortcut with a `// ponytail:` comment naming its ceiling and upgrade path — e.g. `// ponytail: global lock; per-account if throughput matters`.
+
+**Never simplify these away** (they are not over-engineering): input validation at trust boundaries, error handling that prevents data loss, security, accessibility, the project design system (Tailwind tokens / shared components), and explicitly requested features. Remove the calculation, not the tuning knob.
+
 Order: data models/types → core logic → edge cases → error handling → integration points.
 
 Rules:
@@ -117,9 +129,13 @@ Rules:
 - No global state; prefer dependency injection
 - No inline `style={{}}` — Tailwind tokens only (project rule)
 - No new dependencies or patterns not in the design without flagging it
-- One atomic commit per task in tasks.json; never mix refactor with feature
-- Commit message format: `[dev] T-XXX: <task title>` — and `[fix] BUG-XXX: <description>` when fixing bugs from a QA/review feedback loop
 - For UI work (components, Tailwind classes, visual decisions): invoke the `ui-ux-pro-max` skill before implementing; backend-only tasks skip it
+
+> ⚠️ **CRITICAL — Commit as you go, not at the end.** The instant a logical unit of work is written (a file, a small group of related files), run it immediately:
+> ```bash
+> git add <files> && git commit -m "[dev] T-XXX: <task title>"
+> ```
+> Do this **repeatedly during Step 3**, not as a final cleanup step — if the run ends early (timeout, error, context limit) uncommitted work is silently lost when the worktree is torn down. One atomic commit per task in tasks.json; never mix refactor with feature. Use `[fix] BUG-XXX: <description>` when fixing bugs from a QA/review feedback loop. Never `git add -A` — stage only the files you just wrote.
 
 ---
 
@@ -140,9 +156,11 @@ Write or update tests alongside implementation. Never write a test that duplicat
 
 ---
 
-## Step 5 — Push branch and open PR (MANDATORY, always last)
+## Step 5 — Push branch and open PR (terminal mode, or pipeline mode WITH a remote)
 
-After all commits and tests pass:
+**Skip this step entirely if:** you are in pipeline mode and `git remote -v` is empty (isolated worktree runs against a local-only repo — common in experiments/prototypes with no GitHub remote yet). In that case your commits on the run's branch ARE the deliverable; the orchestrator merges the branch itself. Just make sure Step 3's commits landed (`git log --oneline` on your branch) before finishing.
+
+Otherwise, after all commits and tests pass:
 
 ```bash
 git push -u origin <branch>
@@ -231,11 +249,11 @@ A task is only `done` when every item is checked.
 - [ ] No `style={{}}` attributes
 
 **Traceability**
-- [ ] Diffs are atomic (one commit per task)
+- [ ] Work was committed incrementally during Step 3, not just at the end (`git log --oneline` shows one commit per task, not zero)
 - [ ] Changelog complete
 - [ ] "Open Questions / Risks" filled in (even if "none")
 
-**PR**
+**PR** (skip if pipeline mode + no remote — see Step 5)
 - [ ] Branch pushed: `git push -u origin <branch>`
 - [ ] PR created with `gh pr create` — targeting `--base <PR Base Branch>` when the prompt provided one (or existing PR updated + commented, in a fix loop) and URL reported
 - [ ] PR URL attached to Kanban task
