@@ -72,12 +72,12 @@ is broken and must never pass silently. See [[decisions/log]].
 > **visibly** instead of silently — the best available trade-off. See
 > [[strategy/autonomy-ladder]].
 
-## Escape hatch: the `.inject` signal
+## Retired: the `.inject` side-channel
 
-The older agent-driven path still works: an agent may write
-`data/runs/<RunId>/stage-<N>.inject` (a JSON array of agent ids) to force an
-injection directly. The manager honours it and does **not** double-inject when a
-gate verdict also fires for the same stage.
+The older agent-driven `data/runs/<RunId>/stage-<N>.inject` signal was retired
+with this feature and has not been re-added. There is no fallback path — the
+`prism-gate` block in the declared artifact is the sole source of truth. See
+[[strategy/autonomy-ladder]].
 
 ## Built-in gates
 

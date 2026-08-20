@@ -123,43 +123,108 @@ describe('feedbackParser — parseGateVerdict', () => {
     }
   });
 
-  // ---- BUG-001 regression -------------------------------------------------
-  // Both shipped gate agent .md prompts (code-reviewer.md, qa-engineer-e2e.md)
-  // contain a literal example `prism-gate` block as instructional text. If an
-  // agent echoes any part of its own prompt into its artifact, the earlier
-  // example block would otherwise silently override the real (later) verdict.
-  // The parser must take the LAST verdict block, not the first.
-  test('BUG-001: real verdict is the LAST prism-gate block, not the first', () => {
+  // ---- Strict-parser stance (round 3) ------------------------------------
+  // Every prior round of this PR produced the same class of bug: a verdict or
+  // its findings vanished silently through some new mechanism. The parser now
+  // REFUSES TO GUESS. When it cannot be certain, it returns pass:null and
+  // lets Policy C fail the run loudly.
+  //
+  // The classic footgun (formerly "BUG-001"): both shipped gate agent .md
+  // prompts contain a literal example `prism-gate` block as instructional
+  // text. An agent that echoes any of its prompt into its artifact would
+  // otherwise ship two disagreeing blocks. Under the new stance, disagreement
+  // → pass:null → Policy C fires → the run fails loudly and the operator
+  // knows the agent template is broken.
+  test('strict: two disagreeing prism-gate blocks → pass:null (Policy C fails loud)', () => {
     const artifact = [
       '# Review report',
       '',
-      'The gate agent template asked me to emit something like:',
+      'Example block echoed from the agent prompt template:',
       '',
       '```prism-gate',
-      'pass: true',                    // <-- STALE EXAMPLE that must NOT win
+      'pass: true',
       'findings:',
       '  - example finding from prompt',
       '```',
       '',
-      'My real verdict:',
+      'The agent then wrote its real verdict:',
       '',
       '```prism-gate',
-      'pass: false',                   // <-- the REAL verdict, must win
+      'pass: false',
       'findings:',
       '  - Real bug: race in login flow',
       '```',
-      '',
     ].join('\n');
 
     const r = parseGateVerdict(artifact);
-    assert.equal(r.pass, false, 'must take the LAST verdict block');
-    assert.deepEqual(r.findings, ['Real bug: race in login flow']);
+    assert.equal(r.pass, null, 'disagreeing blocks must NEVER be silently reconciled');
+    assert.deepEqual(r.findings, []);
   });
 
-  test('BUG-001: single block still works after fix (regression on the regression)', () => {
+  test('strict: two IDENTICAL prism-gate blocks → parse successfully (agreement is fine)', () => {
+    // If the artifact contains the same verdict twice (rare but not a bug),
+    // agreement is enough — return the verdict.
+    const one = gateBlock('false', ['same bug']);
+    const artifact = one + '\n' + one;
+    const r = parseGateVerdict(artifact);
+    assert.equal(r.pass, false);
+    assert.deepEqual(r.findings, ['same bug']);
+  });
+
+  test('strict: single block still parses (regression guard on the regression)', () => {
     const r = parseGateVerdict(gateBlock('true', ['ok']));
     assert.equal(r.pass, true);
     assert.deepEqual(r.findings, ['ok']);
+  });
+
+  // ---- F1 (round 3) — fence-depth-aware block extraction -----------------
+  // A finding containing a fenced repro snippet (which QA is explicitly
+  // instructed to produce) must NOT terminate the outer prism-gate block.
+  // The old parser closed on the first ``` after the opener and silently
+  // dropped every finding past the nested fence. Reproduces the exact
+  // artifact shape from the round-3 findings brief.
+  test('F1: nested triple-backtick inside a finding does NOT truncate the block', () => {
+    const content = [
+      '````prism-gate',
+      'pass: false',
+      'findings:',
+      '  - BUG-001: crash on empty submit. Repro:',
+      '    ```bash',
+      '    curl -X POST /api/x -d {}',
+      '    ```',
+      '  - BUG-002: session not invalidated',
+      '  - BUG-003: race in handleStageClose',
+      '````',
+    ].join('\n');
+
+    const r = parseGateVerdict(content);
+    assert.equal(r.pass, false);
+    assert.equal(r.findings.length, 3, 'all three findings must survive the nested fence');
+    assert.equal(r.findings[1], 'BUG-002: session not invalidated');
+    assert.equal(r.findings[2], 'BUG-003: race in handleStageClose');
+  });
+
+  test('F1: unbalanced prism-gate fence → pass:null (loud failure via Policy C)', () => {
+    // Opening fence with NO matching closer of >= backtick length. Rather
+    // than "return what we could parse so far", the strict parser refuses.
+    const content = [
+      '```prism-gate',
+      'pass: false',
+      'findings:',
+      '  - Something',
+      // No closing fence.
+    ].join('\n');
+
+    const r = parseGateVerdict(content);
+    assert.equal(r.pass, null, 'unbalanced fence must never yield a partial verdict');
+  });
+
+  test('F1: pass: key missing → pass:null', () => {
+    // Block present, but no `pass:` line at all. Strict parser refuses to
+    // default to true or false.
+    const content = '```prism-gate\nfindings:\n  - x\n```';
+    const r = parseGateVerdict(content);
+    assert.equal(r.pass, null);
   });
 
   // ---- BUG-002 regression -------------------------------------------------
@@ -478,34 +543,288 @@ describe('pipelineManager — back-edge integration', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. BUG-003 regression — handleStageClose must persist stage.status='completed'
-//    BEFORE evaluating the feedback gate. Otherwise a crash / restart mid
-//    evaluation reattaches to a stage still marked 'running', re-runs the
-//    gate, and re-injects the loop — double-counting loopCounts[agentId].
+// 6. F2 (round 3) — BEHAVIOURAL regression for the mid-eval crash window.
+//    The round-2 fix for BUG-003 (persist stage.status='completed' before
+//    gate eval) narrowed one race but opened another: a crash BETWEEN the
+//    two writeRun calls would leave the stage 'completed' with the gate
+//    never evaluated — and both `_processRunsOnStartup` and `resumeRun`
+//    walked straight past the ungated stage as if it had passed.
 //
-//    handleStageClose is not exported; we defend against re-regression with a
-//    structural assertion on the source: the sequence
-//    "stage.status='completed'"  →  "writeRun(...)"  →  "evaluateFeedbackGate("
-//    must hold in that order, with no other writeRun in between skipped.
+//    Round-3 fix: stamp `stage.gatePending = true` alongside the completed
+//    marker in the SAME write. On restart or manual resume, the recovery
+//    path must re-invoke the gate rather than skipping past. These are
+//    BEHAVIOURAL tests against the exported `applyFeedbackGate` — they do
+//    NOT read source text, so refactors that preserve behaviour stay green.
 // ---------------------------------------------------------------------------
 
-describe('pipelineManager — BUG-003 handleStageClose persistence order', () => {
-  test('writeRun is called between stage completion and gate evaluation', () => {
-    const src = fs.readFileSync(
-      path.join(__dirname, '..', 'src', 'services', 'pipelineManager.js'),
+describe('pipelineManager — F2 gatePending recovery (behavioural)', () => {
+  let dataDir;
+  let agentsDir;
+  let pm;
+
+  before(() => {
+    dataDir   = tmpDir();
+    agentsDir = tmpDir();
+    writeGateAgent(agentsDir, 'code-reviewer', 'review-report.md');
+    writePlainAgent(agentsDir, 'developer-agent');
+    process.env.PIPELINE_AGENTS_DIR = agentsDir;
+    pm = require('../src/services/pipelineManager');
+    pm.init(dataDir);
+  });
+
+  after(() => {
+    delete process.env.PIPELINE_AGENTS_DIR;
+    fs.rmSync(dataDir, { recursive: true, force: true });
+    fs.rmSync(agentsDir, { recursive: true, force: true });
+  });
+
+  /** Persist a run with a completed-but-gatePending stage, as a mid-eval crash
+   *  would leave it. Returns { runId, spaceId, taskId }. */
+  function seedCrashedRun(verdictContent, opts = {}) {
+    const spaceId = `sp-${crypto.randomUUID()}`;
+    const taskId  = crypto.randomUUID();
+    const spaceDir = path.join(dataDir, 'spaces', spaceId);
+    fs.mkdirSync(spaceDir, { recursive: true });
+    const filePath = path.join(spaceDir, 'review-report.md');
+    fs.writeFileSync(filePath, verdictContent, 'utf8');
+    const task = { id: taskId, title: 'T', type: 'feature',
+      attachments: [{ name: 'review-report.md', type: 'file', content: filePath }],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([task]), 'utf8');
+    fs.writeFileSync(path.join(spaceDir, 'todo.json'), '[]', 'utf8');
+    fs.writeFileSync(path.join(spaceDir, 'done.json'), '[]', 'utf8');
+
+    const runId = crypto.randomUUID();
+    const runDirPath = path.join(dataDir, 'runs', runId);
+    fs.mkdirSync(runDirPath, { recursive: true });
+    const run = {
+      runId,
+      spaceId,
+      taskId,
+      stages: ['developer-agent', 'code-reviewer'],
+      currentStage: 2,
+      status: 'running',
+      stageStatuses: [
+        { index: 0, agentId: 'developer-agent', status: 'completed', exitCode: 0,
+          startedAt: new Date(Date.now() - 2000).toISOString(),
+          finishedAt: new Date(Date.now() - 1000).toISOString() },
+        // The mid-eval crash: gate stage marked completed, gatePending still set.
+        { index: 1, agentId: 'code-reviewer',   status: 'completed', exitCode: 0,
+          gatePending: true,
+          startedAt: new Date(Date.now() - 900).toISOString(),
+          finishedAt: new Date(Date.now() - 100).toISOString() },
+      ],
+      loopCounts: {},
+      feedbackGates: {},
+      feedbackIterations: 0,
+      ...opts,
+    };
+    fs.writeFileSync(path.join(runDirPath, 'run.json'), JSON.stringify(run), 'utf8');
+    return { runId, spaceId, taskId };
+  }
+
+  function readRunFromDisk(runId) {
+    return JSON.parse(fs.readFileSync(path.join(dataDir, 'runs', runId, 'run.json'), 'utf8'));
+  }
+
+  test('F2: crash mid-eval on pass:false → applyFeedbackGate re-injects the loop and clears gatePending', async () => {
+    const { runId } = seedCrashedRun(gateBlock('false', ['Fix the missing validation']));
+    const outcome = await pm.applyFeedbackGate(dataDir, runId, 1);
+    const after = readRunFromDisk(runId);
+
+    assert.equal(outcome, 'looped', 'must classify as a looped recovery');
+    assert.equal(after.stageStatuses[1].gatePending, false, 'gatePending must be cleared after recovery');
+    assert.equal(after.stages.length, 4, 'loop stages [developer-agent, code-reviewer] must be spliced in');
+    assert.equal(after.stages[2], 'developer-agent');
+    assert.equal(after.stages[3], 'code-reviewer');
+    assert.equal(after.loopCounts['code-reviewer'], 1, 'loop counter bumped exactly once');
+    assert.equal(after.feedbackIterations, 1);
+    assert.equal(after.feedbackGates['1'].agentId, 'code-reviewer');
+    assert.deepEqual(after.feedbackGates['1'].findings, ['Fix the missing validation']);
+  });
+
+  test('F2: crash mid-eval on pass:true → applyFeedbackGate clears gatePending, no injection', async () => {
+    const { runId } = seedCrashedRun(gateBlock('true'));
+    const outcome = await pm.applyFeedbackGate(dataDir, runId, 1);
+    const after = readRunFromDisk(runId);
+
+    assert.equal(outcome, 'passed');
+    assert.equal(after.stageStatuses[1].gatePending, false);
+    assert.equal(after.stages.length, 2, 'no loop stages spliced');
+    assert.equal(after.status, 'running', 'run stays running (pass:true) — no Policy C fire');
+  });
+
+  test('F2: crash mid-eval on missing verdict → Policy C fires (run.status = failed) instead of silent pass', async () => {
+    // The behaviour the round-3 findings brief specifically singles out: prior
+    // to this fix, a crash in the eval window would leave the gate skipped
+    // and the run would silently advance past a still-failing verdict.
+    const { runId } = seedCrashedRun('# review with no gate block\n');
+    const outcome = await pm.applyFeedbackGate(dataDir, runId, 1);
+    const after = readRunFromDisk(runId);
+
+    assert.equal(outcome, 'failed');
+    assert.equal(after.status, 'failed', 'Policy C must terminate the run loudly');
+    assert.equal(after.stageStatuses[1].failureReason, 'gate_no_verdict');
+    assert.equal(after.stageStatuses[1].gatePending, false, 'gatePending cleared even on Policy C');
+  });
+
+  test('F2: applyFeedbackGate is idempotent — a duplicate call after recovery is a no-op', async () => {
+    const { runId } = seedCrashedRun(gateBlock('false', ['Fix A']));
+    await pm.applyFeedbackGate(dataDir, runId, 1);
+    // Simulate a second delivery of the same recovery event (e.g. two
+    // startup sweeps racing after a fast restart-restart cycle).
+    const outcome2 = await pm.applyFeedbackGate(dataDir, runId, 1);
+    const after = readRunFromDisk(runId);
+
+    assert.equal(outcome2, 'passed', 'second call short-circuits (gatePending already cleared)');
+    assert.equal(after.loopCounts['code-reviewer'], 1, 'counter must NOT double-increment');
+    assert.equal(after.stages.length, 4, 'stages must NOT be spliced a second time');
+    assert.equal(after.feedbackIterations, 1);
+  });
+
+  test('F2: applyFeedbackGate on a non-gate agent clears gatePending harmlessly', async () => {
+    // A completed stage with gatePending: true whose agent has no `gate:`
+    // frontmatter must still clear the flag — otherwise the stage would stay
+    // recover-eligible forever.
+    const { runId } = seedCrashedRun('irrelevant');
+    // Overwrite the stage-1 agentId to a non-gate agent.
+    const run = readRunFromDisk(runId);
+    run.stages[1] = 'developer-agent';
+    run.stageStatuses[1].agentId = 'developer-agent';
+    fs.writeFileSync(path.join(dataDir, 'runs', runId, 'run.json'), JSON.stringify(run), 'utf8');
+
+    const outcome = await pm.applyFeedbackGate(dataDir, runId, 1);
+    const after = readRunFromDisk(runId);
+    assert.equal(outcome, 'passed');
+    assert.equal(after.stageStatuses[1].gatePending, false);
+    assert.equal(after.stages.length, 2, 'no loop spliced for a non-gate agent');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. F3 (round 3) — getAgentGateConfig must honour project-scoped overrides.
+//    The rest of pipelineManager already threads `run.workingDirectory` into
+//    resolveAgent so `<workingDirectory>/.claude/agents/<id>.md` wins over the
+//    global agents dir. Before this fix, only the feedback gate ignored the
+//    override and silently fell back to the global (or NULL) — so a project
+//    with a locally-overridden `code-reviewer.md` silently lost its gate.
+// ---------------------------------------------------------------------------
+
+describe('pipelineManager — F3 project-scoped agent override', () => {
+  let globalDir;
+  let projectDir;
+  let pm;
+
+  before(() => {
+    globalDir  = tmpDir();
+    projectDir = tmpDir();
+    // Global: plain agent, NO gate.
+    writePlainAgent(globalDir, 'code-reviewer');
+    // Project: same agent id, WITH a gate declaration and a different artifact.
+    writeGateAgent(path.join(projectDir, '.claude', 'agents'),
+      'code-reviewer', 'project-review-report.md', '[developer-agent, code-reviewer]');
+    process.env.PIPELINE_AGENTS_DIR = globalDir;
+    pm = require('../src/services/pipelineManager');
+  });
+
+  after(() => {
+    delete process.env.PIPELINE_AGENTS_DIR;
+    fs.rmSync(globalDir, { recursive: true, force: true });
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  });
+
+  test('F3: project .claude/agents/<id>.md wins over the global copy', () => {
+    // Without workingDirectory, the global (non-gate) copy is read → null.
+    assert.equal(pm.getAgentGateConfig('code-reviewer'), null);
+
+    // With workingDirectory, the project (gate) copy wins.
+    const cfg = pm.getAgentGateConfig('code-reviewer', projectDir);
+    assert.deepEqual(cfg, {
+      artifact: 'project-review-report.md',
+      loopBackTo: ['developer-agent', 'code-reviewer'],
+    });
+  });
+
+  test('F3: evaluateFeedbackGate reads workingDirectory off the run and finds the project gate', () => {
+    // The run carries workingDirectory; the manager must pass it through.
+    // We rely on the artifact being missing (no attachment) → missingVerdict,
+    // which confirms the gate was found at all (a non-gate agent would return
+    // { missingVerdict: false }).
+    const run = makeRun({ workingDirectory: projectDir });
+    const r = pm.evaluateFeedbackGate(tmpDir(), run, 1, 'code-reviewer');
+    assert.equal(r.missingVerdict, true, 'project gate must be found and its missing artifact must fail loudly');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 8. F4 (round 3) — loopBackTo must accept BOTH YAML shapes; key-present-
+//    but-unparseable must NOT silently fall back to the [developer-agent]
+//    default. Undercuts the PR's own "zero pipeline changes to add a gate"
+//    extensibility claim otherwise.
+// ---------------------------------------------------------------------------
+
+describe('pipelineManager — F4 loopBackTo YAML shapes', () => {
+  let agentsDir;
+  let pm;
+
+  before(() => {
+    agentsDir = tmpDir();
+    process.env.PIPELINE_AGENTS_DIR = agentsDir;
+    pm = require('../src/services/pipelineManager');
+  });
+
+  after(() => {
+    delete process.env.PIPELINE_AGENTS_DIR;
+    fs.rmSync(agentsDir, { recursive: true, force: true });
+  });
+
+  function writeGateAgentRaw(id, gateBody) {
+    fs.writeFileSync(
+      path.join(agentsDir, `${id}.md`),
+      `---\nname: ${id}\nmodel: sonnet\ngate:\n${gateBody}---\n\nBody.\n`,
       'utf8',
     );
+  }
 
-    const completedIdx = src.indexOf("stage.status       = 'completed'");
-    assert.ok(completedIdx > 0, "expected `stage.status = 'completed'` marker in handleStageClose");
+  test('F4: inline flow-list loopBackTo: [a, b] parses (backward compat)', () => {
+    writeGateAgentRaw('inline-gate',
+      '  artifact: report.md\n  loopBackTo: [developer-agent, code-reviewer]\n');
+    const cfg = pm.getAgentGateConfig('inline-gate');
+    assert.deepEqual(cfg, { artifact: 'report.md', loopBackTo: ['developer-agent', 'code-reviewer'] });
+  });
 
-    const gateEvalIdx = src.indexOf('evaluateFeedbackGate(dataDir, run, stageIndex, agentId)', completedIdx);
-    assert.ok(gateEvalIdx > completedIdx, 'expected evaluateFeedbackGate call after stage completion');
+  test('F4: block-list loopBackTo (- item per line) now parses', () => {
+    writeGateAgentRaw('block-gate',
+      '  artifact: report.md\n  loopBackTo:\n    - developer-agent\n    - code-reviewer\n');
+    const cfg = pm.getAgentGateConfig('block-gate');
+    assert.deepEqual(cfg, { artifact: 'report.md', loopBackTo: ['developer-agent', 'code-reviewer'] });
+  });
 
-    const between = src.slice(completedIdx, gateEvalIdx);
-    assert.ok(
-      /\bwriteRun\s*\(\s*dataDir\s*,\s*run\s*\)/.test(between),
-      'BUG-003 regression: writeRun(dataDir, run) must appear between marking the stage completed and evaluating the feedback gate — otherwise a mid-evaluation restart double-injects the loop',
-    );
+  test('F4: single-item block-list loopBackTo parses', () => {
+    writeGateAgentRaw('block-one',
+      '  artifact: report.md\n  loopBackTo:\n    - developer-agent\n');
+    const cfg = pm.getAgentGateConfig('block-one');
+    assert.deepEqual(cfg.loopBackTo, ['developer-agent']);
+  });
+
+  test('F4: unparseable loopBackTo shape → malformed → missingVerdict (Policy C fires, no silent default)', () => {
+    writeGateAgentRaw('bad-gate',
+      '  artifact: report.md\n  loopBackTo: not-a-yaml-list\n');
+    const cfg = pm.getAgentGateConfig('bad-gate');
+    assert.equal(cfg.malformed, true, 'must NOT silently default to [developer-agent]');
+
+    // And evaluateFeedbackGate must surface this as missingVerdict.
+    const run = makeRun();
+    const r = pm.evaluateFeedbackGate(tmpDir(), run, 1, 'bad-gate');
+    assert.equal(r.missingVerdict, true, 'malformed config must fail the run loudly, not substitute defaults');
+  });
+
+  test('F4: absent loopBackTo key → still uses the default [developer-agent]', () => {
+    // The "no key at all" case is not ambiguous — the schema explicitly says
+    // this defaults to developer-agent. Only key-present-but-unparseable is
+    // malformed.
+    writeGateAgentRaw('default-gate', '  artifact: report.md\n');
+    const cfg = pm.getAgentGateConfig('default-gate');
+    assert.deepEqual(cfg, { artifact: 'report.md', loopBackTo: ['developer-agent'] });
   });
 });
