@@ -29,7 +29,7 @@ const path                      = require('path');
 const crypto                    = require('crypto');
 const { spawn }                 = require('child_process');
 
-const { resolveAgent, AgentNotFoundError, parseFrontmatter } = require('./agentResolver');
+const { resolveAgent, AgentNotFoundError, expandTilde } = require('./agentResolver');
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
 const { openFolioRun, closeFolioRun } = require('./folioRunSurface');
 const worktreeManager = require('./worktreeManager');
@@ -499,11 +499,18 @@ function injectLoopStages(run, stages, agentId) {
  * @returns {string | null}
  */
 function findAgentFile(agentId, workingDirectory) {
-  const globalDir = process.env.PIPELINE_AGENTS_DIR
+  // expandTilde is shared with agentResolver on purpose: PIPELINE_AGENTS_DIR is
+  // user-supplied (server.js copies pipeline.agentsDir from settings into the env
+  // var UNEXPANDED), so a literal `~/.claude/agents` reaches us verbatim. Without
+  // expansion the file is never found, getAgentGateConfig returns null, and the
+  // gate goes inert — indistinguishable from "this agent is not a gate", with no
+  // log line. resolveAgent already expands it, so the stage still SPAWNS: only the
+  // gate disappears.
+  const globalDir = expandTilde(process.env.PIPELINE_AGENTS_DIR)
     || path.join(os.homedir(), '.claude', 'agents');
   const dirs = [];
   if (workingDirectory && typeof workingDirectory === 'string') {
-    dirs.push(path.join(workingDirectory, '.claude', 'agents'));
+    dirs.push(path.join(expandTilde(workingDirectory), '.claude', 'agents'));
   }
   if (!dirs.includes(globalDir)) dirs.push(globalDir);
   for (const dir of dirs) {

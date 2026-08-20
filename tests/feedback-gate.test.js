@@ -873,3 +873,24 @@ describe('F1 — nested fence truncation (round 4)', () => {
     }
   });
 });
+
+describe('Finding A — tilde in PIPELINE_AGENTS_DIR (round 5)', () => {
+  const { getAgentGateConfig } = require('../src/services/pipelineManager');
+
+  test('a literal ~ in PIPELINE_AGENTS_DIR still resolves the gate config', () => {
+    // server.js copies pipeline.agentsDir from user settings into the env var
+    // UNEXPANDED, so `~/.claude/agents` arrives verbatim. resolveAgent expands it
+    // and the stage spawns normally; if the gate reader does not, the gate goes
+    // inert and is indistinguishable from "this agent is not a gate" — silently.
+    const prev = process.env.PIPELINE_AGENTS_DIR;
+    process.env.PIPELINE_AGENTS_DIR = '~/.claude/agents';
+    try {
+      const cfg = getAgentGateConfig('code-reviewer');
+      assert.ok(cfg, 'gate config must resolve with a literal-tilde agents dir');
+      assert.equal(cfg.artifact, 'review-report.md');
+    } finally {
+      if (prev === undefined) delete process.env.PIPELINE_AGENTS_DIR;
+      else process.env.PIPELINE_AGENTS_DIR = prev;
+    }
+  });
+});

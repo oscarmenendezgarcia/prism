@@ -170,4 +170,4 @@ function resolveAgent(agentId, agentsDir, workingDirectory) {
   return { agentId, model, systemPrompt, spawnArgs };
 }
 
-module.exports = { resolveAgent, AgentNotFoundError, parseFrontmatter };
+module.exports = { resolveAgent, AgentNotFoundError, parseFrontmatter, expandTilde };
