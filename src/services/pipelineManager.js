@@ -772,6 +772,14 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
 
   stage.status       = 'completed';
   run.currentStage   = stageIndex + 1;
+  // BUG-003 fix: persist the completed status BEFORE evaluating the feedback
+  // gate. Without this, a crash / restart during gate evaluation reattaches
+  // to a stage still marked 'running', re-runs the gate, and re-injects the
+  // loop — double-counting loopCounts[agentId] and duplicating the loop
+  // stages. Persisting here makes the completion durable: on reattach the
+  // guard at the top of handleStageClose (`stage.status !== 'running'`)
+  // short-circuits, so the gate runs at most once per stage close.
+  writeRun(dataDir, run);
   pipelineLog('stage.done', { runId, stageIndex, agentId, exitCode, durationMs });
 
   // T-003 (pipeline-run-history-bridge): update history entry to 'completed'.

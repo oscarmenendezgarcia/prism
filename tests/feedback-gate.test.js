@@ -122,6 +122,102 @@ describe('feedbackParser — parseGateVerdict', () => {
       assert.equal(parseGateVerdict(v).pass, null);
     }
   });
+
+  // ---- BUG-001 regression -------------------------------------------------
+  // Both shipped gate agent .md prompts (code-reviewer.md, qa-engineer-e2e.md)
+  // contain a literal example `prism-gate` block as instructional text. If an
+  // agent echoes any part of its own prompt into its artifact, the earlier
+  // example block would otherwise silently override the real (later) verdict.
+  // The parser must take the LAST verdict block, not the first.
+  test('BUG-001: real verdict is the LAST prism-gate block, not the first', () => {
+    const artifact = [
+      '# Review report',
+      '',
+      'The gate agent template asked me to emit something like:',
+      '',
+      '```prism-gate',
+      'pass: true',                    // <-- STALE EXAMPLE that must NOT win
+      'findings:',
+      '  - example finding from prompt',
+      '```',
+      '',
+      'My real verdict:',
+      '',
+      '```prism-gate',
+      'pass: false',                   // <-- the REAL verdict, must win
+      'findings:',
+      '  - Real bug: race in login flow',
+      '```',
+      '',
+    ].join('\n');
+
+    const r = parseGateVerdict(artifact);
+    assert.equal(r.pass, false, 'must take the LAST verdict block');
+    assert.deepEqual(r.findings, ['Real bug: race in login flow']);
+  });
+
+  test('BUG-001: single block still works after fix (regression on the regression)', () => {
+    const r = parseGateVerdict(gateBlock('true', ['ok']));
+    assert.equal(r.pass, true);
+    assert.deepEqual(r.findings, ['ok']);
+  });
+
+  // ---- BUG-002 regression -------------------------------------------------
+  // LLM-written YAML routinely wraps long bullet text onto extra indented
+  // lines. The old parser broke the list on the first non-bullet, non-blank
+  // line — dropping every finding after the first wrapped one.
+  test('BUG-002: indented continuation lines do NOT truncate the list', () => {
+    const content = [
+      '```prism-gate',
+      'pass: false',
+      'findings:',
+      '  - BUG-001 (Critical): crash on empty submit',
+      '    repro: POST /x with {} -> 500',
+      '  - BUG-002 (High): session not invalidated',
+      '```',
+    ].join('\n');
+
+    const r = parseGateVerdict(content);
+    assert.equal(r.pass, false);
+    assert.equal(r.findings.length, 2, 'two bullets, second must NOT be dropped');
+    assert.equal(r.findings[0], 'BUG-001 (Critical): crash on empty submit repro: POST /x with {} -> 500');
+    assert.equal(r.findings[1], 'BUG-002 (High): session not invalidated');
+  });
+
+  test('BUG-002: multi-line continuations under one bullet stay attached', () => {
+    const content = [
+      '```prism-gate',
+      'pass: false',
+      'findings:',
+      '  - First finding',
+      '    line two of first',
+      '    line three of first',
+      '  - Second finding',
+      '```',
+    ].join('\n');
+
+    const r = parseGateVerdict(content);
+    assert.equal(r.findings.length, 2);
+    assert.equal(r.findings[0], 'First finding line two of first line three of first');
+    assert.equal(r.findings[1], 'Second finding');
+  });
+
+  test('BUG-002: a non-bullet line at bullet-indent STILL ends the list', () => {
+    // Preserves existing "notes: ignored ends the list" behavior — only
+    // MORE-INDENTED lines are treated as continuations.
+    const content = [
+      '```prism-gate',
+      'pass: false',
+      'findings:',
+      '  - One',
+      '  - Two',
+      '  notes: ignored',
+      '  - NotAFinding',
+      '```',
+    ].join('\n');
+    const r = parseGateVerdict(content);
+    assert.deepEqual(r.findings, ['One', 'Two']);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -378,5 +474,38 @@ describe('pipelineManager — back-edge integration', () => {
     assert.equal(ev.missingVerdict, true);
     assert.equal(run.status, 'failed');
     assert.equal(run.stages.length, 2); // no injection on a failed gate
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. BUG-003 regression — handleStageClose must persist stage.status='completed'
+//    BEFORE evaluating the feedback gate. Otherwise a crash / restart mid
+//    evaluation reattaches to a stage still marked 'running', re-runs the
+//    gate, and re-injects the loop — double-counting loopCounts[agentId].
+//
+//    handleStageClose is not exported; we defend against re-regression with a
+//    structural assertion on the source: the sequence
+//    "stage.status='completed'"  →  "writeRun(...)"  →  "evaluateFeedbackGate("
+//    must hold in that order, with no other writeRun in between skipped.
+// ---------------------------------------------------------------------------
+
+describe('pipelineManager — BUG-003 handleStageClose persistence order', () => {
+  test('writeRun is called between stage completion and gate evaluation', () => {
+    const src = fs.readFileSync(
+      path.join(__dirname, '..', 'src', 'services', 'pipelineManager.js'),
+      'utf8',
+    );
+
+    const completedIdx = src.indexOf("stage.status       = 'completed'");
+    assert.ok(completedIdx > 0, "expected `stage.status = 'completed'` marker in handleStageClose");
+
+    const gateEvalIdx = src.indexOf('evaluateFeedbackGate(dataDir, run, stageIndex, agentId)', completedIdx);
+    assert.ok(gateEvalIdx > completedIdx, 'expected evaluateFeedbackGate call after stage completion');
+
+    const between = src.slice(completedIdx, gateEvalIdx);
+    assert.ok(
+      /\bwriteRun\s*\(\s*dataDir\s*,\s*run\s*\)/.test(between),
+      'BUG-003 regression: writeRun(dataDir, run) must appear between marking the stage completed and evaluating the feedback gate — otherwise a mid-evaluation restart double-injects the loop',
+    );
   });
 });
