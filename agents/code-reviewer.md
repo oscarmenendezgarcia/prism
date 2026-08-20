@@ -246,14 +246,16 @@ _No deviations found_ (if clean)
 
 **Gate verdict (required).** End `review-report.md` with a machine-readable gate block. The pipeline parses it to decide whether to loop back to the developer — **the manager is authoritative**; you do NOT write any signal file. Emit `pass: false` for a `CHANGES_REQUIRED` verdict, `pass: true` otherwise:
 
-````markdown
-```prism-gate
+`````markdown
+````prism-gate
 pass: false
 findings:
   - Login form missing client-side validation
   - Button colors don't match the design system tokens
-```
 ````
+`````
+
+Use **four** backticks for the opening and closing fence, exactly as shown. A three-backtick block is terminated by the first bare ``` inside it, so a repro snippet in a finding would truncate your verdict and silently drop every finding after it.
 
 `findings` are the delta the developer must fix; keep them short and specific — they are injected verbatim into the developer's next prompt. On `APPROVED` / `APPROVED_WITH_NOTES` emit `pass: true` (findings optional). The pipeline re-runs `developer-agent` then this reviewer, up to a loop cap of 5.
 

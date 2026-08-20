@@ -199,14 +199,16 @@ For each issue found:
 
 End `bugs.md` with a machine-readable gate block. The pipeline parses it to decide whether to loop back to the developer — **the manager is authoritative**; you do NOT write any signal file. Emit `pass: false` when there is at least one unresolved Critical or High severity bug, `pass: true` otherwise:
 
-````markdown
-```prism-gate
+`````markdown
+````prism-gate
 pass: false
 findings:
   - BUG-001 (Critical): Crash on empty form submit
   - BUG-004 (High): Session not invalidated on logout
-```
 ````
+`````
+
+Use **four** backticks for the opening and closing fence, exactly as shown. A three-backtick block is terminated by the first bare ``` inside it, so a repro snippet in a finding would truncate your verdict and silently drop every finding after it.
 
 `findings` are the bugs the developer must fix; keep them short — they are injected verbatim into the developer's next prompt. When only Medium/Low bugs (or none) remain, emit `pass: true`. The pipeline re-runs `developer-agent` then this QA agent, up to a loop cap of 5.
 

@@ -134,6 +134,34 @@ function parseSingleBlock(block) {
 }
 
 /**
+ * True when `block` contains an inner fenced snippet that is never closed.
+ *
+ * CommonMark closes an N-backtick fence at the first line of >= N backticks.
+ * So a 3-backtick `prism-gate` block containing a 3-backtick repro snippet is
+ * terminated by that snippet's own closing fence, and everything after it —
+ * including the remaining findings — silently falls outside the block. The
+ * surviving block is a PARTIAL verdict, and its tell is an inner opening fence
+ * with no matching closer inside the block.
+ *
+ * Agents are instructed to use a 4-backtick outer fence precisely so nesting
+ * works; this guard catches the case where one uses 3 anyway.
+ *
+ * @param {string} block
+ * @returns {boolean}
+ */
+function hasUnclosedInnerFence(block) {
+  let open = null;
+  for (const line of block.split('\n')) {
+    const m = line.match(/^\s*(`{3,})/);
+    if (!m) continue;
+    const len = m[1].length;
+    if (open === null) { open = len; continue; }
+    if (len >= open) open = null;
+  }
+  return open !== null;
+}
+
+/**
  * Two verdicts "agree" when their pass booleans are equal AND their findings
  * arrays are identical (order-sensitive). Used to reject ambiguous artifacts
  * that contain multiple prism-gate blocks whose contents disagree.
@@ -167,6 +195,13 @@ function parseGateVerdict(content) {
     if (unbalanced) return { ...NONE };
 
     if (blocks.length === 0) return { ...NONE };
+
+    // Ambiguity 4: a block truncated by a nested fence. Its remaining findings
+    // fell outside the block, so what survives is a PARTIAL verdict — refuse it
+    // rather than hand the developer an incomplete fix list he believes is whole.
+    for (const b of blocks) {
+      if (hasUnclosedInnerFence(b)) return { ...NONE };
+    }
 
     const parsed = blocks.map(parseSingleBlock);
 

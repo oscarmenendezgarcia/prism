@@ -828,3 +828,48 @@ describe('pipelineManager — F4 loopBackTo YAML shapes', () => {
     assert.deepEqual(cfg, { artifact: 'report.md', loopBackTo: ['developer-agent'] });
   });
 });
+
+describe('F1 — nested fence truncation (round 4)', () => {
+  const { parseGateVerdict } = require('../src/services/feedbackParser');
+  const NESTED = (fence) => [
+    `${fence}prism-gate`,
+    'pass: false',
+    'findings:',
+    '  - F1 (Critical): crash on empty submit. Repro:',
+    '    ```bash',
+    '    curl -X POST /api/x -d {}',
+    '    ```',
+    '  - F2 (High): session not invalidated',
+    '  - F3 (High): race in handleStageClose',
+    fence,
+  ].join('\n');
+
+  test('a 3-backtick block truncated by a nested snippet is refused, not partially parsed', () => {
+    // CommonMark closes the 3-backtick outer fence at the snippet's own closing
+    // fence, so F2 and F3 fall outside the block. Handing the developer 1 of 3
+    // findings while reporting success is the silent-loss class this gate exists
+    // to kill — the parser must refuse instead.
+    const v = parseGateVerdict(NESTED('```'));
+    assert.equal(v.pass, null, 'truncated verdict must collapse to pass:null (Policy C)');
+    assert.deepEqual(v.findings, []);
+  });
+
+  test('a 4-backtick block carries a nested snippet and keeps every finding', () => {
+    const v = parseGateVerdict(NESTED('````'));
+    assert.equal(v.pass, false);
+    assert.equal(v.findings.length, 3, 'all three findings survive the nested fence');
+    assert.match(v.findings[1], /session not invalidated/);
+    assert.match(v.findings[2], /race in handleStageClose/);
+  });
+
+  test('the shipped gate prompts teach the 4-backtick fence', () => {
+    // If a prompt reverts to ```prism-gate, agents produce truncatable artifacts
+    // and every nested repro silently fails the run. Guard the instruction itself.
+    for (const agent of ['code-reviewer', 'qa-engineer-e2e']) {
+      const md = fs.readFileSync(
+        path.join(__dirname, '..', 'agents', `${agent}.md`), 'utf8');
+      assert.ok(md.includes('````prism-gate'),
+        `${agent}.md must teach a 4-backtick prism-gate fence`);
+    }
+  });
+});
