@@ -24,6 +24,7 @@
 'use strict';
 
 const fs                        = require('fs');
+const os                        = require('os');
 const path                      = require('path');
 const crypto                    = require('crypto');
 const { spawn }                 = require('child_process');
@@ -42,6 +43,7 @@ const { readSettings }              = require('../handlers/settings');
 const { resolveStageModelConfig }   = require('./modelConfigResolver');
 const cliSpawn                      = require('./cliSpawn');
 const cliAdapters                   = require('./cliAdapters');
+const { parseGateVerdict }          = require('./feedbackParser');
 
 // Binary resolution (claude/opencode) and shell escaping live in cliSpawn.js —
 // the single source of truth shared with folioBootstrap.js. Per-harness spawn
@@ -446,80 +448,182 @@ function buildOpencodeWindowsShellCommand(opts) {
 const DEFAULT_MAX_LOOPS = 5;
 
 /**
- * Path to the inject-signal file written by an agent to request stage injection.
+ * Splice loop stages into the run at the current position and bump the gate
+ * agent's loop counter. Re-indexes stageStatuses so index === array position.
  *
- * An agent writes this file (JSON array of agent IDs) before exiting to ask the
- * pipeline to insert those stages immediately after the current one.  The manager
- * reads it after detecting the done-sentinel and injects accordingly.
- *
- * Example content:  ["developer-agent", "code-reviewer"]
- *
- * @param {string} dataDir
- * @param {string} runId
- * @param {number} stageIndex
- * @returns {string}
+ * @param {object}   run
+ * @param {string[]} stages  - agent ids to insert (in order) at run.currentStage
+ * @param {string}   agentId - gate agent whose loop counter advances
  */
-function stageInjectPath(dataDir, runId, stageIndex) {
-  return path.join(runDir(dataDir, runId), `stage-${stageIndex}.inject`);
+function injectLoopStages(run, stages, agentId) {
+  const insertAt = run.currentStage;
+  run.stages.splice(insertAt, 0, ...stages);
+  run.stageStatuses.splice(insertAt, 0, ...stages.map((id) => ({
+    agentId:    id,
+    status:     'pending',
+    exitCode:   null,
+    startedAt:  null,
+    finishedAt: null,
+  })));
+  run.stageStatuses.forEach((s, i) => { s.index = i; });
+  run.loopCounts = run.loopCounts || {};
+  run.loopCounts[agentId] = (run.loopCounts[agentId] || 0) + 1;
+}
+
+// ---------------------------------------------------------------------------
+// Feedback gate helpers (LOOP-1) — generic, manager-driven quality back-edge.
+//
+// Any pipeline stage can act as a quality gate. A gate agent declares itself
+// via `gate:` frontmatter (artifact + loopBackTo) in its .md, and writes a
+// machine-readable `prism-gate` verdict block into its artifact. The manager
+// reads the artifact, parses the verdict, and on `pass: false` injects
+// `[...loopBackTo, agent]` itself — the agent never touches a signal file.
+//
+// Adding a new gate (e.g. security-reviewer) = frontmatter + verdict block,
+// zero pipeline changes.
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the `gate:` block from an agent .md's frontmatter, if present.
+ * Returns { artifact, loopBackTo } or null when the agent is not a gate.
+ *
+ * @param {string} agentId
+ * @returns {{ artifact: string, loopBackTo: string[] } | null}
+ */
+function getAgentGateConfig(agentId) {
+  const agentsDir = process.env.PIPELINE_AGENTS_DIR
+    || path.join(os.homedir(), '.claude', 'agents');
+  const agentPath = path.join(agentsDir, `${agentId}.md`);
+  let text;
+  try {
+    text = fs.readFileSync(agentPath, 'utf8');
+  } catch {
+    return null;
+  }
+  const fmMatch = text.match(/^---\n([\s\S]*?)\n---/);
+  if (!fmMatch) return null;
+  const fm = fmMatch[1];
+
+  // Match a `gate:` block up to the next top-level key or end of frontmatter.
+  const gateMatch = fm.match(/(^|\n)gate\s*:\s*\n((?:[ \t]+[^\n]*\n?)+)/);
+  if (!gateMatch) return null;
+  const body = gateMatch[2];
+
+  const artMatch = body.match(/^[ \t]+artifact\s*:\s*(\S+.*?)\s*$/m);
+  const artifact = artMatch ? artMatch[1].trim().replace(/^["']|["']$/g, '') : null;
+  if (!artifact) return null;
+
+  const lbtMatch = body.match(/^[ \t]+loopBackTo\s*:\s*\[([^\]]*)\]\s*$/m);
+  const loopBackTo = lbtMatch
+    ? lbtMatch[1].split(',').map((s) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
+    : ['developer-agent'];
+
+  return { artifact, loopBackTo };
 }
 
 /**
- * Read the inject-signal file for a completed stage.
- * Returns the array of agent IDs to inject, or [] if the file is absent/invalid.
+ * Read the declared gate artifact from the task's attachments.
+ * Returns { content: string, present: boolean }; content is '' when absent.
+ */
+function readGateArtifactContent(dataDir, run, artifactName) {
+  const spaceId = run.spaceId;
+  const taskId  = run.taskId;
+  let task = null;
+  if (_store) {
+    task = _store.getTask(spaceId, taskId);
+  } else {
+    task = readTaskFromSpace(path.join(dataDir, 'spaces'), spaceId, taskId);
+  }
+  if (!task || !Array.isArray(task.attachments)) return { content: '', present: false };
+  const att = task.attachments.find(
+    (a) => a && a.name === artifactName && a.type === 'file' && a.content,
+  );
+  if (!att) return { content: '', present: false };
+  try {
+    return { content: fs.readFileSync(att.content, 'utf8'), present: true };
+  } catch {
+    return { content: '', present: false };
+  }
+}
+
+/**
+ * Evaluate the feedback gate for a completed stage.
+ *
+ * Return shape:
+ *   {
+ *     triggered:      boolean,   // gate fired: pass:false AND under loop cap
+ *     missingVerdict: boolean,   // absence policy C: agent IS a gate but wrote no verdict
+ *     loopBackTo:     string[],  // stages to re-run (from frontmatter; empty when not a gate)
+ *     gateResult:     null | { agentId, triggered: true, findings: string[] },
+ *   }
  *
  * @param {string} dataDir
- * @param {string} runId
+ * @param {object} run
  * @param {number} stageIndex
- * @param {string} agentId     - The agent that just completed (used for loop-cap tracking).
- * @param {object} run         - Current run state (read-only here).
- * @returns {string[]}
+ * @param {string} agentId
  */
-function readInjectSignal(dataDir, runId, stageIndex, agentId, run) {
-  let injectFile = stageInjectPath(dataDir, runId, stageIndex);
+function evaluateFeedbackGate(dataDir, run, stageIndex, agentId) {
+  const NONE = { triggered: false, missingVerdict: false, loopBackTo: [], gateResult: null };
+  const cfg  = getAgentGateConfig(agentId);
+  if (!cfg) return NONE;
 
-  // Fallback: some agents (esp. local models) miscompute $StageIndex as a
-  // 1-based "stage number" instead of the 0-based array index the prompt
-  // gives them, writing stage-<N+1>.inject instead of stage-<N>.inject.
-  // Only recover this when the CLOSING stage is the last one in the
-  // pipeline — stage-<length>.inject can never be a legitimate file for a
-  // real future stage (there is no stage at that index), so it's safe to
-  // treat it as this off-by-one miswrite. Mid-pipeline, stage-<N+1>.inject
-  // may simply belong to a later stage that hasn't closed yet; grabbing it
-  // early would misfire the injection at the wrong stage.
-  if (!fs.existsSync(injectFile)) {
-    const isLastStage = Array.isArray(run.stages) && stageIndex === run.stages.length - 1;
-    const offByOneFile = stageInjectPath(dataDir, runId, stageIndex + 1);
-    if (isLastStage && fs.existsSync(offByOneFile)) {
-      pipelineLog('run.inject_offbyone_recovered', { runId, stageIndex, agentId, foundAt: stageIndex + 1 });
-      injectFile = offByOneFile;
-    } else {
-      return [];
-    }
+  const { content, present } = readGateArtifactContent(dataDir, run, cfg.artifact);
+  const verdict = parseGateVerdict(content);
+
+  // Absence policy C: agent IS a gate but no verdict block found (either the
+  // artifact is missing entirely, or it is present but does not contain a
+  // `prism-gate` block). A gate that cannot render a verdict is broken and
+  // must never pass silently — the manager fails the run loudly upstream.
+  if (!present || verdict.pass === null) {
+    return { triggered: false, missingVerdict: true, loopBackTo: cfg.loopBackTo, gateResult: null };
   }
 
-  let stages;
-  try {
-    stages = JSON.parse(fs.readFileSync(injectFile, 'utf8'));
-  } catch {
-    pipelineLog('run.inject_parse_error', { runId, stageIndex, agentId });
-    return [];
+  if (verdict.pass === true) {
+    return { triggered: false, missingVerdict: false, loopBackTo: cfg.loopBackTo, gateResult: null };
   }
 
-  // Consume the signal file so a later stage closure (possibly at this same
-  // index after the array shifts from injection) can never re-read it.
-  try { fs.unlinkSync(injectFile); } catch { /* already gone */ }
-
-  if (!Array.isArray(stages) || stages.length === 0) return [];
-
-  // Enforce loop cap: count how many times this agent has already triggered a loop.
+  // pass === false → back-edge candidate. Enforce the loop cap.
   const maxLoops   = parseInt(process.env.PIPELINE_MAX_LOOPS || String(DEFAULT_MAX_LOOPS), 10);
   const loopCounts = run.loopCounts || {};
   if ((loopCounts[agentId] || 0) >= maxLoops) {
-    pipelineLog('run.loop_cap_reached', { runId, stageIndex, agentId, loopCounts });
-    return [];
+    pipelineLog('run.loop_cap_reached', {
+      runId: run.runId, stageIndex, agentId, loopCounts,
+    });
+    return { triggered: false, missingVerdict: false, loopBackTo: cfg.loopBackTo, gateResult: null };
   }
 
-  return stages;
+  return {
+    triggered:      true,
+    missingVerdict: false,
+    loopBackTo:     cfg.loopBackTo,
+    gateResult:     { agentId, triggered: true, findings: verdict.findings },
+  };
+}
+
+/**
+ * Build the FEEDBACK block appended to a looped-back agent's prompt.
+ * Returns null before the first back-edge, or when no earlier stage in the run
+ * triggered a gate.
+ */
+function buildFeedbackContextBlock(run, stageIndex) {
+  if (!run || !run.feedbackIterations || run.feedbackIterations < 1) return null;
+  const gates = run.feedbackGates || {};
+  // Pick the most-recent triggered gate strictly BEFORE the current stage.
+  let latest = null;
+  for (const [k, v] of Object.entries(gates)) {
+    const idx = parseInt(k, 10);
+    if (!Number.isFinite(idx) || idx >= stageIndex) continue;
+    if (!v || !v.triggered) continue;
+    if (!latest || idx > latest.idx) latest = { idx, gate: v };
+  }
+  if (!latest) return null;
+
+  const g = latest.gate;
+  const iter = run.feedbackIterations;
+  let block = `## FEEDBACK FROM ${g.agentId} (iteration ${iter})\n`;
+  block += `The previous ${g.agentId} run reported ${g.findings.length} finding${g.findings.length === 1 ? '' : 's'} you MUST address:\n\n`;
+  for (const f of g.findings) block += `- ${f}\n`;
+  return block;
 }
 
 /**
@@ -673,23 +777,49 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
   // T-003 (pipeline-run-history-bridge): update history entry to 'completed'.
   bridgeUpdateRunFinished(dataDir, runId, stageIndex, 'completed', stage.finishedAt, durationMs);
 
-  // Part 2: inject stages requested by the agent via the stage-N.inject signal file.
-  const stagesToInject = readInjectSignal(dataDir, runId, stageIndex, agentId, run);
-  if (stagesToInject.length > 0) {
-    const insertAt = run.currentStage;
-    run.stages.splice(insertAt, 0, ...stagesToInject);
-    run.stageStatuses.splice(insertAt, 0, ...stagesToInject.map((id) => ({
-      agentId:    id,
-      status:     'pending',
-      exitCode:   null,
-      startedAt:  null,
-      finishedAt: null,
-    })));
-    // Re-index every entry so index === position in array.
-    run.stageStatuses.forEach((s, i) => { s.index = i; });
-    run.loopCounts = run.loopCounts || {};
-    run.loopCounts[agentId] = (run.loopCounts[agentId] || 0) + 1;
-    pipelineLog('run.loop_injected', { runId, agentId, stagesToInject, loopCount: run.loopCounts[agentId] });
+  // Part 2: feedback gate (LOOP-1) — manager-authoritative back-edge.
+  // For any agent that declares a `gate:` block in its frontmatter, the manager
+  // reads the declared artifact, parses the `prism-gate` verdict, and:
+  //   - Absence policy C: a gate that emitted no verdict block fails the run
+  //     loudly (a gate that renders no verdict is broken; never pass silently).
+  //   - pass: false → injects [...loopBackTo, agentId] itself (loop cap 5).
+  //   - pass: true  → advances to the next stage as normal.
+  //
+  // The `.inject` side-channel is intentionally gone: the agent runs in a
+  // disposable worktree and the file path it would need to write is fragile
+  // (workingDirectory vs runDir), which silently dropped verdicts. The artifact
+  // block is the sole source of truth.
+  {
+    const feedbackEval = evaluateFeedbackGate(dataDir, run, stageIndex, agentId);
+
+    if (feedbackEval.missingVerdict) {
+      run.status = 'failed';
+      const failedAt = new Date().toISOString();
+      run.stageStatuses[stageIndex].failureReason = 'gate_no_verdict';
+      writeRun(dataDir, run);
+      pipelineLog('run.failed', {
+        runId, stageIndex, agentId, reason: 'gate_no_verdict',
+      });
+      bridgeUpdateRunFinished(dataDir, runId, stageIndex, 'failed', failedAt, durationMs);
+      finalizeRun(dataDir, run).catch((err) => {
+        pipelineLog('worktree.error', { runId, op: 'finalize_gate_no_verdict', message: err.message });
+      });
+      return;
+    }
+
+    if (feedbackEval.gateResult) {
+      run.feedbackGates = run.feedbackGates || {};
+      run.feedbackGates[String(stageIndex)] = feedbackEval.gateResult;
+    }
+
+    if (feedbackEval.triggered) {
+      const stagesToInject = [...feedbackEval.loopBackTo, agentId];
+      injectLoopStages(run, stagesToInject, agentId);
+      run.feedbackIterations = (run.feedbackIterations || 0) + 1;
+      pipelineLog('run.loop_injected', {
+        runId, agentId, stagesToInject, loopCount: run.loopCounts[agentId], source: 'gate',
+      });
+    }
   }
 
   writeRun(dataDir, run);
@@ -1358,7 +1488,7 @@ async function moveKanbanTask(spaceId, taskId, column) {
  * @param {string}   agentId          - Agent ID for this stage.
  * @param {string[]} stages           - Full ordered list of agent IDs in the pipeline.
  * @param {string}   [workingDirectory]
- * @param {string}   [runId]          - Run ID, included so agents can write stage-N.inject.
+ * @param {string}   [runId]          - Run ID, included so agents can reference the run.
  * @returns {{ promptText: string, estimatedTokens: number }}
  */
 function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages, workingDirectory, runId) {
@@ -1434,7 +1564,7 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   // Tell the agent whether it is the last stage so it knows to move the task to done.
   promptText += `LastStage: ${isLastStage}\n`;
 
-  // Provide run context so agents can write the loop-inject signal file if needed.
+  // Provide run identifiers so agents can reference this run in kanban comments.
   if (runId) {
     promptText += `RunId: ${runId}\nStageIndex: ${stageIndex}\n`;
   }
@@ -1486,6 +1616,16 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   // buildGitContextBlock filters untracked (??) files which are irrelevant to agents.
   const gitCtxBlock = buildGitContextBlock(workingDirectory);
   if (gitCtxBlock) promptText += gitCtxBlock + '\n';
+
+  // Feedback context block (LOOP-1): when this stage runs inside a back-edge
+  // triggered by an earlier gate, inject the gate's findings so the agent knows
+  // exactly what to fix. Applies to every looped-back agent, not just developer-agent
+  // (loopBackTo may include reviewer stages, or a future security-reviewer).
+  if (runId) {
+    const runForFeedback = readRun(dataDir, runId);
+    const feedbackBlock  = buildFeedbackContextBlock(runForFeedback, stageIndex);
+    if (feedbackBlock) promptText += '\n' + feedbackBlock + '\n';
+  }
 
   // Kanban instructions — always included so agents can move tasks and post questions.
   // buildKanbanBlock includes: stop conditions, note/handoff guidance, and MCP examples.
@@ -2192,6 +2332,10 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
     updatedAt: now,
     dangerouslySkipPermissions,
     checkpoints: Array.isArray(checkpoints) ? checkpoints : [],
+    // LOOP-1 (feedback gate): keyed by stageIndex string → { agentId, triggered, findings }.
+    feedbackGates: {},
+    // LOOP-1: number of quality-gate back-edges that have fired in this run.
+    feedbackIterations: 0,
     ...(workingDirectory ? { workingDirectory } : {}),
     ...(worktreeMeta    ? { worktree: worktreeMeta } : {}),
   };
@@ -3875,9 +4019,12 @@ module.exports = {
   stagePromptPath,
   stageDonePath,
   resolverDonePath,
-  stageInjectPath,
-  readInjectSignal,
   buildStagePrompt,
+  // LOOP-1 feedback gate (exported for testing and for future gate authors):
+  getAgentGateConfig,
+  evaluateFeedbackGate,
+  buildFeedbackContextBlock,
+  injectLoopStages,
   buildResolverPrompt,
   shellEscape,
   DEFAULT_STAGES,

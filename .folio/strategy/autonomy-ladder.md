@@ -37,30 +37,24 @@ automated gate before it's safe to step back.
 - **L1→L2: done.** `architect → ux → dev → review → qa` orchestration, multi-run
   UI, runs in SQLite, isolated git worktrees. The pipeline runs on its own once
   you press go.
-- **The feedback gate already loops — agent-driven (on main).** Since the
-  pipeline-resilience work (PR #27), an agent can write a
-  `data/runs/<RunId>/stage-<N>.inject` signal and the manager re-runs the named
-  stages (loop cap 5, `PIPELINE_MAX_LOOPS`). So review/QA → developer loops run
-  **without a human in the middle** — but it's **agent-driven and fragile**: if
-  the gate agent doesn't write the signal (forgets, dies mid-stage, as on a
-  QOL-7 run), the loop silently doesn't fire.
-- **Hardening — generic, manager-driven gate (in review).** Makes the gate
-  authoritative on the manager side and **agent-agnostic** — any stage is a gate
-  if it declares a `gate:` block (artifact + loopBackTo) in its frontmatter and
-  writes a `prism-gate` verdict (`pass` + `findings`) into its artifact. The
-  manager parses that verdict and injects `[...loopBackTo, gate]` itself. Adding
+- **The feedback gate loops — generic, manager-driven (landed).** Any pipeline
+  stage is a quality gate if it declares a `gate:` block (artifact + loopBackTo)
+  in its frontmatter and writes a `prism-gate` verdict (`pass` + `findings`)
+  into its artifact. The manager parses that verdict and injects
+  `[...loopBackTo, gate]` itself — the agent never touches a signal file. Adding
   a new gate (e.g. `security-reviewer`) = frontmatter + verdict block, **zero
-  pipeline changes**. Two PRs:
-  - **#139** — the engine (`feedbackParser.parseGateVerdict`, generic
-    `evaluateFeedbackGate` / `getAgentGateConfig` / `buildFeedbackContextBlock`).
-  - **#150** — activates the two built-in gates (code-reviewer, qa) via their
-    agent declarations; the repo's `agents/` mirror syncs to `~/.claude/agents/`.
+  pipeline changes**. Loop cap 5 (`PIPELINE_MAX_LOOPS`).
   - **Absence policy C:** a gate stage with no verdict block **fails the run
     loudly** (`run.failed` / `gate_no_verdict`) — a gate that renders no verdict
-    is broken and must never pass silently. (A still-open question: this re-adds
-    a soft dependency on the agent *emitting* a verdict; C makes non-emission
-    fail visibly instead of silently, which is the best available trade-off for a
-    subjective gate the manager can't re-derive itself.)
+    is broken and must never pass silently. This re-adds a soft dependency on
+    the agent *emitting* a verdict; C makes non-emission fail visibly instead
+    of silently, which is the best available trade-off for a subjective gate
+    the manager can't re-derive itself.
+  - **`stage-<N>.inject` retired.** The prior agent-driven side-channel is
+    gone: the agent ran in a disposable worktree and hand-built the signal
+    path relative to its cwd, so verdicts silently vanished (as on a QOL-7
+    run). Keeping both an agent-driven and a manager-driven path was strictly
+    worse than either; the artifact block is now the sole source of truth.
 - **What's still left for a real L3:**
   - `LOOP-2` (guardrails: budget €/tokens, MAX_ITER, no-progress) — safe to leave
     running unattended.

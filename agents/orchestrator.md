@@ -54,7 +54,7 @@ For each stage in `Stages`, in order:
 
 ## Feedback loops (review/QA gates)
 
-The server pipeline uses `.inject` signal files for loops — that mechanism does NOT apply here. You implement the loops yourself:
+The server pipeline uses a manager-driven feedback gate (parses the `prism-gate` verdict block from each reviewer's artifact) — that mechanism does NOT apply here. You implement the loops yourself:
 
 - **After `code-reviewer`**: read `review-report.md`. If the verdict is `CHANGES_REQUIRED`, re-launch `developer-agent` with the report as context, then re-launch `code-reviewer`. Do not advance to QA until the verdict is `APPROVED` or `APPROVED_WITH_NOTES`.
 - **After `qa-engineer-e2e`**: read `bugs.md`. If it contains unresolved Critical or High bugs, re-launch `developer-agent` with `bugs.md` as context, then re-launch `qa-engineer-e2e`.
