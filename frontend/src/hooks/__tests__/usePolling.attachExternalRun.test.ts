@@ -3,8 +3,13 @@
  *
  * After the "auto-attach all active runs" change, the function:
  *  - No longer bails out when pipelineStates is non-empty.
- *  - Filters runs by status: running only (interrupted/failed are NOT auto-attached
- *    to avoid flooding the multi-run indicator with historical stale runs).
+ *  - Filters runs by status: running/paused/blocked are attached (all active
+ *    states the header must surface); terminal states (interrupted/failed/
+ *    completed/cancelled) are NOT, to avoid flooding the indicator with
+ *    historical stale runs.
+ *  - Maps backend status to the frontend one 1:1 for running/paused/blocked
+ *    (preserving pausedBeforeStage / blockedReason) instead of collapsing
+ *    everything to 'interrupted'.
  *  - Iterates ALL candidates instead of taking only [0].
  *  - Skips runs already present in pipelineStates.
  *
@@ -17,6 +22,8 @@
  *  AA-006  Individual getBackendRun failure skips that run, continues others
  *  AA-007  listRuns network failure → graceful no-op
  *  AA-008  TOCTOU: race resolved — run attached between listRuns and getBackendRun is skipped
+ *  AA-009  paused runs attached with status=paused + pausedBeforeStage
+ *  AA-010  blocked runs attached with status=blocked + blockedReason (not collapsed to interrupted)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -341,5 +348,76 @@ describe('AA-008: TOCTOU — run attached between listRuns and getBackendRun is 
     expect(Object.keys(useAppStore.getState().pipelineStates)).toHaveLength(1);
     // getBackendRun was still called (the TOCTOU guard fires AFTER the fetch).
     expect(api.getBackendRun).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── AA-009 ────────────────────────────────────────────────────────────────────
+
+describe('AA-009: paused runs are auto-attached with status=paused', () => {
+  it('attaches a paused run, preserving pausedBeforeStage', async () => {
+    vi.mocked(api.listRuns).mockResolvedValue([
+      listEntry('run-p', 'paused'),
+    ] as any);
+    vi.mocked(api.getBackendRun).mockResolvedValue(
+      { ...fullRun('run-p', 'paused'), pausedBeforeStage: 2, currentStage: 2 } as any,
+    );
+
+    await attachExternalRunIfAny();
+
+    const ps = useAppStore.getState().pipelineStates['run-p'];
+    expect(ps.status).toBe('paused');
+    expect(ps.pausedBeforeStage).toBe(2);
+    expect(ps.currentStageIndex).toBe(2);
+  });
+});
+
+// ── AA-010 ────────────────────────────────────────────────────────────────────
+
+describe('AA-010: blocked runs are auto-attached with status=blocked', () => {
+  it('attaches a blocked run and keeps blockedReason (not collapsed to interrupted)', async () => {
+    const reason = {
+      commentId: 'c-1',
+      taskId: 'tk',
+      author: 'senior-architect',
+      text: 'Should we use SQLite or Postgres?',
+      blockedAt: '2026-08-20T14:00:00.000Z',
+    };
+    vi.mocked(api.listRuns).mockResolvedValue([
+      listEntry('run-b', 'blocked'),
+    ] as any);
+    vi.mocked(api.getBackendRun).mockResolvedValue(
+      { ...fullRun('run-b', 'blocked'), blockedReason: reason } as any,
+    );
+
+    await attachExternalRunIfAny();
+
+    const ps = useAppStore.getState().pipelineStates['run-b'];
+    expect(ps.status).toBe('blocked');
+    expect(ps.status).not.toBe('interrupted');
+    expect(ps.blockedReason).toEqual(reason);
+  });
+
+  it('attaches running + paused + blocked in one batch, ignores completed/cancelled', async () => {
+    vi.mocked(api.listRuns).mockResolvedValue([
+      listEntry('run-live', 'running'),
+      listEntry('run-p', 'paused'),
+      listEntry('run-b', 'blocked'),
+      listEntry('run-done', 'completed'),
+      listEntry('run-cancelled', 'cancelled'),
+    ] as any);
+    vi.mocked(api.getBackendRun).mockImplementation(async (id: string) => {
+      if (id === 'run-b') return { ...fullRun(id, 'blocked') } as any;
+      if (id === 'run-p') return { ...fullRun(id, 'paused'), pausedBeforeStage: 1 } as any;
+      return fullRun(id, 'running') as any;
+    });
+
+    await attachExternalRunIfAny();
+
+    const states = useAppStore.getState().pipelineStates;
+    expect(states['run-live'].status).toBe('running');
+    expect(states['run-p'].status).toBe('paused');
+    expect(states['run-b'].status).toBe('blocked');
+    expect(states['run-done']).toBeUndefined();
+    expect(states['run-cancelled']).toBeUndefined();
   });
 });

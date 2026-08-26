@@ -10,7 +10,9 @@
  *
  * On every idle tick, probes for externally-launched backend runs (e.g. via
  * MCP or CLI) so the log panel opens without a reload.  All runs with status
- * running/interrupted/failed that are not yet in pipelineStates are attached.
+ * running/paused/blocked that are not yet in pipelineStates are attached —
+ * paused and blocked are active states the header must surface (Continue /
+ * question banner), so the filter mirrors RunIndicator's ACTIVE_STATUSES.
  *
  * When pipelineState has a runId, syncs currentStageIndex and status from
  * the backend so the UI reflects stage transitions without a full page reload.
@@ -34,10 +36,14 @@ export async function attachExternalRunIfAny(): Promise<void> {
   const { attachRun } = useAppStore.getState();
   try {
     const runs = await listRuns();
-    // Only auto-attach runs that are actively executing. Interrupted/failed runs
-    // are terminal-ish states from past sessions — surfacing them on every page
-    // load floods the multi-run indicator with historical noise.
-    const candidates = runs.filter((r) => r.status === 'running');
+    // Only auto-attach runs that are actively in flight. Terminal states
+    // (interrupted/failed/completed/cancelled) are historical noise from past
+    // sessions — surfacing them on every page load floods the multi-run
+    // indicator.  Paused and blocked are active states (a pause banner /
+    // blocking question the header must show), matching RunIndicator's
+    // ACTIVE_STATUSES.
+    const activeStatuses = new Set(['running', 'paused', 'blocked']);
+    const candidates = runs.filter((r) => activeStatuses.has(r.status));
     if (candidates.length === 0) return;
 
     for (const candidate of candidates) {
@@ -51,20 +57,29 @@ export async function attachExternalRunIfAny(): Promise<void> {
         if (useAppStore.getState().pipelineStates[full.runId]) continue;
 
         // Map backend status to the frontend PipelineState status vocabulary.
-        const frontendStatus: 'running' | 'interrupted' =
-          full.status === 'running' ? 'running' : 'interrupted';
+        // running/paused/blocked map 1:1 so the header shows the right banner
+        // (Continue / question) instead of collapsing everything onto
+        // 'interrupted'. Anything else is terminal-ish → 'interrupted'.
+        const frontendStatus: PipelineState['status'] =
+          full.status === 'running' || full.status === 'paused' || full.status === 'blocked'
+            ? full.status
+            : 'interrupted';
 
         attachRun({
           spaceId:           full.spaceId,
           taskId:            full.taskId,
           stages:            full.stages as PipelineStage[],
-          currentStageIndex: full.currentStage ?? 0,
+          currentStageIndex: full.status === 'paused'
+            ? full.pausedBeforeStage ?? full.currentStage ?? 0
+            : full.currentStage ?? 0,
           startedAt:         full.createdAt,
           finishedAt:        undefined,
           status:            frontendStatus,
           runId:             full.runId,
           subTaskIds:        [],
           checkpoints:       full.checkpoints ?? [],
+          pausedBeforeStage: full.status === 'paused' ? full.pausedBeforeStage : undefined,
+          blockedReason:     full.status === 'blocked' ? full.blockedReason : undefined,
         });
       } catch {
         // Individual fetch failure — skip this run, try the next one.
@@ -279,9 +294,9 @@ export function usePolling(): void {
       // Sync status for all non-primary running entries so their auto-dismiss
       // fires as soon as the backend reports completion.
       syncAllRunStatuses();
-      // Always probe for externally-launched runs (running, interrupted, failed)
-      // that are not yet in pipelineStates.  attachExternalRunIfAny is idempotent
-      // — it skips runIds already present in pipelineStates.
+      // Always probe for externally-launched runs (running, paused, blocked)
+      // that are not yet in pipelineStates.  attachExternalRunIfAny is
+      // idempotent — it skips runIds already present in pipelineStates.
       attachExternalRunIfAny();
     }, intervalMs);
 
