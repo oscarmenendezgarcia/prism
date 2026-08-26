@@ -229,10 +229,19 @@ function resolveWritebackConfig() {
   const compactBytesEnv = parseInt(process.env.PRISM_FOLIO_COMPACT_BYTES, 10);
   const compactBytes = (Number.isFinite(compactBytesEnv) && compactBytesEnv > 0) ? compactBytesEnv : 100_000;
 
-  const timeoutMs = parseInt(
-    process.env.PIPELINE_RESOLVER_TIMEOUT_MS || String(DEFAULT_RESOLVER_TIMEOUT_MS),
-    10,
-  );
+  // Consolidation gets its OWN budget. It used to borrow the comment-resolver's
+  // (PIPELINE_RESOLVER_TIMEOUT_MS, 5 min), which is a different job: the resolver
+  // answers one question, the consolidator reads a whole run and writes pages.
+  // Measured 2026-08-26 on a local model (nemotron-3.5-lightning via opencode):
+  // 6m00s for a real run — it completed correctly and was killed at 5m for being
+  // 60 seconds late. PIPELINE_RESOLVER_TIMEOUT_MS is still honoured when set, so
+  // existing deployments that tuned it keep their value.
+  const timeoutEnv = process.env.PRISM_FOLIO_WRITEBACK_TIMEOUT_MS
+    || process.env.PIPELINE_RESOLVER_TIMEOUT_MS;
+  const parsedTimeout = parseInt(timeoutEnv, 10);
+  const timeoutMs = (Number.isFinite(parsedTimeout) && parsedTimeout > 0)
+    ? parsedTimeout
+    : DEFAULT_WRITEBACK_TIMEOUT_MS;
 
   return { enabled, maxPages, maxBytes, compactPages, compactBytes, timeoutMs };
 }
@@ -245,6 +254,7 @@ const DEFAULT_MAX_CONCURRENT      = 5;
 const DEFAULT_STALL_TIMEOUT_MS    = 900_000;   // 15 min without any output → kill
 // Resolver agent gets a shorter timeout: it only needs to answer one question.
 const DEFAULT_RESOLVER_TIMEOUT_MS = 300_000;   // 5 min
+const DEFAULT_WRITEBACK_TIMEOUT_MS = 900_000;   // 15 min — the consolidator reads a whole run; local models routinely need >5 min
 
 // ---------------------------------------------------------------------------
 // Module-level state (in-process registry of active child processes)
@@ -3558,6 +3568,21 @@ async function maybeConsolidate(dataDir, run) {
     pipelineLog('consolidation.model_resolved', {
       runId: run.runId, cliTool: consModelConfig.cliTool, model: consModelConfig.model, resolvedFrom: consModelConfig.resolvedFrom,
     });
+
+    // Rewrite the surface run's meta.json now that the harness is known. openFolioRun
+    // wrote a 'claude-code' placeholder before model resolution; leaving it there makes
+    // the metrics parser read opencode's plain output as claude stream-json and report
+    // an empty run (model: null, no tokens, no cost). Same pattern as spawnStage.
+    try {
+      const surfaceMetaPath = path.join(runDir(dataDir, surfaceRunId), 'stage-0.meta.json');
+      const surfaceSource = consModelConfig.cliTool === 'claude' ? 'claude-code' : 'plain';
+      fs.writeFileSync(surfaceMetaPath, JSON.stringify({
+        source: surfaceSource, schemaVersion: 1, agentId: 'folio-consolidator',
+        startedAt, cliTool: consModelConfig.cliTool, model: consModelConfig.model,
+      }), 'utf8');
+    } catch (metaErr) {
+      console.warn('[pipelineManager] WARN: could not rewrite consolidation meta.json:', metaErr.message);
+    }
 
     let shellCmd;
     const consAdapter = getAdapter(consModelConfig.cliTool);
