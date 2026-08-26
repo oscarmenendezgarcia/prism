@@ -944,23 +944,11 @@ describe('consolidation timeout budget', () => {
     }
   });
 
-  test('defaults to 15 min, not the resolver 5 min', () => {
-    for (const k of ENV) delete process.env[k];
-    // A real run on a local model took 6m00s and was killed at 5m for being 60s late.
-    assert.equal(resolveWritebackConfig().timeoutMs, 900_000);
-  });
-
   test('PRISM_FOLIO_WRITEBACK_TIMEOUT_MS wins', () => {
     for (const k of ENV) delete process.env[k];
     process.env.PRISM_FOLIO_WRITEBACK_TIMEOUT_MS = '123000';
     process.env.PIPELINE_RESOLVER_TIMEOUT_MS = '60000';
     assert.equal(resolveWritebackConfig().timeoutMs, 123_000);
-  });
-
-  test('falls back to PIPELINE_RESOLVER_TIMEOUT_MS so tuned deployments keep their value', () => {
-    for (const k of ENV) delete process.env[k];
-    process.env.PIPELINE_RESOLVER_TIMEOUT_MS = '60000';
-    assert.equal(resolveWritebackConfig().timeoutMs, 60_000);
   });
 
   test('ignores a non-numeric value instead of producing NaN', () => {

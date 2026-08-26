@@ -229,16 +229,15 @@ function resolveWritebackConfig() {
   const compactBytesEnv = parseInt(process.env.PRISM_FOLIO_COMPACT_BYTES, 10);
   const compactBytes = (Number.isFinite(compactBytesEnv) && compactBytesEnv > 0) ? compactBytesEnv : 100_000;
 
-  // Consolidation gets its OWN budget. It used to borrow the comment-resolver's
-  // (PIPELINE_RESOLVER_TIMEOUT_MS, 5 min), which is a different job: the resolver
-  // answers one question, the consolidator reads a whole run and writes pages.
+  // Consolidation gets its OWN budget, with NO fallback to the comment-resolver's
+  // PIPELINE_RESOLVER_TIMEOUT_MS. Borrowing it was the bug: the resolver answers one
+  // question, the consolidator reads a whole run and writes pages. Keeping the
+  // fallback would mean tuning the resolver still silently retimes the consolidator
+  // — the same coupling with an escape hatch on top.
   // Measured 2026-08-26 on a local model (nemotron-3.5-lightning via opencode):
   // 6m00s for a real run — it completed correctly and was killed at 5m for being
-  // 60 seconds late. PIPELINE_RESOLVER_TIMEOUT_MS is still honoured when set, so
-  // existing deployments that tuned it keep their value.
-  const timeoutEnv = process.env.PRISM_FOLIO_WRITEBACK_TIMEOUT_MS
-    || process.env.PIPELINE_RESOLVER_TIMEOUT_MS;
-  const parsedTimeout = parseInt(timeoutEnv, 10);
+  // 60 seconds late.
+  const parsedTimeout = parseInt(process.env.PRISM_FOLIO_WRITEBACK_TIMEOUT_MS, 10);
   const timeoutMs = (Number.isFinite(parsedTimeout) && parsedTimeout > 0)
     ? parsedTimeout
     : DEFAULT_WRITEBACK_TIMEOUT_MS;
@@ -2157,7 +2156,7 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
   // final_result, every line an "unknownEvent") even though the run itself was fine.
   {
     const agentMode = process.env.PIPELINE_AGENT_MODE || 'subagent';
-    const source    = (effectiveConfig.cliTool === 'claude' && agentMode === 'subagent') ? 'claude-code' : 'plain';
+    const source    = getAdapter(effectiveConfig.cliTool).metaSource(agentMode);
     const metaPath  = path.join(runDir(dataDir, run.runId), `stage-${stageIndex}.meta.json`);
     try {
       fs.writeFileSync(metaPath, JSON.stringify({
@@ -3575,7 +3574,11 @@ async function maybeConsolidate(dataDir, run) {
     // an empty run (model: null, no tokens, no cost). Same pattern as spawnStage.
     try {
       const surfaceMetaPath = path.join(runDir(dataDir, surfaceRunId), 'stage-0.meta.json');
-      const surfaceSource = consModelConfig.cliTool === 'claude' ? 'claude-code' : 'plain';
+      // Every adapter already declares metaSource(agentMode) — claude, opencode, pi,
+      // hermes and custom. None of the call sites used it, so the rule was hand-rolled
+      // in each. Use the adapter instead of adding a third divergent copy.
+      const agentMode     = process.env.PIPELINE_AGENT_MODE || 'subagent';
+      const surfaceSource = getAdapter(consModelConfig.cliTool).metaSource(agentMode);
       fs.writeFileSync(surfaceMetaPath, JSON.stringify({
         source: surfaceSource, schemaVersion: 1, agentId: 'folio-consolidator',
         startedAt, cliTool: consModelConfig.cliTool, model: consModelConfig.model,
