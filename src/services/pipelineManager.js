@@ -1652,6 +1652,49 @@ async function moveKanbanTask(spaceId, taskId, column) {
 }
 
 // ---------------------------------------------------------------------------
+// Merge gate — PR-URL detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Matches the standard PR URL shape produced by `gh pr create`:
+ *   https://github.com/<owner>/<repo>/pull/<number>
+ * Optional trailing path/query/hash is tolerated. Anything else (issues,
+ * discussions, docs) is intentionally ignored so unrelated link attachments
+ * never gate the run.
+ */
+const PR_URL_RE = /^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+(?:[/?#].*)?$/;
+
+/**
+ * Return the first GitHub pull-request URL found among the task's link
+ * attachments, or `null` when the task has none. Best-effort read: any
+ * storage/read failure yields `null` (behaviour then matches the pre-merge-gate
+ * flow — the card gets moved to 'done' as before).
+ *
+ * @param {string} dataDir
+ * @param {{ spaceId: string, taskId: string }} run
+ * @returns {string|null}
+ */
+function findPrUrlOnTask(dataDir, run) {
+  let task = null;
+  try {
+    if (_store) {
+      task = _store.getTask(run.spaceId, run.taskId);
+    } else {
+      task = readTaskFromSpace(path.join(dataDir, 'spaces'), run.spaceId, run.taskId);
+    }
+  } catch {
+    return null;
+  }
+  if (!task || !Array.isArray(task.attachments)) return null;
+  for (const att of task.attachments) {
+    if (!att || att.type !== 'link' || typeof att.content !== 'string') continue;
+    const url = att.content.trim();
+    if (PR_URL_RE.test(url)) return url;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Prompt building
 // ---------------------------------------------------------------------------
 
@@ -1859,7 +1902,21 @@ async function executeNextStage(dataDir, runId) {
     run.status = 'completed';
     writeRun(dataDir, run);
     pipelineLog('run.completed', { runId, totalDurationMs: Date.now() - new Date(run.createdAt).getTime() });
-    await moveKanbanTask(run.spaceId, run.taskId, 'done');
+
+    // Merge gate (minimal scaffolding): if the run produced a PR URL, leave the
+    // card in 'in-progress'. A human still merges the PR and drags the card to
+    // 'done' — the manual path already works. This exists because 'done' was
+    // silently lying (QOL-3/QOL-7/JSON Schema 2020-12 sat in 'done' for weeks
+    // with their PRs unmerged, ~2.4k lines dangling). When the VERIFY arc gives
+    // enough confidence to auto-merge, the pipeline will close the card itself
+    // and this branch disappears. Cards for runs without a PR (space with no
+    // repo, or repo without remote) still auto-close as before.
+    const prUrl = findPrUrlOnTask(dataDir, run);
+    if (prUrl) {
+      pipelineLog('run.merge_gate_hold', { runId, taskId: run.taskId, prUrl });
+    } else {
+      await moveKanbanTask(run.spaceId, run.taskId, 'done');
+    }
     // Teardown worktree now that the run is complete (parallel-worktrees).
     await finalizeRun(dataDir, run);
     // Folio write-back epilogue: best-effort, never affects run.status or latency.
@@ -4269,6 +4326,9 @@ module.exports = {
   stageDonePath,
   resolverDonePath,
   buildStagePrompt,
+  // Merge gate (exported for testing):
+  findPrUrlOnTask,
+  _executeNextStageForTest: executeNextStage,
   // LOOP-1 feedback gate (exported for testing and for future gate authors):
   getAgentGateConfig,
   evaluateFeedbackGate,
