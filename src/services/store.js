@@ -363,7 +363,7 @@ function createStore(dataDir) {
       'SELECT * FROM tasks WHERE space_id = ? AND column = ? ORDER BY rank ASC, created_at ASC'
     ),
     getAllTasksForSpace: db.prepare(
-      'SELECT * FROM tasks WHERE space_id = ? ORDER BY created_at ASC'
+      'SELECT * FROM tasks WHERE space_id = ? ORDER BY rank ASC, created_at ASC'
     ),
     getTask: db.prepare(
       'SELECT * FROM tasks WHERE space_id = ? AND id = ?'

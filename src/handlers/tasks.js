@@ -725,7 +725,7 @@ function createApp(spaceId, store) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
 
-      const OTHER_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline'];
+      const OTHER_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline', 'arc', 'stageModels'];
       const hasOtherFields = OTHER_FIELDS.some(f => f in body);
 
       if (!hasOtherFields) {

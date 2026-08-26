@@ -78,7 +78,6 @@ beforeEach(() => {
     },
     detailTask: null,
     isMutating: false,
-    toastMessage: null,
   });
 
   // Default: updateTask succeeds
@@ -262,7 +261,7 @@ describe('DependsOnSection — error handling', () => {
     mockUpdateTask.mockRejectedValue(cycleError);
 
     const showToastFn = vi.fn();
-    useAppStore.setState({ showToast: showToastFn } as Parameters<typeof useAppStore.setState>[0]);
+    useAppStore.setState({ showToast: showToastFn } as unknown as Parameters<typeof useAppStore.setState>[0]);
 
     renderSection({ dependsOn: [] });
     await userEvent.click(screen.getByLabelText('Add dependency'));
@@ -295,7 +294,7 @@ describe('DependsOnSection — error handling', () => {
     mockUpdateTask.mockRejectedValue(notFoundError);
 
     const showToastFn = vi.fn();
-    useAppStore.setState({ showToast: showToastFn } as Parameters<typeof useAppStore.setState>[0]);
+    useAppStore.setState({ showToast: showToastFn } as unknown as Parameters<typeof useAppStore.setState>[0]);
 
     renderSection({ dependsOn: [] });
     await userEvent.click(screen.getByLabelText('Add dependency'));
