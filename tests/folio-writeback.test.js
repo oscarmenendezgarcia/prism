@@ -15,7 +15,7 @@
  * Run with: node --test tests/folio-writeback.test.js
  */
 
-const { describe, it, before, beforeEach, after } = require('node:test');
+const { describe, it, before, beforeEach, after, test, afterEach } = require('node:test');
 const assert  = require('node:assert/strict');
 const fs      = require('fs');
 const path    = require('path');
@@ -333,9 +333,9 @@ describe('resolveWritebackConfig — defaults', () => {
     assert.equal(cfg.maxBytes, 8192);
   });
 
-  it('should_default_timeoutMs_to_300000', () => {
+  it('should_default_timeoutMs_to_900000', () => {
     const cfg = resolveWritebackConfig();
-    assert.equal(cfg.timeoutMs, 300000);
+    assert.equal(cfg.timeoutMs, 900000);
   });
 });
 
@@ -930,5 +930,30 @@ describe('maybeConsolidate — run.status stays completed even on consolidation 
     // run.status is not managed by maybeConsolidate — it never sets it to anything other than 'completed'
     const updated = readRunFile(dataDir, run.runId);
     assert.equal(updated.status, 'completed', 'run.status must remain completed');
+  });
+});
+
+describe('consolidation timeout budget', () => {
+  const { resolveWritebackConfig } = require('../src/services/pipelineManager');
+  const ENV = ['PRISM_FOLIO_WRITEBACK_TIMEOUT_MS', 'PIPELINE_RESOLVER_TIMEOUT_MS'];
+  const saved = {};
+  before(() => { for (const k of ENV) saved[k] = process.env[k]; });
+  afterEach(() => {
+    for (const k of ENV) {
+      if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    }
+  });
+
+  test('PRISM_FOLIO_WRITEBACK_TIMEOUT_MS wins', () => {
+    for (const k of ENV) delete process.env[k];
+    process.env.PRISM_FOLIO_WRITEBACK_TIMEOUT_MS = '123000';
+    process.env.PIPELINE_RESOLVER_TIMEOUT_MS = '60000';
+    assert.equal(resolveWritebackConfig().timeoutMs, 123_000);
+  });
+
+  test('ignores a non-numeric value instead of producing NaN', () => {
+    for (const k of ENV) delete process.env[k];
+    process.env.PRISM_FOLIO_WRITEBACK_TIMEOUT_MS = 'nope';
+    assert.equal(resolveWritebackConfig().timeoutMs, 900_000);
   });
 });
