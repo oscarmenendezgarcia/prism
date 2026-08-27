@@ -1798,3 +1798,25 @@ describe('REST integration — checkpoints', () => {
     assert.ok(res.body.platform.length > 0, 'platform should not be empty');
   });
 });
+
+// ---------------------------------------------------------------------------
+// The stall watchdog must not judge a harness that does not stream.
+//
+// It reads an un-growing stage log as a dead stage — true only for a harness
+// that streams as it works. `pi -p` buffers everything until it exits.
+// ---------------------------------------------------------------------------
+describe('stall watchdog — harness awareness', () => {
+  const { getAdapter } = require('../src/services/cliAdapters');
+
+  test('pi declares that it does not stream progress', () => {
+    assert.equal(getAdapter('pi').streamsProgress, false,
+      'pi buffers until exit; the watchdog must not judge it by log growth');
+  });
+
+  test('the streaming harnesses are still watched', () => {
+    for (const id of ['claude', 'opencode']) {
+      assert.notEqual(getAdapter(id).streamsProgress, false,
+        `${id} streams as it works, so its log going quiet is real evidence`);
+    }
+  });
+});

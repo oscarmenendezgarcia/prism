@@ -14,6 +14,9 @@
  *   - buildUnixCommand(opts)     → full `sh -c` command incl. done-sentinel trap
  *   - buildWindowsCommand(opts)  → full `cmd.exe /C` command incl. sentinel
  *   - metaSource(agentMode)      → the `source` label for stage meta.json
+ *   - streamsProgress            → false when the harness buffers all output
+ *                                  until it exits (pi); the stall watchdog then
+ *                                  cannot judge it by log growth. Absent = streams.
  *
  * This is the single extension point: to add a new harness (e.g. `pi`, `custom`)
  * you add one entry to ADAPTERS — no pipelineManager.js changes required.
@@ -219,6 +222,11 @@ function writeMergedPromptFile({ agentSpec, taskPromptPath, runDirPath, stageInd
 const piAdapter = {
   name:            'pi',
   needsPromptFile: true,
+
+  // `pi -p` writes its output only when it exits, so the stage log stays empty
+  // for the whole run and the stall watchdog cannot judge it by log growth.
+  // Such a stage is still bounded by the stage timeout and the done sentinel.
+  streamsProgress: false,
 
   resolveBinary() {
     return cliSpawn.resolveCliBinary('pi');
