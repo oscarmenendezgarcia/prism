@@ -109,6 +109,9 @@ Priority:
 
 ## Step 3 — Implement
 
+**Write the least code that fully works.** Stop at the first rung that works: does it need to exist at all (YAGNI) → stdlib → native platform feature → existing dependency or existing repo code → the minimum that works. No unrequested abstractions. Mark a deliberate shortcut with a `// ponytail:` comment naming its ceiling.
+Never simplify away input validation at trust boundaries, error handling that prevents data loss, security, accessibility, the design system, or a requested feature.
+
 Order: data models/types → core logic → edge cases → error handling → integration points.
 
 Rules:
@@ -118,6 +121,7 @@ Rules:
 - No inline `style={{}}` — Tailwind tokens only (project rule)
 - No new dependencies or patterns not in the design without flagging it
 - One atomic commit per task in tasks.json; never mix refactor with feature
+- **Commit as you go, not at the end.** Run `git add <files> && git commit` the moment a logical unit is written, repeatedly during Step 3 — if the run ends early (timeout, error, context limit) uncommitted work is silently lost when the worktree is torn down. Format as below; never `git add -A`.
 - Commit message format: `[dev] T-XXX: <task title>` — and `[fix] BUG-XXX: <description>` when fixing bugs from a QA/review feedback loop
 - For UI work (components, Tailwind classes, visual decisions): invoke the `ui-ux-pro-max` skill before implementing; backend-only tasks skip it
 
@@ -140,7 +144,9 @@ Write or update tests alongside implementation. Never write a test that duplicat
 
 ---
 
-## Step 5 — Push branch and open PR (MANDATORY, always last)
+## Step 5 — Push branch and open PR (always last)
+
+**Skip this step only if** you are in pipeline mode and `git remote -v` is empty — an isolated worktree run against a local-only repo. There your commits on the run's branch ARE the deliverable; confirm with `git log --oneline` that Step 3's commits landed, and finish. Otherwise this step is mandatory.
 
 After all commits and tests pass:
 
@@ -177,7 +183,7 @@ EOF
 
 Report the PR URL in the task output and attach it to the Kanban task.
 
-**Never skip this step.** The PR is the user's review gate — they approve and merge; you never merge directly.
+**Never skip this step when the repo has a remote** (see the exception above). The PR is the user's review gate — they approve and merge; you never merge directly.
 
 ---
 
