@@ -85,6 +85,19 @@ function removeMutatingId(prev: Set<string>, id: string): Set<string> {
   next.delete(id);
   return next;
 }
+/** Batch variant of `addMutatingId` for mutations that touch several tasks at once (e.g. rank rebalance). */
+function addMutatingIds(prev: Set<string>, ids: string[]): Set<string> {
+  const next = new Set(prev);
+  for (const id of ids) next.add(id);
+  return next;
+}
+/** Batch variant of `removeMutatingId`; returns `prev` unchanged when nothing applies. */
+function removeMutatingIds(prev: Set<string>, ids: string[]): Set<string> {
+  if (!ids.some((id) => prev.has(id))) return prev;
+  const next = new Set(prev);
+  for (const id of ids) next.delete(id);
+  return next;
+}
 
 // ---------------------------------------------------------------------------
 // Store shape
@@ -123,8 +136,8 @@ interface AppState {
   isMutating: boolean;
   /**
    * IDs of tasks that currently have an in-flight mutation (move / delete /
-   * updateTask). Scoped per-task so only the affected card shows a disabled
-   * state; the rest of the board stays interactive.
+   * updateTask / reorder). Scoped per-task so only the affected card shows a
+   * disabled state; the rest of the board stays interactive.
    */
   mutatingTaskIds: Set<string>;
   loadBoard: () => Promise<void>;
@@ -872,6 +885,7 @@ export const useAppStore = create<AppState>((set, get) => {
   reorderTasks: async (column: Column, updates: Array<{ id: string; rank: number }>) => {
     if (updates.length === 0) return;
     const { activeSpaceId, tasks, showToast } = get();
+    const taskIds = updates.map((u) => u.id);
     // Snapshot the entire column for all-or-nothing rollback.
     const prevColumnTasks = [...tasks[column]];
     const rankById = new Map(updates.map((u) => [u.id, u.rank]));
@@ -880,13 +894,22 @@ export const useAppStore = create<AppState>((set, get) => {
       rankById.has(t.id) ? { ...t, rank: rankById.get(t.id)! } : t
     );
     updated.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt));
-    set({ tasks: { ...tasks, [column]: updated } });
+    // Mark the whole batch in flight so keyboard/drag guards and polling treat
+    // the reorder like any other mutation (no overlapping writes, no clobbering
+    // of the optimistic state by a poll mid-flight).
+    set({
+      tasks: { ...tasks, [column]: updated },
+      isMutating: true,
+      mutatingTaskIds: addMutatingIds(get().mutatingTaskIds, taskIds),
+    });
     try {
       await api.reorderTasks(activeSpaceId, updates);
     } catch (err) {
       // Full-batch rollback — restore the pre-batch column snapshot verbatim.
       set({ tasks: { ...get().tasks, [column]: prevColumnTasks } });
       showToast((err as Error).message, 'error');
+    } finally {
+      set({ isMutating: false, mutatingTaskIds: removeMutatingIds(get().mutatingTaskIds, taskIds) });
     }
   },
 
@@ -899,13 +922,21 @@ export const useAppStore = create<AppState>((set, get) => {
       t.id === taskId ? { ...t, rank: newRank } : t
     );
     updated.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt));
-    set({ tasks: { ...tasks, [column]: updated } });
+    // Mark in flight (same contract as moveTask / deleteTask) so rapid Alt+Arrow
+    // presses and polling can't overlap the write.
+    set({
+      tasks: { ...tasks, [column]: updated },
+      isMutating: true,
+      mutatingTaskIds: addMutatingId(get().mutatingTaskIds, taskId),
+    });
     try {
       await api.reorderTask(activeSpaceId, taskId, newRank);
     } catch (err) {
       // Rollback on failure
       set({ tasks: { ...get().tasks, [column]: prevColumnTasks } });
       showToast((err as Error).message, 'error');
+    } finally {
+      set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });
     }
   },
 
@@ -1853,7 +1884,7 @@ export const useSpaces = () => useAppStore((s) => s.spaces);
 export const useTasks = () => useAppStore((s) => s.tasks);
 export const useIsMutating = () => useAppStore((s) => s.isMutating);
 /**
- * True while `taskId` has an in-flight mutation (move / delete / updateTask).
+ * True while `taskId` has an in-flight mutation (move / delete / updateTask / reorder).
  * Scoped per-task so only the affected card shows a disabled state while other
  * cards on the board remain interactive.
  */
