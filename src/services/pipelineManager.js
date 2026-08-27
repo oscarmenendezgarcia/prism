@@ -1233,11 +1233,15 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
  * @param {string} doneFile       - Path to stage-N.done sentinel.
  * @param {number} stageStartedAt - Date.now() when the stage was spawned.
  * @param {number} timeoutMs      - Maximum stage duration before kill.
+ * @param {boolean} [stallWatch]  - False for a harness that buffers its output
+ *   until it exits: an un-growing log is then no evidence of a dead stage.
  */
-function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, timeoutMs) {
+function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, timeoutMs, stallWatch = true) {
   const stallMs      = Number(process.env.PIPELINE_STALL_TIMEOUT_MS) || DEFAULT_STALL_TIMEOUT_MS;
   const logPath      = stageLogPath(dataDir, runId, stageIndex);
   let   lastLogMtime = stageStartedAt;
+
+  if (!stallWatch) pipelineLog('stage.stall_watch_disabled', { runId, stageIndex });
 
   const interval = setInterval(async () => {
     // --- Done sentinel check ---
@@ -1320,7 +1324,7 @@ function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, time
       // Log not yet created — use stageStartedAt as baseline.
     }
 
-    if (Date.now() - lastLogMtime >= stallMs) {
+    if (stallWatch && Date.now() - lastLogMtime >= stallMs) {
       clearInterval(interval);
       activeProcesses.delete(runId);
       await killStage(dataDir, runId, stageIndex, 'stall');
@@ -2203,7 +2207,8 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
     // null PID: no real process — deleteRun/abortAll will skip the kill() call
     // and avoid accidentally sending SIGTERM to the current process (e.g. test runner).
     persistStagePid(dataDir, run, stageIndex, null);
-    const interval = startPolling(dataDir, run.runId, stageIndex, doneFile, stageStartedAt, timeoutMs);
+    const interval = startPolling(dataDir, run.runId, stageIndex, doneFile, stageStartedAt, timeoutMs,
+      getAdapter(earlyConfig.cliTool).streamsProgress !== false);
     activeProcesses.set(run.runId, { interval, stageIndex });
     pipelineLog('stage.spawned', { runId: run.runId, stageIndex, agentId, pid: null, mock: true });
     return;
@@ -2416,7 +2421,8 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
   persistStagePid(dataDir, run, stageIndex, child.pid);
 
   // Start polling loop that watches the done-sentinel, timeout, and stall.
-  const interval = startPolling(dataDir, run.runId, stageIndex, doneFile, stageStartedAt, timeoutMs);
+  const interval = startPolling(dataDir, run.runId, stageIndex, doneFile, stageStartedAt, timeoutMs,
+    getAdapter(effectiveConfig.cliTool).streamsProgress !== false);
   activeProcesses.set(run.runId, { interval, stageIndex });
 
   pipelineLog('stage.spawned', { runId: run.runId, stageIndex, agentId, pid: child.pid });
@@ -2641,7 +2647,8 @@ function _processRunsOnStartup(dataDir, runs, knownWorkingDirs) {
         const timeoutMs   = agentId === 'orchestrator' ? baseTimeout * 6 : baseTimeout;
         const startedAt   = stage.startedAt ? new Date(stage.startedAt).getTime() : BOOT_TIME;
 
-        const interval = startPolling(dataDir, run.runId, runningStageIdx, doneFile, startedAt, timeoutMs);
+        const interval = startPolling(dataDir, run.runId, runningStageIdx, doneFile, startedAt, timeoutMs,
+          getAdapter(stage.cliTool).streamsProgress !== false);
         activeProcesses.set(run.runId, { interval, stageIndex: runningStageIdx });
         pipelineLog('run.reattached', { runId: run.runId, runningStageIdx, pid });
         continue;

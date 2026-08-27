@@ -43,6 +43,8 @@ describe('useAppStore.reorderTasks', () => {
     vi.clearAllMocks();
     useAppStore.setState({
       activeSpaceId: 'space-1',
+      isMutating: false,
+      mutatingTaskIds: new Set<string>(),
       tasks: {
         todo: [mkTask('a', 1000, '2026-01-01T00:00:00.000Z'),
                mkTask('b', 2000, '2026-01-01T00:01:00.000Z'),
@@ -89,5 +91,102 @@ describe('useAppStore.reorderTasks', () => {
   it('is a no-op when updates is empty (no request fired)', async () => {
     await useAppStore.getState().reorderTasks('todo', []);
     expect(api.reorderTasks).not.toHaveBeenCalled();
+    // No mutation started, so no mutation flags may be set.
+    expect(useAppStore.getState().isMutating).toBe(false);
+    expect(useAppStore.getState().mutatingTaskIds.size).toBe(0);
+  });
+
+  it('marks every batched task in flight while the request is pending and clears flags on success', async () => {
+    let resolveBatch: (value: unknown) => void = () => {};
+    (api.reorderTasks as any).mockImplementationOnce(
+      () => new Promise((resolve) => { resolveBatch = resolve; }),
+    );
+
+    const pending = useAppStore.getState().reorderTasks('todo', [
+      { id: 'a', rank: 3000 },
+      { id: 'b', rank: 1000 },
+      { id: 'c', rank: 2000 },
+    ]);
+
+    const inFlight = useAppStore.getState();
+    expect(inFlight.isMutating).toBe(true);
+    // All batched ids are scoped per-card; no others are touched.
+    expect(inFlight.mutatingTaskIds.has('a')).toBe(true);
+    expect(inFlight.mutatingTaskIds.has('b')).toBe(true);
+    expect(inFlight.mutatingTaskIds.has('c')).toBe(true);
+
+    resolveBatch({ tasks: [] });
+    await pending;
+
+    const settled = useAppStore.getState();
+    expect(settled.isMutating).toBe(false);
+    expect(settled.mutatingTaskIds.size).toBe(0);
+  });
+
+  it('clears the mutation flags even when the batch request fails', async () => {
+    (api.reorderTasks as any).mockRejectedValueOnce(new Error('network blip'));
+
+    const pending = useAppStore.getState().reorderTasks('todo', [{ id: 'a', rank: 9000 }]);
+    expect(useAppStore.getState().isMutating).toBe(true);
+    expect(useAppStore.getState().mutatingTaskIds.has('a')).toBe(true);
+
+    await pending;
+
+    const settled = useAppStore.getState();
+    expect(settled.isMutating).toBe(false);
+    expect(settled.mutatingTaskIds.size).toBe(0);
+  });
+});
+
+describe('useAppStore.reorderTask', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAppStore.setState({
+      activeSpaceId: 'space-1',
+      isMutating: false,
+      mutatingTaskIds: new Set<string>(),
+      tasks: {
+        todo: [mkTask('a', 1000, '2026-01-01T00:00:00.000Z'),
+               mkTask('b', 2000, '2026-01-01T00:01:00.000Z')],
+        'in-progress': [],
+        done: [],
+      },
+    });
+  });
+
+  it('marks isMutating and mutatingTaskIds while the PATCH is in flight', async () => {
+    let resolvePatch: (value: unknown) => void = () => {};
+    (api.reorderTask as any).mockImplementationOnce(
+      () => new Promise((resolve) => { resolvePatch = resolve; }),
+    );
+
+    // Move 'b' to the top (rank 500): optimistic order becomes [b, a].
+    const pending = useAppStore.getState().reorderTask('b', 'todo', 500);
+
+    const inFlight = useAppStore.getState();
+    expect(inFlight.isMutating).toBe(true);
+    // Per-card flag: only the moved task is marked, others stay interactive.
+    expect(inFlight.mutatingTaskIds.has('b')).toBe(true);
+    expect(inFlight.mutatingTaskIds.has('a')).toBe(false);
+    expect(inFlight.tasks.todo.map((t) => t.id)).toEqual(['b', 'a']);
+
+    resolvePatch({} as any);
+    await pending;
+
+    const settled = useAppStore.getState();
+    expect(settled.isMutating).toBe(false);
+    expect(settled.mutatingTaskIds.size).toBe(0);
+  });
+
+  it('clears the mutation flags and rolls back the rank when the PATCH fails', async () => {
+    (api.reorderTask as any).mockRejectedValueOnce(new Error('network blip'));
+
+    await useAppStore.getState().reorderTask('a', 'todo', 9000);
+
+    const settled = useAppStore.getState();
+    expect(settled.isMutating).toBe(false);
+    expect(settled.mutatingTaskIds.size).toBe(0);
+    // Rollback restored the original order.
+    expect(settled.tasks.todo.map((t) => t.id)).toEqual(['a', 'b']);
   });
 });
