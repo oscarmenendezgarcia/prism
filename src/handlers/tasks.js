@@ -450,9 +450,23 @@ function createApp(spaceId, store) {
       ...(data.pipeline    !== undefined && { pipeline:    data.pipeline }),
       ...(data.arc         !== undefined && { arc:         data.arc }),
       ...(attachmentResult.data.length > 0 && { attachments: attachmentResult.data }),
+      ...(dependsOnResult.data && dependsOnResult.data.length > 0
+        && { dependsOn: dependsOnResult.data }),
       createdAt: now,
       updatedAt: now,
     };
+
+    // A task being created has an id nothing can reference yet, so it cannot be
+    // part of a cycle — only existence needs checking. The INSERT already binds
+    // depends_on, so the deps ride along with the row instead of being written
+    // by a second statement that would have to be rolled back on failure.
+    if (task.dependsOn) {
+      const known = new Set(store.getAllTasksForSpace(spaceId).map((t) => t.id));
+      const missing = task.dependsOn.find((id) => !known.has(id));
+      if (missing) {
+        return sendError(res, 422, 'DEPENDENCY_NOT_FOUND', `Dependency task not found: ${missing}`);
+      }
+    }
 
     try {
       store.insertTask(task, spaceId, 'todo');
@@ -461,20 +475,6 @@ function createApp(spaceId, store) {
           event: 'task.pipeline_field_set', spaceId,
           taskId: task.id, stages: task.pipeline, source: 'api',
         }) + '\n');
-      }
-
-      // Handle dependsOn after insertion
-      if (dependsOnResult.data && dependsOnResult.data.length > 0) {
-        const depResult = store.setTaskDependencies(spaceId, task.id, dependsOnResult.data);
-        if (depResult.error) {
-          // Rollback: delete the just-created task
-          store.deleteTask(spaceId, task.id);
-          if (depResult.code === 'DEPENDENCY_NOT_FOUND') {
-            return sendError(res, 422, 'DEPENDENCY_NOT_FOUND', depResult.error);
-          }
-          return sendError(res, 400, 'VALIDATION_ERROR', depResult.error);
-        }
-        return sendJSON(res, 201, stripAttachmentContent(depResult.task));
       }
 
       sendJSON(res, 201, stripAttachmentContent(task));
@@ -703,7 +703,9 @@ function createApp(spaceId, store) {
     }
 
     try {
-      // Handle dependsOn via setTaskDependencies first
+      // Handle dependsOn via setTaskDependencies first. It already loads the
+      // row and returns the updated task, so keep it and skip the re-read below.
+      let updatedByDeps = null;
       if ('dependsOn' in body && dependsOnUpdateResult?.valid) {
         const depResult = store.setTaskDependencies(spaceId, taskId, dependsOnUpdateResult.data ?? []);
         if (depResult.error) {
@@ -718,9 +720,10 @@ function createApp(spaceId, store) {
           }
           return sendError(res, 400, 'VALIDATION_ERROR', depResult.error);
         }
+        updatedByDeps = depResult.task;
       }
 
-      const existing = store.getTask(spaceId, taskId);
+      const existing = updatedByDeps ?? store.getTask(spaceId, taskId);
       if (!existing) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
