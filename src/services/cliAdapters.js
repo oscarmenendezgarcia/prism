@@ -220,6 +220,15 @@ const piAdapter = {
   name:            'pi',
   needsPromptFile: true,
 
+  // `pi -p` is non-interactive: it processes the whole prompt and writes its
+  // output only when it finishes. Nothing reaches the stage log in between, so
+  // the manager's stall watchdog — which treats an un-growing log as a dead
+  // stage — would kill every pi stage at the 15-minute mark no matter how well
+  // it was doing. Opting out means such a stage is bounded by the stage timeout
+  // and the done sentinel alone. Verified 2026-08-27, run f0163a12: killed as
+  // 'stall' with the fix and 99 lines of tests already committed and pushed.
+  streamsProgress: false,
+
   resolveBinary() {
     return cliSpawn.resolveCliBinary('pi');
   },

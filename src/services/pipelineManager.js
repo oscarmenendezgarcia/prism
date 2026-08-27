@@ -1099,6 +1099,24 @@ function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, time
   const logPath      = stageLogPath(dataDir, runId, stageIndex);
   let   lastLogMtime = stageStartedAt;
 
+  // The stall watchdog reads an un-growing log as a dead stage. That only holds
+  // for harnesses that stream as they work; one that buffers everything until it
+  // exits (pi -p) writes nothing for its whole run, so the watchdog would kill it
+  // on the clock regardless of how it was doing. Ask the adapter instead of
+  // assuming, and fall back to watching when we cannot tell.
+  let stallWatch = true;
+  try {
+    const runForHarness = readRun(dataDir, runId);
+    const cliTool = runForHarness
+      && runForHarness.stageStatuses
+      && runForHarness.stageStatuses[stageIndex]
+      && runForHarness.stageStatuses[stageIndex].cliTool;
+    if (cliTool && getAdapter(cliTool).streamsProgress === false) {
+      stallWatch = false;
+      pipelineLog('stage.stall_watch_disabled', { runId, stageIndex, cliTool });
+    }
+  } catch { /* non-fatal — keep watching */ }
+
   const interval = setInterval(async () => {
     // --- Done sentinel check ---
     if (fs.existsSync(doneFile)) {
@@ -1180,7 +1198,7 @@ function startPolling(dataDir, runId, stageIndex, doneFile, stageStartedAt, time
       // Log not yet created — use stageStartedAt as baseline.
     }
 
-    if (Date.now() - lastLogMtime >= stallMs) {
+    if (stallWatch && Date.now() - lastLogMtime >= stallMs) {
       clearInterval(interval);
       activeProcesses.delete(runId);
       await killStage(dataDir, runId, stageIndex, 'stall');
