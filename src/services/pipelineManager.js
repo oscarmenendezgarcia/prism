@@ -479,6 +479,80 @@ function injectLoopStages(run, stages, agentId) {
   run.loopCounts[agentId] = (run.loopCounts[agentId] || 0) + 1;
 }
 
+/**
+ * Find the index of the most recently completed stage whose agent matches
+ * `author`. Used to "seal" which stage asked a blocking question so the
+ * manager can re-inject it when the question is answered.
+ *
+ * Returns null when the author has no completed stage in this run — e.g. a
+ * human question, or a question posted by an agent whose stage has not
+ * finished yet (that case is sealed from handleStageClose, where the asker
+ * is the stage that just exited and is known exactly).
+ *
+ * @param {object}   run
+ * @param {string}   author - Comment author (agent id, or e.g. 'user').
+ * @returns {number|null} Index of the asking stage, or null.
+ */
+function findAskingStageIndex(run, author) {
+  if (!run || !author || !Array.isArray(run.stageStatuses)) return null;
+  for (let i = run.stageStatuses.length - 1; i >= 0; i--) {
+    const s = run.stageStatuses[i];
+    if (s && s.status === 'completed' && s.agentId === author) return i;
+  }
+  return null;
+}
+
+/**
+ * Re-inject the stage that asked the blocking question(s) so it re-runs with
+ * the answers in its prompt, instead of the pipeline silently advancing to
+ * the next stage with nobody listening for the answers.
+ *
+ * Reuses injectLoopStages (splices at run.currentStage and bumps the loop
+ * counter) and honours the same PIPELINE_MAX_LOOPS cap, so a
+ * question → answer → re-question ping-pong terminates. Records the Q&A on
+ * the run so buildQuestionAnswerBlock can surface it in the re-run's prompt.
+ *
+ * @param {object}   run         - Run state (mutated in place; caller persists).
+ * @param {string[]} questionIds - IDs of the just-resolved question comments.
+ * @returns {boolean} True when the asking stage was re-injected; false when
+ *   there is no sealed asking stage or the loop cap was reached (in which
+ *   case the pipeline simply advances as before).
+ */
+function reinjectQuestionAsker(run, questionIds) {
+  const askingStage = Number.isInteger(run.blockedReason?.askingStage)
+    ? run.blockedReason.askingStage
+    : null;
+  if (askingStage === null || askingStage < 0 || askingStage >= run.stageStatuses.length) {
+    return false;
+  }
+  const askerAgent = run.stages?.[askingStage];
+  if (!askerAgent) return false;
+
+  const maxLoops = parseInt(process.env.PIPELINE_MAX_LOOPS || String(DEFAULT_MAX_LOOPS), 10);
+  if ((run.loopCounts || {})[askerAgent] >= maxLoops) {
+    pipelineLog('run.question_reinject_cap_reached', {
+      runId: run.runId, askerAgent, loopCounts: run.loopCounts || {}, maxLoops,
+    });
+    return false;
+  }
+
+  injectLoopStages(run, [askerAgent], askerAgent);
+  run.questionIterations = (run.questionIterations || 0) + 1;
+  const ids = Array.isArray(questionIds) && questionIds.length > 0
+    ? questionIds
+    : (run.blockedReason?.commentId ? [run.blockedReason.commentId] : []);
+  run.questionAnswers = {
+    atStage:     run.currentStage,
+    askerAgent,
+    questionIds: ids,
+    iteration:   run.questionIterations,
+  };
+  pipelineLog('run.question_asker_reinjected', {
+    runId: run.runId, askerAgent, atStage: run.currentStage, questionIds: ids,
+  });
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Feedback gate helpers (LOOP-1) — generic, manager-driven quality back-edge.
 //
@@ -846,6 +920,61 @@ function buildFeedbackContextBlock(run, stageIndex) {
 }
 
 /**
+ * Build the ANSWERS block appended to the prompt of a stage that was
+ * re-injected because the run was blocked on its question(s) — the manager
+ * re-spawned the asking agent so it can continue with the answers in hand.
+ *
+ * Only the exact re-injected position (run.questionAnswers.atStage) receives
+ * the block; later re-runs of the same agent at a different index (gate
+ * loops, manual resumes) do not, and every stage still sees the standard
+ * RESOLVED QUESTIONS block as before.
+ *
+ * @param {object}         run        - Run state.
+ * @param {number}         stageIndex - Index of the stage being prompted.
+ * @param {object | null}  task       - The task (for comment lookup); may be null.
+ * @returns {string | null}
+ */
+function buildQuestionAnswerBlock(run, stageIndex, task) {
+  const rec = run?.questionAnswers;
+  if (!rec || rec.atStage !== stageIndex) return null;
+  const comments = Array.isArray(task?.comments) ? task.comments : [];
+  if (comments.length === 0) return null;
+
+  let ids;
+  if (Array.isArray(rec.questionIds) && rec.questionIds.length > 0) {
+    ids = rec.questionIds;
+  } else if (rec.askerAgent) {
+    // Defensive fallback (e.g. record persisted without IDs): show every
+    // resolved question this agent asked.
+    ids = comments
+      .filter((c) => c.type === 'question' && c.resolved === true && c.author === rec.askerAgent)
+      .map((c) => c.id);
+  } else {
+    return null;
+  }
+
+  const lines = [
+    '## ANSWERS TO YOUR QUESTIONS',
+    `This is a re-run (iteration ${rec.iteration ?? 1}) of your blocked run.`,
+    'Your previous run stopped to ask the blocking question(s) below.',
+    'They have been answered — use these decisions and do not re-ask them:',
+    '',
+  ];
+  let rendered = 0;
+  for (const id of ids) {
+    const q = comments.find((c) => c.id === id && c.type === 'question');
+    if (!q) continue;
+    const a = comments.find((c) => c.type === 'answer' && c.parentId === q.id);
+    lines.push(`**Q (${q.author || 'unknown'}):** ${q.text}`);
+    lines.push(`**A (${a ? a.author || 'unknown' : 'user'}):** ${a ? a.text : '(resolved — no answer recorded)'}`);
+    lines.push('');
+    rendered++;
+  }
+  if (rendered === 0) return null;
+  return lines.join('\n');
+}
+
+/**
  * Return true if a process with the given PID is alive.
  * Uses kill(pid, 0) — signal 0 does not kill but checks existence.
  *
@@ -991,6 +1120,12 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
 
   stage.status       = 'completed';
   run.currentStage   = stageIndex + 1;
+  // The Q&A block belongs to the re-injected run of this stage index only.
+  // Once it completes, drop it so a later re-spawn at the same index (e.g. a
+  // gate loop that lands on the same stage position) cannot re-read it.
+  if (run.questionAnswers && run.questionAnswers.atStage === stageIndex) {
+    delete run.questionAnswers;
+  }
   // F2 (round 3) — durable pending-gate marker. The prior round's fix moved
   // writeRun BEFORE evaluateFeedbackGate to prevent reattach re-running the
   // gate; but that split stage completion across two non-atomic writes, so a
@@ -1061,6 +1196,11 @@ async function handleStageClose(dataDir, runId, stageIndex, exitCode) {
           text:        q.text,
           ...(q.targetAgent && { targetAgent: q.targetAgent }),
           blockedAt:   new Date().toISOString(),
+          // Seal the asking stage: this stage just exited and asked the
+          // question (or the author's last completed stage did), so on
+          // unblock the manager re-injects THIS stage instead of advancing.
+          askingStage: findAskingStageIndex(freshRun, q.author),
+          questionIds: unresolvedQuestions.map((qq) => qq.id),
         };
         writeRun(dataDir, freshRun);
         pipelineLog('run.blocked', { runId, stageIndex, commentId: q.id, author: q.author });
@@ -1861,6 +2001,11 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     const runForFeedback = readRun(dataDir, runId);
     const feedbackBlock  = buildFeedbackContextBlock(runForFeedback, stageIndex);
     if (feedbackBlock) promptText += '\n' + feedbackBlock + '\n';
+    // Question re-injection: when this stage is the re-spawn of the agent that
+    // blocked the run on a question, surface its answers so the agent continues
+    // instead of the pipeline moving on with its question still open.
+    const questionBlock  = buildQuestionAnswerBlock(runForFeedback, stageIndex, task);
+    if (questionBlock) promptText += '\n' + questionBlock + '\n';
   }
 
   // Kanban instructions — always included so agents can move tasks and post questions.
@@ -3880,6 +4025,9 @@ function blockRunByComment(dataDir, taskId, comment) {
     text:        comment.text,
     ...(comment.targetAgent && { targetAgent: comment.targetAgent }),
     blockedAt:   new Date().toISOString(),
+    // Seal who asked so unblock can re-inject that stage instead of advancing.
+    askingStage: findAskingStageIndex(run, comment.author),
+    questionIds: [comment.id],
   };
   writeRun(dataDir, run);
   pipelineLog('run.blocked', { runId: run.runId, commentId: comment.id, author: comment.author });
@@ -3920,15 +4068,28 @@ function unblockRunByComment(dataDir, taskId, commentId) {
   );
 
   if (unresolvedQuestions.length === 0) {
-    // All questions resolved — resume the pipeline.
+    // All questions resolved — resume the pipeline. Instead of silently
+    // advancing to the next stage (where nobody is listening for the answers),
+    // re-inject the stage that asked the blocking question(s) so its agent
+    // re-runs with the answers in its prompt. Falls back to plain advance
+    // when no asking stage was sealed or the loop cap is reached.
+    const reinjected = reinjectQuestionAsker(run, run.blockedReason?.questionIds);
     run.status = 'running';
     delete run.blockedReason;
     writeRun(dataDir, run);
-    pipelineLog('run.unblocked', { runId: run.runId, commentId, reason: 'all_questions_resolved' });
+    pipelineLog('run.unblocked', {
+      runId: run.runId, commentId, reason: 'all_questions_resolved',
+      askerReinjected: reinjected,
+    });
     setImmediate(() => executeNextStage(dataDir, run.runId));
   } else {
     // More questions remain — update blockedReason to the first unresolved one.
     const next = unresolvedQuestions[0];
+    // Re-seal the asking stage for the new head question: prefer that
+    // question's asker when it maps to a completed stage; otherwise keep the
+    // previously sealed asker (e.g. a human follow-up must not displace the
+    // agent that is waiting for answers).
+    const nextAskingStage = findAskingStageIndex(run, next.author);
     run.blockedReason = {
       commentId: next.id,
       taskId,
@@ -3936,6 +4097,10 @@ function unblockRunByComment(dataDir, taskId, commentId) {
       text:      next.text,
       ...(next.targetAgent && { targetAgent: next.targetAgent }),
       blockedAt: run.blockedReason?.blockedAt || new Date().toISOString(),
+      askingStage: Number.isInteger(nextAskingStage)
+        ? nextAskingStage
+        : (Number.isInteger(run.blockedReason?.askingStage) ? run.blockedReason.askingStage : null),
+      questionIds: unresolvedQuestions.map((q) => q.id),
     };
     writeRun(dataDir, run);
     pipelineLog('run.still_blocked', {
@@ -4363,6 +4528,10 @@ module.exports = {
   applyFeedbackGate,
   buildFeedbackContextBlock,
   injectLoopStages,
+  // Question re-injection (question re-injects asker when answered):
+  findAskingStageIndex,
+  reinjectQuestionAsker,
+  buildQuestionAnswerBlock,
   buildResolverPrompt,
   shellEscape,
   DEFAULT_STAGES,
