@@ -29,6 +29,7 @@ const PIPELINE_STAGE_ID_RE = /^[a-z0-9-]+$/;
 const ARC_MAX_LEN          = 60;
 
 const ATTACHMENT_MAX_COUNT         = 20;
+const DEPENDS_ON_MAX_COUNT         = 20;
 const ATTACHMENT_NAME_MAX_LEN      = 100;
 const ATTACHMENT_TEXT_MAX_BYTES    = 100 * 1024;
 const ATTACHMENT_FILE_MAX_BYTES    = 5 * 1024 * 1024;
@@ -137,6 +138,40 @@ function validatePipelineField(value) {
   }
 
   return { valid: true, data: value.map((s) => s.trim()) };
+}
+
+/**
+ * Validate the `dependsOn` field from an incoming request body.
+ *
+ * @param {unknown} value
+ * @returns {{ valid: boolean, data: string[] | undefined, error?: string }}
+ */
+function validateDependsOnField(value) {
+  if (value === undefined) {
+    return { valid: true, data: undefined };
+  }
+  if (!Array.isArray(value)) {
+    return { valid: false, error: 'dependsOn must be an array of task ID strings' };
+  }
+  if (value.length === 0) {
+    return { valid: true, data: [] };
+  }
+  if (value.length > DEPENDS_ON_MAX_COUNT) {
+    return { valid: false, error: `dependsOn must not exceed ${DEPENDS_ON_MAX_COUNT} items` };
+  }
+  // Check for duplicates
+  const seen = new Set();
+  for (let i = 0; i < value.length; i++) {
+    const id = value[i];
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      return { valid: false, error: `dependsOn[${i}] must be a non-empty string` };
+    }
+    if (seen.has(id)) {
+      return { valid: false, error: `dependsOn contains duplicate ID: ${id}` };
+    }
+    seen.add(id);
+  }
+  return { valid: true, data: value };
 }
 
 // ---------------------------------------------------------------------------
@@ -334,13 +369,12 @@ function createApp(spaceId, store) {
       }
 
       const columns = colFilter ? [colFilter] : COLUMNS;
+      const allWithStatus = store.getAllTasksForSpaceWithStatus(spaceId);
       const flat = [];
-      for (const col of columns) {
-        for (const task of store.getTasksByColumn(spaceId, col)) {
-          if (!assigned || task.assigned === assigned) {
-            flat.push({ ...task, _col: col });
-          }
-        }
+      for (const task of allWithStatus) {
+        if (!columns.includes(task._col)) continue;
+        if (assigned && task.assigned !== assigned) continue;
+        flat.push(task);
       }
 
       const total = flat.length;
@@ -401,6 +435,11 @@ function createApp(spaceId, store) {
       return sendError(res, 400, 'VALIDATION_ERROR', attachmentResult.errors.join('; '));
     }
 
+    const dependsOnResult = validateDependsOnField(body.dependsOn);
+    if (!dependsOnResult.valid) {
+      return sendError(res, 400, 'VALIDATION_ERROR', dependsOnResult.error);
+    }
+
     const now  = new Date().toISOString();
     const task = {
       id:    crypto.randomUUID(),
@@ -411,9 +450,23 @@ function createApp(spaceId, store) {
       ...(data.pipeline    !== undefined && { pipeline:    data.pipeline }),
       ...(data.arc         !== undefined && { arc:         data.arc }),
       ...(attachmentResult.data.length > 0 && { attachments: attachmentResult.data }),
+      ...(dependsOnResult.data && dependsOnResult.data.length > 0
+        && { dependsOn: dependsOnResult.data }),
       createdAt: now,
       updatedAt: now,
     };
+
+    // A task being created has an id nothing can reference yet, so it cannot be
+    // part of a cycle — only existence needs checking. The INSERT already binds
+    // depends_on, so the deps ride along with the row instead of being written
+    // by a second statement that would have to be rolled back on failure.
+    if (task.dependsOn) {
+      const known = new Set(store.getAllTasksForSpace(spaceId).map((t) => t.id));
+      const missing = task.dependsOn.find((id) => !known.has(id));
+      if (missing) {
+        return sendError(res, 422, 'DEPENDENCY_NOT_FOUND', `Dependency task not found: ${missing}`);
+      }
+    }
 
     try {
       store.insertTask(task, spaceId, 'todo');
@@ -423,6 +476,7 @@ function createApp(spaceId, store) {
           taskId: task.id, stages: task.pipeline, source: 'api',
         }) + '\n');
       }
+
       sendJSON(res, 201, stripAttachmentContent(task));
     } catch (err) {
       console.error('POST tasks error:', err);
@@ -594,7 +648,7 @@ function createApp(spaceId, store) {
       return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
     }
 
-    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline', 'arc'];
+    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline', 'arc', 'dependsOn'];
     const provided         = UPDATABLE_FIELDS.filter((f) => f in body);
 
     if (provided.length === 0) {
@@ -636,14 +690,40 @@ function createApp(spaceId, store) {
       }
     }
 
+    let dependsOnUpdateResult;
+    if ('dependsOn' in body) {
+      dependsOnUpdateResult = validateDependsOnField(body.dependsOn);
+      if (!dependsOnUpdateResult.valid) {
+        errors.push(dependsOnUpdateResult.error);
+      }
+    }
+
     if (errors.length > 0) {
       return sendError(res, 400, 'VALIDATION_ERROR', errors.join('; '));
     }
 
     try {
+      // Nothing is written until every field has been validated: the dependsOn
+      // change and the field patch then commit together in one transaction.
+      const depIds = ('dependsOn' in body && dependsOnUpdateResult?.valid)
+        ? (dependsOnUpdateResult.data ?? [])
+        : undefined;
+
       const existing = store.getTask(spaceId, taskId);
       if (!existing) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+      }
+
+      const OTHER_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline', 'arc', 'stageModels'];
+      const hasOtherFields = OTHER_FIELDS.some(f => f in body);
+
+      if (!hasOtherFields) {
+        if (depIds === undefined) {
+          return sendJSON(res, 200, stripAttachmentContent(existing));
+        }
+        const onlyDeps = store.updateTaskWithDependencies(spaceId, taskId, { depIds });
+        if (onlyDeps.error) return sendDependencyError(res, taskId, onlyDeps);
+        return sendJSON(res, 200, stripAttachmentContent(onlyDeps.task));
       }
 
       const patch = { updatedAt: new Date().toISOString() };
@@ -696,12 +776,27 @@ function createApp(spaceId, store) {
         }
       }
 
-      const updatedTask = store.updateTask(spaceId, taskId, patch);
-      sendJSON(res, 200, stripAttachmentContent(updatedTask));
+      const written = store.updateTaskWithDependencies(spaceId, taskId, { patch, depIds });
+      if (written.error) return sendDependencyError(res, taskId, written);
+      sendJSON(res, 200, stripAttachmentContent(written.task));
     } catch (err) {
       console.error(`PUT tasks/${taskId} error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to update task');
     }
+  }
+
+  /** Map a store dependency/update error code to its HTTP response. */
+  function sendDependencyError(res, taskId, result) {
+    if (result.code === 'TASK_NOT_FOUND') {
+      return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+    }
+    if (result.code === 'CYCLE_DETECTED') {
+      return sendError(res, 409, 'CYCLE_DETECTED', result.error);
+    }
+    if (result.code === 'DEPENDENCY_NOT_FOUND') {
+      return sendError(res, 422, 'DEPENDENCY_NOT_FOUND', result.error);
+    }
+    return sendError(res, 400, 'VALIDATION_ERROR', result.error);
   }
 
   function handleGetTask(req, res, taskId) {

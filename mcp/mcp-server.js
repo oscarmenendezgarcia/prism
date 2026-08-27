@@ -206,12 +206,21 @@ server.tool(
       .array(z.string())
       .optional()
       .describe('Optional ordered list of agent IDs for this task\'s pipeline. Overrides the space default when set.'),
+    dependsOn: z
+      .array(z.string())
+      .max(20)
+      .optional()
+      .describe('Optional task IDs this task depends on. A task with unfinished dependencies is blocked and cannot start a run. Cycles are rejected.'),
     arc: z.string().max(60).optional()
       .describe('Narrative grouping label (e.g. "QOL", "AUTH"). Omit to leave unset.'),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_create_task', async ({ title, type, description, assigned, pipeline, arc, spaceId }) => {
-    return createTask({ title, type, description, assigned, pipeline, ...(arc !== undefined && { arc }) }, spaceId);
+  withTiming('kanban_create_task', async ({ title, type, description, assigned, pipeline, arc, dependsOn, spaceId }) => {
+    return createTask({
+      title, type, description, assigned, pipeline,
+      ...(arc !== undefined && { arc }),
+      ...(dependsOn !== undefined && { dependsOn }),
+    }, spaceId);
   })
 );
 
@@ -251,6 +260,11 @@ server.tool(
       .describe(
         'Replace the task attachments. An empty array clears all attachments.',
       ),
+    dependsOn: z
+      .array(z.string())
+      .max(20)
+      .optional()
+      .describe('Replace the task IDs this task depends on. Pass an empty array to clear them. A task with unfinished dependencies is blocked and cannot start a run. Cycles are rejected.'),
     arc: z.string().max(60).optional()
       .describe('Set or clear the arc. Pass "" (empty string) to clear the arc.'),
     mode: z
@@ -262,7 +276,7 @@ server.tool(
       ),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, pipeline, arc, attachments, mode, spaceId }) => {
+  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, pipeline, arc, dependsOn, attachments, mode, spaceId }) => {
     const fields = {};
     if (title       !== undefined) fields.title       = title;
     if (type        !== undefined) fields.type        = type;
@@ -271,6 +285,7 @@ server.tool(
     // T-007: forward pipeline (including empty array = clear semantics)
     if (pipeline    !== undefined) fields.pipeline    = pipeline;
     if (arc         !== undefined) fields.arc         = arc;
+    if (dependsOn  !== undefined) fields.dependsOn  = dependsOn;
 
     let result;
     if (Object.keys(fields).length > 0) {
