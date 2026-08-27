@@ -750,7 +750,8 @@ async function runUnitTests() {
 
     const reinjected = pm.reinjectQuestionAsker(run, ['q1']);
     assert(reinjected === true, 'asking stage should be re-injected');
-    assert.deepStrictEqual(run.stages, ['senior-architect', 'senior-architect', 'developer-agent']);
+    assert(JSON.stringify(run.stages) === JSON.stringify(['senior-architect', 'senior-architect', 'developer-agent']),
+      `stages after re-injection should be [arch, arch, dev], got [${run.stages}]`);
     assert(run.currentStage === 1, 'currentStage must still point at the re-injected stage');
     assert(run.stageStatuses[1].agentId === 'senior-architect' && run.stageStatuses[1].status === 'pending',
       're-injected stage must be the pending senior-architect');
@@ -759,7 +760,8 @@ async function runUnitTests() {
     assert(run.loopCounts['senior-architect'] === 1, 'asker loop count must advance');
     assert(run.questionAnswers.atStage === 1, 'questionAnswers must point at the re-injected position');
     assert(run.questionAnswers.askerAgent === 'senior-architect', 'questionAnswers.askerAgent mismatch');
-    assert.deepStrictEqual(run.questionAnswers.questionIds, ['q1']);
+    assert(JSON.stringify(run.questionAnswers.questionIds) === JSON.stringify(['q1']),
+      'sealed questionIds must be the answered question');
     assert(run.questionIterations === 1, 'questionIterations must start at 1');
   });
 
@@ -784,7 +786,8 @@ async function runUnitTests() {
     process.env.PIPELINE_MAX_LOOPS = '5';
     try {
       assert(pm.reinjectQuestionAsker(run, ['q1']) === false, 'cap must prevent re-injection');
-      assert.deepStrictEqual(run.stages, ['senior-architect', 'developer-agent'], 'stages must be untouched at the cap');
+      assert(JSON.stringify(run.stages) === JSON.stringify(['senior-architect', 'developer-agent']),
+        'stages must be untouched at the cap');
       assert(!('questionAnswers' in run), 'no questionAnswers record at the cap');
     } finally {
       if (prevCap === undefined) delete process.env.PIPELINE_MAX_LOOPS;
@@ -808,7 +811,7 @@ async function runUnitTests() {
       blockedReason: { commentId: 'q1', author: 'user' },
     };
     assert(pm.reinjectQuestionAsker(legacy, ['q1']) === false, 'legacy block must not re-inject');
-    assert.deepStrictEqual(legacy.stages, ['a', 'b']);
+    assert(JSON.stringify(legacy.stages) === JSON.stringify(['a', 'b']), 'legacy block must not mutate stages');
 
     // askingStage out of range.
     const oob = {
