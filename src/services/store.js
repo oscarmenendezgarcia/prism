@@ -204,6 +204,8 @@ function rowToTask(row) {
   // MODEL-1: per-stage model routing overrides.
   const sm = fromJson(row.stage_models);
   if (sm !== undefined) task.stageModels = sm;
+  const deps = fromJson(row.depends_on);
+  if (deps !== undefined) task.dependsOn = deps;
   return task;
 }
 
@@ -273,6 +275,15 @@ function createStore(dataDir) {
     if (!cols.some((c) => c.name === 'stage_models')) {
       db.exec('ALTER TABLE tasks ADD COLUMN stage_models TEXT');
       console.log('[store] migration: added stage_models column to tasks');
+    }
+  }
+
+  // Additive migration: depends_on column (QOL-3 — task dependencies).
+  {
+    const cols = db.pragma('table_info(tasks)');
+    if (!cols.some((c) => c.name === 'depends_on')) {
+      db.exec('ALTER TABLE tasks ADD COLUMN depends_on TEXT');
+      console.log('[store] migration: added depends_on column to tasks');
     }
   }
 
@@ -352,7 +363,7 @@ function createStore(dataDir) {
       'SELECT * FROM tasks WHERE space_id = ? AND column = ? ORDER BY rank ASC, created_at ASC'
     ),
     getAllTasksForSpace: db.prepare(
-      'SELECT * FROM tasks WHERE space_id = ? ORDER BY created_at ASC'
+      'SELECT * FROM tasks WHERE space_id = ? ORDER BY rank ASC, created_at ASC'
     ),
     getTask: db.prepare(
       'SELECT * FROM tasks WHERE space_id = ? AND id = ?'
@@ -362,22 +373,28 @@ function createStore(dataDir) {
     ),
     insertTask: db.prepare(`
       INSERT INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, rank, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, rank, created_at, updated_at, depends_on)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     upsertTask: db.prepare(`
       INSERT OR IGNORE INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, rank, created_at, updated_at)
+        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, rank, created_at, updated_at, depends_on)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     updateTask: db.prepare(`
       UPDATE tasks
          SET title = ?, type = ?, description = ?, assigned = ?,
-             pipeline = ?, attachments = ?, comments = ?, arc = ?, stage_models = ?, updated_at = ?
+             pipeline = ?, attachments = ?, comments = ?, arc = ?, stage_models = ?, depends_on = ?, updated_at = ?
        WHERE space_id = ? AND id = ?
     `),
+    updateTaskDependsOn: db.prepare(`
+      UPDATE tasks SET depends_on = ?, updated_at = ? WHERE space_id = ? AND id = ?
+    `),
+    getTasksWithDepsInSpace: db.prepare(
+      `SELECT id, depends_on FROM tasks WHERE space_id = ? AND depends_on IS NOT NULL`
+    ),
     moveTask: db.prepare(`
       UPDATE tasks
          SET column = ?, updated_at = ?
@@ -550,6 +567,7 @@ function createStore(dataDir) {
       effectiveRank,
       task.createdAt,
       task.updatedAt,
+      task.dependsOn   !== undefined ? JSON.stringify(task.dependsOn)  : null,
     ));
     // BUG-001 (QOL-1): expose the computed rank on the caller's task object
     // so POST /tasks 201 responses (and any other insertTask caller) can see
@@ -578,6 +596,7 @@ function createStore(dataDir) {
       task.rank ?? 0,
       task.createdAt,
       task.updatedAt,
+      task.dependsOn   !== undefined ? JSON.stringify(task.dependsOn)  : null,
     );
     if (info.changes === 0) {
       console.warn(`[store] WARN: upsertTask INSERT OR IGNORE skipped existing id=${task.id}`);
@@ -607,6 +626,7 @@ function createStore(dataDir) {
       merged.arc ?? null,
       // MODEL-1: per-stage model routing overrides.
       toJson(merged.stageModels ?? null),
+      merged.dependsOn   !== undefined ? JSON.stringify(merged.dependsOn)  : null,
       merged.updatedAt,
       spaceId,
       taskId,
@@ -683,9 +703,184 @@ function createStore(dataDir) {
     }
   }
 
+  /**
+   * Detect whether adding newDepIds as dependencies from fromId would create a cycle.
+   * Uses DFS from each new dep; if fromId is reachable, a cycle exists.
+   *
+   * @param {Array} allTasks - All tasks in the space (each with id and dependsOn).
+   * @param {string} fromId  - The task that will gain the new deps.
+   * @param {string[]} newDepIds - The proposed dependency IDs.
+   * @returns {boolean} true if a cycle would be created.
+   */
+  function detectCycle(allTasks, fromId, newDepIds) {
+    // Build adjacency map: taskId → dependsOn[]
+    const adj = {};
+    for (const t of allTasks) {
+      adj[t.id] = t.dependsOn ?? [];
+    }
+    // Tentatively apply new edges
+    adj[fromId] = newDepIds;
+
+    // DFS from each new dep — if fromId is reachable, cycle exists
+    for (const startId of newDepIds) {
+      const visited = new Set();
+      const stack = [startId];
+      while (stack.length > 0) {
+        const curr = stack.pop();
+        if (curr === fromId) return true;
+        if (visited.has(curr)) continue;
+        visited.add(curr);
+        for (const next of (adj[curr] ?? [])) {
+          stack.push(next);
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Error carrying a machine-readable code out of a transaction body.
+   * better-sqlite3 only rolls back when the transaction function THROWS, so a
+   * validation failure inside one must throw rather than return.
+   */
+  class TaskWriteError extends Error {
+    constructor(code, message) { super(message); this.code = code; }
+  }
+
+  /**
+   * Apply a field patch and a dependsOn change to a task in ONE transaction.
+   *
+   * The PUT handler used to do these as two independent writes: a failure or a
+   * crash between them left the dependencies changed and the fields not, or the
+   * reverse. Both now commit together or neither does.
+   *
+   * @param {string} spaceId
+   * @param {string} taskId
+   * @param {{ patch?: object|null, depIds?: string[]|undefined }} changes
+   *   `depIds === undefined` leaves dependencies untouched; `[]` clears them.
+   * @returns {{ task: object } | { error: string, code: string }}
+   */
+  function updateTaskWithDependencies(spaceId, taskId, { patch, depIds } = {}) {
+    const apply = db.transaction(() => {
+      if (depIds !== undefined) {
+        const depResult = setTaskDependencies(spaceId, taskId, depIds);
+        if (depResult.error) throw new TaskWriteError(depResult.code, depResult.error);
+      }
+      if (patch && Object.keys(patch).length > 0) {
+        const updated = updateTask(spaceId, taskId, patch);
+        if (!updated) throw new TaskWriteError('TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+      }
+      return getTask(spaceId, taskId);
+    });
+
+    try {
+      return { task: apply() };
+    } catch (err) {
+      if (err instanceof TaskWriteError) return { error: err.message, code: err.code };
+      throw err;
+    }
+  }
+
+  /**
+   * Set the dependsOn array for a task, validating existence and cycles.
+   * @param {string} spaceId
+   * @param {string} taskId
+   * @param {string[]} depIds
+   * @returns {{ task: object } | { error: string, code: string }}
+   */
+  function setTaskDependencies(spaceId, taskId, depIds) {
+    // Validate taskId exists
+    const taskRow = stmts.getTask.get(spaceId, taskId);
+    if (!taskRow) return { error: 'Task not found', code: 'TASK_NOT_FOUND' };
+
+    // Load all tasks for cycle detection + existence check
+    const allTasks = stmts.getAllTasksForSpace.all(spaceId).map(rowToTask);
+    const taskIdSet = new Set(allTasks.map(t => t.id));
+
+    // Validate each depId exists in same space
+    for (const depId of depIds) {
+      if (!taskIdSet.has(depId)) {
+        console.log(`[store] dependency not found: ${depId} in space ${spaceId}`);
+        return { error: `Dependency task not found: ${depId}`, code: 'DEPENDENCY_NOT_FOUND' };
+      }
+    }
+
+    // Detect cycle
+    if (detectCycle(allTasks, taskId, depIds)) {
+      console.log(`[store] cycle detected: ${taskId} → ${JSON.stringify(depIds)}`);
+      return { error: 'Cycle detected in task dependencies', code: 'CYCLE_DETECTED' };
+    }
+
+    // Persist
+    const now = new Date().toISOString();
+    const depsJson = depIds.length > 0 ? JSON.stringify(depIds) : null;
+    stmts.updateTaskDependsOn.run(depsJson, now, spaceId, taskId);
+
+    const updated = getTask(spaceId, taskId);
+    return { task: updated };
+  }
+
+  /**
+   * Derive isBlocked / blockedByCount for each task based on its dependsOn and
+   * the set of done task IDs.
+   *
+   * @param {Array} tasks - Tasks with _col field (from getAllTasksForSpaceWithStatus).
+   * @returns {Array} Same tasks with isBlocked / blockedByCount added where applicable.
+   */
+  function deriveBlockedStatus(tasks) {
+    const doneIds = new Set(
+      tasks.filter(t => t._col === 'done').map(t => t.id)
+    );
+    return tasks.map(t => {
+      const deps = t.dependsOn ?? [];
+      if (deps.length === 0) return t;
+      const blockedByCount = deps.filter(id => !doneIds.has(id)).length;
+      return {
+        ...t,
+        isBlocked: blockedByCount > 0,
+        blockedByCount,
+      };
+    });
+  }
+
+  /**
+   * Get all tasks for a space with derived isBlocked / blockedByCount fields.
+   * Each task has a _col field indicating its column.
+   *
+   * @param {string} spaceId
+   * @returns {Array}
+   */
+  function getAllTasksForSpaceWithStatus(spaceId) {
+    const rows = stmts.getAllTasksForSpace.all(spaceId);
+    const tasks = rows.map(row => ({ ...rowToTask(row), _col: row.column }));
+    return deriveBlockedStatus(tasks);
+  }
+
   function deleteTask(spaceId, taskId) {
-    const info = withFtsRecovery(() => stmts.deleteTask.run(spaceId, taskId));
-    return info.changes > 0;
+    const doDelete = db.transaction(() => {
+      const info = withFtsRecovery(() => stmts.deleteTask.run(spaceId, taskId));
+      if (info.changes === 0) return false;
+
+      // Clean up reverse references in other tasks' dependsOn arrays
+      const rows = stmts.getTasksWithDepsInSpace.all(spaceId);
+      let cleanedCount = 0;
+      const now = new Date().toISOString();
+      for (const row of rows) {
+        const deps = JSON.parse(row.depends_on);
+        if (!deps.includes(taskId)) continue;
+        const newDeps = deps.filter(id => id !== taskId);
+        stmts.updateTaskDependsOn.run(
+          newDeps.length > 0 ? JSON.stringify(newDeps) : null,
+          now, spaceId, row.id
+        );
+        cleanedCount++;
+      }
+      if (cleanedCount > 0) {
+        console.log(`[store] deleteTask: cleaned dependsOn refs in ${cleanedCount} tasks`);
+      }
+      return true;
+    });
+    return doDelete();
   }
 
   /**
@@ -876,6 +1071,7 @@ function createStore(dataDir) {
     // Task
     getTasksByColumn,
     getAllTasksForSpace,
+    getAllTasksForSpaceWithStatus,
     getTask,
     getTaskWithColumn,
     getTaskById,
@@ -890,6 +1086,8 @@ function createStore(dataDir) {
     searchTasks,
     searchAllTasks,
     rebuildFts,
+    setTaskDependencies,
+    updateTaskWithDependencies,
     // Pipeline runs
     getRun,
     upsertRun,
