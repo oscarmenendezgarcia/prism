@@ -1111,14 +1111,20 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 );
               })()}
 
-              {/* Depends on — QOL-3 */}
-              {column !== 'done' && (
+              {/* Depends on — QOL-3.
+                  In `done` the section is read-only and only shown when the task
+                  actually has dependencies: a finished task is not waiting on
+                  anyone, so the editor and the blocked badge would be noise —
+                  but the record of what it waited for is still worth reading,
+                  and hiding it outright also made it uneditable after an
+                  accidental drag to done. */}
+              {(column !== 'done' || localDependsOn.length > 0) && (
                 <div className="py-5 animate-fade-in-up [animation-delay:270ms]">
                   <DependsOnSection
                     spaceId={activeSpaceId}
                     taskId={detailTask.id}
                     dependsOn={localDependsOn}
-                    disabled={fieldDisabled}
+                    disabled={fieldDisabled || column === 'done'}
                     onUpdated={(newDeps) => {
                       setLocalDependsOn(newDeps);
                       // Refresh board so isBlocked is recalculated for all tasks
