@@ -70,6 +70,7 @@ function makeProps(comments: Comment[] = [], overrides = {}) {
     comments,
     onCommentCreated: vi.fn().mockResolvedValue(undefined),
     onCommentUpdated: vi.fn().mockResolvedValue(undefined),
+    onAnswerQuestion: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -170,12 +171,12 @@ describe('CommentsSection — unresolved badge', () => {
 // ---------------------------------------------------------------------------
 
 describe('CommentsSection — resolve toggle', () => {
-  it('calls onCommentUpdated with resolved=true when resolve button clicked', async () => {
+  it('calls onCommentUpdated with resolved=true when the resolve-without-answering button is clicked', async () => {
     const onCommentUpdated = vi.fn().mockResolvedValue(undefined);
     render(
       <CommentsSection {...makeProps([QUESTION], { onCommentUpdated })} />,
     );
-    const resolveBtn = screen.getByRole('button', { name: /mark as resolved/i });
+    const resolveBtn = screen.getByRole('button', { name: /resolve without answering/i });
     fireEvent.click(resolveBtn);
     await waitFor(() => {
       expect(onCommentUpdated).toHaveBeenCalledWith(QUESTION.id, { resolved: true });
@@ -196,7 +197,7 @@ describe('CommentsSection — resolve toggle', () => {
 
   it('does not render resolve button for notes', () => {
     render(<CommentsSection {...makeProps([NOTE])} />);
-    expect(screen.queryByRole('button', { name: /mark as resolved/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /resolve without answering/i })).toBeNull();
   });
 });
 
@@ -314,6 +315,99 @@ describe('CommentsSection — disabled state', () => {
 
   it('hides the resolve button when disabled=true', () => {
     render(<CommentsSection {...makeProps([QUESTION], { disabled: true })} />);
-    expect(screen.queryByRole('button', { name: /mark as resolved/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /resolve without answering/i })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Answer form (HUMAN-LOOP: answer open questions inline)
+// ---------------------------------------------------------------------------
+
+describe('CommentsSection — answer form', () => {
+  it('renders an inline answer form under an open question', () => {
+    render(<CommentsSection {...makeProps([QUESTION])} />);
+    expect(screen.getByTestId('answer-form')).toBeInTheDocument();
+    expect(
+      screen.getByRole('textbox', { name: /answer to question from developer-agent/i }),
+    ).toBeInTheDocument();
+  });
+
+  it('does not render an answer form for a resolved question', () => {
+    render(<CommentsSection {...makeProps([RESOLVED_QUESTION])} />);
+    expect(screen.queryByTestId('answer-form')).toBeNull();
+  });
+
+  it('does not render an answer form for a note', () => {
+    render(<CommentsSection {...makeProps([NOTE])} />);
+    expect(screen.queryByTestId('answer-form')).toBeNull();
+  });
+
+  it('submits the answer via the Answer button and clears the textarea', async () => {
+    const onAnswerQuestion = vi.fn().mockResolvedValue(undefined);
+    render(<CommentsSection {...makeProps([QUESTION], { onAnswerQuestion })} />);
+
+    const textarea = screen.getByRole('textbox', { name: /answer to question/i });
+    fireEvent.change(textarea, { target: { value: 'The SLA is p99 < 200 ms' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Answer' }));
+
+    await waitFor(() => {
+      expect(onAnswerQuestion).toHaveBeenCalledWith(QUESTION.id, 'The SLA is p99 < 200 ms');
+    });
+    expect((textarea as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it('submits the answer via Enter', async () => {
+    const onAnswerQuestion = vi.fn().mockResolvedValue(undefined);
+    render(<CommentsSection {...makeProps([QUESTION], { onAnswerQuestion })} />);
+
+    const textarea = screen.getByRole('textbox', { name: /answer to question/i });
+    fireEvent.change(textarea, { target: { value: 'via enter' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(onAnswerQuestion).toHaveBeenCalledWith(QUESTION.id, 'via enter');
+    });
+  });
+
+  it('does not submit on Shift+Enter', async () => {
+    const onAnswerQuestion = vi.fn().mockResolvedValue(undefined);
+    render(<CommentsSection {...makeProps([QUESTION], { onAnswerQuestion })} />);
+
+    const textarea = screen.getByRole('textbox', { name: /answer to question/i });
+    fireEvent.change(textarea, { target: { value: 'multiline draft' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(onAnswerQuestion).not.toHaveBeenCalled();
+  });
+
+  it('does not submit an empty answer', async () => {
+    const onAnswerQuestion = vi.fn().mockResolvedValue(undefined);
+    render(<CommentsSection {...makeProps([QUESTION], { onAnswerQuestion })} />);
+
+    const textarea = screen.getByRole('textbox', { name: /answer to question/i });
+    fireEvent.change(textarea, { target: { value: '   ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Answer' }));
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect(onAnswerQuestion).not.toHaveBeenCalled();
+  });
+
+  it('keeps the draft text when answering fails', async () => {
+    const onAnswerQuestion = vi.fn().mockRejectedValue(new Error('boom'));
+    render(<CommentsSection {...makeProps([QUESTION], { onAnswerQuestion })} />);
+
+    const textarea = screen.getByRole('textbox', { name: /answer to question/i });
+    fireEvent.change(textarea, { target: { value: 'draft survives' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    await new Promise((r) => setTimeout(r, 50));
+    expect((textarea as HTMLTextAreaElement).value).toBe('draft survives');
+    expect(onAnswerQuestion).toHaveBeenCalled();
+  });
+
+  it('hides the answer form when disabled=true', () => {
+    render(<CommentsSection {...makeProps([QUESTION], { disabled: true })} />);
+    expect(screen.queryByTestId('answer-form')).toBeNull();
   });
 });

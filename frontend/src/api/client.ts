@@ -277,6 +277,29 @@ export const updateComment = (
     body: JSON.stringify(payload),
   });
 
+/**
+ * Answer an open question on a task: post the answer comment (type 'answer',
+ * linked via parentId) and then mark the question as resolved. Mirrors the
+ * MCP `kanban_answer_comment` call pair — the server unblocks a pipeline run
+ * blocked on the task when that was its last open question.
+ */
+export const answerQuestion = async (
+  spaceId: string,
+  taskId: string,
+  questionCommentId: string,
+  text: string,
+  author = 'user',
+): Promise<{ question: Comment; answer: Comment }> => {
+  const answer = await createComment(spaceId, taskId, {
+    author,
+    text,
+    type: 'answer',
+    parentId: questionCommentId,
+  });
+  const question = await updateComment(spaceId, taskId, questionCommentId, { resolved: true });
+  return { question, answer };
+};
+
 // ---------------------------------------------------------------------------
 // Auto-task generation
 // ---------------------------------------------------------------------------
