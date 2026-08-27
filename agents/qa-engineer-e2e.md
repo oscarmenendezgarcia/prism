@@ -144,6 +144,10 @@ Structure:
 > Always run `npm test`, `npm run test:report`, `node --test`, and all Playwright commands **synchronously (foreground)**.
 > This applies to ALL test commands — unit, integration, E2E, and backend.
 
+**Commit test scripts as you write them**: `git add <test files> && git commit -m "[qa] add tests for <feature>"`. Test files you author are real repo output, not scratch — uncommitted work in the run's worktree is lost when it is torn down.
+
+**Do not fix Critical/High bugs yourself.** You do not modify production code (see the core mandate above). If you catch yourself editing application files to make a broken build pass, stop, revert, and record the bug instead — patching silently here defeats the gate and the fix never lands under the developer's commit discipline.
+
 ### Step 4 — Compile Results (`test-results.json`)
 Structure (`performance` and `security` sections are OPTIONAL — include them only when that scope applied):
 ```json
