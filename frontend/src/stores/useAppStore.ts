@@ -356,6 +356,15 @@ interface AppState {
     patch: { resolved?: boolean; text?: string },
   ) => Promise<void>;
 
+  /**
+   * Answer an open question: posts the linked 'answer' comment and marks the
+   * question as resolved (the server unblocks a run waiting on it, when it
+   * was the task's last open question).
+   * Optimistically updates the question and appends the answer in place.
+   * Throws on API failure.
+   */
+  answerQuestion: (taskId: string, questionCommentId: string, text: string) => Promise<void>;
+
   // ── Arc filter / grouping (arc field feature) ─────────────────────────────
 
   /** Active arc filter (null = show all). */
@@ -1748,6 +1757,35 @@ export const useAppStore = create<AppState>((set, get) => {
       });
     } catch (err) {
       showToast(`Failed to update comment: ${(err as Error).message}`, 'error');
+      throw err;
+    }
+  },
+
+  answerQuestion: async (taskId, questionCommentId, text) => {
+    const { activeSpaceId, detailTask, showToast } = get();
+    try {
+      const { question, answer } = await api.answerQuestion(activeSpaceId, taskId, questionCommentId, text);
+
+      const applyAnswer = (t: Task): Task => {
+        if (t.id !== taskId) return t;
+        const comments = (t.comments ?? []).map((c) =>
+          c.id === questionCommentId ? { ...c, ...question } : c,
+        );
+        comments.push(answer);
+        return { ...t, comments };
+      };
+
+      const currentTasks = get().tasks;
+      set({
+        tasks: {
+          'todo':        currentTasks['todo'].map(applyAnswer),
+          'in-progress': currentTasks['in-progress'].map(applyAnswer),
+          'done':        currentTasks['done'].map(applyAnswer),
+        },
+        ...(detailTask?.id === taskId ? { detailTask: applyAnswer(detailTask) } : {}),
+      });
+    } catch (err) {
+      showToast(`Failed to answer question: ${(err as Error).message}`, 'error');
       throw err;
     }
   },

@@ -5,7 +5,8 @@
  *   - Questions: amber/yellow pill header + "pending" / "resolved" badge + body text
  *   - Answers: 12px left-indent, grey-neutral colour, nested under their parent question
  *   - Notes: grey-neutral, no threading badge
- *   - Add-comment form: type selector + textarea + Submit button
+ *   - Answer form: inline textarea + submit, rendered under every open (unresolved) question
+ *   - Add-comment form: textarea for loose notes
  *
  * ADR-1 (task-comments): reads task.comments[] (embedded in Task, returned by GET task).
  * Wire-up: caller supplies spaceId/taskId/comments and callbacks so this component stays pure.
@@ -14,6 +15,7 @@
 import React, { useCallback, useState } from 'react';
 import type { Comment } from '@/types';
 import { formatTimestamp } from '@/utils/formatTimestamp';
+import { Button } from '@/components/shared/Button';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +29,8 @@ interface CommentsSectionProps {
   onCommentCreated: (payload: { author: string; text: string; type: Comment['type']; parentId?: string; targetAgent?: string }) => Promise<void>;
   /** Called when a question is resolved/un-resolved. */
   onCommentUpdated: (commentId: string, patch: { resolved?: boolean; text?: string }) => Promise<void>;
+  /** Called when an open question is answered (posts the answer + resolves the question). */
+  onAnswerQuestion: (commentId: string, text: string) => Promise<void>;
   /** Whether interactions are disabled (e.g. while an agent pipeline is running). */
   disabled?: boolean;
 }
@@ -111,8 +115,8 @@ function CommentBubble({ comment, isAnswer, onResolveToggle, disabled }: Comment
             <button
               type="button"
               onClick={() => onResolveToggle(comment.id, !comment.resolved)}
-              aria-label={comment.resolved ? 'Mark as unresolved' : 'Mark as resolved'}
-              title={comment.resolved ? 'Mark as unresolved' : 'Mark as resolved'}
+              aria-label={comment.resolved ? 'Mark as unresolved' : 'Resolve without answering'}
+              title={comment.resolved ? 'Mark as unresolved' : 'Resolve without answering'}
               className="ml-auto flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-full hover:bg-surface-variant text-text-secondary hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
             >
               <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">
@@ -185,6 +189,72 @@ function AddCommentForm({ onSubmit, disabled }: AddCommentFormProps) {
 }
 
 // ---------------------------------------------------------------------------
+// AnswerForm — inline form to answer an open question
+// ---------------------------------------------------------------------------
+
+interface AnswerFormProps {
+  questionId: string;
+  questionAuthor: string;
+  onAnswer: (commentId: string, text: string) => Promise<void>;
+  disabled?: boolean;
+}
+
+function AnswerForm({ questionId, questionAuthor, onAnswer, disabled }: AnswerFormProps) {
+  const [text, setText]           = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const trimmed = text.trim();
+
+  const handleSubmit = useCallback(async () => {
+    if (!trimmed || submitting || disabled) return;
+    setSubmitting(true);
+    try {
+      await onAnswer(questionId, trimmed);
+      setText('');
+    } catch {
+      // The store action already surfaced the failure as a toast; keep the
+      // draft so the user can retry without retyping their answer.
+      console.warn('[CommentsSection] answer submit failed — draft preserved');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [questionId, trimmed, submitting, disabled, onAnswer]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      void handleSubmit();
+    }
+  }, [handleSubmit]);
+
+  return (
+    <div
+      className="ml-11 pl-3 border-l border-border/60 flex items-start gap-2 mt-2"
+      data-testid="answer-form"
+    >
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={handleKeyDown}
+        disabled={disabled || submitting}
+        rows={1}
+        placeholder={`Write an answer…`}
+        aria-label={`Answer to question from ${questionAuthor}`}
+        className="flex-1 min-w-0 bg-surface border border-warning/25 rounded-lg px-3 py-2 text-[13px] text-text-primary placeholder:text-text-disabled resize-none focus:outline-none focus:ring-1 focus:ring-warning/50 focus:border-warning/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
+      />
+      <Button
+        variant="primary"
+        size="sm"
+        disabled={disabled || submitting || !trimmed}
+        onClick={() => { void handleSubmit(); }}
+      >
+        {submitting ? 'Answering…' : 'Answer'}
+      </Button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // CommentsSection — main export
 // ---------------------------------------------------------------------------
 
@@ -192,6 +262,7 @@ export function CommentsSection({
   comments,
   onCommentCreated,
   onCommentUpdated,
+  onAnswerQuestion,
   disabled,
 }: CommentsSectionProps): React.ReactElement {
   /** Default author for new comments — could be extended to read from settings. */
@@ -257,6 +328,14 @@ export function CommentsSection({
                 onResolveToggle={comment.type === 'question' ? handleResolveToggle : undefined}
                 disabled={disabled}
               />
+              {/* Inline answer form — only for open questions */}
+              {comment.type === 'question' && !comment.resolved && !disabled && onAnswerQuestion && (
+                <AnswerForm
+                  questionId={comment.id}
+                  questionAuthor={comment.author}
+                  onAnswer={onAnswerQuestion}
+                />
+              )}
               {/* Nested answers — indented under parent */}
               {(answersByParent[comment.id] ?? []).map((answer) => (
                 <CommentBubble

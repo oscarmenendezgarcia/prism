@@ -438,6 +438,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const updateTask           = useAppStore((s) => s.updateTask);
   const addComment           = useAppStore((s) => s.addComment);
   const patchComment         = useAppStore((s) => s.patchComment);
+  const answerQuestion       = useAppStore((s) => s.answerQuestion);
   // Per-task mutation flag — the panel is read-only only when the detailTask
   // itself has an in-flight mutation. A move/delete on another card must not
   // freeze this panel.
@@ -679,6 +680,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
     [detailTask, patchComment],
   );
 
+  const handleAnswerQuestion = useCallback(
+    async (commentId: string, text: string) => {
+      if (!detailTask) return;
+      await answerQuestion(detailTask.id, commentId, text);
+    },
+    [detailTask, answerQuestion],
+  );
+
   const handleCopyId = useCallback(async () => {
     if (!detailTask) return;
     try {
@@ -888,6 +897,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   comments={detailTask.comments ?? []}
                   onCommentCreated={handleCommentCreated}
                   onCommentUpdated={handleCommentUpdated}
+                  onAnswerQuestion={handleAnswerQuestion}
                   disabled={fieldDisabled}
                 />
               </div>

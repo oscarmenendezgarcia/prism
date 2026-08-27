@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { apiFetch, getSpaces, createSpace, getTasks, createTask, moveTask, deleteTask, getAttachmentContent, createComment, updateComment } from '../../src/api/client';
+import { apiFetch, getSpaces, createSpace, getTasks, createTask, moveTask, deleteTask, getAttachmentContent, createComment, updateComment, answerQuestion } from '../../src/api/client';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -221,5 +221,60 @@ describe('updateComment', () => {
       '/api/v1/spaces/s1/tasks/t1/comments/c1',
       expect.objectContaining({ method: 'PATCH', body: JSON.stringify(payload) })
     );
+  });
+});
+
+describe('answerQuestion', () => {
+  it('POSTs the answer comment then PATCHes the question resolved, returning both', async () => {
+    const answer = {
+      id: 'a1',
+      author: 'user',
+      text: 'because X',
+      type: 'answer' as const,
+      parentId: 'q1',
+      resolved: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const question = {
+      id: 'q1',
+      author: 'developer-agent',
+      text: 'why this option?',
+      type: 'question' as const,
+      resolved: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T01:00:00.000Z',
+    };
+    mockFetch.mockResolvedValueOnce(makeResponse(answer, 201));
+    mockFetch.mockResolvedValueOnce(makeResponse(question));
+
+    const result = await answerQuestion('s1', 't1', 'q1', 'because X');
+
+    expect(result).toEqual({ question, answer });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/spaces/s1/tasks/t1/comments',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ author: 'user', text: 'because X', type: 'answer', parentId: 'q1' }),
+      }),
+    );
+    expect(mockFetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/v1/spaces/s1/tasks/t1/comments/q1',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ resolved: true }) }),
+    );
+  });
+
+  it('does not mark the question resolved when the answer POST fails', async () => {
+    mockFetch.mockResolvedValueOnce(
+      makeResponse(
+        { error: { code: 'PARENT_COMMENT_NOT_FOUND', message: "Parent comment with id 'nope' not found in this task" } },
+        400,
+      ),
+    );
+
+    await expect(answerQuestion('s1', 't1', 'nope', 'x')).rejects.toThrow('Parent comment');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
