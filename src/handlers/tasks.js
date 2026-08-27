@@ -703,27 +703,13 @@ function createApp(spaceId, store) {
     }
 
     try {
-      // Handle dependsOn via setTaskDependencies first. It already loads the
-      // row and returns the updated task, so keep it and skip the re-read below.
-      let updatedByDeps = null;
-      if ('dependsOn' in body && dependsOnUpdateResult?.valid) {
-        const depResult = store.setTaskDependencies(spaceId, taskId, dependsOnUpdateResult.data ?? []);
-        if (depResult.error) {
-          if (depResult.code === 'TASK_NOT_FOUND') {
-            return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
-          }
-          if (depResult.code === 'CYCLE_DETECTED') {
-            return sendError(res, 409, 'CYCLE_DETECTED', depResult.error);
-          }
-          if (depResult.code === 'DEPENDENCY_NOT_FOUND') {
-            return sendError(res, 422, 'DEPENDENCY_NOT_FOUND', depResult.error);
-          }
-          return sendError(res, 400, 'VALIDATION_ERROR', depResult.error);
-        }
-        updatedByDeps = depResult.task;
-      }
+      // Nothing is written until every field has been validated: the dependsOn
+      // change and the field patch then commit together in one transaction.
+      const depIds = ('dependsOn' in body && dependsOnUpdateResult?.valid)
+        ? (dependsOnUpdateResult.data ?? [])
+        : undefined;
 
-      const existing = updatedByDeps ?? store.getTask(spaceId, taskId);
+      const existing = store.getTask(spaceId, taskId);
       if (!existing) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
@@ -732,8 +718,12 @@ function createApp(spaceId, store) {
       const hasOtherFields = OTHER_FIELDS.some(f => f in body);
 
       if (!hasOtherFields) {
-        // Only dependsOn was updated — return current state
-        return sendJSON(res, 200, stripAttachmentContent(store.getTask(spaceId, taskId)));
+        if (depIds === undefined) {
+          return sendJSON(res, 200, stripAttachmentContent(existing));
+        }
+        const onlyDeps = store.updateTaskWithDependencies(spaceId, taskId, { depIds });
+        if (onlyDeps.error) return sendDependencyError(res, taskId, onlyDeps);
+        return sendJSON(res, 200, stripAttachmentContent(onlyDeps.task));
       }
 
       const patch = { updatedAt: new Date().toISOString() };
@@ -786,12 +776,27 @@ function createApp(spaceId, store) {
         }
       }
 
-      const updatedTask = store.updateTask(spaceId, taskId, patch);
-      sendJSON(res, 200, stripAttachmentContent(updatedTask));
+      const written = store.updateTaskWithDependencies(spaceId, taskId, { patch, depIds });
+      if (written.error) return sendDependencyError(res, taskId, written);
+      sendJSON(res, 200, stripAttachmentContent(written.task));
     } catch (err) {
       console.error(`PUT tasks/${taskId} error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to update task');
     }
+  }
+
+  /** Map a store dependency/update error code to its HTTP response. */
+  function sendDependencyError(res, taskId, result) {
+    if (result.code === 'TASK_NOT_FOUND') {
+      return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+    }
+    if (result.code === 'CYCLE_DETECTED') {
+      return sendError(res, 409, 'CYCLE_DETECTED', result.error);
+    }
+    if (result.code === 'DEPENDENCY_NOT_FOUND') {
+      return sendError(res, 422, 'DEPENDENCY_NOT_FOUND', result.error);
+    }
+    return sendError(res, 400, 'VALIDATION_ERROR', result.error);
   }
 
   function handleGetTask(req, res, taskId) {

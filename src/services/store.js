@@ -739,6 +739,49 @@ function createStore(dataDir) {
   }
 
   /**
+   * Error carrying a machine-readable code out of a transaction body.
+   * better-sqlite3 only rolls back when the transaction function THROWS, so a
+   * validation failure inside one must throw rather than return.
+   */
+  class TaskWriteError extends Error {
+    constructor(code, message) { super(message); this.code = code; }
+  }
+
+  /**
+   * Apply a field patch and a dependsOn change to a task in ONE transaction.
+   *
+   * The PUT handler used to do these as two independent writes: a failure or a
+   * crash between them left the dependencies changed and the fields not, or the
+   * reverse. Both now commit together or neither does.
+   *
+   * @param {string} spaceId
+   * @param {string} taskId
+   * @param {{ patch?: object|null, depIds?: string[]|undefined }} changes
+   *   `depIds === undefined` leaves dependencies untouched; `[]` clears them.
+   * @returns {{ task: object } | { error: string, code: string }}
+   */
+  function updateTaskWithDependencies(spaceId, taskId, { patch, depIds } = {}) {
+    const apply = db.transaction(() => {
+      if (depIds !== undefined) {
+        const depResult = setTaskDependencies(spaceId, taskId, depIds);
+        if (depResult.error) throw new TaskWriteError(depResult.code, depResult.error);
+      }
+      if (patch && Object.keys(patch).length > 0) {
+        const updated = updateTask(spaceId, taskId, patch);
+        if (!updated) throw new TaskWriteError('TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+      }
+      return getTask(spaceId, taskId);
+    });
+
+    try {
+      return { task: apply() };
+    } catch (err) {
+      if (err instanceof TaskWriteError) return { error: err.message, code: err.code };
+      throw err;
+    }
+  }
+
+  /**
    * Set the dependsOn array for a task, validating existence and cycles.
    * @param {string} spaceId
    * @param {string} taskId
@@ -1044,6 +1087,7 @@ function createStore(dataDir) {
     searchAllTasks,
     rebuildFts,
     setTaskDependencies,
+    updateTaskWithDependencies,
     // Pipeline runs
     getRun,
     upsertRun,

@@ -554,3 +554,61 @@ describe('POST /api/v1/runs — blocked task guard', () => {
     assert.notEqual(accepted.status, 409, 'an unblocked task must be allowed to start');
   });
 });
+
+// ---------------------------------------------------------------------------
+// PUT applies the field patch and the dependsOn change atomically.
+//
+// These used to be two independent writes: a failure between them left the
+// fields changed and the dependencies not, or the reverse. Now a rejected
+// dependency must leave the title untouched.
+// ---------------------------------------------------------------------------
+describe('PUT /tasks/:id — atomic field + dependsOn write', () => {
+  let store, spaceId, app, taskA, taskB;
+
+  before(() => {
+    store = makeStore();
+    spaceId = crypto.randomUUID();
+    store.upsertSpace({ id: spaceId, name: 'S', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    taskA = makeTask({ title: 'A original' });
+    taskB = makeTask({ title: 'B' });
+    store.insertTask(taskA, spaceId, 'todo');
+    store.insertTask(taskB, spaceId, 'todo');
+    app = createApp(spaceId, store);
+  });
+
+  after(() => store.close());
+
+  it('rolls the dependency write back when the field write fails', () => {
+    // The real inconsistency window is deps-committed-then-fields-failed: the
+    // old code ordered the dep write first, so a BAD dependency already aborted
+    // before touching the fields. Force the second write to throw instead.
+    const circular = {}; circular.self = circular;
+
+    const before = store.getTask(spaceId, taskA.id);
+    assert.ok(!before.dependsOn || before.dependsOn.length === 0);
+
+    assert.throws(
+      () => store.updateTaskWithDependencies(spaceId, taskA.id, {
+        depIds: [taskB.id],          // valid — would commit on its own
+        patch:  { stageModels: circular }, // JSON.stringify throws here
+      }),
+      'the field write must throw, not be swallowed',
+    );
+
+    const after = store.getTask(spaceId, taskA.id);
+    assert.ok(
+      !after.dependsOn || after.dependsOn.length === 0,
+      'the dependency must have been rolled back with the failed field write',
+    );
+  });
+
+  it('commits both together when the dependency is valid', async () => {
+    const req = mockReq('PUT', `/tasks/${taskA.id}`, { title: 'A renamed ok' });
+    const res = mockRes();
+    await app.router(req, res, `/tasks/${taskA.id}`);
+
+    assert.equal(res._status, 200);
+    const after = store.getTask(spaceId, taskA.id);
+    assert.equal(after.title, 'A renamed ok');
+  });
+});
