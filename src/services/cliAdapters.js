@@ -14,6 +14,9 @@
  *   - buildUnixCommand(opts)     → full `sh -c` command incl. done-sentinel trap
  *   - buildWindowsCommand(opts)  → full `cmd.exe /C` command incl. sentinel
  *   - metaSource(agentMode)      → the `source` label for stage meta.json
+ *   - streamsProgress            → false when the harness buffers all output
+ *                                  until it exits (pi); the stall watchdog then
+ *                                  cannot judge it by log growth. Absent = streams.
  *
  * This is the single extension point: to add a new harness (e.g. `pi`, `custom`)
  * you add one entry to ADAPTERS — no pipelineManager.js changes required.
@@ -220,13 +223,9 @@ const piAdapter = {
   name:            'pi',
   needsPromptFile: true,
 
-  // `pi -p` is non-interactive: it processes the whole prompt and writes its
-  // output only when it finishes. Nothing reaches the stage log in between, so
-  // the manager's stall watchdog — which treats an un-growing log as a dead
-  // stage — would kill every pi stage at the 15-minute mark no matter how well
-  // it was doing. Opting out means such a stage is bounded by the stage timeout
-  // and the done sentinel alone. Verified 2026-08-27, run f0163a12: killed as
-  // 'stall' with the fix and 99 lines of tests already committed and pushed.
+  // `pi -p` writes its output only when it exits, so the stage log stays empty
+  // for the whole run and the stall watchdog cannot judge it by log growth.
+  // Such a stage is still bounded by the stage timeout and the done sentinel.
   streamsProgress: false,
 
   resolveBinary() {
