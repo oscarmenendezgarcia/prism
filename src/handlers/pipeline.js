@@ -89,6 +89,33 @@ async function handleCreateRun(req, res, dataDir, spaceManager) {
     return sendError(res, 400, 'VALIDATION_ERROR', "The 'checkpoints' field must be an array when provided.");
   }
 
+  // A blocked task must not start a run. The board tells the user that tasks
+  // with unfinished dependencies are skipped; nothing enforced that before, so
+  // the promise was cosmetic. Enforce it here, at the single entry point every
+  // caller goes through (UI button, MCP kanban_start_run, REST).
+  {
+    const blockedStore = pipelineManager.getStore();
+    if (blockedStore && typeof blockedStore.getAllTasksForSpaceWithStatus === 'function') {
+      try {
+        const withStatus = blockedStore.getAllTasksForSpaceWithStatus(spaceId);
+        const target = withStatus.find((t) => t.id === taskId);
+        if (target && target.isBlocked) {
+          return sendError(
+            res, 409, 'TASK_BLOCKED',
+            `Task is blocked by ${target.blockedByCount} unfinished ` +
+            `dependenc${target.blockedByCount === 1 ? 'y' : 'ies'}. ` +
+            'Complete them, or remove the dependency, before starting a run.',
+          );
+        }
+      } catch (err) {
+        // Never let the check itself block a run — log and continue.
+        console.warn(JSON.stringify({
+          event: 'run.blocked_check_failed', spaceId, taskId, message: err.message,
+        }));
+      }
+    }
+  }
+
   // T-004: Resolve stages — explicit body > task.pipeline > space.pipeline > DEFAULT_STAGES
   let resolvedStages = stages && stages.length > 0 ? stages : undefined;
   let resolvedFrom   = resolvedStages ? 'explicit' : undefined;

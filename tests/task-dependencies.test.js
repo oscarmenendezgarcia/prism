@@ -489,3 +489,68 @@ describe('validateDependsOnField — edge cases', () => {
     assert.equal(res._status, 400);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A blocked task must not start a run.
+//
+// The board tells the user that tasks with unfinished dependencies are skipped.
+// Before this, nothing enforced it: pipelineManager, handlers/pipeline.js and
+// mcp-server.js had zero isBlocked awareness, so the notice was a promise the
+// system did not keep. The guard lives in handleCreateRun — the single entry
+// point shared by the UI button, MCP kanban_start_run and REST.
+// ---------------------------------------------------------------------------
+describe('POST /api/v1/runs — blocked task guard', () => {
+  const http = require('http');
+  const { startTestServer } = require('./helpers/server');
+
+  let server;
+  before(async () => { server = await startTestServer(); });
+  after(async () => { if (server) await server.close(); });
+
+  function request(method, urlPath, body) {
+    return new Promise((resolve, reject) => {
+      const payload = body === undefined ? null : JSON.stringify(body);
+      const req = http.request(
+        { host: '127.0.0.1', port: server.port, path: urlPath, method,
+          headers: payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {} },
+        (res) => {
+          let data = '';
+          res.on('data', (c) => { data += c; });
+          res.on('end', () => resolve({ status: res.statusCode, body: data ? JSON.parse(data) : null }));
+        },
+      );
+      req.on('error', reject);
+      if (payload) req.write(payload);
+      req.end();
+    });
+  }
+
+  it('rejects a run on a task with unfinished dependencies, and allows it once they are done', async () => {
+    const space = await request('POST', '/api/v1/spaces', { name: 'deps-guard' });
+    assert.equal(space.status, 201);
+    const spaceId = space.body.id;
+
+    const dep = await request('POST', `/api/v1/spaces/${spaceId}/tasks`, { title: 'Dependency', type: 'chore' });
+    assert.equal(dep.status, 201);
+
+    const blocked = await request('POST', `/api/v1/spaces/${spaceId}/tasks`, {
+      title: 'Blocked', type: 'chore', dependsOn: [dep.body.id],
+    });
+    assert.equal(blocked.status, 201);
+
+    const rejected = await request('POST', '/api/v1/runs', {
+      spaceId, taskId: blocked.body.id, stages: ['developer-agent'],
+    });
+    assert.equal(rejected.status, 409, 'a blocked task must not start a run');
+    assert.equal(rejected.body.error?.code ?? rejected.body.code, 'TASK_BLOCKED');
+
+    // Finish the dependency — the task is no longer blocked and the run starts.
+    const moved = await request('PUT', `/api/v1/spaces/${spaceId}/tasks/${dep.body.id}/move`, { to: 'done' });
+    assert.ok(moved.status === 200 || moved.status === 204, `move returned ${moved.status}`);
+
+    const accepted = await request('POST', '/api/v1/runs', {
+      spaceId, taskId: blocked.body.id, stages: ['developer-agent'],
+    });
+    assert.notEqual(accepted.status, 409, 'an unblocked task must be allowed to start');
+  });
+});

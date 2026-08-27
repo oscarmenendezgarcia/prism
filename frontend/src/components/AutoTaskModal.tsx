@@ -334,7 +334,7 @@ export function AutoTaskModal({ open, onClose }: AutoTaskModalProps) {
               {column === 'todo' && blockedTodoCount > 0 && (
                 <p className="text-[12px] text-text-secondary flex items-center gap-1 mt-1">
                   <span className="material-symbols-outlined text-[13px] leading-none text-warning" aria-hidden="true">info</span>
-                  {blockedTodoCount} task{blockedTodoCount !== 1 ? 's' : ''} in Todo are blocked by unfinished dependencies and will be skipped by autopilot.
+                  {blockedTodoCount} task{blockedTodoCount !== 1 ? 's' : ''} in Todo {blockedTodoCount !== 1 ? 'are' : 'is'} blocked by unfinished dependencies. Starting a run on a blocked task is rejected.
                 </p>
               )}
 
