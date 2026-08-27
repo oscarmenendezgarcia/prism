@@ -1111,22 +1111,26 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 );
               })()}
 
-              {/* Depends on — QOL-3 */}
-              {column !== 'done' && (
-                <div className="py-5 animate-fade-in-up [animation-delay:270ms]">
-                  <DependsOnSection
-                    spaceId={activeSpaceId}
-                    taskId={detailTask.id}
-                    dependsOn={localDependsOn}
-                    disabled={fieldDisabled}
-                    onUpdated={(newDeps) => {
-                      setLocalDependsOn(newDeps);
-                      // Refresh board so isBlocked is recalculated for all tasks
-                      useAppStore.getState().loadBoard();
-                    }}
-                  />
-                </div>
-              )}
+              {/* Depends on — QOL-3.
+                  Always rendered, like Arc and Pipeline above: the field has its
+                  own "No dependencies" empty state, so hiding it in `done` made
+                  it inconsistent with itself as well as with its neighbours. In
+                  `done` it is read-only — a finished task is not waiting on
+                  anyone, so the editor and the blocked badge would be noise, but
+                  the record of what it waited for is worth reading. */}
+              <div className="py-5 animate-fade-in-up [animation-delay:270ms]">
+                <DependsOnSection
+                  spaceId={activeSpaceId}
+                  taskId={detailTask.id}
+                  dependsOn={localDependsOn}
+                  disabled={fieldDisabled || column === 'done'}
+                  onUpdated={(newDeps) => {
+                    setLocalDependsOn(newDeps);
+                    // Refresh board so isBlocked is recalculated for all tasks
+                    useAppStore.getState().loadBoard();
+                  }}
+                />
+              </div>
 
               {/* Attachments */}
               {detailTask.attachments && detailTask.attachments.length > 0 && (

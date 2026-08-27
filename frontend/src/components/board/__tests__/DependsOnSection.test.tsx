@@ -317,3 +317,29 @@ describe('DependsOnSection — error handling', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Read-only in `done`.
+//
+// A finished task is not waiting on anyone, so the editor and the blocked badge
+// are noise — but the record of what it waited for is worth reading, and hiding
+// the section outright also left it uneditable after an accidental drag to done.
+// ---------------------------------------------------------------------------
+describe('DependsOnSection — read-only mode', () => {
+  it('lists the dependencies but offers no way to add or remove them', () => {
+    render(
+      <DependsOnSection
+        spaceId="s1"
+        taskId="t1"
+        dependsOn={['dep-1', 'dep-2']}
+        disabled
+        onUpdated={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/dep-1/)).toBeInTheDocument();
+    expect(screen.getByText(/dep-2/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /add/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /remove/i })).not.toBeInTheDocument();
+  });
+});
