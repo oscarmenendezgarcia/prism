@@ -17,7 +17,7 @@
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/spaces/:spaceId/tasks` | List tasks. Params: `?column=`, `?assigned=`, `?limit=` (default 50, max 200), `?cursor=` |
-| POST | `/spaces/:spaceId/tasks` | Create task `{ title, type, description?, assigned?, attachments? }` |
+| POST | `/spaces/:spaceId/tasks` | Create task `{ title, type, description?, assigned?, attachments?, dependsOn? }` |
 | DELETE | `/spaces/:spaceId/tasks` | Clear all tasks in space |
 | GET | `/spaces/:spaceId/tasks/:id` | Get single task |
 | PATCH | `/spaces/:spaceId/tasks/:id` | Update task fields |
@@ -66,6 +66,26 @@ Error responses:
 - `400 VALIDATION_ERROR` — `attachments` is missing or not a valid array.
 - `413 ATTACHMENT_LIMIT_EXCEEDED` — the merged count would exceed `ATTACHMENT_MAX_COUNT` (20). Body includes `{ existing, incoming, merged, max }`.
 
+### Task dependencies (`dependsOn`)
+
+`dependsOn` is an array of task IDs in the same space, capped at 20. It is accepted on task
+create and update, and validated at the boundary:
+
+| Failure | Status | Code |
+|---------|--------|------|
+| A referenced task does not exist | 422 | `DEPENDENCY_NOT_FOUND` |
+| The change would close a cycle | 409 | `CYCLE_DETECTED` |
+| Shape/length invalid | 400 | `VALIDATION_ERROR` |
+
+`GET /tasks` derives two read-only fields per task from it — they are computed, never stored:
+
+- `isBlocked` — true while any dependency is not in `done`
+- `blockedByCount` — how many are still unfinished
+
+Deleting a task scrubs its id out of every other task's `dependsOn` in the same transaction, so
+no dangling reference survives. **`POST /runs` refuses a blocked task with 409 `TASK_BLOCKED`**;
+that check sits at the single entry point shared by the UI, MCP and REST.
+
 ### GET /tasks response shape
 
 ```json
@@ -91,7 +111,7 @@ Params: `?type=`, `?limit=` (default 20, max 200), `?from=`, `?to=`, `?cursor=`
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/runs` | Start pipeline `{ spaceId, taskId, stages? }` |
+| POST | `/runs` | Start pipeline `{ spaceId, taskId, stages? }`. **409 `TASK_BLOCKED`** when the task has unfinished dependencies |
 | GET | `/runs/:runId` | Get run status |
 | GET | `/runs/:runId/stages/:n/log` | Stream stage log |
 | DELETE | `/runs/:runId` | Abort/delete run |
