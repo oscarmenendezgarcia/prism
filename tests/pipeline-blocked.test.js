@@ -728,6 +728,139 @@ async function runUnitTests() {
     require('fs').rmSync(tmpPath, { recursive: true, force: true });
   });
 
+  // T-001 (question re-injection): the manager re-runs the asking stage when
+  // its blocking question is answered, instead of advancing to the next stage.
+  suite('Unit: reinjectQuestionAsker + buildQuestionAnswerBlock');
+
+  await test('reinjectQuestionAsker splices the asking stage back at currentStage and bumps its loop count', () => {
+    const run = {
+      runId: 'rinj-1',
+      stages: ['senior-architect', 'developer-agent'],
+      currentStage: 1,
+      status: 'blocked',
+      stageStatuses: [
+        { index: 0, agentId: 'senior-architect', status: 'completed' },
+        { index: 1, agentId: 'developer-agent',  status: 'pending' },
+      ],
+      blockedReason: { commentId: 'q1', askingStage: 0, questionIds: ['q1'] },
+    };
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    const reinjected = pm.reinjectQuestionAsker(run, ['q1']);
+    assert(reinjected === true, 'asking stage should be re-injected');
+    assert(JSON.stringify(run.stages) === JSON.stringify(['senior-architect', 'senior-architect', 'developer-agent']),
+      `stages after re-injection should be [arch, arch, dev], got [${run.stages}]`);
+    assert(run.currentStage === 1, 'currentStage must still point at the re-injected stage');
+    assert(run.stageStatuses[1].agentId === 'senior-architect' && run.stageStatuses[1].status === 'pending',
+      're-injected stage must be the pending senior-architect');
+    assert(run.stageStatuses[2].agentId === 'developer-agent' && run.stageStatuses[2].index === 2,
+      'original next stage must shift right and stay pending');
+    assert(run.loopCounts['senior-architect'] === 1, 'asker loop count must advance');
+    assert(run.questionAnswers.atStage === 1, 'questionAnswers must point at the re-injected position');
+    assert(run.questionAnswers.askerAgent === 'senior-architect', 'questionAnswers.askerAgent mismatch');
+    assert(JSON.stringify(run.questionAnswers.questionIds) === JSON.stringify(['q1']),
+      'sealed questionIds must be the answered question');
+    assert(run.questionIterations === 1, 'questionIterations must start at 1');
+  });
+
+  await test('reinjectQuestionAsker honours the loop cap and leaves the run untouched', () => {
+    const run = {
+      runId: 'rinj-2',
+      stages: ['senior-architect', 'developer-agent'],
+      currentStage: 1,
+      status: 'blocked',
+      stageStatuses: [
+        { index: 0, agentId: 'senior-architect', status: 'completed' },
+        { index: 1, agentId: 'developer-agent',  status: 'pending' },
+      ],
+      loopCounts: { 'senior-architect': 5 },
+      blockedReason: { commentId: 'q1', askingStage: 0, questionIds: ['q1'] },
+    };
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    const prevCap = process.env.PIPELINE_MAX_LOOPS;
+    process.env.PIPELINE_MAX_LOOPS = '5';
+    try {
+      assert(pm.reinjectQuestionAsker(run, ['q1']) === false, 'cap must prevent re-injection');
+      assert(JSON.stringify(run.stages) === JSON.stringify(['senior-architect', 'developer-agent']),
+        'stages must be untouched at the cap');
+      assert(!('questionAnswers' in run), 'no questionAnswers record at the cap');
+    } finally {
+      if (prevCap === undefined) delete process.env.PIPELINE_MAX_LOOPS;
+      else process.env.PIPELINE_MAX_LOOPS = prevCap;
+    }
+  });
+
+  await test('reinjectQuestionAsker returns false when no asking stage is sealed or it is out of range', () => {
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    // Legacy blockedReason without askingStage (runs blocked before this feature).
+    const legacy = {
+      runId: 'rinj-3',
+      stages: ['a', 'b'],
+      currentStage: 1,
+      stageStatuses: [
+        { index: 0, agentId: 'a', status: 'completed' },
+        { index: 1, agentId: 'b', status: 'pending' },
+      ],
+      blockedReason: { commentId: 'q1', author: 'user' },
+    };
+    assert(pm.reinjectQuestionAsker(legacy, ['q1']) === false, 'legacy block must not re-inject');
+    assert(JSON.stringify(legacy.stages) === JSON.stringify(['a', 'b']), 'legacy block must not mutate stages');
+
+    // askingStage out of range.
+    const oob = {
+      runId: 'rinj-4',
+      stages: ['a'],
+      currentStage: 1,
+      stageStatuses: [{ index: 0, agentId: 'a', status: 'completed' }],
+      blockedReason: { commentId: 'q1', askingStage: 9 },
+    };
+    assert(pm.reinjectQuestionAsker(oob, ['q1']) === false, 'out-of-range askingStage must not re-inject');
+  });
+
+  await test('buildQuestionAnswerBlock renders the sealed Q&A only for the re-injected stage index', () => {
+    const task = {
+      comments: [
+        { id: 'q1', type: 'question', author: 'senior-architect', resolved: true, text: 'Which DB?' },
+        { id: 'a1', type: 'answer',   author: 'user',           parentId: 'q1', text: 'PostgreSQL.' },
+        { id: 'q0', type: 'question', author: 'developer-agent', resolved: true, text: 'Older Q' },
+      ],
+    };
+    const run = { questionAnswers: { atStage: 1, askerAgent: 'senior-architect', questionIds: ['q1'], iteration: 2 } };
+
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    assert(pm.buildQuestionAnswerBlock(run, 0, task) === null, 'no block for other stage indices');
+    const block = pm.buildQuestionAnswerBlock(run, 1, task);
+    assert(typeof block === 'string', `expected a block string, got ${typeof block}`);
+    assert(block.startsWith('## ANSWERS TO YOUR QUESTIONS'), 'block header mismatch');
+    assert(block.includes('iteration 2'), 'iteration number must be shown');
+    assert(block.includes('**Q (senior-architect):** Which DB?'), 'question line missing');
+    assert(block.includes('**A (user):** PostgreSQL.'), 'answer line missing');
+    assert(!block.includes('Older Q'), 'only the sealed questionIds may be rendered');
+  });
+
+  await test('buildQuestionAnswerBlock returns null without a record, no matching questions, or a null task', () => {
+    delete require.cache[require.resolve('../src/services/pipelineManager')];
+    const pm = require('../src/services/pipelineManager');
+
+    const task = { comments: [] };
+    assert(pm.buildQuestionAnswerBlock({}, 1, task) === null, 'no record → null');
+    assert(pm.buildQuestionAnswerBlock({ questionAnswers: { atStage: 2, askerAgent: 'a', questionIds: ['q1'] } }, 1, task) === null,
+      'wrong index → null');
+    assert(pm.buildQuestionAnswerBlock({ questionAnswers: { atStage: 1, askerAgent: 'a', questionIds: ['ghost'] } }, 1, task) === null,
+      'unknown question id → null');
+    assert(pm.buildQuestionAnswerBlock({ questionAnswers: { atStage: 1, askerAgent: 'a', questionIds: ['q1'] } }, 1, null) === null,
+      'null task → null');
+  });
+
   // Restore env vars after all unit tests complete.
   if (_savedRunsDir   === undefined) delete process.env.PIPELINE_RUNS_DIR;
   else process.env.PIPELINE_RUNS_DIR   = _savedRunsDir;
@@ -916,6 +1049,73 @@ async function runCommentDrivenTests() {
     await resolveQ(spaceId, taskId, q2.id);
     const completed = await waitStatus(runId, (r) => r.status === 'completed', 6000);
     assert(completed !== null, 'run should complete after all questions resolved');
+  });
+
+  // ── Test 4b: answering re-injects the asking stage, not the next stage ─────
+  await test('resolving the blocking question re-runs the asking stage with the answer in its prompt', async () => {
+    const { spaceId, taskId } = await mkSpaceTask('t10');
+    const comment = await postQuestion(spaceId, taskId, 'Which database engine?');
+
+    // Answer BEFORE resolving — the answer comment is what the re-injected
+    // stage will see in its prompt.
+    const ansRes = await req('POST', `/api/v1/spaces/${spaceId}/tasks/${taskId}/comments`, {
+      author: 'user',
+      text:   'Use PostgreSQL.',
+      type:   'answer',
+      parentId: comment.id,
+    });
+    assert(ansRes.status === 201, `answer post: ${ansRes.status} - ${JSON.stringify(ansRes.body)}`);
+
+    const runRes = await req('POST', '/api/v1/runs', {
+      spaceId, taskId, stages: ['senior-architect', 'developer-agent'],
+    });
+    assert(runRes.status === 201, `POST /runs: ${runRes.status} - ${JSON.stringify(runRes.body)}`);
+    const { runId } = runRes.body;
+
+    const blocked = await waitStatus(runId, (r) => r.status === 'blocked', 5000);
+    assert(blocked !== null, 'run should reach blocked status');
+    assert(blocked.blockedReason.askingStage === 0,
+      `blockedReason.askingStage should point at stage 0 (the asking stage), got ${blocked.blockedReason.askingStage}`);
+    assert(blocked.stageStatuses.length === 2, 'no stage should be re-injected before the answer');
+
+    await resolveQ(spaceId, taskId, comment.id);
+
+    // The asking stage must be spliced back in ahead of the next stage.
+    const reinjected = await waitStatus(
+      runId,
+      (r) => r.status === 'running' && r.stages.length === 3 && r.currentStage === 1,
+      5000,
+    );
+    assert(reinjected !== null, 'run should be running with the asking stage re-injected');
+    assert(
+      reinjected.stages[0] === 'senior-architect' &&
+        reinjected.stages[1] === 'senior-architect' &&
+        reinjected.stages[2] === 'developer-agent',
+      `expect [arch, arch, dev] after re-injection, got [${reinjected.stages}]`,
+    );
+    assert(reinjected.loopCounts?.['senior-architect'] === 1, 'asker loop count must advance');
+    assert(reinjected.questionAnswers?.atStage === 1, 'questionAnswers must point at the re-injected stage');
+
+    // The re-injected stage's prompt must carry its own answer.
+    const pm = require('../src/services/pipelineManager');
+    const promptPath = pm.stagePromptPath(tmpServerDir, runId, 1);
+    const reRunPrompt = require('fs').readFileSync(promptPath, 'utf8');
+    assert(reRunPrompt.includes('## ANSWERS TO YOUR QUESTIONS'),
+      're-injected prompt must include the answers block');
+    assert(reRunPrompt.includes('Use PostgreSQL.'),
+      're-injected prompt must include the answer text');
+
+    // And the run still drives to completion through the original next stage.
+    const completed = await waitStatus(runId, (r) => r.status === 'completed', 8000);
+    assert(completed !== null, 'run should complete after the re-injected stage finishes');
+    assert(
+      completed.stageStatuses[1].agentId === 'senior-architect' &&
+        completed.stageStatuses[1].status === 'completed',
+      're-running asking stage must complete');
+    assert(
+      completed.stageStatuses[2].agentId === 'developer-agent' &&
+        completed.stageStatuses[2].status === 'completed',
+      'next stage must still run after the re-injected asker');
   });
 
   // ── Test 5: POST /resume manually resumes blocked run ────────────────────────
