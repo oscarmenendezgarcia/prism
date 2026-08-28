@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.7.0] — 2026-08-28
+
+Headline: **Work that stops being lost.** Three things a run could silently drop — a review
+verdict, a human answer, and the fact that a card is not actually done — now have a mechanism
+behind them instead of prose in a prompt. Plus the local-harness stages you can finally watch
+while they run.
+
+### Added
+- **Manager-driven feedback gate.** A gate agent emits a `prism-gate` verdict block inside its
+  own artifact and the *manager* parses it and decides the back-edge, replacing the
+  `stage-<N>.inject` signal file the agent had to write by hand — into a path it built relative
+  to a throwaway worktree, which is why verdicts were being lost in silence. Any stage can be a
+  gate by declaring `gate:` frontmatter. Ambiguity (two disagreeing blocks, an unbalanced fence,
+  a block truncated by a nested one, a missing `pass:`) collapses to "no verdict" and fails the
+  run loudly rather than guessing. (#197)
+- **Merge gate.** The pipeline stops moving a card to `done` when the run produced a PR URL.
+  Three cards had been sitting in `done` for weeks with ~2,400 lines of tested code stranded in
+  unmerged branches. (#198)
+- **Answer a blocking question from the UI**, and **re-injection of the agent that asked.**
+  Previously the only action was "resolve", which unblocked the run *without delivering the
+  answer* — and by then the stage process had already exited, so nobody was listening anyway.
+  The manager now re-runs the asking agent with the answer in its prompt. (#206, #209)
+- **Task dependencies.** `dependsOn` with DFS cycle detection, derived `blocked` state, and a
+  409 on starting a run against a blocked task — the board used to promise those were skipped
+  while nothing enforced it. (#200, #202, #203, #207)
+- **JSON Schema 2020-12 in the MCP tool schemas** — `$ref` reuse, an `anyOf` filter object on
+  `kanban_list_tasks`, `oneOf` attachment items. Legacy flat params still work. (#204)
+- **Live stage logs for opencode and pi.** Both switch to their structured output mode and the
+  normalizer learns both formats. A `pi` stage used to write nothing until it exited: its log
+  sat at 0 bytes for the whole run. (#210)
+
+### Changed
+- `stage-<N>.inject` is **retired**. The artifact verdict block is the only channel. (#197)
+- Agent run discipline: commit as you go rather than at the end, skip the PR step on a
+  remote-less repo, and QA no longer patches production code to make a build pass. (#201)
+
+### Fixed
+- **The stall watchdog killed harnesses that do not stream.** It read an un-growing stage log as
+  a dead stage, which is only true for a harness that streams; `pi` buffers until exit, so every
+  pi stage died at the 15-minute mark by construction — one of them with its work already
+  committed and pushed. (#208)
+- **Consolidation was borrowing the comment resolver's 5-minute budget.** Measured at 6m00s for
+  a real run: it was completing correctly and being killed for being 60 seconds late. It has its
+  own timeout now, and the harness label it reports is the adapter's rather than a hand-rolled
+  copy. (#205)
+- `ws` floor raised to `^8.21.0` (installed: 8.21.3). The declared range still allowed a clean
+  install elsewhere to resolve below the patched line. `npm audit` on the backend is clean; the
+  9 findings that exist are all in the frontend **dev** toolchain, which `prism-kanban` does not
+  ship — tracked separately.
+- A blocking question was invisible until you reloaded the page — the poller and the run
+  indicator disagreed about which statuses count as active. (#199)
+
 ## [1.6.0] — 2026-08-09
 
 Headline: **Bring your own harness.** The Agents & Routing stack lets every agent in the

@@ -1,6 +1,6 @@
 {
   "name": "prism-kanban",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Local-first kanban + agent pipeline runner with terminal and MCP integration.",
   "bin": {
     "prism": "bin/cli.js"
@@ -42,6 +42,6 @@
   "dependencies": {
     "better-sqlite3": "^12.9.0",
     "node-pty": "^1.1.0",
-    "ws": "^8.19.0"
+    "ws": "^8.21.3"
   }
 }
