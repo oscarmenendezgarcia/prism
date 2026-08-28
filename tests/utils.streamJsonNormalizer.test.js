@@ -265,3 +265,15 @@ test('pi json marks thinking separately and renders the tool call', () => {
   assert.match(content, /\[thinking\] The user wants echo\./);
   assert.match(content, /\[tool\] bash\(.*echo hola.*\)/);
 });
+
+test('pi json renders an object tool result as JSON, not [object Object]', () => {
+  // MCP tools return objects. String(obj) yields "[object Object]", which is
+  // what a live pi run actually produced before this was fixed.
+  const log = [
+    '{"type":"session","id":"x"}',
+    '{"type":"tool_execution_end","result":{"ok":true,"moved":"in-progress"}}',
+  ].join('\n');
+  const { content } = normalize(log);
+  assert.ok(!content.includes('[object Object]'), 'must not stringify an object as [object Object]');
+  assert.match(content, /"moved":"in-progress"/);
+});

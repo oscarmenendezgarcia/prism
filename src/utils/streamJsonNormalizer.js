@@ -177,6 +177,20 @@ function detectFormat(text) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Render a tool result for display. MCP tools return objects, and `String(obj)`
+ * yields "[object Object]" — seen for real on 2026-08-28 while testing this
+ * against a live pi run, where every MCP call rendered as that and nothing
+ * else. Objects are serialized; strings pass through.
+ *
+ * @param {*} r
+ * @returns {string}
+ */
+function stringifyResult(r) {
+  if (typeof r === 'string') return r.trim();
+  try { return JSON.stringify(r); } catch { return String(r); }
+}
+
+/**
  * Normalize opencode `run --format json` NDJSON.
  *
  * Low-volume: one event per block, not per token. `step_finish` carries the
@@ -255,7 +269,7 @@ function normalizePiJson(text) {
     }
     if (ev.type === 'tool_execution_end') {
       const r = ev.result ?? ev.output;
-      if (r != null) out.push(`[result] ${truncate(String(r).trim(), TOOL_RESULT_TRUNCATE)}`);
+      if (r != null) out.push(`[result] ${truncate(stringifyResult(r), TOOL_RESULT_TRUNCATE)}`);
       continue;
     }
     if (ev.type === 'message_end') { flushThinking(); flushText(); continue; }
