@@ -201,3 +201,67 @@ test('linesOut counts newline-separated segments of the returned content', () =>
   const r = normalize('a\nb\nc');
   assert.equal(r.linesOut, 3);
 });
+
+// ---------------------------------------------------------------------------
+// Harness log visibility (opencode --format json, pi --mode json).
+//
+// Fixtures are trimmed captures of real runs against a local qwen3.8-27b on
+// 2026-08-28 — the event shapes are measured, not guessed.
+//
+// Before this, opencode ran with --format default (readable, but no token
+// counts) and pi with plain -p, which writes NOTHING until it exits: its stage
+// log sat at 0 bytes for the whole run, the panel showed nothing, and the stall
+// watchdog read that as a dead stage and killed it (fixed in #208).
+// ---------------------------------------------------------------------------
+
+const OPENCODE_LOG = [
+  '{"type":"step_start","sessionID":"ses_1","part":{"type":"step-start"}}',
+  '{"type":"text","sessionID":"ses_1","part":{"type":"text","text":"\\n\\nOK"}}',
+  '{"type":"tool_use","sessionID":"ses_1","part":{"type":"tool","tool":"bash","state":{"status":"completed","input":{"command":"echo hola"},"output":"hola\\n","metadata":{"exit":0}}}}',
+  '{"type":"step_finish","sessionID":"ses_1","part":{"type":"step-finish","reason":"stop","tokens":{"total":20617,"input":20506,"output":3},"cost":0}}',
+].join('\n');
+
+const PI_LOG = [
+  '{"type":"session","version":3,"id":"01a0470b"}',
+  '{"type":"message_update","assistantMessageEvent":{"type":"thinking_start","contentIndex":0}}',
+  '{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","delta":"The user "}}',
+  '{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","delta":"wants echo."}}',
+  '{"type":"message_update","assistantMessageEvent":{"type":"thinking_end","contentIndex":0}}',
+  '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"Run"}}',
+  '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"ning it."}}',
+  '{"type":"message_update","assistantMessageEvent":{"type":"text_end","contentIndex":1}}',
+  '{"type":"message_update","assistantMessageEvent":{"type":"toolcall_end","toolCall":{"name":"bash","arguments":{"command":"echo hola"}}}}',
+  '{"type":"message_end"}',
+].join('\n');
+
+test('opencode json is detected as its own format, not plain-text', () => {
+  assert.equal(normalize(OPENCODE_LOG).format, 'opencode-json');
+});
+
+test('opencode json renders text, the tool call with its output, and the spend', () => {
+  const { content } = normalize(OPENCODE_LOG);
+  assert.match(content, /OK/);
+  assert.match(content, /\[tool\] bash\(.*echo hola.*\)/);
+  assert.match(content, /\[result\] hola/);
+  assert.match(content, /in=20506/);
+  assert.match(content, /total=20617/);
+});
+
+test('pi json is detected as its own format', () => {
+  assert.equal(normalize(PI_LOG).format, 'pi-json');
+});
+
+test('pi json coalesces per-token deltas instead of one line each', () => {
+  // pi emits one event PER TOKEN. Rendering them 1:1 would bury the run and
+  // blow the byte cap, so the deltas must arrive joined.
+  const { content } = normalize(PI_LOG);
+  assert.match(content, /The user wants echo\./);
+  assert.match(content, /Running it\./);
+  assert.ok(!/\bwants\n/.test(content), 'deltas must not be split across lines');
+});
+
+test('pi json marks thinking separately and renders the tool call', () => {
+  const { content } = normalize(PI_LOG);
+  assert.match(content, /\[thinking\] The user wants echo\./);
+  assert.match(content, /\[tool\] bash\(.*echo hola.*\)/);
+});

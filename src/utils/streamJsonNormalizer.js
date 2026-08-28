@@ -58,6 +58,17 @@ const STREAM_JSON_TYPES = new Set([
   'result',
 ]);
 
+// opencode `run --format json`: NDJSON with a `part` envelope carrying
+// `sessionID`. Types seen in practice: step_start, text, tool_use, step_finish.
+const OPENCODE_JSON_TYPES = new Set(['step_start', 'text', 'tool_use', 'step_finish']);
+
+// pi `-p --mode json`: NDJSON with a session header and per-token deltas.
+const PI_JSON_TYPES = new Set([
+  'session', 'agent_start', 'turn_start', 'message_start', 'message_update',
+  'message_end', 'turn_end', 'agent_end', 'agent_settled',
+  'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
+]);
+
 const ANSI_REGEX = /\x1b\[[0-9;]*[A-Za-z]/g;
 
 // ---------------------------------------------------------------------------
@@ -93,11 +104,10 @@ function normalize(text, opts = {}) {
   }
 
   let normalized;
-  if (format === 'stream-json') {
-    normalized = normalizeStreamJson(input);
-  } else {
-    normalized = normalizePlainText(input);
-  }
+  if (format === 'stream-json')        normalized = normalizeStreamJson(input);
+  else if (format === 'opencode-json') normalized = normalizeOpencodeJson(input);
+  else if (format === 'pi-json')       normalized = normalizePiJson(input);
+  else                                 normalized = normalizePlainText(input);
 
   let truncatedByTail = false;
   if (Number.isInteger(opts.tail) && opts.tail > 0) {
@@ -148,8 +158,13 @@ function detectFormat(text) {
 
   try {
     const obj = JSON.parse(firstLine);
-    if (obj && typeof obj === 'object' && typeof obj.type === 'string' && STREAM_JSON_TYPES.has(obj.type)) {
-      return 'stream-json';
+    if (obj && typeof obj === 'object' && typeof obj.type === 'string') {
+      // Check the harness-specific shapes first: their type names do not
+      // overlap with claude's, but an explicit order keeps it obvious that
+      // `stream-json` is not a catch-all for "line starts with {".
+      if (obj.sessionID && obj.part && OPENCODE_JSON_TYPES.has(obj.type)) return 'opencode-json';
+      if (PI_JSON_TYPES.has(obj.type)) return 'pi-json';
+      if (STREAM_JSON_TYPES.has(obj.type)) return 'stream-json';
     }
   } catch {
     // fall through
@@ -160,6 +175,112 @@ function detectFormat(text) {
 // ---------------------------------------------------------------------------
 // Plain-text branch
 // ---------------------------------------------------------------------------
+
+/**
+ * Normalize opencode `run --format json` NDJSON.
+ *
+ * Low-volume: one event per block, not per token. `step_finish` carries the
+ * token counts and cost, which are surfaced as a [result] line so a reader
+ * sees what the stage spent without opening the metrics file.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function normalizeOpencodeJson(text) {
+  const out = [];
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed[0] !== '{') continue;
+    let ev;
+    try { ev = JSON.parse(trimmed); } catch { continue; }
+    const part = ev.part || {};
+
+    if (ev.type === 'text' && typeof part.text === 'string') {
+      const t = part.text.trim();
+      if (t) out.push(t);
+    } else if (ev.type === 'tool_use') {
+      const st    = part.state || {};
+      const input = st.input ? truncate(JSON.stringify(st.input), TOOL_ARGS_TRUNCATE) : '';
+      out.push(`[tool] ${part.tool || 'unknown'}(${input})`);
+      if (st.output) out.push(`[result] ${truncate(String(st.output).trim(), TOOL_RESULT_TRUNCATE)}`);
+    } else if (ev.type === 'step_finish') {
+      const tk = part.tokens || {};
+      const bits = [];
+      if (tk.input  != null) bits.push(`in=${tk.input}`);
+      if (tk.output != null) bits.push(`out=${tk.output}`);
+      if (tk.total  != null) bits.push(`total=${tk.total}`);
+      if (part.cost != null) bits.push(`cost=${part.cost}`);
+      out.push(`[step-finish] ${part.reason || ''} ${bits.join(' ')}`.trim());
+    }
+  }
+  return out.join('\n');
+}
+
+/**
+ * Normalize pi `-p --mode json` NDJSON.
+ *
+ * High-volume: pi emits one event PER TOKEN (thinking_delta / text_delta), so
+ * rendering one line per event would bury the run in noise and blow the byte
+ * cap. Deltas are coalesced into a single block and flushed when the
+ * corresponding *_end arrives — thinking truncated like claude's, text kept.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function normalizePiJson(text) {
+  const out = [];
+  let thinking = '';
+  let assistant = '';
+
+  const flushThinking = () => {
+    const t = thinking.trim();
+    if (t) out.push(`[thinking] ${truncate(t, THINKING_TRUNCATE)}`);
+    thinking = '';
+  };
+  const flushText = () => {
+    const t = assistant.trim();
+    if (t) out.push(t);
+    assistant = '';
+  };
+
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed[0] !== '{') continue;
+    let ev;
+    try { ev = JSON.parse(trimmed); } catch { continue; }
+
+    if (ev.type === 'session') {
+      out.push(`[system] pi session ${ev.id || ''}`.trim());
+      continue;
+    }
+    if (ev.type === 'tool_execution_end') {
+      const r = ev.result ?? ev.output;
+      if (r != null) out.push(`[result] ${truncate(String(r).trim(), TOOL_RESULT_TRUNCATE)}`);
+      continue;
+    }
+    if (ev.type === 'message_end') { flushThinking(); flushText(); continue; }
+
+    const a = ev.assistantMessageEvent;
+    if (!a || typeof a.type !== 'string') continue;
+
+    switch (a.type) {
+      case 'thinking_delta': thinking  += a.delta || ''; break;
+      case 'text_delta':     assistant += a.delta || ''; break;
+      case 'thinking_end':   flushThinking(); break;
+      case 'text_end':       flushText();     break;
+      case 'toolcall_end': {
+        const call = a.toolCall || {};
+        const args = call.arguments ? truncate(JSON.stringify(call.arguments), TOOL_ARGS_TRUNCATE) : '';
+        out.push(`[tool] ${call.name || a.toolName || 'unknown'}(${args})`);
+        break;
+      }
+      default: break;
+    }
+  }
+  flushThinking();
+  flushText();
+  return out.join('\n');
+}
 
 function normalizePlainText(text) {
   // Strip ANSI escape sequences and trim a trailing newline for tidiness.
