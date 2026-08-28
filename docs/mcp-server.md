@@ -24,8 +24,8 @@ All tool names are prefixed `kanban_` and available as `mcp__prism__kanban_*` in
 |------|----------------|----------------|-------------|
 | `kanban_list_tasks` | — | `column`, `assigned`, `limit` (def 50, max 200), `cursor`, `spaceId` | List tasks with pagination. Returns `{ todo, in-progress, done, total, nextCursor }` |
 | `kanban_get_task` | `id` | `spaceId` | Get a single task by ID |
-| `kanban_create_task` | `title`, `type` | `description`, `assigned`, `spaceId` | Create task in `todo` |
-| `kanban_update_task` | `id` | `title`, `type`, `description`, `assigned`, `attachments`, `mode`, `pipeline`, `spaceId` | Update fields and/or attachments. `mode` defaults to `merge`; pass `mode:'replace'` to overwrite the entire array |
+| `kanban_create_task` | `title`, `type` | `description`, `assigned`, `arc`, `dependsOn`, `spaceId` | Create task in `todo`. `dependsOn` = task IDs this one waits on (max 20); a blocked task cannot start a run |
+| `kanban_update_task` | `id` | `title`, `type`, `description`, `assigned`, `arc`, `dependsOn`, `attachments`, `mode`, `pipeline`, `spaceId` | Update fields and/or attachments. `mode` defaults to `merge`; pass `mode:'replace'` to overwrite the entire array |
 | `kanban_move_task` | `id`, `to` | `spaceId` | Move to `todo \| in-progress \| done` |
 | `kanban_delete_task` | `id` | `spaceId` | Delete a task |
 | `kanban_clear_board` | — | `spaceId` | Delete all tasks in a space |

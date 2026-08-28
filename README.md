@@ -30,11 +30,12 @@ Most Kanban tools are built for humans tracking human work. **Prism is built for
 | | |
 |---|---|
 | **Agents manage the board** | Via MCP tools, agents create tasks, update status, and attach artifacts as they work. |
-| **Pipelines from any task** | One click launches a multi-stage pipeline (architect → UX → developer → code review → QA) against a task card, with live stage-by-stage logs and automatic QA/review → developer feedback loops. |
+| **Pipelines from any task** | One click launches a multi-stage pipeline (architect → UX → developer → code review → QA) against a task card, with live stage-by-stage logs. A review stage writes its verdict into its own artifact and the **manager** decides the back-edge, so a rejection re-runs the developer instead of being lost. A card does not reach `done` while its PR is still open. |
 | **Per-stage harness & model routing** | Every agent in the pipeline can run on its own CLI harness + model — Claude Code, **opencode**, **pi**, **hermes**, or a custom command — with a per-agent fallback harness, overridable at the global, space, or task level. [See below](#agents--routing--bring-your-own-model). |
 | **Folio — shared knowledge** | Agents stop starting every task from zero — [see below](#folio--knowledge-that-grows-with-use). |
 | **Global search** | <kbd>⌘K</kbd> / <kbd>Ctrl K</kbd> across all spaces, powered by SQLite FTS5. |
 | **Embedded terminal** | A full PTY shell inside the UI. |
+| **Ask you a question mid-run** | When an agent needs a decision it blocks the run and asks on the card. You answer from the UI and the agent that asked is re-run with your answer in its prompt. |
 | **Multiple spaces** | Organise work per project, each with its own board and pipeline config. |
 | **Durable, local persistence** | All state lives in a single `prism.db` SQLite file. No external database. |
 
