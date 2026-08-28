@@ -113,7 +113,7 @@ describe('opencodeCliLine', () => {
     const line = cliSpawn.opencodeCliLine({ ...opts, platform: 'unix' });
     assert.equal(
       line,
-      "'/opt/opencode/bin/opencode' run --model 'vllm-local/qwen3.6-35b' --dangerously-skip-permissions --format default 'Proceed.' --file '/tmp/run-1/stage-0-oc-prompt.md' >> '/tmp/run-1/stage-0.log' 2>&1"
+      "'/opt/opencode/bin/opencode' run --model 'vllm-local/qwen3.6-35b' --dangerously-skip-permissions --format json 'Proceed.' --file '/tmp/run-1/stage-0-oc-prompt.md' >> '/tmp/run-1/stage-0.log' 2>&1"
     );
   });
 
@@ -121,7 +121,7 @@ describe('opencodeCliLine', () => {
     const line = cliSpawn.opencodeCliLine({ ...opts, platform: 'win32' });
     assert.equal(
       line,
-      '"/opt/opencode/bin/opencode" run --model "vllm-local/qwen3.6-35b" --dangerously-skip-permissions --format default "Proceed." --file "/tmp/run-1/stage-0-oc-prompt.md" >> "/tmp/run-1/stage-0.log" 2>&1'
+      '"/opt/opencode/bin/opencode" run --model "vllm-local/qwen3.6-35b" --dangerously-skip-permissions --format json "Proceed." --file "/tmp/run-1/stage-0-oc-prompt.md" >> "/tmp/run-1/stage-0.log" 2>&1'
     );
   });
 
@@ -147,7 +147,7 @@ describe('piCliLine', () => {
     const line = cliSpawn.piCliLine({ ...opts, platform: 'unix' });
     assert.equal(
       line,
-      "'/opt/homebrew/bin/pi' -p --model 'gb10/deepseek-v4-flash' < '/tmp/run-1/stage-0-pi-prompt.md' >> '/tmp/run-1/stage-0.log' 2>&1"
+      "'/opt/homebrew/bin/pi' -p --mode json --model 'gb10/deepseek-v4-flash' < '/tmp/run-1/stage-0-pi-prompt.md' >> '/tmp/run-1/stage-0.log' 2>&1"
     );
   });
 
@@ -155,7 +155,7 @@ describe('piCliLine', () => {
     const line = cliSpawn.piCliLine({ ...opts, platform: 'win32' });
     assert.equal(
       line,
-      '"/opt/homebrew/bin/pi" -p --model "gb10/deepseek-v4-flash" < "/tmp/run-1/stage-0-pi-prompt.md" >> "/tmp/run-1/stage-0.log" 2>&1'
+      '"/opt/homebrew/bin/pi" -p --mode json --model "gb10/deepseek-v4-flash" < "/tmp/run-1/stage-0-pi-prompt.md" >> "/tmp/run-1/stage-0.log" 2>&1'
     );
   });
 

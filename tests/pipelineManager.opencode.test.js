@@ -259,7 +259,7 @@ describe('buildOpencodePromptFile', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildOpencodeUnixShellCommand', () => {
-  test('includes binary path, --model flag, --dangerously-skip-permissions, --format default, --file, and Proceed.', () => {
+  test('includes binary path, --model flag, --dangerously-skip-permissions, --format json, --file, and Proceed.', () => {
     const pm = freshPM();
     const cmd = pm._buildOpencodeUnixShellCommandForTest({
       binary:           '/home/user/.opencode/bin/opencode',
@@ -272,7 +272,7 @@ describe('buildOpencodeUnixShellCommand', () => {
     assert.ok(cmd.includes('--model'), 'should include --model flag');
     assert.ok(cmd.includes('Qwen3.6-35B'), 'should include model name');
     assert.ok(cmd.includes('--dangerously-skip-permissions'), 'should include permissions flag');
-    assert.ok(cmd.includes('--format default'), 'should include format flag');
+    assert.ok(cmd.includes('--format json'), 'should include format flag');
     assert.ok(cmd.includes('--file'), 'should include --file flag');
     assert.ok(cmd.includes('stage-0-oc-prompt.md'), 'should include merged prompt path');
     assert.ok(cmd.includes('Proceed.'), 'should include trigger message');
@@ -296,7 +296,7 @@ describe('buildOpencodeUnixShellCommand', () => {
 });
 
 describe('buildOpencodeWindowsShellCommand', () => {
-  test('includes binary, --model, --dangerously-skip-permissions, --format default, --file, Proceed., and done-file write', () => {
+  test('includes binary, --model, --dangerously-skip-permissions, --format json, --file, Proceed., and done-file write', () => {
     const pm = freshPM();
     const cmd = pm._buildOpencodeWindowsShellCommandForTest({
       binary:           'C:\\opencode\\opencode.exe',
@@ -308,7 +308,7 @@ describe('buildOpencodeWindowsShellCommand', () => {
     assert.ok(cmd.includes('opencode'), 'should contain binary');
     assert.ok(cmd.includes('--model'), 'should include --model');
     assert.ok(cmd.includes('--dangerously-skip-permissions'));
-    assert.ok(cmd.includes('--format default'));
+    assert.ok(cmd.includes('--format json'));
     assert.ok(cmd.includes('--file'));
     assert.ok(cmd.includes('Proceed.'));
     assert.ok(cmd.includes('!ERRORLEVEL!'), 'should use ERRORLEVEL for exit code');

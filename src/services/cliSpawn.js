@@ -174,7 +174,7 @@ function opencodeCliLine({ binary, model, mergedPromptPath, logPath, platform })
   // `--file` is a yargs array-type flag: a positional placed after it gets
   // swallowed as another file path instead of reaching opencode as the
   // message ("File not found: Proceed."). The message must come first.
-  return `${esc(binary)} run --model ${esc(model)} --dangerously-skip-permissions --format default ${proceed} --file ${esc(mergedPromptPath)} >> ${esc(logPath)} 2>&1`;
+  return `${esc(binary)} run --model ${esc(model)} --dangerously-skip-permissions --format json ${proceed} --file ${esc(mergedPromptPath)} >> ${esc(logPath)} 2>&1`;
 }
 
 /**
@@ -189,7 +189,7 @@ function opencodeCliLine({ binary, model, mergedPromptPath, logPath, platform })
  */
 function piCliLine({ binary, model, mergedPromptPath, logPath, platform }) {
   const esc = platform === 'win32' ? cmdEscape : shellEscape;
-  return `${esc(binary)} -p --model ${esc(model)} < ${esc(mergedPromptPath)} >> ${esc(logPath)} 2>&1`;
+  return `${esc(binary)} -p --mode json --model ${esc(model)} < ${esc(mergedPromptPath)} >> ${esc(logPath)} 2>&1`;
 }
 
 /**
