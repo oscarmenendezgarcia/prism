@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.1] — 2026-08-28
+
+### Fixed
+- **The published package shipped `mcp/node_modules`** — 3,486 of its 3,594 files, 17.4 MB
+  unpacked. It was not an oversight: `@modelcontextprotocol/sdk` was declared only in
+  `mcp/package.json`, which npm never installs, so bundling the folder was what kept the MCP
+  server working for installed users. The dependency moves to the root `package.json`, where npm
+  manages it, and `mcp/node_modules` is excluded. **108 files, 2.6 MB installed.** Beyond the
+  weight: the bundled copy was frozen, so a security patch in that chain could never reach a
+  user who upgraded Prism. Verified by installing the tarball into a clean directory and
+  completing an `initialize` + `tools/list` handshake against the packaged server.
+
 ## [1.7.0] — 2026-08-28
 
 Headline: **Work that stops being lost.** Three things a run could silently drop — a review
