@@ -246,7 +246,15 @@ describe('buildStagePrompt() unit tests', () => {
 
     assert.ok(promptText.includes('HANDOFF SUMMARY'), 'must include HANDOFF SUMMARY instruction');
     assert.ok(promptText.includes('"Handoff:'), 'must include Handoff note template');
-    assert.ok(promptText.includes('BEFORE moving to done'), 'must clarify handoff happens before done');
+    // It used to say "post BEFORE moving to done" — which an intermediate stage
+    // is explicitly told NOT to do, so the instruction read as last-stage-only.
+    // Every stage posts a handoff; the next one reads it to know what exists.
+    assert.ok(promptText.includes('BEFORE you finish your stage'),
+      'handoff is tied to finishing the stage, not to moving the task to done');
+    assert.ok(/EVERY stage posts one/.test(promptText),
+      'must say explicitly that intermediate stages post one too');
+    assert.ok(!promptText.includes('BEFORE moving to done'),
+      'the old wording contradicts the intermediate-stage move rule');
   });
 
   test('note triggers use type: "note" (non-blocking) not type: "question"', () => {

@@ -83,12 +83,19 @@ async function runTests() {
     assert(block.includes(`Task ID: ${taskId}`),   'taskId must be present');
   });
 
-  await test('contains the add_comment MCP call with correct spaceId and taskId', () => {
+  await test('states the ids once and does not repeat them in every example call', () => {
+    // They used to be interpolated into all six add_comment examples — 14
+    // occurrences of the two uuids in one block, when they are already on the
+    // header line the examples sit under.
     const spaceId = 'sp-mcp';
     const taskId  = 'task-mcp';
     const block   = buildKanbanBlock(spaceId, taskId);
-    assert(block.includes(`spaceId: "${spaceId}"`), 'add_comment snippet must include spaceId');
-    assert(block.includes(`taskId: "${taskId}"`),   'add_comment snippet must include taskId');
+    assert(block.includes(`Space ID: ${spaceId}`), 'the header carries the ids');
+    assert(block.includes(`Task ID: ${taskId}`),   'the header carries the ids');
+    assert(block.includes('mcp__prism__kanban_add_comment('), 'the example call is still shown');
+    const occurrences = (block.match(new RegExp(spaceId, 'g')) || []).length;
+    assert(occurrences === 1,
+      `spaceId must appear once, in the header — found ${occurrences}`);
   });
 
   await test('includes structured STOP conditions', () => {
