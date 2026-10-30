@@ -46,13 +46,13 @@ const STEPS: StepProps[] = [
     n: 2,
     icon: 'add_task',
     title: 'Add a task',
-    body: 'Describe what you want the agent pipeline to build, fix, or research.',
+    body: 'Describe what you want to build, fix, or research.',
   },
   {
     n: 3,
     icon: 'play_arrow',
-    title: 'Run the pipeline',
-    body: 'Open the task and hit Run Pipeline — architect → UX → developer → reviewer → QA.',
+    title: 'Give it to an agent',
+    body: 'Pick an agent and hit Run. It works on its own branch and shows you the result.',
   },
 ];
 
@@ -78,7 +78,7 @@ export function BoardEmptyState({ onCreateTask }: BoardEmptyStateProps) {
               Your board is empty
             </h2>
             <p className="mt-2 text-sm text-text-secondary leading-relaxed">
-              Three steps to launch your first agent pipeline.
+              Three steps to your first task.
             </p>
           </div>
 

@@ -1,7 +1,7 @@
 /**
  * CardActionMenu — hover overlay toolbar for TaskCard.
  *
- * Renders move-left, move-right, run agent, and delete buttons in a compact
+ * Renders move-left, move-right, and delete buttons in a compact
  * horizontal strip. Composed into TaskCard as the absolutely-positioned hover
  * overlay. Also used to populate the more_vert ContextMenu item list.
  *
@@ -9,16 +9,12 @@
  */
 
 import React from 'react';
-import type { Column, AgentRun } from '@/types';
-import { AgentLauncherMenu } from '@/components/agent-launcher/AgentLauncherMenu';
+import type { Column } from '@/types';
 import { adjacentColumnLabel } from '@/constants/columns';
 
 export interface CardActionMenuProps {
-  taskId: string;
   column: Column;
-  spaceId: string;
   isMutating: boolean;
-  activeRun: AgentRun | null;
   onMoveLeft?: () => void;
   onMoveRight?: () => void;
   /**
@@ -43,15 +39,12 @@ export interface CardActionMenuProps {
  * Inline action toolbar for a Kanban card.
  *
  * Renders a row of icon buttons: move-left (when applicable), move-right
- * (when applicable), run-agent (todo only), and delete (always).
+ * (when applicable), and delete (always).
  * Each button is 28×28 px per the design spec.
  */
 export function CardActionMenu({
-  taskId,
   column,
-  spaceId,
   isMutating,
-  activeRun,
   onMoveLeft,
   onMoveRight,
   onMoveUp,
@@ -62,8 +55,6 @@ export function CardActionMenu({
 }: CardActionMenuProps) {
   const showLeft = column !== 'todo';
   const showRight = column !== 'done';
-  const showRunAgent = column === 'todo';
-  const deleteDisabled = isMutating || activeRun !== null;
   // Vertical reorder buttons rendered when the parent wired the callback OR
   // it's a boundary (disabled). Absent only if the whole feature is off.
   const showVertical = onMoveUp !== undefined || onMoveDown !== undefined || canMoveUp || canMoveDown;
@@ -142,14 +133,10 @@ export function CardActionMenu({
         </button>
       )}
 
-      {showRunAgent && (
-        <AgentLauncherMenu taskId={taskId} spaceId={spaceId} />
-      )}
-
       <button
         type="button"
         onClick={onDelete}
-        disabled={deleteDisabled}
+        disabled={isMutating}
         aria-label="Delete task"
         title="Delete task"
         className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-error hover:bg-error/[0.08] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"

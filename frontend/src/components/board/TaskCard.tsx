@@ -15,7 +15,8 @@ import type { Task, Column } from '@/types';
 import { Badge } from '@/components/shared/Badge';
 import { arcColor } from '@/utils/arcs';
 import { CardActionMenu } from '@/components/board/CardActionMenu';
-import { useAppStore, useActiveRun } from '@/stores/useAppStore';
+import { useAppStore } from '@/stores/useAppStore';
+import { useTaskRunStore } from '@/stores/useTaskRunStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { COLUMNS } from '@/constants/columns';
 import { TaskRunFooter } from '@/components/runs/TaskRunFooter';
@@ -87,7 +88,10 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   // Per-task mutation flag — only this card's actions get disabled while its
   // own move/delete is in flight; the rest of the board stays interactive.
   const isMutating        = useAppStore((s) => s.mutatingTaskIds.has(task.id));
-  const activeRun         = useActiveRun();
+  const isActiveTask      = useTaskRunStore((s) => {
+    const status = s.views[task.id]?.status;
+    return status === 'working' || status === 'checking';
+  });
   const openDetailPanel   = useAppStore((s) => s.openDetailPanel);
   const arcGrouping       = useAppStore((s) => s.arcGrouping);
 
@@ -95,7 +99,6 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const isDragOverThis = useDragStore((s) => s.dragOverTaskId === task.id);
   const insertBeforeThis = useDragStore((s) => s.insertBefore);
 
-  const isActiveTask = activeRun?.taskId === task.id;
   const isDone = column === 'done';
 
   const idx = COLUMNS.indexOf(column);
@@ -309,11 +312,8 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         >
           <div className="bg-surface-elevated border border-border rounded-md shadow-sm">
             <CardActionMenu
-              taskId={task.id}
               column={column}
-              spaceId={activeSpaceId}
               isMutating={isMutating}
-              activeRun={activeRun}
               onMoveUp={handleMoveUp}
               onMoveDown={handleMoveDown}
               canMoveUp={canMoveUp}

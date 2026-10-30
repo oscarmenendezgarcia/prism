@@ -94,7 +94,7 @@ export function useTheme(): UseThemeResult {
     return () => mq.removeEventListener('change', handleChange);
   }, [theme]);
 
-  // Sync with other hook instances in the same document (e.g. TerminalTab) when
+  // Sync with other hook instances in the same document when
   // the user changes the theme via ThemeToggle while they are already mounted.
   useEffect(() => {
     function handleThemeChange(e: Event) {

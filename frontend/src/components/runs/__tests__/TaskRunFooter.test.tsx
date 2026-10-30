@@ -11,7 +11,6 @@ vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/client')>()),
   startTaskRun: vi.fn().mockResolvedValue({}),
   resumeRun: vi.fn().mockResolvedValue({}),
-  approveTaskHook: vi.fn().mockResolvedValue({}),
   createTaskPullRequest: vi.fn().mockResolvedValue({}),
   getTaskRuns: vi.fn().mockResolvedValue({}),
 }));
@@ -21,7 +20,7 @@ const task: Task = {
 } as Task;
 
 const view = (over: Partial<TaskRunView>): TaskRunView => ({
-  runId: 'r1', taskId: 't1', status: 'working', cliTool: 'claude', model: 'sonnet', iteration: 1, stageIndex: 0,
+  runId: 'r1', taskId: 't1', status: 'working', cliTool: 'claude', model: 'sonnet', iteration: 1,
   createdAt: '', updatedAt: '', closedAt: null, result: null, hook: null, failure: null, ...over,
 });
 
@@ -36,30 +35,6 @@ describe('TaskRunFooter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAppStore.setState({ activeSpaceId: 's1', loadBoard: vi.fn().mockResolvedValue(undefined), showToast: vi.fn() } as never);
-  });
-
-  it('asks for approval on the card, and approves from it', async () => {
-    renderFooter('in-progress', {
-      status: 'approval', result,
-      hook: { name: 'Deploy', status: 'awaiting_approval' },
-      steps: [{ id: 'a', name: 'Deploy', type: 'command', status: 'awaiting_approval' }],
-    });
-    expect(screen.getByText('Needs your approval: Deploy')).toBeInTheDocument();
-    expect(screen.getByTestId('run-result')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
-    expect(api.approveTaskHook).toHaveBeenCalledWith('s1', 't1');
-  });
-
-  it('shows the steps while a check runs', () => {
-    renderFooter('in-progress', {
-      status: 'checking',
-      hook: { name: 'Two', status: 'running' },
-      steps: [
-        { id: 'a', name: 'One', type: 'command', status: 'passed' },
-        { id: 'b', name: 'Two', type: 'command', status: 'running' },
-      ],
-    });
-    expect(screen.getByRole('img', { name: '1 of 2 checks passed' })).toBeInTheDocument();
   });
 
   it('offers to create a PR on a finished card', async () => {
@@ -78,12 +53,21 @@ describe('TaskRunFooter', () => {
     expect(screen.getByRole('button', { name: 'Push changes' })).toBeInTheDocument();
   });
 
-  it('says why an agent check failed', () => {
+  it('says when a check ran out of time', () => {
     renderFooter('in-progress', {
-      status: 'failed', hook: { name: 'Review', status: 'failed' },
-      failure: { kind: 'hook', exitCode: 0, verdict: 'fail', retries: 2 },
+      status: 'failed', hook: { type: 'command', name: 'Check', status: 'failed' },
+      failure: { kind: 'check', exitCode: null, timedOut: true },
     });
-    expect(screen.getByText('"Review" found problems. The agent tried to fix it 2 times.')).toBeInTheDocument();
+    expect(screen.getByText('"Check" took too long and was stopped.')).toBeInTheDocument();
+  });
+
+  it('says when the pull request could not be opened', () => {
+    renderFooter('in-progress', {
+      status: 'failed', hook: { type: 'pr', name: 'Pull request', status: 'failed' },
+      failure: { kind: 'pr', exitCode: null, timedOut: false },
+    });
+    expect(screen.getByText('The pull request could not be opened.')).toBeInTheDocument();
+    expect(screen.getByText('Failed: Pull request')).toBeInTheDocument();
   });
 
   it('offers Run with the chosen agent on a card in To do', async () => {
@@ -109,7 +93,7 @@ describe('TaskRunFooter', () => {
   });
 
   it('shows the hook being checked', () => {
-    renderFooter('in-progress', { status: 'checking', hook: { name: 'Tests', command: 'x', status: 'running' } });
+    renderFooter('in-progress', { status: 'checking', hook: { type: 'command', name: 'Tests', command: 'x', status: 'running' } });
     expect(screen.getByTestId('run-status')).toHaveTextContent('Checking: Tests');
   });
 
@@ -122,12 +106,12 @@ describe('TaskRunFooter', () => {
     expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
   });
 
-  it('explains a failed hook and retries it, with the result still visible', async () => {
+  it('explains a failed check and retries it, with the result still visible', async () => {
     renderFooter('in-progress', {
       status: 'failed',
       result,
-      hook: { name: 'Tests', command: 'x', status: 'failed', exitCode: 2 },
-      failure: { kind: 'hook', exitCode: 2, timedOut: false },
+      hook: { type: 'command', name: 'Tests', command: 'x', status: 'failed', exitCode: 2 },
+      failure: { kind: 'check', exitCode: 2, timedOut: false },
     });
     expect(screen.getByText(/"Tests" failed with exit code 2/)).toBeInTheDocument();
     expect(screen.getByTestId('run-result')).toBeInTheDocument();

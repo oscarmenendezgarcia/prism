@@ -1,5 +1,5 @@
 /**
- * Direct task runs: which agent will run each card, and how its latest run is going.
+ * Task runs: which agent will run each card, and how its latest run is going.
  */
 
 import { create } from 'zustand';
@@ -46,7 +46,6 @@ interface TaskRunState {
   retry: (spaceId: string, taskId: string) => Promise<void>;
   requestChanges: (spaceId: string, taskId: string, text: string) => Promise<void>;
   close: (spaceId: string, taskId: string) => Promise<void>;
-  approve: (spaceId: string, taskId: string) => Promise<void>;
   createPullRequest: (spaceId: string, taskId: string) => Promise<void>;
 }
 
@@ -122,7 +121,6 @@ export const useTaskRunStore = create<TaskRunState>((set, get) => {
     retry: (spaceId, taskId) => act(spaceId, taskId, () => api.resumeRun(runIdOf(taskId))),
     requestChanges: (spaceId, taskId, text) => act(spaceId, taskId, () => api.requestTaskChanges(spaceId, taskId, text)),
     close: (spaceId, taskId) => act(spaceId, taskId, () => api.closeTaskRun(spaceId, taskId)),
-    approve: (spaceId, taskId) => act(spaceId, taskId, () => api.approveTaskHook(spaceId, taskId)),
     createPullRequest: (spaceId, taskId) => act(spaceId, taskId, () => api.createTaskPullRequest(spaceId, taskId)),
   };
 });

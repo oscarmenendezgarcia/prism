@@ -23,7 +23,7 @@ describe('BoardEmptyState — rendering', () => {
 
   it('renders the subtitle paragraph', () => {
     render(<BoardEmptyState onCreateTask={vi.fn()} />);
-    expect(screen.getByText(/Three steps to launch/i)).toBeInTheDocument();
+    expect(screen.getByText(/Three steps to your first task/i)).toBeInTheDocument();
   });
 
   it('renders an ordered list with exactly 3 step items', () => {
@@ -32,11 +32,11 @@ describe('BoardEmptyState — rendering', () => {
     expect(items).toHaveLength(3);
   });
 
-  it('renders step titles: Create a space, Add a task, Run the pipeline', () => {
+  it('renders step titles: Create a space, Add a task, Give it to an agent', () => {
     render(<BoardEmptyState onCreateTask={vi.fn()} />);
     expect(screen.getByText('Create a space')).toBeInTheDocument();
     expect(screen.getByText('Add a task')).toBeInTheDocument();
-    expect(screen.getByText('Run the pipeline')).toBeInTheDocument();
+    expect(screen.getByText('Give it to an agent')).toBeInTheDocument();
   });
 
   it('renders step number circles 1, 2, 3', () => {
@@ -98,7 +98,7 @@ describe('BoardEmptyState — accessibility', () => {
   it('step body text is present for each step', () => {
     render(<BoardEmptyState onCreateTask={vi.fn()} />);
     expect(screen.getByText(/Spaces group related tasks/i)).toBeInTheDocument();
-    expect(screen.getByText(/Describe what you want the agent pipeline/i)).toBeInTheDocument();
-    expect(screen.getByText(/Open the task and hit Run Pipeline/i)).toBeInTheDocument();
+    expect(screen.getByText(/Describe what you want to build/i)).toBeInTheDocument();
+    expect(screen.getByText(/Pick an agent and hit Run/i)).toBeInTheDocument();
   });
 });

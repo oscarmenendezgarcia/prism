@@ -6,18 +6,11 @@
 /** The three canonical Kanban columns. */
 export type Column = 'todo' | 'in-progress' | 'done';
 
-// ---------------------------------------------------------------------------
-// MODEL-1: per-stage model routing types
-// ---------------------------------------------------------------------------
-
-// 'claude' is the managed provider (whitelisted backend-side). For opencode/pi/hermes/custom
-// CLI tools the provider is open-ended (e.g. 'vllm-local'), so any string is allowed.
-export type ModelProvider = 'claude' | (string & {});
-export type ModelCliTool  = 'claude' | 'opencode' | 'pi' | 'hermes' | 'custom';
+export type ModelCliTool = 'claude' | 'opencode' | 'pi' | 'hermes';
 
 /** A harness discovered on this machine via GET /api/v1/harnesses. */
 export interface HarnessInfo {
-  cliTool:     Exclude<ModelCliTool, 'custom'>;
+  cliTool:     ModelCliTool;
   available:   boolean;
   path:        string | null;
   modelFormat: 'preset' | 'provider/model';
@@ -28,72 +21,41 @@ export interface HarnessesResponse {
   harnesses: HarnessInfo[];
 }
 
-/** Per-stage model routing config stored in stageModels maps. */
-export interface StageModelConfig {
-  provider: ModelProvider;
-  model:    string;
-  cliTool:  ModelCliTool;
-  /** Arbitrary command template for cliTool: 'custom' (placeholders {binary} {model} {prompt} {log} {done}). */
-  command?: string | null;
-  /** Fallback harness to use if the primary's binary is missing (MODEL-3). */
-  fallback?: { cliTool: ModelCliTool; model?: string; provider?: string; command?: string } | null;
-}
-
-/** Map of agentId → StageModelConfig (null = clear override for that agent). */
-export type StageModelsMap = Record<string, StageModelConfig | null>;
-
 /** A space (project board). */
 export interface Space {
   id: string;
   name: string;
   workingDirectory?: string;
-  pipeline?: string[]; // ordered agent IDs for this space's default pipeline
-  agentNicknames?: Record<string, string>; // custom display names per agent, keyed by agent ID
-  /** Folio storage backend. Omitted by the API for the default ('sqlite'); 'file' means a repo-backed .folio/. */
-  folioBackend?: 'sqlite' | 'file';
   /** true when the space is pinned in SpaceTabs (always visible, never in overflow). */
   pinned?: boolean;
   /** zero-based position within the pinned zone. Absent for non-pinned spaces. */
   pinnedRank?: number;
-  /** MODEL-1: per-stage model routing overrides for this space. */
-  stageModels?: StageModelsMap | null;
-  /** Commands to run in the worktree when an agent finishes a task. */
-  hooks?: SpaceHook[];
+  /** What follows the agent when it finishes a task. */
+  hooks?: SpaceHooks;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface SpaceHook {
-  /** Assigned by the server when the hook is first saved. */
-  id?: string;
-  name: string;
-  type?: 'command' | 'agent' | 'pr';
-  command?: string;
-  /** What the agent must check. */
-  prompt?: string;
-  agent?: AgentChoice;
-  onFail?: 'stop' | 'retry';
-  approval?: boolean;
-  maxRetries?: number;
-  timeoutMinutes?: number;
+export interface SpaceHooks {
+  /** Must pass in the worktree before the task is done. */
+  checkCommand: string | null;
+  autoPr: boolean;
 }
 
-/** The harness and model a direct run uses. */
+/** The harness and model a run uses. */
 export interface AgentChoice {
   cliTool: string;
   model?: string;
 }
 
-/** A task's latest direct run, as GET /spaces/:id/task-runs returns it. */
+/** A task's latest run, as GET /spaces/:id/task-runs returns it. */
 export interface TaskRunView {
   runId: string;
   taskId: string;
-  status: 'working' | 'checking' | 'question' | 'approval' | 'failed' | 'stopped' | 'done';
+  status: 'working' | 'checking' | 'question' | 'failed' | 'stopped' | 'done';
   cliTool: string;
   model: string | null;
   iteration: number;
-  /** The stage whose log shows the agent's current turn. */
-  stageIndex: number;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
@@ -110,23 +72,18 @@ export interface TaskRunView {
   } | null;
   hook: {
     name: string;
-    type?: 'command' | 'agent' | 'pr';
+    type: 'command' | 'pr';
     command?: string;
-    status: 'running' | 'passed' | 'failed' | 'interrupted' | 'awaiting_approval' | 'approved';
+    status: 'running' | 'passed' | 'failed' | 'interrupted';
     exitCode?: number | null;
     timedOut?: boolean;
     outputTail?: string;
-    verdict?: 'pass' | 'fail' | 'none' | 'changed';
   } | null;
-  /** The space's hooks for this run, in order. */
-  steps?: Array<{ id: string; name: string; type: string; status: string }>;
   failure: {
-    kind: 'agent' | 'hook';
+    kind: 'agent' | 'check' | 'pr';
     exitCode: number | null;
     timedOut?: boolean;
     reason?: string | null;
-    verdict?: 'fail' | 'none' | 'changed';
-    retries?: number;
   } | null;
 }
 
@@ -175,10 +132,6 @@ export interface Comment {
   resolved: boolean;
   createdAt: string;
   updatedAt?: string;
-  /** Target agent for cross-agent routing (questions only). */
-  targetAgent?: string;
-  /** When true, the question requires human intervention. */
-  needsHuman?: boolean;
 }
 
 /** A Kanban task. */
@@ -189,16 +142,8 @@ export interface Task {
   rank?: number;           // positional order within column (QOL-1)
   description?: string;
   assigned?: string;
-  /**
-   * Optional per-card pipeline override. When non-empty, takes precedence over
-   * the space-level pipeline default when "Run Pipeline" is invoked.
-   * ADR-1 (pipeline-field-per-card): resolution chain is task > space > DEFAULT_STAGES.
-   */
-  pipeline?: string[];
   /** Optional narrative grouping label (e.g. "QOL", "AUTH", "LOOP"). */
   arc?: string;
-  /** MODEL-1: per-stage model routing overrides for this task. */
-  stageModels?: StageModelsMap | null;
   attachments?: Attachment[];
   /** Thread of comments (notes, questions, answers). Aditively returned by GET task. */
   comments?: Comment[];
@@ -222,8 +167,6 @@ export interface CreateTaskPayload {
   /** Omit from body when empty — never send null. */
   assigned?: string;
   description?: string;
-  /** Optional ordered list of agent IDs. Omit to inherit the space default. */
-  pipeline?: string[];
   /** Optional narrative grouping label (e.g. "QOL", "AUTH"). */
   arc?: string;
   /** Optional dependency task IDs. Server validates existence + no cycles. */
@@ -243,15 +186,8 @@ export interface UpdateTaskPayload {
   description?: string;
   /** Empty string deletes the field on the server. */
   assigned?: string;
-  /**
-   * Per-card pipeline override. Non-empty array = set; empty array = clear
-   * (reverts to space default). Omit to leave the field unchanged.
-   */
-  pipeline?: string[];
   /** Empty string deletes the arc field on the server. */
   arc?: string;
-  /** MODEL-1: per-stage model routing overrides. null = clear all. */
-  stageModels?: StageModelsMap | null;
   /**
    * Dependency task IDs. [] clears all deps; omit to leave unchanged.
    * Server validates existence (422) and no cycles (409).
@@ -315,390 +251,14 @@ export interface MarkdownModalState {
   source?: string;
 }
 
-/** Terminal connection status. */
-export type TerminalStatus = 'connecting' | 'connected' | 'disconnected';
-
-// ---------------------------------------------------------------------------
-// Agent launcher types (ADR-1: Agent Launcher)
-// ---------------------------------------------------------------------------
-
-/** Metadata for an agent definition file discovered in ~/.claude/agents/. */
-export interface AgentInfo {
-  id: string;          // kebab-case stem, e.g. "senior-architect"
-  name: string;        // full filename, e.g. "senior-architect.md"
-  displayName: string; // human-readable, e.g. "Senior Architect"
-  path: string;        // absolute path on disk
-  sizeBytes: number;
-}
-
-/** AgentInfo extended with full file content (returned by GET /agents/:agentId). */
-export interface AgentDetail extends AgentInfo {
-  content: string;
-}
-
-/** An active agent run — set in store when a run is dispatched (backend spawn or PTY). */
-export interface AgentRun {
-  taskId: string;
-  agentId: string;
-  spaceId: string;
-  startedAt: string; // ISO timestamp
-  cliCommand: string;
-  promptPath: string;
-  backendRunId?: string; // set when launched via POST /api/v1/runs (backend spawn)
-}
-
-/** Per-stage status returned by GET /api/v1/runs/:runId. */
-export interface BackendStageStatus {
-  index: number;
-  agentId: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'timeout' | 'stall' | 'interrupted';
-  startedAt: string | null;
-  finishedAt: string | null;
-  exitCode: number | null;
-  /** MODEL-1: model used to run this stage (set at spawn time). */
-  model?: string | null;
-  provider?: string | null;
-  cliTool?: string | null;
-  resolvedFrom?: string | null;
-}
-
-/** Reason a pipeline run is blocked (waiting for a question to be resolved). */
-export interface BlockedReason {
-  commentId: string;
-  taskId: string;
-  author: string;
-  text: string;
-  blockedAt: string; // ISO8601
-}
-
-/** Run object returned by the backend pipeline API. */
+/** Run object returned by the run actions. */
 export interface BackendRun {
   runId: string;
-  /** True for a task run directly on an agent, without stages. */
-  direct?: boolean;
-  status: 'pending' | 'running' | 'paused' | 'blocked' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
-  stages: string[];
-  stageStatuses?: BackendStageStatus[];
+  status: 'pending' | 'running' | 'blocked' | 'completed' | 'failed' | 'interrupted';
   spaceId: string;
   taskId: string;
   createdAt: string;
   updatedAt?: string;
-  currentStage?: number;
-  /** Zero-based stage indices where the pipeline pauses before executing. */
-  checkpoints?: number[];
-  /** Set when status === 'paused' to indicate which stage is waiting. */
-  pausedBeforeStage?: number;
-  /** Set when status === 'blocked' — which comment is blocking the run. */
-  blockedReason?: BlockedReason;
-}
-
-/** The four canonical pipeline stage agent IDs. */
-export type PipelineStage =
-  | 'senior-architect'
-  | 'ux-api-designer'
-  | 'developer-agent'
-  | 'qa-engineer-e2e';
-
-/** State of an in-progress pipeline run. */
-export interface PipelineState {
-  spaceId: string;
-  /** Main task anchor — never moved by the pipeline. */
-  taskId: string;
-  /**
-   * Agent IDs for each stage. Widened from PipelineStage[] to string[]: a
-   * loop injection (e.g. code-reviewer sending work back to developer-agent)
-   * can append stages the backend supports but that aren't in the fixed
-   * 4-value picker union (code-reviewer, folio-consolidator, etc.), and the
-   * same agentId can repeat. Must stay in sync with the live BackendRun.stages
-   * (see startPollLoop in useAppStore.ts) so StageTabBar shows every stage.
-   */
-  stages: string[];
-  currentStageIndex: number;
-  startedAt: string;  // ISO timestamp
-  /** ISO timestamp when the run finished (completed, aborted, or interrupted). */
-  finishedAt?: string;
-  status: 'running' | 'paused' | 'blocked' | 'completed' | 'aborted' | 'interrupted' | 'failed';
-  /** Set when status === 'blocked'. Which comment is preventing the pipeline from advancing. */
-  blockedReason?: BlockedReason;
-  /**
-   * Human-readable title of the main task driving this pipeline run.
-   * Resolved at pipeline start from Zustand tasks store.
-   * Used by RunSelector to display a meaningful label instead of a UUID.
-   */
-  taskTitle?: string;
-  /**
-   * Backend run ID returned by POST /api/v1/runs when the pipeline is launched
-   * via backend spawn. Tracks the most-recent run (last stage started).
-   * ADR-1 (log-viewer): optional — only set when startRun() is called.
-   */
-  runId?: string;
-  /**
-   * Per-stage backend run IDs. Each stage of a frontend-driven pipeline creates
-   * its own backend run (with 1 stage at index 0). stageRunIds[i] is the runId
-   * for pipeline stage i. Used by PipelineLogPanel to fetch the correct run's
-   * stage-0 log instead of requesting a stage index that doesn't exist.
-   */
-  stageRunIds?: Record<number, string>;
-  /**
-   * Parallel index with stages[]. subTaskIds[i] is the Kanban ID of the
-   * dedicated sub-task created for stages[i]. Grows incrementally as stages run.
-   * ADR-1 (pipeline-subtasks): each agent works on its own sub-task, not the
-   * main task, so completion detection is unambiguous.
-   */
-  subTaskIds: string[];
-  /**
-   * T-3 (manual checkpoints): zero-based stage indices where the pipeline
-   * pauses and waits for human confirmation before executing that stage.
-   * An empty array means no checkpoints (default behaviour — auto-advance).
-   */
-  checkpoints: number[];
-  /**
-   * Set when status === 'paused' to record which stage index we are waiting
-   * on.  Cleared when resumePipeline() is called.
-   */
-  pausedBeforeStage?: number;
-  dangerouslySkipPermissions?: boolean;
-}
-
-/** A prepared (but not yet executed) agent run — shown in the preview modal. */
-export interface PreparedRun {
-  taskId: string;
-  agentId: string;
-  spaceId: string;
-  promptPath: string;
-  cliCommand: string;
-  promptPreview: string;
-  promptFull: string;      // complete prompt text (T-006)
-  estimatedTokens: number;
-  dangerouslySkipPermissions?: boolean;
-}
-
-/** One prompt entry in a pipeline prompt preview response. */
-export interface PipelinePromptPreviewEntry {
-  stageIndex: number;
-  agentId: string;
-  promptFull: string;
-  estimatedTokens: number;
-}
-
-/** Response from POST /api/v1/runs/preview-prompts. */
-export interface PipelinePromptPreview {
-  prompts: PipelinePromptPreviewEntry[];
-}
-
-// ---------------------------------------------------------------------------
-// Stage Metrics (ADR-1: log-metrics-parser §2.2)
-// ---------------------------------------------------------------------------
-
-export interface StageMetricsDuration {
-  wallMs: number | null;
-  apiMs: number | null;
-  startedAt: string | null;
-  endedAt: string | null;
-}
-
-export interface StageMetricsCostEntry {
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadInputTokens: number;
-  cacheCreationInputTokens: number;
-  costUsd: number;
-}
-
-export interface StageMetricsCost {
-  totalUsd: number | null;
-  perModel: StageMetricsCostEntry[];
-}
-
-export interface StageMetricsToolEntry {
-  name: string;
-  calls: number;
-  errors: number;
-}
-
-export interface StageMetricsTools {
-  totalCalls: number;
-  errors: number;
-  byName: StageMetricsToolEntry[];
-}
-
-export interface StageMetricsFiles {
-  modified: string[];
-  read: string[];
-}
-
-export interface StageMetricsErrorSample {
-  tool: string;
-  message: string;
-  preview: string;
-}
-
-export interface StageMetricsErrors {
-  rateLimitEvents: number;
-  permissionDenials: number;
-  toolErrors: number;
-  samples: StageMetricsErrorSample[];
-}
-
-export interface StageMetricsParser {
-  parsedAt: string;
-  parserVersion: string;
-  lineCount: number;
-  unknownEvents: number;
-  warnings: string[];
-}
-
-/** StageMetrics response from GET /api/v1/runs/:runId/stages/:stageIndex/metrics. */
-export interface StageMetrics {
-  schemaVersion: number;
-  runId: string;
-  stageIndex: number;
-  source: string;
-  agentId: string | null;
-  model: string | null;
-  duration: StageMetricsDuration;
-  turns: number | null;
-  stopReason: string | null;
-  terminalReason: string | null;
-  /** null when the stage has not yet emitted a final_result event (still running). */
-  cost: StageMetricsCost | null;
-  tools: StageMetricsTools;
-  files: StageMetricsFiles;
-  errors: StageMetricsErrors;
-  summary: string | null;
-  parser: StageMetricsParser;
-}
-
-/**
- * CLI/prompt-delivery settings. Which CLI/model runs a given agent is
- * resolved per-agent via Agents & Routing (resolveStageModelConfig) — this
- * only carries the shell mechanics for the ad-hoc Launcher's prompt file.
- */
-export interface CliSettings {
-  fileInputMethod: 'cat-subshell' | 'stdin-redirect' | 'flag-file';
-}
-
-/** Pipeline orchestration configuration. */
-export interface PipelineSettings {
-  autoAdvance: boolean;
-  confirmBetweenStages: boolean;
-  stages: PipelineStage[];
-  /** MODEL-1: per-stage model routing overrides (global, lowest priority). */
-  stageModels?: Record<string, StageModelConfig>;
-}
-
-/** Prompt content configuration. */
-export interface PromptsSettings {
-  includeKanbanBlock: boolean;
-  includeGitBlock: boolean;
-  workingDirectory: string;
-  customInstructions: string;
-}
-
-/** Full launcher settings object — persisted in data/settings.json. */
-export interface AgentSettings {
-  cli: CliSettings;
-  pipeline: PipelineSettings;
-  prompts: PromptsSettings;
-}
-
-// ---------------------------------------------------------------------------
-// Tagger agent types (ADR-1: Tagger Agent)
-// ---------------------------------------------------------------------------
-
-/** Options for POST /api/v1/spaces/:spaceId/tagger/run */
-export interface TaggerOptions {
-  /** If true, Claude also returns rewritten card descriptions. Default false. */
-  improveDescriptions?: boolean;
-  /** Restrict tagging to a single column. Omit to process all columns. */
-  column?: 'todo' | 'in-progress' | 'done';
-  /** Classification instructions from the user. If omitted, the server uses a built-in default. */
-  prompt?: string;
-}
-
-/** One classification suggestion returned by the tagger endpoint. */
-export interface TaggerSuggestion {
-  id: string;
-  title: string;
-  currentType: string;
-  inferredType: 'feature' | 'bug' | 'tech-debt' | 'chore';
-  confidence: 'high' | 'medium' | 'low';
-  /** Only present when improveDescriptions=true was requested. */
-  description?: string;
-  /** Optional arc label suggested by the tagger. */
-  arc?: string;
-}
-
-/** Response from POST /api/v1/spaces/:spaceId/tagger/run */
-export interface TaggerResult {
-  suggestions: TaggerSuggestion[];
-  /** Card IDs Claude could not classify. */
-  skipped: string[];
-  /** Model used for the inference (for observability). */
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-}
-
-/** Tagger UI state stored in useAppStore. */
-export interface TaggerState {
-  taggerLoading: boolean;
-  taggerSuggestions: TaggerSuggestion[];
-  taggerModalOpen: boolean;
-  taggerError: string | null;
-}
-
-/** Request body for POST /api/v1/agent/prompt. */
-export interface PromptGenerationRequest {
-  agentId: string;
-  taskId: string;
-  spaceId: string;
-  customInstructions?: string;
-  workingDirectory?: string;
-  dangerouslySkipPermissions?: boolean;
-}
-
-/** Response from POST /api/v1/agent/prompt. */
-export interface PromptGenerationResponse {
-  promptPath: string;
-  promptPreview: string;
-  promptFull: string;      // complete prompt text (T-005)
-  cliCommand: string;
-  estimatedTokens: number;
-}
-
-// ---------------------------------------------------------------------------
-// Config editor types (ADR-1: Config Editor Panel)
-// ---------------------------------------------------------------------------
-
-/** A config file descriptor returned by the list endpoint (no content). */
-export interface ConfigFile {
-  id: string;
-  name: string;
-  scope: 'global' | 'agent' | 'project' | 'space-project' | 'space-agent';
-  directory: string;
-  sizeBytes: number;
-  modifiedAt: string;
-}
-
-/** A config file with its full text content, returned by the read endpoint. */
-export interface ConfigFileContent {
-  id: string;
-  name: string;
-  scope: 'global' | 'agent' | 'project' | 'space-project' | 'space-agent';
-  content: string;
-  sizeBytes: number;
-  modifiedAt: string;
-}
-
-/** Result returned after a successful save — metadata only, no content echo. */
-export interface ConfigFileSaveResult {
-  id: string;
-  name: string;
-  scope: 'global' | 'agent' | 'project' | 'space-project' | 'space-agent';
-  sizeBytes: number;
-  modifiedAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -720,173 +280,13 @@ export interface SearchResponse {
   results: SearchResult[];
 }
 
-// ---------------------------------------------------------------------------
-// Agent run history types (ADR-1: Agent Run History)
-// ---------------------------------------------------------------------------
-
-/** Lifecycle status of an agent run. Terminal states: completed, cancelled, failed. */
-export type RunStatus = 'running' | 'completed' | 'cancelled' | 'failed';
-
-/**
- * A persisted record of one agent run lifecycle.
- * Fields are denormalized at write time so historical records remain accurate
- * even if the task or space is later renamed or deleted.
- */
-export interface AgentRunRecord {
-  id: string;
-  taskId: string;
-  taskTitle: string;
-  agentId: string;
-  agentDisplayName: string;
-  spaceId: string;
-  spaceName: string;
-  status: RunStatus;
-  startedAt: string;           // ISO timestamp
-  completedAt: string | null;  // ISO timestamp or null while running
-  durationMs: number | null;   // milliseconds, null while running
-  cliCommand: string;
-  promptPath: string;
-  reason?: 'stale';            // only on status=failed stale runs (not persisted)
-  /**
-   * Set when this run was created by the pipeline engine.
-   * Groups sibling stage entries under the same pipeline run.
-   * Absent for legacy entries created by MCP tools or manual API calls.
-   */
-  pipelineRunId?: string;
-  /**
-   * Zero-based stage index within the pipeline.
-   * Used to order sibling entries inside a PipelineRunGroup.
-   * Absent for legacy entries.
-   */
-  stageIndex?: number;
-}
-
-/** Payload for PATCH /api/v1/agent-runs/:runId — transitions run to a terminal status. */
-export interface AgentRunPatchPayload {
-  status: 'completed' | 'cancelled' | 'failed';
-  completedAt: string;
-  durationMs: number;
-}
-
-/** Response from GET /api/v1/agent-runs. */
-export interface AgentRunsResponse {
-  runs: AgentRunRecord[];
-  total: number;
-}
-
-// ---------------------------------------------------------------------------
-// Stage Events (structured log view)
-// ---------------------------------------------------------------------------
-
-/** Base fields shared by every PublicEvent. */
-interface BaseEvent {
-  /** Monotonic event index — used as React key and ?since= cursor. */
-  idx: number;
-  /** Relative time offset (seconds/line index since stage start). */
-  t: number;
-}
-
-export interface SessionStartEvent extends BaseEvent {
-  kind: 'session_start';
-  model?: string;
-}
-
-export interface ToolCallEvent extends BaseEvent {
-  kind: 'tool_call';
-  id: string;
-  name: string;
-  /** First ≤200 bytes of tool input (JSON-stringified). */
-  inputPreview: string;
-}
-
-export interface ToolResultEvent extends BaseEvent {
-  kind: 'tool_result';
-  /** Matches corresponding ToolCallEvent.id */
-  id: string;
-  isError: boolean;
-  bytes: number;
-  /** Computed client-side from paired tool_call timestamp. */
-  durationMs?: number;
-}
-
-export interface AssistantTextEvent extends BaseEvent {
-  kind: 'assistant_text';
-  bytes: number;
-  /** First ≤1000 bytes of assistant text. */
-  preview: string;
-}
-
-export interface ErrorEvent extends BaseEvent {
-  kind: 'error';
-  tool?: string;
-  message: string;
-  preview?: string;
-}
-
-export interface RateLimitEvent extends BaseEvent {
-  kind: 'rate_limit';
-  status: string;
-}
-
-export interface FinalResultEvent extends BaseEvent {
-  kind: 'final_result';
-  durationMs: number;
-  numTurns: number;
-  costUsd: number;
-  stopReason: string;
-  /** Raw log summary — only present for non-Claude ("plain") stages. */
-  summary?: string;
-}
-
-/** Discriminated union of all event kinds returned by GET /events. */
-export type PublicEvent =
-  | SessionStartEvent
-  | ToolCallEvent
-  | ToolResultEvent
-  | AssistantTextEvent
-  | ErrorEvent
-  | RateLimitEvent
-  | FinalResultEvent;
-
-// ---------------------------------------------------------------------------
-// Filesystem browser types (space-settings-file-browser)
-// ---------------------------------------------------------------------------
-
-/** A single directory entry returned by POST /api/v1/fs/browse. */
-export interface DirectoryItem {
-  name: string;
-  type: 'dir' | 'file' | 'symlink';
-  isReadable: boolean;
-  isAccessible: boolean;
-}
-
-/** Response from POST /api/v1/fs/browse. */
-export interface DirectoryListing {
-  path: string;
-  items: DirectoryItem[];
-  hasMore: boolean;
-}
+// -------------------------------------------------------------------------
+// Working directory check
+// -------------------------------------------------------------------------
 
 /** Response from POST /api/v1/fs/validate. */
 export interface ValidationResult {
   path: string;
   isValid: boolean;
   message?: string;
-}
-
-/** Response from GET /api/v1/fs/home. */
-export interface HomeDirectoryResponse {
-  homePath: string;
-}
-
-/** Response from GET /api/v1/runs/:runId/stages/:stageIndex/events */
-export interface EventsResponse {
-  schemaVersion: number;
-  events: PublicEvent[];
-  /** Next value to pass as ?since= for incremental polling. */
-  nextSince: number;
-  /** true if all events up to the log tail were returned. */
-  complete: boolean;
-  /** Current status of the stage — controls polling cadence. */
-  stageStatus: 'pending' | 'running' | 'completed' | 'failed' | 'stalled';
 }

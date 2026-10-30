@@ -1,6 +1,6 @@
 /**
  * Unit tests for the redesigned TaskCard component.
- * T-007: Verifies three-zone layout, conditional rendering, active-run dot,
+ * T-007: Verifies three-zone layout, conditional rendering, active run,
  *        more_vert button, hover overlay presence, and absence of old elements.
  */
 
@@ -8,9 +8,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TaskCard } from '../../src/components/board/TaskCard';
 import { useAppStore } from '../../src/stores/useAppStore';
-import { useRunHistoryStore } from '../../src/stores/useRunHistoryStore';
+import { useTaskRunStore } from '../../src/stores/useTaskRunStore';
 import { useDragStore } from '../../src/stores/useDragStore';
-import type { Task, AgentRun } from '../../src/types';
+import type { Task } from '../../src/types';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -61,15 +61,6 @@ const TASK_WITH_ALL: Task = {
   ],
 };
 
-const ACTIVE_RUN: AgentRun = {
-  taskId: 'task-1',
-  agentId: 'developer-agent',
-  spaceId: 'space-1',
-  startedAt: '2026-03-26T00:00:00.000Z',
-  cliCommand: 'claude --agent developer-agent',
-  promptPath: '/tmp/prompt.md',
-};
-
 // isDragging and isDragOver are no longer props — they come from useDragStore.
 // Tests that need drag state set useDragStore.setState() directly.
 const DRAG_HANDLERS = {
@@ -83,19 +74,21 @@ const DRAG_HANDLERS = {
 // Store reset helper
 // ---------------------------------------------------------------------------
 
+function setRunStatus(taskId: string, status: string) {
+  useTaskRunStore.setState({
+    views: { [taskId]: { runId: 'r1', taskId, status, cliTool: 'claude', model: null, iteration: 1, createdAt: '', updatedAt: '', closedAt: null, result: null, hook: null, failure: null } },
+  } as never);
+}
+
 function resetStores(overrides: Record<string, unknown> = {}) {
   useAppStore.setState({
     activeSpaceId: 'space-1',
     spaces: [{ id: 'space-1', name: 'Test Space', createdAt: '', updatedAt: '' }],
-    availableAgents: [],
-    activeRun: null,
     isMutating: false,
     tasks: { todo: [], 'in-progress': [], done: [] },
     ...overrides,
   });
-  useRunHistoryStore.setState({
-    runs: [],
-  });
+  useTaskRunStore.setState({ views: {} });
 }
 
 beforeEach(() => {
@@ -158,41 +151,34 @@ describe('TaskCard — Zone A (identity)', () => {
 // Zone A — active run indicator
 // ---------------------------------------------------------------------------
 
-describe('TaskCard — active run dot', () => {
-  it('dot is absent when no agent is running', () => {
-    render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
-    expect(
-      screen.queryByRole('button', { name: /agent running/i })
-    ).not.toBeInTheDocument();
-  });
-
-  it('dot is absent when a different task is the active task', () => {
-    resetStores({ activeRun: { ...ACTIVE_RUN, taskId: 'other-task' } });
-    render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
-    expect(
-      screen.queryByRole('button', { name: /agent running/i })
-    ).not.toBeInTheDocument();
-  });
-
-  it('applies animate-glow-pulse when this task is the active task (Trend A)', () => {
-    resetStores({ activeRun: ACTIVE_RUN });
-    const { container } = render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
+describe('TaskCard — active run', () => {
+  it('applies animate-glow-pulse while the agent works on this task', () => {
+    setRunStatus('task-1', 'working');
+    const { container } = render(<TaskCard task={BASE_TASK} column="in-progress" {...DRAG_HANDLERS} />);
     expect(
       container.querySelector('[data-testid="task-card"]')?.className
     ).toContain('animate-glow-pulse');
   });
 
-  it('applies border-primary/30 when this task is the active task (Trend A)', () => {
-    resetStores({ activeRun: ACTIVE_RUN });
-    const { container } = render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
+  it('applies border-primary/30 while its check runs', () => {
+    setRunStatus('task-1', 'checking');
+    const { container } = render(<TaskCard task={BASE_TASK} column="in-progress" {...DRAG_HANDLERS} />);
     expect(
       container.querySelector('[data-testid="task-card"]')?.className
     ).toContain('border-primary/30');
   });
 
-  it('does not apply glow-pulse when a different task is active', () => {
-    resetStores({ activeRun: { ...ACTIVE_RUN, taskId: 'other-task' } });
-    const { container } = render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
+  it('does not glow when a different task is running', () => {
+    setRunStatus('other-task', 'working');
+    const { container } = render(<TaskCard task={BASE_TASK} column="in-progress" {...DRAG_HANDLERS} />);
+    expect(
+      container.querySelector('[data-testid="task-card"]')?.className
+    ).not.toContain('animate-glow-pulse');
+  });
+
+  it('does not glow once the run ended', () => {
+    setRunStatus('task-1', 'done');
+    const { container } = render(<TaskCard task={BASE_TASK} column="done" {...DRAG_HANDLERS} />);
     expect(
       container.querySelector('[data-testid="task-card"]')?.className
     ).not.toContain('animate-glow-pulse');

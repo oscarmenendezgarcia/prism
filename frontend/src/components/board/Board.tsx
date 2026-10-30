@@ -270,7 +270,7 @@ export function Board() {
     if (needsRebalance && rebalancedTasks) {
       // BUG-001 fix: mirror handleDrop's atomic batch — N independent
       // fire-and-forget PATCHes here would reintroduce the partial-rebalance
-      // corruption bug (see .folio/lessons/partial-rebalance-corruption.md).
+      // corruption bug.
       reorderTasks(
         targetColumn,
         rebalancedTasks.map((t) => ({ id: t.id, rank: t.rank ?? 0 })),

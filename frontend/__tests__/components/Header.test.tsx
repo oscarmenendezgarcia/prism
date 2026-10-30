@@ -33,12 +33,6 @@ describe('Header', () => {
     expect(screen.getByText('New Task')).toBeInTheDocument();
   });
 
-  it('renders Terminal toggle button', () => {
-    renderHeader();
-    // Terminal toggle is icon-only; check for the aria-label instead.
-    expect(screen.getByRole('button', { name: /toggle terminal panel/i })).toBeInTheDocument();
-  });
-
   it('opens create modal when New Task button clicked', () => {
     const mockOpen = vi.fn();
     useAppStore.setState({ openCreateModal: mockOpen } as any);
@@ -47,10 +41,9 @@ describe('Header', () => {
     expect(mockOpen).toHaveBeenCalled();
   });
 
-  it('does not render a standalone theme toggle or Agent Settings button (moved into Config → Preferences)', () => {
+  it('renders the theme toggle', () => {
     renderHeader();
-    expect(screen.queryByLabelText(/switch to/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/agent settings/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/switch to/i)).toBeInTheDocument();
   });
 
   describe('Search pill (QOL-4)', () => {

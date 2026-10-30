@@ -1,103 +1,40 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { SpaceHookSection } from '../SpaceHookSection';
-import type { SpaceHook } from '@/types';
-
-const tests: SpaceHook = { id: 'a', name: 'Tests', type: 'command', command: 'npm test', onFail: 'retry', approval: false, maxRetries: 2 };
-const deploy: SpaceHook = { id: 'b', name: 'Deploy', type: 'command', command: './deploy.sh', onFail: 'stop', approval: true, maxRetries: 2 };
-
-function setup(value: SpaceHook[] = []) {
-  const onChange = vi.fn();
-  const onEditingChange = vi.fn();
-  render(<SpaceHookSection value={value} onChange={onChange} onEditingChange={onEditingChange} />);
-  return { onChange, onEditingChange };
-}
+import { fireEvent, render, screen } from '@testing-library/react';
+import { readSpaceHooks, SpaceHookSection } from '../SpaceHookSection';
 
 describe('SpaceHookSection', () => {
-  it('says what happens without hooks', () => {
-    setup();
-    expect(screen.getByText(/goes to Done as soon as the agent finishes/)).toBeInTheDocument();
+  it('shows the saved command and toggle', () => {
+    render(<SpaceHookSection hooks={{ checkCommand: 'npm test', autoPr: true }} onChange={vi.fn()} />);
+    expect(screen.getByLabelText(/Check command/)).toHaveValue('npm test');
+    expect(screen.getByLabelText('Open a pull request automatically')).toBeChecked();
   });
 
-  it('adds a command hook', () => {
-    const { onChange, onEditingChange } = setup();
-    fireEvent.click(screen.getByRole('button', { name: 'Add hook' }));
-    expect(onEditingChange).toHaveBeenLastCalledWith(true);
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: ' Tests ' } });
-    fireEvent.change(screen.getByLabelText('Command'), { target: { value: ' npm test ' } });
-    fireEvent.change(screen.getByLabelText('If it fails'), { target: { value: 'retry' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Keep this hook' }));
-    expect(onChange).toHaveBeenCalledWith([expect.objectContaining({ name: 'Tests', type: 'command', command: 'npm test', onFail: 'retry' })]);
-    expect(onEditingChange).toHaveBeenLastCalledWith(false);
+  it('changes the command and keeps the toggle', () => {
+    const onChange = vi.fn();
+    render(<SpaceHookSection hooks={{ checkCommand: null, autoPr: true }} onChange={onChange} />);
+    fireEvent.change(screen.getByLabelText(/Check command/), { target: { value: 'make check' } });
+    expect(onChange).toHaveBeenCalledWith({ checkCommand: 'make check', autoPr: true });
   });
 
-  it('adds an agent review, and does not keep the fields of another type', () => {
-    const { onChange } = setup();
-    fireEvent.click(screen.getByRole('button', { name: 'Add hook' }));
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Review' } });
-    fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'left behind' } });
-    fireEvent.click(screen.getByRole('button', { name: 'An agent reviews it' }));
-    fireEvent.change(screen.getByLabelText('What it must check'), { target: { value: 'Bugs' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Keep this hook' }));
-    const [[saved]] = onChange.mock.calls[0];
-    expect(saved).toMatchObject({ type: 'agent', prompt: 'Bugs', agent: { cliTool: 'claude', model: 'sonnet' } });
-    expect(saved.command).toBeUndefined();
+  it('changes the toggle and keeps the command', () => {
+    const onChange = vi.fn();
+    render(<SpaceHookSection hooks={{ checkCommand: 'npm test', autoPr: false }} onChange={onChange} />);
+    fireEvent.click(screen.getByLabelText('Open a pull request automatically'));
+    expect(onChange).toHaveBeenCalledWith({ checkCommand: 'npm test', autoPr: true });
+  });
+});
+
+describe('readSpaceHooks', () => {
+  it('reads the saved settings', () => {
+    expect(readSpaceHooks({ checkCommand: 'x', autoPr: true })).toEqual({ checkCommand: 'x', autoPr: true });
   });
 
-  it('a PR hook cannot ask the agent to fix it', () => {
-    const { onChange } = setup();
-    fireEvent.click(screen.getByRole('button', { name: 'Add hook' }));
-    fireEvent.change(screen.getByLabelText('If it fails'), { target: { value: 'retry' } });
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'PR' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Opens a PR' }));
-    expect(screen.queryByLabelText('If it fails')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Keep this hook' }));
-    expect(onChange.mock.calls[0][0][0]).toMatchObject({ type: 'pr', onFail: 'stop' });
+  it('counts an older list of hooks as empty', () => {
+    expect(readSpaceHooks([{ name: 'Tests', command: 'x' }])).toEqual({ checkCommand: null, autoPr: false });
   });
 
-  it('says what is missing and keeps the form open', () => {
-    const { onChange } = setup();
-    fireEvent.click(screen.getByRole('button', { name: 'Add hook' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Keep this hook' }));
-    expect(screen.getByRole('alert')).toHaveTextContent('Give the hook a name.');
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it('asks for a provider/model for other harnesses', () => {
-    const { onChange } = setup();
-    fireEvent.click(screen.getByRole('button', { name: 'Add hook' }));
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Review' } });
-    fireEvent.click(screen.getByRole('button', { name: 'An agent reviews it' }));
-    fireEvent.change(screen.getByLabelText('What it must check'), { target: { value: 'Bugs' } });
-    fireEvent.change(screen.getByLabelText('Agent'), { target: { value: 'opencode' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Keep this hook' }));
-    expect(screen.getByRole('alert')).toHaveTextContent('provider/model');
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it('keeps the id when editing, which is how a run finds its hook', () => {
-    const { onChange } = setup([tests]);
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Tests' }));
-    fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'npm run ci' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Keep this hook' }));
-    expect(onChange).toHaveBeenCalledWith([expect.objectContaining({ id: 'a', command: 'npm run ci' })]);
-  });
-
-  it('locks the other hooks while one is open, so its draft cannot be lost', () => {
-    setup([tests, deploy]);
-    fireEvent.click(screen.getByRole('button', { name: 'Edit Tests' }));
-    expect(screen.getByRole('button', { name: 'Edit Deploy' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Remove Deploy' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Move Deploy up' })).toBeDisabled();
-  });
-
-  it('moves and removes hooks, and shows which ask for approval', () => {
-    const { onChange } = setup([tests, deploy]);
-    expect(screen.getByText('Asks for approval')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Move Tests up' })).toBeDisabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Move Deploy up' }));
-    expect(onChange).toHaveBeenLastCalledWith([deploy, tests]);
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Tests' }));
-    expect(onChange).toHaveBeenLastCalledWith([deploy]);
+  it('counts nothing, or wrong types, as empty', () => {
+    expect(readSpaceHooks(undefined)).toEqual({ checkCommand: null, autoPr: false });
+    expect(readSpaceHooks({ checkCommand: 3, autoPr: 'yes' })).toEqual({ checkCommand: null, autoPr: false });
   });
 });

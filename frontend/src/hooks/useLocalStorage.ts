@@ -1,6 +1,6 @@
 /**
  * Generic hook for reading and writing a value to localStorage.
- * ADR-002: replaces direct localStorage calls in app.js and terminal.js.
+ * ADR-002: replaces direct localStorage calls.
  */
 
 import { useState, useCallback } from 'react';

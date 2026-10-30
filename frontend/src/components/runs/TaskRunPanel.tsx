@@ -10,7 +10,7 @@ import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
 import type { ChangedFile, Column, Task, TaskRunView } from '@/types';
 import { AgentPicker } from './AgentPicker';
 import { HarnessIcon, HARNESS_NAMES, type DirectCliTool } from './HarnessIcon';
-import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine, StepList } from './TaskRunStatus';
+import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
 
 function PatchView({ patch }: { patch: string }) {
   return (
@@ -100,7 +100,7 @@ function ChangedFiles({ view }: { view: TaskRunView }) {
 
 const LOG_POLL_MS = 3_000;
 
-function RunLog({ runId, stageIndex, live }: { runId: string; stageIndex: number; live: boolean }) {
+function RunLog({ runId, live }: { runId: string; live: boolean }) {
   const [open, setOpen] = useState(false);
   const [log, setLog]   = useState<string | null>(null);
 
@@ -108,7 +108,7 @@ function RunLog({ runId, stageIndex, live }: { runId: string; stageIndex: number
     if (!open) return undefined;
     let current = true;
     const load = () => {
-      api.getStageLog(runId, stageIndex)
+      api.getRunLog(runId)
         .then((text) => { if (current) setLog(text); })
         .catch(() => { if (current) setLog(null); });
     };
@@ -118,7 +118,7 @@ function RunLog({ runId, stageIndex, live }: { runId: string; stageIndex: number
       current = false;
       clearInterval(id);
     };
-  }, [open, runId, stageIndex, live]);
+  }, [open, runId, live]);
 
   return (
     <details className="text-xs text-text-secondary" onToggle={(e) => setOpen(e.currentTarget.open)} data-testid="run-log">
@@ -141,7 +141,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
   const busy   = useTaskRunStore((s) => s.busyTaskIds.has(task.id));
   const choice = useTaskRunStore((s) => s.choice);
   const harnesses = useTaskRunStore((s) => s.harnesses);
-  const { start, stop, retry, close, approve, createPullRequest } = useTaskRunStore.getState();
+  const { start, stop, retry, close, createPullRequest } = useTaskRunStore.getState();
 
   const problem = choiceProblem(choice, harnesses);
   const startButton = (
@@ -166,11 +166,10 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
   }
   const missingHarness = column === 'in-progress' && view.failure?.reason === 'binary_missing';
 
-  const waiting = view.status === 'approval';
   const live = view.status === 'working' || view.status === 'checking';
   const ended = view.status === 'failed' || view.status === 'stopped' || view.status === 'done';
   const message = failureMessage(view);
-  const hookOutput = view.failure?.kind === 'hook' ? view.hook?.outputTail : null;
+  const hookOutput = view.failure && view.failure.kind !== 'agent' ? view.hook?.outputTail : null;
 
   return (
     <section className="flex flex-col gap-3" data-testid="run-panel" aria-label="Agent run">
@@ -182,12 +181,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
         </span>
         <StatusLine view={view} />
         <span className="flex-1" />
-        {waiting && (
-          <Button variant="primary" size="sm" disabled={busy} onClick={() => { approve(spaceId, task.id).catch(() => {}); }}>
-            Approve {view.hook?.name}
-          </Button>
-        )}
-        {(live || view.status === 'question' || waiting) && (
+        {(live || view.status === 'question') && (
           <Button variant="secondary" size="sm" disabled={busy} onClick={() => { stop(spaceId, task.id).catch(() => {}); }}>
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">stop</span>
             Stop
@@ -213,28 +207,22 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
         )}
       </div>
 
-      <StepList view={view} />
-      {waiting && (
-        <p className="text-xs text-text-secondary leading-snug">
-          Nothing runs until you approve. To change something first, ask for changes in the comments.
-        </p>
-      )}
       {message && <p className="text-xs text-error leading-snug" data-testid="run-failure">{message}</p>}
       <SaveErrorNote view={view} />
       {hookOutput && (
         <pre className="max-h-48 overflow-auto rounded-lg bg-error/[0.06] border border-error/20 p-3 font-mono text-[11px] text-text-secondary whitespace-pre-wrap break-words" data-testid="hook-output">{hookOutput}</pre>
       )}
 
-      {(ended || waiting) && (
+      {ended && (
         <>
           <div className="flex items-center gap-2 min-w-0">
             <div className="flex-1 min-w-0"><ResultLine view={view} /></div>
-            <PullRequestAction view={view} busy={busy} readOnly={waiting} onCreate={() => { createPullRequest(spaceId, task.id).catch(() => {}); }} />
+            <PullRequestAction view={view} busy={busy} onCreate={() => { createPullRequest(spaceId, task.id).catch(() => {}); }} />
           </div>
           <ChangedFiles view={view} />
         </>
       )}
-      <RunLog runId={view.runId} stageIndex={view.stageIndex} live={live} />
+      <RunLog runId={view.runId} live={live} />
     </section>
   );
 }

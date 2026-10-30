@@ -14,10 +14,8 @@ export function StatusLine({ view }: { view: TaskRunView }) {
       return <Line icon="dot" className="text-text-secondary">{`Checking: ${view.hook?.name ?? ''}`}</Line>;
     case 'question':
       return <Line icon="help" className="text-warning">Has a question</Line>;
-    case 'approval':
-      return <Line icon="front_hand" className="text-warning">Needs your approval</Line>;
     case 'failed':
-      return <Line icon="error" className="text-error">{view.failure?.kind === 'hook' ? `Failed: ${view.hook?.name ?? 'check'}` : 'Failed'}</Line>;
+      return <Line icon="error" className="text-error">{view.failure && view.failure.kind !== 'agent' ? `Failed: ${view.hook?.name ?? 'check'}` : 'Failed'}</Line>;
     case 'stopped':
       return <Line icon="stop_circle" className="text-text-secondary">Stopped</Line>;
     case 'done':
@@ -53,7 +51,7 @@ export function ResultLine({ view }: { view: TaskRunView }) {
 }
 
 /** A link to the run's pull request, or the button that creates it or pushes what is new. */
-export function PullRequestAction({ view, busy, readOnly, onCreate }: { view: TaskRunView; busy: boolean; readOnly?: boolean; onCreate: () => void }) {
+export function PullRequestAction({ view, busy, onCreate }: { view: TaskRunView; busy: boolean; onCreate: () => void }) {
   const { result } = view;
   if (!result || result.fileCount === null || result.fileCount === 0 && !result.pr) return null;
   const pr = result.pr;
@@ -72,7 +70,7 @@ export function PullRequestAction({ view, busy, readOnly, onCreate }: { view: Ta
           PR #{pr.number}
         </a>
       )}
-      {!readOnly && (!pr || behind) && (
+      {(!pr || behind) && (
         <Button
           variant="ghost"
           size="sm"
@@ -86,70 +84,15 @@ export function PullRequestAction({ view, busy, readOnly, onCreate }: { view: Ta
   );
 }
 
-const STEP_SEGMENT: Record<string, string> = {
-  passed:            'bg-success',
-  running:           'bg-primary animate-run-pulse',
-  approved:          'bg-primary animate-run-pulse',
-  awaiting_approval: 'bg-warning',
-  failed:            'bg-error',
-};
-
-/** The hooks a run goes through, as a thin bar on the card. Nothing without hooks. */
-export function StepBar({ view }: { view: TaskRunView }) {
-  const steps = view.steps ?? [];
-  if (steps.length === 0) return null;
-  const agentDone = view.status !== 'working';
-  return (
-    <div className="flex gap-0.5" role="img" aria-label={`${steps.filter((s) => s.status === 'passed').length} of ${steps.length} checks passed`} data-testid="run-steps">
-      <span className={`h-1 flex-1 rounded-full ${agentDone ? 'bg-success' : 'bg-primary animate-run-pulse'}`} />
-      {steps.map((step) => (
-        <span key={step.id} className={`h-1 flex-1 rounded-full ${STEP_SEGMENT[step.status] ?? 'bg-surface-variant'}`} />
-      ))}
-    </div>
-  );
-}
-
-const STEP_ICON: Record<string, { icon: string; className: string; label: string }> = {
-  passed:            { icon: 'check_circle', className: 'text-success', label: 'Passed' },
-  failed:            { icon: 'cancel', className: 'text-error', label: 'Failed' },
-  awaiting_approval: { icon: 'front_hand', className: 'text-warning', label: 'Waiting for you' },
-  running:           { icon: 'progress_activity', className: 'text-primary', label: 'Running' },
-  approved:          { icon: 'progress_activity', className: 'text-primary', label: 'Running' },
-  interrupted:       { icon: 'stop_circle', className: 'text-text-secondary', label: 'Stopped' },
-};
-
-/** The hooks of a run, one per line, for the detail panel. */
-export function StepList({ view }: { view: TaskRunView }) {
-  const steps = view.steps ?? [];
-  if (steps.length === 0) return null;
-  return (
-    <ol className="flex flex-col gap-1" data-testid="run-step-list">
-      {steps.map((step) => {
-        const shown = STEP_ICON[step.status] ?? { icon: 'radio_button_unchecked', className: 'text-text-disabled', label: 'Waiting' };
-        return (
-          <li key={step.id} className="flex items-center gap-2 text-xs text-text-secondary">
-            <span className={`material-symbols-outlined text-sm leading-none ${shown.className}`} aria-hidden="true">{shown.icon}</span>
-            <span className="min-w-0 truncate text-text-primary">{step.name}</span>
-            <span className="flex-shrink-0">{shown.label}</span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
 /** Why a run failed, in the user's terms. Null when it did not fail. */
 export function failureMessage(view: TaskRunView): string | null {
   const { failure, hook } = view;
   if (!failure) return null;
-  if (failure.kind === 'hook') {
-    const retries = failure.retries ? ` The agent tried to fix it ${failure.retries === 1 ? 'once' : `${failure.retries} times`}.` : '';
-    if (failure.timedOut) return `"${hook?.name}" took too long and was stopped.${retries}`;
-    if (failure.verdict === 'fail') return `"${hook?.name}" found problems.${retries}`;
-    if (failure.verdict === 'changed') return `"${hook?.name}" changed files, which a review must not do.`;
-    if (failure.verdict === 'none') return `"${hook?.name}" finished without a clear verdict, so it does not count as approved.${retries}`;
-    if (failure.exitCode === null) return `"${hook?.name}" could not run.${retries}`;
-    return `"${hook?.name}" failed with exit code ${failure.exitCode}.${retries}`;
+  if (failure.kind === 'pr') return `The pull request could not be opened.`;
+  if (failure.kind === 'check') {
+    if (failure.timedOut) return `"${hook?.name}" took too long and was stopped.`;
+    if (failure.exitCode === null) return `"${hook?.name}" could not run.`;
+    return `"${hook?.name}" failed with exit code ${failure.exitCode}.`;
   }
   if (failure.reason === 'binary_missing') return 'This agent is not installed on this machine.';
   if (failure.reason === 'worktree_unavailable') return 'The task\'s worktree could not be restored.';

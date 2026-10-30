@@ -1,18 +1,9 @@
 /**
- * App header — brand, run indicator, and action buttons.
- * ADR-002: replaces the .app-header section in legacy index.html.
- * ADR-003 §8.1: glass-heavy background, text-text-primary token, ThemeToggle added.
- * ADR-1 (Agent Launcher): RunIndicator (unified, replaces AgentRunIndicator + PipelineProgressBar).
+ * App header — brand, search, theme, and New Task.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/shared/Button';
-import { Tooltip } from '@/components/shared/Tooltip';
-import { TerminalToggle } from '@/components/terminal/TerminalToggle';
-import { ConfigToggle } from '@/components/config/ConfigToggle';
-import { RunIndicator } from '@/components/agent-launcher/RunIndicator';
-import { RunsToggle } from '@/components/runs-panel/RunsToggle';
-import { FolioToggle } from '@/components/folio/FolioToggle';
+import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { useAppStore } from '@/stores/useAppStore';
 
 // The global-search shortcut binds metaKey || ctrlKey (App.tsx), so it fires on both
@@ -26,26 +17,6 @@ const SEARCH_LABEL = `Search tasks (${SEARCH_HINT})`;
 export function Header() {
   const openCreateModal = useAppStore((s) => s.openCreateModal);
   const openGlobalSearch = useAppStore((s) => s.openGlobalSearch);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    function onOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-    function onEsc(e: KeyboardEvent) {
-      if (e.key === 'Escape') setMenuOpen(false);
-    }
-    document.addEventListener('mousedown', onOutside);
-    document.addEventListener('keydown', onEsc);
-    return () => {
-      document.removeEventListener('mousedown', onOutside);
-      document.removeEventListener('keydown', onEsc);
-    };
-  }, [menuOpen]);
 
   return (
     <header className="flex items-center justify-between h-header px-6 bg-surface-elevated glass-heavy border-b border-border sticky top-0 z-[100]">
@@ -75,10 +46,10 @@ export function Header() {
         <span className="material-symbols-outlined text-[20px] leading-none" aria-hidden="true">search</span>
       </button>
 
-      {/* Centre: search pill + run indicator — flex-1 fills the free space; justify-center keeps
+      {/* Centre: search pill — flex-1 fills the free space; justify-center keeps
           the capped pill centred once it hits its max-width on wide screens */}
       <div className="flex flex-1 min-w-0 items-center justify-center gap-3 px-6 lg:px-8">
-        {/* Search pill — visible on md+, hidden on mobile (hamburger menu has the entry point) */}
+        {/* Search pill — visible on md+, hidden on mobile (the icon button above is its entry point) */}
         <button
           type="button"
           onClick={openGlobalSearch}
@@ -112,86 +83,21 @@ export function Header() {
           </kbd>
         </button>
 
-        <RunIndicator />
       </div>
 
-      {/* Actions: Panel Toggles | New Task | Utility Strip */}
-      <div className="flex items-center flex-shrink-0">
-        {/* Panel Toggles — collapse into the hamburger below lg so New Task always fits */}
-        <div className="hidden lg:flex items-center gap-2">
-          <Tooltip label="Folio" description="Browse and edit the space knowledge base">
-            <FolioToggle />
-          </Tooltip>
-          <Tooltip label="Terminal" description="Run shell commands on the server">
-            <TerminalToggle />
-          </Tooltip>
-          <Tooltip label="Runs" description="Browse run history and pipeline logs">
-            <RunsToggle />
-          </Tooltip>
-          <Tooltip label="Config" description="Edit configuration files">
-            <ConfigToggle />
-          </Tooltip>
-        </div>
-
-        <div className="hidden lg:block w-px h-6 bg-border/60 mx-2" aria-hidden="true" />
-
-        {/* New Task — always visible; utility icons collapse around it */}
-        <div className="block">
-          <Button
-            variant="primary"
-            onClick={openCreateModal}
-            aria-label="Add new task"
-          >
-            <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
-              add
-            </span>
-            New Task
-          </Button>
-        </div>
-
-        {/* Hamburger — shows below lg (holds the collapsed utility icons) */}
-        <div className="relative lg:hidden ml-2" ref={menuRef}>
-          <button
-            type="button"
-            onClick={() => setMenuOpen((v) => !v)}
-            aria-label="Open menu"
-            aria-expanded={menuOpen}
-            className={`w-9 h-9 flex items-center justify-center rounded-lg transition-all duration-fast ${
-              menuOpen
-                ? 'bg-primary/15 text-primary'
-                : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant'
-            }`}
-          >
-            <span className="material-symbols-outlined text-[20px] leading-none" aria-hidden="true">
-              {menuOpen ? 'close' : 'menu'}
-            </span>
-          </button>
-
-          {menuOpen && (
-            <div className="absolute right-0 top-full mt-2 w-56 bg-surface-elevated border border-border rounded-xl shadow-lg py-2 z-[110]">
-              {/* Panel toggles — rendered as menu rows */}
-              <div className="flex flex-col">
-                <MobileMenuRow label="Folio" icon="menu_book" toggle={<FolioToggle />} />
-                <MobileMenuRow label="Terminal" icon="terminal" toggle={<TerminalToggle />} />
-                <MobileMenuRow label="Runs" icon="account_tree" toggle={<RunsToggle />} />
-                <MobileMenuRow label="Config" icon="settings" toggle={<ConfigToggle />} />
-              </div>
-            </div>
-          )}
-        </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <ThemeToggle />
+        <Button
+          variant="primary"
+          onClick={openCreateModal}
+          aria-label="Add new task"
+        >
+          <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
+            add
+          </span>
+          New Task
+        </Button>
       </div>
     </header>
-  );
-}
-
-function MobileMenuRow({ label, icon, toggle }: { label: string; icon: string; toggle: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between px-4 py-2 hover:bg-surface-variant transition-colors duration-fast">
-      <div className="flex items-center gap-3">
-        <span className="material-symbols-outlined text-[18px] leading-none text-text-secondary" aria-hidden="true">{icon}</span>
-        <span className="text-sm text-text-primary">{label}</span>
-      </div>
-      {toggle}
-    </div>
   );
 }

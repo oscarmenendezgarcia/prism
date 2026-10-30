@@ -94,15 +94,6 @@
   --color-agent-reviewer:  #F59E0B;
   --color-agent-qa:        #10B981;
 
-  /* ── Terminal colors ─────────────────────────────────────────────────── */
-  --color-terminal-bg:              #FFFFFF;
-  --color-terminal-text:            #1A1A2E;
-  --color-terminal-input-bg:        rgba(0, 0, 0, 0.04);
-  --color-terminal-stderr:          #D93025;
-  --color-terminal-prompt:          #6C60E0;
-  --color-terminal-tab-active:      rgba(0, 0, 0, 0.08);
-  --color-terminal-tab-hover:       rgba(0, 0, 0, 0.04);
-  --color-terminal-tab-close-hover: rgba(0, 0, 0, 0.10);
 
   /* ── Shadows (light mode) ────────────────────────────────────────────── */
   --shadow-card:       0 1px 3px rgba(0, 0, 0, 0.06), 0 0 0 1px rgba(0, 0, 0, 0.04);
@@ -259,15 +250,6 @@ html.dark {
   --shadow-lg:         0 12px 32px rgba(0, 0, 0, 0.60), 0 0 0 1px rgba(255, 255, 255, 0.06);
   --shadow-modal:      0 24px 80px rgba(0, 0, 0, 0.70), 0 0 0 1px rgba(255, 255, 255, 0.08);
 
-  /* Terminal — dark theme */
-  --color-terminal-bg:              #07070B;
-  --color-terminal-text:            #E4E4EB;
-  --color-terminal-input-bg:        rgba(255, 255, 255, 0.06);
-  --color-terminal-stderr:          #FF5A5F;
-  --color-terminal-prompt:          #7C6DFA;
-  --color-terminal-tab-active:      rgba(255, 255, 255, 0.10);
-  --color-terminal-tab-hover:       rgba(255, 255, 255, 0.06);
-  --color-terminal-tab-close-hover: rgba(255, 255, 255, 0.12);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -617,23 +599,6 @@ html.dark {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   XTERM.JS — override hardcoded backgrounds to match design token
-───────────────────────────────────────────────────────────────────────────── */
-
-.xterm .xterm-viewport {
-  background-color: var(--color-terminal-bg) !important;
-  /* Mobile: let the browser own vertical panning of the scrollback so touch
-     scrolling is smooth instead of janky, with iOS momentum. Without this,
-     xterm's own handlers make touch scroll the viewport poorly on phones. */
-  touch-action: pan-y;
-  -webkit-overflow-scrolling: touch;
-}
-
-.xterm .composition-view {
-  background: var(--color-terminal-bg) !important;
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
    ACCESSIBILITY — reduce motion
 ───────────────────────────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
@@ -641,55 +606,6 @@ html.dark {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   FOLIO — shared-element morph for the "New Page" button
-   The same button lives in the panel header (chapter index) and in the page-list
-   sub-header. Giving both instances the same view-transition-name lets the View
-   Transitions API glide it between the two positions instead of pop in/out. The
-   JS side (FolioScreen) only starts a transition when motion is allowed.
-───────────────────────────────────────────────────────────────────────────── */
-.folio-newpage-shared { view-transition-name: folio-new-page; }
-
-/* Only the New Page button glides; the rest of the panel content swaps instantly
-   (no full-page cross-fade). */
-::view-transition-group(root) { animation: none; }
-
-::view-transition-group(folio-new-page) {
-  animation-duration: 260ms;
-  animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   SIDE PANELS — responsive shell (terminal, runs, config, agent-settings, folio)
-   Desktop: fixed-width resizable asides in a flex row next to the board.
-   Mobile (<640px): a fixed-width aside would be pushed off-screen by the board,
-   so each becomes a full-screen overlay. The app store enforces one-open-at-a-time
-   on mobile so overlays never stack. The resize grip is meaningless full-screen,
-   so it is hidden. `!important` on width overrides the per-panel w-[var(--panel-w)].
-───────────────────────────────────────────────────────────────────────────── */
-/* When the board + open side panels would overflow a medium viewport, let the
-   panels shrink to fit (their content reflows) instead of the rightmost panel
-   being clipped off the edge — the panel row is overflow-hidden, and the panels
-   are otherwise shrink-0. min-width:0 lets a flex item shrink below its content;
-   flex-shrink:1 overrides the per-panel `shrink-0`. The flex board (flex-1,
-   basis 0) still absorbs/releases space first, so panels only shrink once the
-   board is squeezed to nothing. (Below 640px the overlay rule above takes over.) */
-.panel-shell { min-width: 20rem; flex-shrink: 1; }
-
-@media (max-width: 639px) {
-  .panel-shell {
-    position: fixed;
-    inset: 0;
-    width: 100% !important;
-    /* Full-screen takeover: must sit ABOVE the sticky app header (z-[100]) so the
-       panel's own header + close button aren't covered by the Prism bar / menu.
-       Matches the header dropdown tier; only one panel is open at a time. */
-    z-index: 110;
-    border-left: 0;
-  }
-  .panel-resize-handle { display: none; }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

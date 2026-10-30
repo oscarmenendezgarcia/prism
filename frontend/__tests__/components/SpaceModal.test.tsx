@@ -3,30 +3,24 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SpaceModal } from '../../src/components/modals/SpaceModal';
 import { useAppStore } from '../../src/stores/useAppStore';
-import { updateSpaceHooks } from '../../src/api/client';
+import { updateSpaceHooks, validateDirectory } from '../../src/api/client';
 
 vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(), getTasks: vi.fn(), createTask: vi.fn(), moveTask: vi.fn(),
   deleteTask: vi.fn(), createSpace: vi.fn(), renameSpace: vi.fn(), deleteSpace: vi.fn(),
   getAttachmentContent: vi.fn(),
-  // DirectoryPicker API calls
-  getFsHome: vi.fn().mockResolvedValue({ homePath: '/Users/test' }),
-  browseDirectory: vi.fn().mockResolvedValue({ path: '/Users/test', items: [], hasMore: false }),
-  validateDirectory: vi.fn(),
+  validateDirectory: vi.fn().mockResolvedValue({ path: '/x', isValid: true }),
   updateSpaceHooks: vi.fn().mockResolvedValue({}),
 }));
 
 beforeEach(() => {
-  useAppStore.setState({ spaceModal: null });
+  useAppStore.setState({ spaceModal: null, spaces: [] });
   vi.clearAllMocks();
 });
 
 // Not typed: the modal's delayed autofocus could take the focus midway.
-function addCommandHook(command: string) {
-  fireEvent.click(screen.getByRole('button', { name: 'Add hook' }));
-  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Tests' } });
-  fireEvent.change(screen.getByLabelText('Command'), { target: { value: command } });
-  fireEvent.click(screen.getByRole('button', { name: 'Keep this hook' }));
+function setCheckCommand(command: string) {
+  fireEvent.change(screen.getByLabelText(/Check command/), { target: { value: command } });
 }
 
 describe('SpaceModal', () => {
@@ -45,7 +39,7 @@ describe('SpaceModal', () => {
     const space = { id: 's1', name: 'Old Name', createdAt: '', updatedAt: '' };
     useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
     render(<SpaceModal />);
-    expect(screen.getByText('Rename Space')).toBeInTheDocument();
+    expect(screen.getByText('Edit Space')).toBeInTheDocument();
   });
 
   it('pre-fills name input in rename mode', () => {
@@ -53,13 +47,6 @@ describe('SpaceModal', () => {
     useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
     render(<SpaceModal />);
     expect(screen.getByDisplayValue('Existing Space')).toBeInTheDocument();
-  });
-
-  it('renders the browse folder button next to the working directory input', () => {
-    useAppStore.setState({ spaceModal: { open: true, mode: 'create' } });
-    render(<SpaceModal />);
-    const btn = document.body.querySelector('[aria-label="Browse for working directory"]');
-    expect(btn).not.toBeNull();
   });
 
   it('pre-fills workingDirectory input in rename mode', () => {
@@ -89,7 +76,7 @@ describe('SpaceModal', () => {
     await user.click(screen.getByRole('button', { name: /create/i }));
 
     await waitFor(() => {
-      expect(mockCreate).toHaveBeenCalledWith('My New Space', undefined, undefined);
+      expect(mockCreate).toHaveBeenCalledWith('My New Space', undefined);
     });
   });
 
@@ -105,8 +92,8 @@ describe('SpaceModal', () => {
     await user.click(screen.getByRole('button', { name: /save/i }));
 
     await waitFor(() => {
-      // workingDirectory is empty → sent as ''; pipeline empty → []; nicknames empty → {}; stageModels empty → {}
-      expect(mockRename).toHaveBeenCalledWith('s1', 'New Name', '', [], {}, {});
+      // workingDirectory is empty → sent as ''
+      expect(mockRename).toHaveBeenCalledWith('s1', 'New Name', '');
     });
   });
 
@@ -117,16 +104,17 @@ describe('SpaceModal', () => {
     useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename, loadSpaces: mockLoad, spaces: [space] } as any);
     const user = userEvent.setup();
     render(<SpaceModal />);
-    addCommandHook('npm test');
+    setCheckCommand('  npm test  ');
+    fireEvent.click(screen.getByLabelText('Open a pull request automatically'));
     await user.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(mockRename).toHaveBeenCalled());
-    expect(updateSpaceHooks).toHaveBeenCalledWith('s1', [expect.objectContaining({ name: 'Tests', type: 'command', command: 'npm test' })]);
+    expect(updateSpaceHooks).toHaveBeenCalledWith('s1', { checkCommand: 'npm test', autoPr: true });
     expect(mockLoad).toHaveBeenCalled();
   });
 
   it('does not touch the check when it did not change', async () => {
     const mockRename = vi.fn().mockResolvedValue(undefined);
-    const space = { id: 's1', name: 'Old', hooks: [{ name: 'CI', command: 'x' }], createdAt: '', updatedAt: '' };
+    const space = { id: 's1', name: 'Old', hooks: { checkCommand: 'x', autoPr: false }, createdAt: '', updatedAt: '' };
     useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename, spaces: [space] } as any);
     const user = userEvent.setup();
     render(<SpaceModal />);
@@ -142,22 +130,53 @@ describe('SpaceModal', () => {
     useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename } as any);
     const user = userEvent.setup();
     render(<SpaceModal />);
-    addCommandHook('x');
+    setCheckCommand('x');
     await user.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Wait for the running tasks'));
     expect(mockRename).not.toHaveBeenCalled();
   });
 
-  it('does not save over a hook still open in the form', async () => {
-    const mockRename = vi.fn();
-    const space = { id: 's1', name: 'Old', createdAt: '', updatedAt: '' };
+  it('treats an older list of hooks as no check', async () => {
+    const mockRename = vi.fn().mockResolvedValue(undefined);
+    const space = { id: 's1', name: 'Old', hooks: [{ name: 'CI', command: 'x' }], createdAt: '', updatedAt: '' };
     useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename, spaces: [space] } as any);
     const user = userEvent.setup();
     render(<SpaceModal />);
-    fireEvent.click(screen.getByRole('button', { name: 'Add hook' }));
-    await user.click(screen.getByRole('button', { name: /^save$/i }));
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Finish or cancel'));
-    expect(mockRename).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/Check command/)).toHaveValue('');
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(mockRename).toHaveBeenCalled());
+    expect(updateSpaceHooks).not.toHaveBeenCalled();
+  });
+
+  it('has no check settings in create mode', () => {
+    useAppStore.setState({ spaceModal: { open: true, mode: 'create' } });
+    render(<SpaceModal />);
+    expect(screen.queryByLabelText(/Check command/)).toBeNull();
+  });
+
+  it('checks the working directory on save, and stays open if it is not valid', async () => {
+    vi.mocked(validateDirectory).mockRejectedValueOnce(new Error('Path does not exist: /nope'));
+    const mockCreate = vi.fn();
+    useAppStore.setState({ spaceModal: { open: true, mode: 'create' }, createSpace: mockCreate } as any);
+    const user = userEvent.setup();
+    render(<SpaceModal />);
+    fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'S' } });
+    fireEvent.change(screen.getByLabelText(/working directory/i), { target: { value: '/nope' } });
+    await user.click(screen.getByRole('button', { name: /create/i }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Path does not exist'));
+    expect(validateDirectory).toHaveBeenCalledWith('/nope');
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('creates the space once the working directory checks out', async () => {
+    const mockCreate = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({ spaceModal: { open: true, mode: 'create' }, createSpace: mockCreate } as any);
+    const user = userEvent.setup();
+    render(<SpaceModal />);
+    fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'S' } });
+    fireEvent.change(screen.getByLabelText(/working directory/i), { target: { value: '/repo' } });
+    await user.click(screen.getByRole('button', { name: /create/i }));
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('S', '/repo'));
   });
 
   it('submits on Enter key press', async () => {
@@ -171,182 +190,7 @@ describe('SpaceModal', () => {
     await user.keyboard('{Enter}');
 
     await waitFor(() => {
-      expect(mockCreate).toHaveBeenCalledWith('Test Space', undefined, undefined);
+      expect(mockCreate).toHaveBeenCalledWith('Test Space', undefined);
     });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Agent Nicknames section tests
-// ---------------------------------------------------------------------------
-
-describe('SpaceModal — Agent Nicknames section', () => {
-  it('does NOT show nicknames section in create mode', () => {
-    useAppStore.setState({ spaceModal: { open: true, mode: 'create' } });
-    render(<SpaceModal />);
-    expect(screen.queryByText(/agent nicknames/i)).not.toBeInTheDocument();
-  });
-
-  it('shows nicknames section header in rename mode', () => {
-    const space = { id: 's1', name: 'My Space', createdAt: '', updatedAt: '' };
-    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
-    render(<SpaceModal />);
-    expect(screen.getByText(/agent nicknames/i)).toBeInTheDocument();
-  });
-
-  it('nicknames section is collapsed by default', () => {
-    const space = { id: 's1', name: 'My Space', createdAt: '', updatedAt: '' };
-    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
-    render(<SpaceModal />);
-    // Inputs are only visible when expanded — none visible when collapsed
-    expect(screen.queryByPlaceholderText(/e\.g\. The/i)).not.toBeInTheDocument();
-  });
-
-  it('clicking the header toggles the section open', async () => {
-    const space = { id: 's1', name: 'My Space', createdAt: '', updatedAt: '' };
-    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
-    const user = userEvent.setup();
-    render(<SpaceModal />);
-
-    await user.click(screen.getByRole('button', { name: /agent nicknames/i }));
-    expect(screen.getAllByPlaceholderText(/e\.g\. The/i).length).toBeGreaterThan(0);
-  });
-
-  it('clicking the header again collapses the section', async () => {
-    const space = { id: 's1', name: 'My Space', createdAt: '', updatedAt: '' };
-    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
-    const user = userEvent.setup();
-    render(<SpaceModal />);
-
-    const header = screen.getByRole('button', { name: /agent nicknames/i });
-    await user.click(header); // open
-    await user.click(header); // close
-    expect(screen.queryByPlaceholderText(/e\.g\. The/i)).not.toBeInTheDocument();
-  });
-
-  it('pre-fills nickname inputs from space.agentNicknames', async () => {
-    const space = {
-      id: 's1',
-      name: 'My Space',
-      createdAt: '',
-      updatedAt: '',
-      agentNicknames: { 'senior-architect': 'El Jefe' },
-    };
-    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
-    const user = userEvent.setup();
-    render(<SpaceModal />);
-
-    await user.click(screen.getByRole('button', { name: /agent nicknames/i }));
-    expect(screen.getByDisplayValue('El Jefe')).toBeInTheDocument();
-  });
-
-  it('submitting with a nickname calls renameSpace with the correct agentNicknames map', async () => {
-    const mockRename = vi.fn().mockResolvedValue(undefined);
-    const space = { id: 's1', name: 'My Space', createdAt: '', updatedAt: '' };
-    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename } as any);
-    const user = userEvent.setup();
-    render(<SpaceModal />);
-
-    // Open nicknames section
-    await user.click(screen.getByRole('button', { name: /agent nicknames/i }));
-
-    // Use fireEvent.change to avoid focus-leak from userEvent.type
-    const inputs = screen.getAllByPlaceholderText(/e\.g\. The/i) as HTMLInputElement[];
-    fireEvent.change(inputs[0], { target: { value: 'El Jefe' } });
-
-    // Submit
-    await user.click(screen.getByRole('button', { name: /^save$/i }));
-
-    await waitFor(() => {
-      expect(mockRename).toHaveBeenCalled();
-      const callArgs = mockRename.mock.calls[0];
-      // 5th argument is the agentNicknames map
-      const nicknames = callArgs[4];
-      expect(typeof nicknames).toBe('object');
-      // At least one entry should contain 'El Jefe'
-      expect(Object.values(nicknames)).toContain('El Jefe');
-    });
-  });
-
-  it('"Clear all nicknames" resets all inputs to empty without closing the modal', async () => {
-    const space = {
-      id: 's1',
-      name: 'My Space',
-      createdAt: '',
-      updatedAt: '',
-      agentNicknames: { 'senior-architect': 'El Jefe', 'developer-agent': 'Rafa' },
-    };
-    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
-    const user = userEvent.setup();
-    render(<SpaceModal />);
-
-    await user.click(screen.getByRole('button', { name: /agent nicknames/i }));
-
-    // Verify pre-filled values are present
-    expect(screen.getByDisplayValue('El Jefe')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('Rafa')).toBeInTheDocument();
-
-    // Click clear all
-    await user.click(screen.getByRole('button', { name: /clear all nicknames/i }));
-
-    // All inputs should now be empty
-    const inputs = screen.getAllByPlaceholderText(/e\.g\. The/i);
-    for (const input of inputs) {
-      expect((input as HTMLInputElement).value).toBe('');
-    }
-
-    // Modal should still be open
-    expect(screen.getByText('Rename Space')).toBeInTheDocument();
-  });
-
-  it('shows inline validation error for nickname > 50 chars and blocks submit', async () => {
-    const mockRename = vi.fn().mockResolvedValue(undefined);
-    const space = { id: 's1', name: 'My Space', createdAt: '', updatedAt: '' };
-    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename } as any);
-    const user = userEvent.setup();
-    render(<SpaceModal />);
-
-    // Open the nicknames section via its accessible button
-    const toggleBtn = screen.getByRole('button', { name: /agent nicknames/i });
-    await user.click(toggleBtn);
-
-    // Click the first nickname input to ensure focus, then clear it and type 51 chars
-    // (maxLength is 51 so jsdom accepts it; validation checks > 50 and fails)
-    const inputs = screen.getAllByPlaceholderText(/e\.g\. The/i) as HTMLInputElement[];
-    await user.click(inputs[0]);
-    fireEvent.change(inputs[0], { target: { value: 'a'.repeat(51) } });
-
-    // Trigger validation by clicking Save
-    const saveBtn = screen.getByRole('button', { name: /^save$/i });
-    await user.click(saveBtn);
-
-    // The modal should remain open (renameSpace not called)
-    expect(mockRename).not.toHaveBeenCalled();
-
-    // The error should be visible somewhere in the document (portal renders to body)
-    await waitFor(() => {
-      const alerts = document.body.querySelectorAll('[role="alert"]');
-      const hasNicknameError = Array.from(alerts).some((el) =>
-        /max 50/i.test(el.textContent ?? '')
-      );
-      expect(hasNicknameError).toBe(true);
-    });
-  });
-
-  it('each input has an accessible label with htmlFor', async () => {
-    const space = { id: 's1', name: 'My Space', createdAt: '', updatedAt: '' };
-    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space } });
-    const user = userEvent.setup();
-    render(<SpaceModal />);
-
-    await user.click(screen.getByRole('button', { name: /agent nicknames/i }));
-
-    // All inputs rendered should have an id that matches a label's htmlFor
-    const inputs = screen.getAllByPlaceholderText(/e\.g\. The/i) as HTMLInputElement[];
-    for (const input of inputs) {
-      const id = input.id;
-      expect(id).not.toBe('');
-      expect(document.querySelector(`label[for="${id}"]`)).not.toBeNull();
-    }
   });
 });

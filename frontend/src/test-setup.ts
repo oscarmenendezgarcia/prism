@@ -5,8 +5,7 @@ import '@testing-library/jest-dom';
 // ---------------------------------------------------------------------------
 
 // window.matchMedia is not implemented in jsdom.
-// useMediaQuery falls back to false when matchMedia is unavailable, but this
-// stub lets tests mock specific breakpoints via Object.defineProperty overrides.
+// This stub lets tests mock specific breakpoints via Object.defineProperty overrides.
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: (query: string) => ({
@@ -35,7 +34,6 @@ Object.defineProperty(window, 'matchMedia', {
 Element.prototype.scrollIntoView = () => {};
 
 // IntersectionObserver is not implemented in jsdom.
-// useLazyImage and CardImage rely on this.
 (globalThis as typeof globalThis & { IntersectionObserver: typeof IntersectionObserver }).IntersectionObserver =
   class MockIntersectionObserver {
     observe() {}

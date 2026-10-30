@@ -47,17 +47,7 @@ const ANSWER: Comment = {
   createdAt: '2026-04-16T11:30:00.000Z',
 };
 
-const QUESTION_WITH_TARGET: Comment = {
-  ...QUESTION,
-  id: 'c-q-target',
-  targetAgent: 'senior-architect',
-};
 
-const QUESTION_NEEDS_HUMAN: Comment = {
-  ...QUESTION,
-  id: 'c-q-human',
-  needsHuman: true,
-};
 
 // ---------------------------------------------------------------------------
 // Default props factory
@@ -253,54 +243,6 @@ describe('CommentsSection — add-comment form', () => {
   });
 });
 
-
-// ---------------------------------------------------------------------------
-// NEEDS_HUMAN badge (feature 2)
-// ---------------------------------------------------------------------------
-
-describe('CommentsSection — NEEDS_HUMAN badge', () => {
-  it('does not show needs-human badge when needsHuman is false/undefined', () => {
-    render(<CommentsSection {...makeProps([QUESTION])} />);
-    expect(screen.queryByTestId('needs-human-badge')).toBeNull();
-  });
-
-  it('shows needs-human badge when needsHuman===true', () => {
-    render(<CommentsSection {...makeProps([QUESTION_NEEDS_HUMAN])} />);
-    const badge = screen.getByTestId('needs-human-badge');
-    expect(badge).toBeInTheDocument();
-    expect(badge).toHaveTextContent('needs human');
-  });
-
-  it('needs-human badge is visible alongside the question type badge', () => {
-    render(<CommentsSection {...makeProps([QUESTION_NEEDS_HUMAN])} />);
-    expect(screen.getByTestId('comment-type-badge')).toBeInTheDocument();
-    expect(screen.getByTestId('needs-human-badge')).toBeInTheDocument();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// targetAgent display in bubble (feature 3)
-// ---------------------------------------------------------------------------
-
-describe('CommentsSection — targetAgent display in bubble', () => {
-  it('does not render target-agent indicator when targetAgent is absent', () => {
-    render(<CommentsSection {...makeProps([QUESTION])} />);
-    expect(screen.queryByTestId('comment-target-agent')).toBeNull();
-  });
-
-  it('renders "→ <targetAgent>" when targetAgent is set', () => {
-    render(<CommentsSection {...makeProps([QUESTION_WITH_TARGET])} />);
-    const indicator = screen.getByTestId('comment-target-agent');
-    expect(indicator).toBeInTheDocument();
-    expect(indicator).toHaveTextContent('→ senior-architect');
-  });
-
-  it('target-agent indicator appears in the header row', () => {
-    render(<CommentsSection {...makeProps([QUESTION_WITH_TARGET])} />);
-    const bubble = screen.getByTestId('comment-bubble');
-    expect(bubble.querySelector('[data-testid="comment-target-agent"]')).not.toBeNull();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Disabled state

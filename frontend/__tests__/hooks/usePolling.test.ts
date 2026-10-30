@@ -1,11 +1,6 @@
 /**
  * Tests for the usePolling hook.
- * Uses fake timers to verify adaptive-interval polling and mutation guard.
- *
- * Adaptive interval:
- *   - 1000 ms when activeRun !== null
- *   - 3000 ms when activeRun === null
- *   - Interval restarts when activeRun presence changes
+ * Uses fake timers to verify polling and the mutation guard.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -28,18 +23,11 @@ vi.mock('../../src/api/client', () => ({
 
 import * as api from '../../src/api/client';
 
-// Minimal AgentRun fixture — only fields usePolling cares about (presence check)
-const FAKE_ACTIVE_RUN = {
-  taskId: 'task-1', agentId: 'developer-agent', spaceId: 'space-1',
-  startedAt: new Date().toISOString(), cliCommand: 'claude', promptPath: '/tmp/p.md',
-};
-
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   useAppStore.setState({
     isMutating:  false,
-    activeRun:   null,
     tasks:       { todo: [], 'in-progress': [], done: [] },
     activeSpaceId: 'default',
   });
@@ -123,86 +111,3 @@ describe('usePolling', () => {
   });
 });
 
-describe('usePolling — adaptive interval', () => {
-  it('polls at 1000ms when activeRun is set', async () => {
-    useAppStore.setState({ activeRun: FAKE_ACTIVE_RUN } as any);
-    const { unmount } = renderHook(() => usePolling());
-
-    // Should fire at 1000ms, not 3000ms
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
-
-    expect(api.getTasks).toHaveBeenCalledTimes(1);
-    unmount();
-  });
-
-  it('does NOT poll at 1000ms when activeRun is null (uses 3000ms idle cadence)', async () => {
-    useAppStore.setState({ activeRun: null } as any);
-    const { unmount } = renderHook(() => usePolling());
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
-
-    expect(api.getTasks).not.toHaveBeenCalled();
-
-    await act(async () => {
-      vi.advanceTimersByTime(2000); // total 3000ms
-    });
-
-    expect(api.getTasks).toHaveBeenCalledTimes(1);
-    unmount();
-  });
-
-  it('switches to 1000ms interval when activeRun becomes non-null', async () => {
-    const { unmount } = renderHook(() => usePolling());
-
-    // Initially idle — advance 1500ms, should not fire yet
-    await act(async () => {
-      vi.advanceTimersByTime(1500);
-    });
-    expect(api.getTasks).not.toHaveBeenCalled();
-
-    // Start an active run — interval restarts at 1000ms
-    act(() => {
-      useAppStore.setState({ activeRun: FAKE_ACTIVE_RUN } as any);
-    });
-
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
-
-    expect(api.getTasks).toHaveBeenCalledTimes(1);
-    unmount();
-  });
-
-  it('switches back to 3000ms interval when activeRun becomes null', async () => {
-    useAppStore.setState({ activeRun: FAKE_ACTIVE_RUN } as any);
-    const { unmount } = renderHook(() => usePolling());
-
-    // Fire once at 1000ms
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
-    expect(api.getTasks).toHaveBeenCalledTimes(1);
-
-    // Clear the active run — interval restarts at 3000ms
-    act(() => {
-      useAppStore.setState({ activeRun: null } as any);
-    });
-
-    // Should NOT fire again at 1000ms from now
-    await act(async () => {
-      vi.advanceTimersByTime(1000);
-    });
-    expect(api.getTasks).toHaveBeenCalledTimes(1);
-
-    // But SHOULD fire at 3000ms from now (total 3000ms after activeRun cleared)
-    await act(async () => {
-      vi.advanceTimersByTime(2000);
-    });
-    expect(api.getTasks).toHaveBeenCalledTimes(2);
-    unmount();
-  });
-});

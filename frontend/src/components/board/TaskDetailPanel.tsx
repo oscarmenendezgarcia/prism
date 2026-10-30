@@ -20,21 +20,18 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { useAppStore, useActiveRun, useAvailableAgents, usePipelineStates } from '@/stores/useAppStore';
+import { useAppStore } from '@/stores/useAppStore';
 import { distinctArcs } from '@/utils/arcs';
 import { Button } from '@/components/shared/Button';
 import { ArcAutocomplete } from '@/components/shared/ArcAutocomplete';
-import { ReferenceAutocomplete } from '@/components/folio/ReferenceAutocomplete';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { TaskRunPanel } from '@/components/runs/TaskRunPanel';
 import { useTaskRunStore } from '@/stores/useTaskRunStore';
 import { DependsOnSection } from '@/components/board/DependsOnSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
-import { resolveAgentName } from '@/utils/agentName';
 import * as api from '@/api/client';
 import type { Column, Comment, Task } from '@/types';
-import { localModelsToStageModelsMap } from '@/utils/modelRouting';
 import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
 
 // ---------------------------------------------------------------------------
@@ -148,299 +145,6 @@ function useFocusTrap(containerRef: React.RefObject<HTMLElement | null>, active:
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline field editor (T-009)
-// ---------------------------------------------------------------------------
-
-interface PipelineFieldEditorProps {
-  /** Current pipeline value from the task (undefined = use space default). */
-  pipeline: string[] | undefined;
-  /** All known agent IDs (from availableAgents in store). */
-  availableAgentIds: string[];
-  /** Called with the new pipeline array on Save, or [] on Clear. */
-  onSave: (pipeline: string[]) => void;
-  /** Whether the panel is in read-only mode (isMutating / activeRun). */
-  disabled: boolean;
-  /** Active space — used to resolve agent nicknames for display. */
-  activeSpace: import('@/types').Space | null;
-  /** Zero-based index of the currently running stage, if a run is active. */
-  currentStageIndex?: number;
-}
-
-/**
- * Inline pipeline field editor.
- *
- * Collapsed (no pipeline): "Pipeline: (space default)" label + Configure button.
- * Collapsed (pipeline set): chip chain "a → b → c" + Edit + Clear buttons.
- * Edit mode: ordered list with ↑/↓/✕ per stage, add-stage select, Save/Cancel.
- */
-function PipelineFieldEditor({
-  pipeline,
-  availableAgentIds,
-  onSave,
-  disabled,
-  activeSpace,
-  currentStageIndex,
-}: PipelineFieldEditorProps): React.ReactElement {
-  const [isEditing, setIsEditing]     = useState(false);
-  const [draftStages, setDraftStages] = useState<string[]>([]);
-
-  const openEditor = useCallback(() => {
-    setDraftStages(pipeline ? [...pipeline] : []);
-    setIsEditing(true);
-  }, [pipeline]);
-
-  const handleCancel = useCallback(() => {
-    setIsEditing(false);
-  }, []);
-
-  const handleSave = useCallback(() => {
-    onSave(draftStages);
-    setIsEditing(false);
-  }, [draftStages, onSave]);
-
-  const handleClear = useCallback(() => {
-    onSave([]);
-  }, [onSave]);
-
-  const handleMoveUp = useCallback((index: number) => {
-    if (index === 0) return;
-    setDraftStages((prev) => {
-      const next = [...prev];
-      [next[index - 1], next[index]] = [next[index], next[index - 1]];
-      return next;
-    });
-  }, []);
-
-  const handleMoveDown = useCallback((index: number) => {
-    setDraftStages((prev) => {
-      if (index >= prev.length - 1) return prev;
-      const next = [...prev];
-      [next[index], next[index + 1]] = [next[index + 1], next[index]];
-      return next;
-    });
-  }, []);
-
-  const handleRemove = useCallback((index: number) => {
-    setDraftStages((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const handleAddStage = useCallback((agentId: string) => {
-    if (!agentId || draftStages.includes(agentId)) return;
-    setDraftStages((prev) => [...prev, agentId]);
-  }, [draftStages]);
-
-  // Agents not yet in the draft (for the add dropdown)
-  const addableAgents = availableAgentIds.filter((id) => !draftStages.includes(id));
-
-  // ── Collapsed read mode ────────────────────────────────────────────────────
-
-  if (!isEditing) {
-    return (
-      <div className="flex flex-col gap-2">
-        {/* Section label + action buttons */}
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
-            Pipeline Stage
-          </span>
-          <div className="flex items-center gap-1">
-            {pipeline && pipeline.length > 0 ? (
-              <>
-                {/* touch-target-size: min 44×44px — use p-2.5 to expand hit area */}
-                <button
-                  type="button"
-                  onClick={openEditor}
-                  disabled={disabled}
-                  aria-label="Edit pipeline"
-                  title="Edit pipeline"
-                  className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-text-secondary hover:bg-surface-variant focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
-                >
-                  <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">edit</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClear}
-                  disabled={disabled}
-                  aria-label="Clear pipeline"
-                  title="Clear pipeline"
-                  className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-error hover:bg-error/10 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
-                >
-                  <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">close</span>
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={openEditor}
-                disabled={disabled}
-                aria-label="Configure pipeline"
-                className="text-[11px] text-primary hover:text-primary/80 focus:outline-hidden focus:ring-2 focus:ring-primary rounded disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast px-1 py-0.5"
-              >
-                Configure
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Vertical timeline */}
-        {pipeline && pipeline.length > 0 ? (
-          <div className="relative" role="list" aria-label="Pipeline stages">
-            {/* Connecting line */}
-            <div
-              className="absolute left-[9px] top-4 bottom-4 w-px bg-border/60"
-              aria-hidden="true"
-            />
-            {pipeline.map((stage, i) => {
-              const isActive = currentStageIndex === i;
-              const isDone   = currentStageIndex !== undefined && i < currentStageIndex;
-              return (
-                <div
-                  key={stage}
-                  role="listitem"
-                  aria-current={isActive ? 'step' : undefined}
-                  className="flex items-center gap-3 py-[7px] relative"
-                >
-                  {/* Dot / check icon — size difference is the non-color cue (color-not-only) */}
-                  {isActive ? (
-                    <div
-                      className="w-[18px] h-[18px] rounded-full bg-primary flex-shrink-0 shadow-[0_0_0_4px_rgba(124,109,250,0.15)]"
-                      aria-hidden="true"
-                    />
-                  ) : isDone ? (
-                    <span
-                      className="material-symbols-outlined text-[14px] leading-none text-primary/40 flex-shrink-0 ml-[2px]"
-                      aria-hidden="true"
-                    >
-                      check
-                    </span>
-                  ) : (
-                    <div className="w-2 h-2 rounded-full flex-shrink-0 ml-[5px] bg-border" aria-hidden="true" />
-                  )}
-                  {/* Label */}
-                  <span className={`text-[13px] leading-none transition-colors duration-150 ${
-                    isActive
-                      ? 'font-semibold text-primary'
-                      : isDone
-                      ? 'text-text-disabled'
-                      : 'text-text-secondary'
-                  }`}>
-                    {resolveAgentName(stage, activeSpace)}
-                    {/* visually hidden state label for screen readers */}
-                    {isActive && <span className="sr-only"> (current)</span>}
-                    {isDone   && <span className="sr-only"> (completed)</span>}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <span className="text-sm text-text-disabled italic pl-1">(space default)</span>
-        )}
-      </div>
-    );
-  }
-
-  // ── Edit mode ──────────────────────────────────────────────────────────────
-
-  return (
-    <div className="flex flex-col gap-2">
-      <span className="text-xs font-semibold text-text-tertiary uppercase tracking-widest">
-        Pipeline
-      </span>
-
-      {/* Stage list */}
-      {draftStages.length === 0 ? (
-        <p className="text-sm text-text-disabled italic px-1">
-          No stages — will use space default on save.
-        </p>
-      ) : (
-        <ol className="flex flex-col gap-1" aria-label="Pipeline stage order">
-          {draftStages.map((agentId, index) => (
-            <li
-              key={agentId}
-              className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-surface-elevated border border-border"
-            >
-              <span className="text-xs font-mono text-text-disabled w-4 text-right flex-shrink-0">
-                {index + 1}
-              </span>
-              <span className="flex-1 text-sm text-text-primary font-mono truncate">
-                {agentId}
-              </span>
-              <div className="flex items-center gap-0.5 flex-shrink-0">
-                <button
-                  type="button"
-                  onClick={() => handleMoveUp(index)}
-                  disabled={index === 0}
-                  aria-label={`Move ${agentId} up`}
-                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
-                >
-                  <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
-                    arrow_upward
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleMoveDown(index)}
-                  disabled={index === draftStages.length - 1}
-                  aria-label={`Move ${agentId} down`}
-                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-hidden focus:ring-1 focus:ring-primary disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
-                >
-                  <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
-                    arrow_downward
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleRemove(index)}
-                  aria-label={`Remove ${agentId} from pipeline`}
-                  className="w-6 h-6 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-error focus:outline-hidden focus:ring-1 focus:ring-primary transition-all duration-[180ms] ease-spring"
-                >
-                  <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">
-                    close
-                  </span>
-                </button>
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
-
-      {/* Add stage dropdown */}
-      {addableAgents.length > 0 && (
-        <select
-          aria-label="Add a stage to the pipeline"
-          defaultValue=""
-          onChange={(e) => { handleAddStage(e.target.value); e.currentTarget.value = ''; }}
-          className="w-full px-3 py-2.5 rounded-lg bg-surface-elevated border border-border text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary transition-all duration-fast"
-        >
-          <option value="" disabled>Add stage...</option>
-          {addableAgents.map((id) => (
-            <option key={id} value={id}>{id}</option>
-          ))}
-        </select>
-      )}
-
-      {/* Save / Cancel */}
-      <div className="flex gap-2 justify-end">
-        <Button
-          variant="ghost"
-          onClick={handleCancel}
-          className="text-xs px-3 py-1.5"
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="primary"
-          onClick={handleSave}
-          className="text-xs px-3 py-1.5"
-        >
-          Save pipeline
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -464,14 +168,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const tasks                = useAppStore((s) => s.tasks);
   const arcs                 = distinctArcs(tasks);
   const showToast            = useAppStore((s) => s.showToast);
-  const loadAgents           = useAppStore((s) => s.loadAgents);
   const openAttachmentModal  = useAppStore((s) => s.openAttachmentModal);
   const openMarkdownModal    = useAppStore((s) => s.openMarkdownModal);
   const activeSpaceId        = useAppStore((s) => s.activeSpaceId);
-  const activeSpace          = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId) ?? null);
-  const activeRun            = useActiveRun();
-  const availableAgents      = useAvailableAgents();
-  const pipelineStates       = usePipelineStates();
 
   // ── Local field state ────────────────────────────────────────────────────
 
@@ -486,10 +185,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [isCopied, setIsCopied]                 = useState(false);
   /** Index of attachment currently being fetched for direct .md → reader opening. */
   const [loadingAttachmentIndex, setLoadingAttachmentIndex] = useState<number | null>(null);
-  /** MODEL-1: per-stage model overrides for this task (agentId → model string). */
-  const [localStageModels, setLocalStageModels] = useState<Record<string, string>>({});
-  const [modelOverridesOpen, setModelOverridesOpen] = useState(false);
-  const [savingStageModels, setSavingStageModels] = useState(false);
 
   // Track initial values to detect actual changes on blur.
   const savedTitle       = useRef('');
@@ -516,16 +211,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
     setLocalType(detailTask.type);
     setLocalDependsOn(detailTask.dependsOn ?? []);
 
-    // MODEL-1: initialize local stageModels from task
-    const initModels: Record<string, string> = {};
-    if (detailTask.stageModels) {
-      for (const [agentId, cfg] of Object.entries(detailTask.stageModels)) {
-        if (cfg !== null) initModels[agentId] = cfg.model;
-      }
-    }
-    setLocalStageModels(initModels);
-    setModelOverridesOpen(false);
-
     savedTitle.current    = detailTask.title;
     savedAssigned.current = detailTask.assigned ?? '';
     savedArc.current      = detailTask.arc ?? '';
@@ -550,17 +235,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
     el.style.height = '0';
     el.style.height = `${el.scrollHeight}px`;
   }, [localTitle]);
-
-  // BUG-001: Ensure agents are loaded when the panel opens so the pipeline
-  // editor's "Add stage" dropdown is populated. Guard prevents redundant
-  // fetches if agents were already loaded by AgentLauncherMenu or the modal.
-  useEffect(() => {
-    if (!detailTask) return;
-    if (availableAgents.length === 0) {
-      loadAgents();
-    }
-  }, [detailTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Re-run only when a different task is opened, matching the sync effect above.
 
   // Auto-grow description textarea — runs on every content change and on
   // initial mount (when localDescription is set from detailTask).
@@ -614,7 +288,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   // ── Save helpers ─────────────────────────────────────────────────────────
 
   const taskRunView = useTaskRunStore((s) => (detailTask ? s.views[detailTask.id] : undefined));
-  const isReadOnly = isMutating || (activeRun !== null && activeRun.taskId === detailTask?.id);
+  const isReadOnly = isMutating;
 
   const handleTitleBlur = useCallback(() => {
     const trimmed = localTitle.trim();
@@ -659,30 +333,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
     updateTask(detailTask.id, { description: localDescription.trim() });
   }, [detailTask, localDescription, updateTask]);
 
-  // T-009: pipeline save handler
-  const handlePipelineSave = useCallback((pipeline: string[]) => {
-    if (!detailTask) return;
-    updateTask(detailTask.id, { pipeline });
-  }, [detailTask, updateTask]);
-
-  // MODEL-1: save task-level stage model overrides
-  const handleStageModelsSave = useCallback(async () => {
-    if (!detailTask) return;
-    setSavingStageModels(true);
-    try {
-      const stageModels = localModelsToStageModelsMap(localStageModels);
-      await updateTask(detailTask.id, { stageModels });
-      showToast('Model overrides saved', 'success');
-    } catch {
-      showToast('Failed to save model overrides', 'error');
-    } finally {
-      setSavingStageModels(false);
-    }
-  }, [detailTask, localStageModels, updateTask, showToast]);
-
   // Comment handlers — delegate to the store so the board badge refreshes.
   const handleCommentCreated = useCallback(
-    async (payload: { author: string; text: string; type: Comment['type']; parentId?: string; targetAgent?: string }) => {
+    async (payload: { author: string; text: string; type: Comment['type']; parentId?: string }) => {
       if (!detailTask) return;
       await addComment(detailTask.id, payload);
     },
@@ -771,13 +424,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   /** Short ID chip — last 7 chars for display. */
   const shortId = `#${detailTask.id.slice(-7)}`;
 
-  const isActiveRun = activeRun?.taskId === detailTask.id;
   const fieldDisabled = isReadOnly;
-
-  // Find pipeline state for this task (for currentStageIndex)
-  const taskPipelineState = Object.values(pipelineStates).find(
-    (ps) => ps.taskId === detailTask.id && (ps.status === 'running' || ps.status === 'paused' || ps.status === 'blocked')
-  );
 
   // ── Shared sub-elements ──────────────────────────────────────────────────
 
@@ -809,7 +456,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   // ── Two-column centered modal ────────────────────────────────────────────
   // Left (flex-1): title, description, comments.
-  // Right (w-[280px], elevated): ID, type, assigned, pipeline, attachments, timestamps.
+  // Right (w-[280px], elevated): ID, type, assigned, attachments, timestamps.
 
   return (
     <>
@@ -871,13 +518,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
             {/* ── LEFT: title · description · comments ──────────────── */}
             <div className={`min-w-0 overflow-y-auto px-14 pt-7 pb-8 flex flex-col gap-6 md:flex-1 ${mobileTab === 'content' ? 'flex-1' : 'hidden md:flex'}`}>
-              {isActiveRun && (
-                <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-warning/[0.08] border border-warning/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                  <span className="material-symbols-outlined text-warning text-[16px] leading-none flex-shrink-0 animate-run-pulse" aria-hidden="true">motion_mode</span>
-                  <p className="text-[12px] font-medium text-warning/90 leading-snug tracking-wide">Pipeline running — editing paused</p>
-                </div>
-              )}
-
               {/* Title — textarea wraps long titles instead of truncating */}
               <div className="animate-fade-in-up [animation-delay:50ms]">
               <textarea
@@ -907,19 +547,17 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
                   Description
                 </label>
-                <ReferenceAutocomplete
+                <textarea
+                  id="detail-description"
+                  ref={descTextareaRef}
                   value={localDescription}
-                  onChange={setLocalDescription}
-                  inputRef={descTextareaRef}
-                  textareaProps={{
-                    id: 'detail-description',
-                    onBlur: handleSaveDescription,
-                    disabled: fieldDisabled,
-                    'aria-disabled': fieldDisabled,
-                    rows: 1,
-                    className: "w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-[border-color] duration-[220ms] ease-spring",
-                    placeholder: "Add a description… type [[ for a folio reference",
-                  }}
+                  onChange={(e) => setLocalDescription(e.target.value)}
+                  onBlur={handleSaveDescription}
+                  disabled={fieldDisabled}
+                  aria-disabled={fieldDisabled}
+                  rows={1}
+                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-[border-color] duration-[220ms] ease-spring"
+                  placeholder="Add a description…"
                 />
               </div>
 
@@ -1024,140 +662,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 />
               </div>
 
-              {/* Pipeline */}
-              <div className="py-5 animate-fade-in-up [animation-delay:230ms]">
-                <PipelineFieldEditor
-                  pipeline={detailTask.pipeline}
-                  availableAgentIds={availableAgents.map((a) => a.id)}
-                  onSave={handlePipelineSave}
-                  disabled={fieldDisabled}
-                  activeSpace={activeSpace}
-                  currentStageIndex={taskPipelineState?.currentStageIndex}
-                />
-              </div>
-
-              {/* Model Overrides — MODEL-1 */}
-              {(() => {
-                // Show overrides for the task's pipeline, or the space pipeline, or DEFAULT_STAGES
-                const effectivePipeline = detailTask.pipeline?.length
-                  ? detailTask.pipeline
-                  : (activeSpace?.pipeline?.length ? activeSpace.pipeline : ['senior-architect', 'ux-api-designer', 'developer-agent', 'code-reviewer', 'qa-engineer-e2e']);
-                const overrideCount = Object.values(localStageModels).filter(Boolean).length;
-                return (
-                  <div className="py-5 animate-fade-in-up [animation-delay:255ms] border-t border-border/20">
-                    <button
-                      type="button"
-                      onClick={() => setModelOverridesOpen((prev) => !prev)}
-                      aria-expanded={modelOverridesOpen}
-                      aria-controls="task-model-overrides-body"
-                      className="w-full flex items-center justify-between text-left"
-                    >
-                      <span className="flex items-center gap-2">
-                        <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
-                          Model Overrides
-                        </span>
-                        {overrideCount > 0 && (
-                          <span
-                            className="text-[10px] font-medium bg-primary/15 text-primary px-1.5 py-0.5 rounded-full"
-                            aria-label={`${overrideCount} model overrides active`}
-                          >
-                            {overrideCount}
-                          </span>
-                        )}
-                      </span>
-                      <span
-                        className={`material-symbols-outlined text-sm leading-none text-text-tertiary transition-transform duration-fast ${modelOverridesOpen ? 'rotate-180' : ''}`}
-                        aria-hidden="true"
-                      >
-                        expand_more
-                      </span>
-                    </button>
-
-                    {modelOverridesOpen && (
-                      <div id="task-model-overrides-body" className="mt-3 flex flex-col gap-2">
-                        <p className="text-[11px] text-text-disabled leading-relaxed">
-                          Override global + space model settings for this task only. Leave blank to inherit.
-                        </p>
-                        {effectivePipeline.map((agentId) => {
-                          const currentValue = localStageModels[agentId] ?? '';
-                          const hasOverride = agentId in localStageModels && !!currentValue;
-                          const inputId = `task-model-override-${agentId}`;
-                          return (
-                            <div key={agentId} className="flex items-center gap-1.5">
-                              <label
-                                htmlFor={inputId}
-                                className="text-[11px] font-mono text-text-disabled w-28 flex-shrink-0 truncate"
-                                title={agentId}
-                              >
-                                {agentId}
-                              </label>
-                              <input
-                                id={inputId}
-                                type="text"
-                                placeholder="(inherited)"
-                                value={currentValue}
-                                disabled={fieldDisabled}
-                                aria-label={`Model override for ${agentId}`}
-                                onChange={(e) => {
-                                  setLocalStageModels((prev) => ({ ...prev, [agentId]: e.target.value }));
-                                }}
-                                className={`flex-1 min-w-0 px-2 py-1.5 rounded-md bg-surface/60 border border-border/40 text-[11px] font-mono transition-all duration-fast focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 disabled:opacity-40 disabled:cursor-not-allowed placeholder:text-text-disabled/50 ${hasOverride ? 'text-text-primary' : 'text-text-secondary italic'}`}
-                              />
-                              {hasOverride && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setLocalStageModels((prev) => {
-                                      const next = { ...prev };
-                                      delete next[agentId];
-                                      return next;
-                                    });
-                                  }}
-                                  className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded text-text-disabled hover:text-error focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
-                                  aria-label={`Clear override for ${agentId}`}
-                                  title="Clear override"
-                                >
-                                  <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden="true">close</span>
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })}
-                        <div className="flex gap-2 justify-end mt-1">
-                          <Button
-                            variant="ghost"
-                            onClick={() => {
-                              // Reset local state from task
-                              const reset: Record<string, string> = {};
-                              if (detailTask.stageModels) {
-                                for (const [id, cfg] of Object.entries(detailTask.stageModels)) {
-                                  if (cfg !== null) reset[id] = cfg.model;
-                                }
-                              }
-                              setLocalStageModels(reset);
-                            }}
-                            className="text-[11px] px-2.5 py-1"
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            variant="primary"
-                            onClick={handleStageModelsSave}
-                            disabled={fieldDisabled || savingStageModels}
-                            aria-busy={savingStageModels}
-                            className="text-[11px] px-2.5 py-1"
-                          >
-                            {savingStageModels ? 'Saving...' : 'Save'}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
               {/* Depends on — QOL-3.
-                  Always rendered, like Arc and Pipeline above: the field has its
+                  Always rendered, like Arc above: the field has its
                   own "No dependencies" empty state, so hiding it in `done` made
                   it inconsistent with itself as well as with its neighbours. In
                   `done` it is read-only — a finished task is not waiting on

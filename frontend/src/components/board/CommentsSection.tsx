@@ -26,14 +26,14 @@ interface CommentsSectionProps {
   taskId: string;
   comments: Comment[];
   /** Called after a new comment is submitted so the parent can refresh the task. */
-  onCommentCreated: (payload: { author: string; text: string; type: Comment['type']; parentId?: string; targetAgent?: string }) => Promise<void>;
+  onCommentCreated: (payload: { author: string; text: string; type: Comment['type']; parentId?: string }) => Promise<void>;
   /** Called when a question is resolved/un-resolved. */
   onCommentUpdated: (commentId: string, patch: { resolved?: boolean; text?: string }) => Promise<void>;
   /** Called when an open question is answered (posts the answer + resolves the question). */
   onAnswerQuestion: (commentId: string, text: string) => Promise<void>;
   /** When set, the comment form also offers to send the text to the agent as changes to make. */
   onRequestChanges?: (text: string) => Promise<void>;
-  /** Whether interactions are disabled (e.g. while an agent pipeline is running). */
+  /** Whether interactions are disabled (e.g. while a mutation is in flight). */
   disabled?: boolean;
 }
 
@@ -98,19 +98,6 @@ function CommentBubble({ comment, isAnswer, onResolveToggle, disabled }: Comment
               {comment.resolved ? 'resolved' : 'question'}
             </span>
           )}
-          {comment.needsHuman && (
-            <span
-              data-testid="needs-human-badge"
-              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide leading-none bg-error/[0.15] text-error"
-            >
-              needs human
-            </span>
-          )}
-          {comment.targetAgent && (
-            <span data-testid="comment-target-agent" className="text-[10px] text-text-disabled">
-              → {comment.targetAgent}
-            </span>
-          )}
 
           {/* Resolve toggle */}
           {isQuestion && onResolveToggle && !disabled && (
@@ -142,7 +129,7 @@ function CommentBubble({ comment, isAnswer, onResolveToggle, disabled }: Comment
 // ---------------------------------------------------------------------------
 
 interface AddCommentFormProps {
-  onSubmit: (type: Comment['type'], text: string, targetAgent?: string) => Promise<void>;
+  onSubmit: (type: Comment['type'], text: string) => Promise<void>;
   onRequestChanges?: (text: string) => Promise<void>;
   disabled?: boolean;
 }
@@ -156,7 +143,7 @@ function AddCommentForm({ onSubmit, onRequestChanges, disabled }: AddCommentForm
     if (!trimmed || submitting || disabled) return;
     setSubmitting(true);
     try {
-      await onSubmit('note', trimmed, undefined);
+      await onSubmit('note', trimmed);
       setText('');
     } finally {
       setSubmitting(false);
@@ -299,8 +286,8 @@ export function CommentsSection({
   const author = 'user';
 
   const handleSubmit = useCallback(
-    (type: Comment['type'], text: string, targetAgent?: string) =>
-      onCommentCreated({ author, text, type, targetAgent }),
+    (type: Comment['type'], text: string) =>
+      onCommentCreated({ author, text, type }),
     [onCommentCreated],
   );
 
