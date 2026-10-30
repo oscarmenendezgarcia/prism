@@ -116,7 +116,7 @@ function startServer(dataDir, port) {
     detached: true,
     stdio:    'ignore',
     cwd:      PACKAGE_ROOT,
-    env:      Object.assign({}, process.env, { PORT: String(port), DATA_DIR: dataDir }),
+    env:      Object.assign({}, process.env, { PORT: String(port), DATA_DIR: path.resolve(dataDir) }),
   });
   child.unref();
 

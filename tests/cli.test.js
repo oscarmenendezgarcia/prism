@@ -116,7 +116,7 @@ describe('bin/cli.js', () => {
     }
   });
 
-  it('init without --no-start starts the server on the data dir it was given', async () => {
+  it('init without --no-start starts the server on the data dir it was given, even if relative', async () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-cli-start-'));
     const port = await new Promise((resolve) => {
       const probe = net.createServer().listen(0, '127.0.0.1', () => {
@@ -124,20 +124,28 @@ describe('bin/cli.js', () => {
         probe.close(() => resolve(free));
       });
     });
-    let pid;
     try {
-      const result = spawnSync(process.execPath, [CLI, 'init', '--data-dir', tmp, '--port', String(port), '--no-update-check'], {
+      const result = spawnSync(process.execPath, [CLI, 'init', '--data-dir', path.basename(tmp), '--port', String(port), '--no-update-check'], {
         encoding: 'utf8',
         timeout:  20000,
+        cwd:      path.dirname(tmp),
         env:      { ...process.env, HOME: INIT_HOME, PIPELINE_AGENTS_DIR: path.join(INIT_HOME, 'agents') },
       });
       assert.equal(result.status, 0, result.stderr);
-      pid = parseInt(fs.readFileSync(path.join(tmp, 'prism.pid'), 'utf8'), 10);
       assert.match(result.stdout, new RegExp(`ready on port ${port}`));
       assert.ok(fs.existsSync(path.join(tmp, 'prism.db')), 'the server must open its database in --data-dir');
     } finally {
-      if (pid) {
-        try { process.kill(pid); } catch { /* already gone */ }
+      const pidFile = path.join(tmp, 'prism.pid');
+      if (fs.existsSync(pidFile)) {
+        const pid = parseInt(fs.readFileSync(pidFile, 'utf8'), 10);
+        try {
+          process.kill(pid);
+          // kill(pid, 0) throws once the process is gone, which ends the wait.
+          for (let i = 0; i < 100; i++) {
+            process.kill(pid, 0);
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+        } catch { /* gone */ }
       }
       fs.rmSync(tmp, { recursive: true, force: true });
     }

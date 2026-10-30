@@ -71,6 +71,9 @@ async function runGit(cwd, args, opts = {}) {
   }
 }
 
+// `add`, `status` and `commit` scale with the number of files an agent left behind.
+const SAVE_GIT_OPTS = { timeout: 120_000, maxBuffer: 64 * 1024 * 1024 };
+
 /**
  * Emit a structured pipeline log event to stderr.
  * Avoids importing pipelineManager (circular dependency risk).
@@ -198,7 +201,85 @@ async function provision(workingDirectory, runId) {
 }
 
 /**
- * Remove a previously provisioned worktree. Idempotent.
+ * Commit whatever the agent left uncommitted in a worktree, so removing the
+ * worktree cannot lose it. Gitignored files are not saved.
+ *
+ * The user's hooks, signing config and identity must not be able to block the
+ * commit, so they are overridden. If HEAD is detached, the commits are unreachable
+ * once the worktree is gone, so a `<branch>-saved` branch is pointed at them.
+ *
+ * Throws WorktreeError(GIT_ERROR) when the work could not be saved or the worktree
+ * still holds something a commit cannot capture (a nested repo, a dirty submodule).
+ *
+ * @param {{ path: string, branch: string }} worktreeMeta
+ * @param {object} [opts]
+ * @param {string} [opts.reason='unknown'] - Reason for saving (commit message).
+ * @param {string} [opts.runId]            - Run ID (for observability).
+ * @returns {Promise<{ saved: boolean, ref: string|null }>} Whether a new commit was
+ *   created, and the branch holding the work when it is not the run branch.
+ */
+async function saveWork(worktreeMeta, opts = {}) {
+  const { path: worktreePath, branch } = worktreeMeta;
+  const reason = opts.reason || 'unknown';
+  const git    = (args) => runGit(worktreePath, args, SAVE_GIT_OPTS);
+
+  // Without its own .git file, git walks up and would commit the user's checkout.
+  const { stdout: toplevel } = await git(['rev-parse', '--show-toplevel']);
+  if (fs.realpathSync(toplevel.trim()) !== fs.realpathSync(worktreePath)) {
+    throw new WorktreeError(`'${worktreePath}' is not a worktree root.`, 'GIT_ERROR');
+  }
+
+  const status = () => git(['status', '--porcelain', '--untracked-files=normal', '--ignore-submodules=none']);
+
+  let saved = false;
+  if ((await status()).stdout.trim() !== '') {
+    await git(['add', '-A']);
+
+    // A gitlink records only a commit id, and that commit dies with the worktree.
+    const { stdout: raw } = await git(['diff', '--cached', '--raw', '--no-abbrev']);
+    const gitlink = raw.split('\n').find((line) => /^:\d+ 160000 /.test(line));
+    if (gitlink) {
+      throw new WorktreeError(`Nested repository cannot be saved: ${gitlink.split('\t')[1]}`, 'GIT_ERROR');
+    }
+
+    const { stdout: names } = await git(['diff', '--cached', '--name-only']);
+    if (names.trim() !== '') {
+      await git([
+        '-c', 'user.name=Prism',
+        '-c', 'user.email=prism@localhost',
+        '-c', 'commit.gpgsign=false',
+        '-c', 'core.hooksPath=/dev/null',
+        'commit', '-q', '--no-verify', '-m', `prism: save uncommitted work (${reason})`,
+      ]);
+      saved = true;
+      const files = names.trim().split('\n');
+      pipelineLog('worktree.work_saved', {
+        runId: opts.runId, path: worktreePath, reason, fileCount: files.length, files: files.slice(0, 50),
+      });
+    }
+
+    const { stdout: left } = await status();
+    if (left.trim() !== '') {
+      throw new WorktreeError(`Could not save everything: ${left.trim().split('\n')[0]}`, 'GIT_ERROR');
+    }
+  }
+
+  let ref = null;
+  const { stdout: head } = await git(['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (head.trim() === 'HEAD' && branch) {
+    ref = `${branch}-saved`;
+    await git(['branch', '-f', ref, 'HEAD']);
+    pipelineLog('worktree.detached_work_saved', { runId: opts.runId, path: worktreePath, ref });
+  }
+
+  return { saved, ref };
+}
+
+/**
+ * Save any uncommitted work, then remove a previously provisioned worktree. Idempotent.
+ *
+ * If the work cannot be saved the worktree stays on disk, and the startup sweep
+ * tries again.
  *
  * Never throws — errors are logged via pipelineLog('worktree.error', …).
  * If opts.deleteBranch is true, also deletes the branch after removing the worktree.
@@ -227,7 +308,15 @@ async function teardown(worktreeMeta, opts = {}) {
   const workingDirectory = path.dirname(worktreeBase);
 
   // --- Remove the worktree ---
+  let savedWork = false;
   if (fs.existsSync(worktreePath)) {
+    try {
+      savedWork = (await saveWork(worktreeMeta, { reason, runId })).saved;
+    } catch (err) {
+      pipelineLog('worktree.error', { runId, op: 'save_work', code: err.code, message: err.message, kept: worktreePath });
+      return;
+    }
+
     try {
       await runGit(workingDirectory, ['worktree', 'remove', '--force', worktreePath]);
       pipelineLog('worktree.removed', { runId, path: worktreePath, reason });
@@ -247,7 +336,9 @@ async function teardown(worktreeMeta, opts = {}) {
   }
 
   // --- Optionally delete the branch ---
-  if (deleteBranch && branch) {
+  if (deleteBranch && branch && savedWork) {
+    pipelineLog('worktree.branch_kept', { runId, branch, reason: 'holds_saved_work' });
+  } else if (deleteBranch && branch) {
     try {
       await runGit(workingDirectory, ['branch', '-D', branch]);
       pipelineLog('worktree.branch_deleted', { runId, branch, reason });
@@ -389,6 +480,7 @@ async function reapOrphans(dataDir, workingDirectories, store) {
 module.exports = {
   WorktreeError,
   provision,
+  saveWork,
   teardown,
   reapOrphans,
 };
