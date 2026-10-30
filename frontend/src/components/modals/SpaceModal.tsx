@@ -42,6 +42,7 @@ export function SpaceModal() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [hook, setHook] = useState<HookDraft>({ name: 'Tests', command: '' });
+  const [hookError, setHookError] = useState('');
 
   const inputRef = useRef<HTMLInputElement>(null);
   const isOpen = spaceModal?.open ?? false;
@@ -56,6 +57,7 @@ export function SpaceModal() {
   // Pre-fill and reset on open
   useEffect(() => {
     if (isOpen) {
+      setHookError('');
       setHook({
         name:    space?.hooks?.[0]?.name ?? 'Tests',
         command: space?.hooks?.[0]?.command ?? '',
@@ -117,15 +119,24 @@ export function SpaceModal() {
       } else if (mode === 'rename' && space) {
         const command = hook.command.trim();
         const hookName = hook.name.trim();
-        const saved = space.hooks?.[0];
+        const { spaces, loadSpaces } = useAppStore.getState();
+        const saved = (spaces.find((sp) => sp.id === space.id) ?? space).hooks?.[0];
+        setHookError('');
         if (command && !hookName) {
-          setError('Give the check a name.');
+          setHookError('Give the check a name.');
           return;
         }
         // First, because the server refuses it while an agent runs, and then nothing else
         // has changed and the form stays open with the reason.
         if (command !== (saved?.command ?? '') || (command && hookName !== saved?.name)) {
-          await updateSpaceHooks(space.id, command ? [{ name: hookName, command }] : []);
+          try {
+            await updateSpaceHooks(space.id, command ? [{ name: hookName, command }] : []);
+          } catch (err) {
+            setHookError((err as Error).message);
+            return;
+          }
+          // Now, in case the rest fails: the board and a reopened form must show the new check.
+          await loadSpaces();
         }
         const stageModels = localModelsToStageModelsMap(localStageModels);
         await renameSpace(space.id, trimmed, wd ?? '', pl ?? [], nicknames, stageModels);
@@ -264,7 +275,7 @@ export function SpaceModal() {
           </span>
         </div>
 
-        {mode === 'rename' && space && <SpaceHookSection value={hook} onChange={setHook} />}
+        {mode === 'rename' && space && <SpaceHookSection value={hook} onChange={setHook} error={hookError} />}
 
         {/* Model Overrides — rename mode only (MODEL-1) */}
         {mode === 'rename' && (

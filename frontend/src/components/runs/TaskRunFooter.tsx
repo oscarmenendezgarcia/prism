@@ -26,7 +26,7 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   const retry           = useTaskRunStore((s) => s.retry);
   const openDetailPanel = useAppStore((s) => s.openDetailPanel);
 
-  const missingHarness = view?.failure?.reason === 'binary_missing';
+  const missingHarness = column === 'in-progress' && view?.failure?.reason === 'binary_missing';
 
   // A card back in To do starts over, whatever its last run did. So does one whose
   // harness is not installed: retrying could only fail the same way.

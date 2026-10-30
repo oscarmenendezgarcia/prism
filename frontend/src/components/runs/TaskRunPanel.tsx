@@ -75,9 +75,10 @@ function FileRow({ runId, file }: { runId: string; file: ChangedFile }) {
 function ChangedFiles({ view }: { view: TaskRunView }) {
   const [files, setFiles] = useState<ChangedFile[] | null>(null);
   const [error, setError] = useState(false);
-  // The list changes when a run ends or continues, and updatedAt tracks both. Rows are
-  // keyed on it too, so an open one does not keep showing an earlier patch.
-  const stamp = `${view.runId}:${view.updatedAt}:${view.status}`;
+  // Only what changes the patches: other writes to the run must not collapse an open
+  // diff. Rows are keyed on it too, so one does not keep showing an earlier patch.
+  const { result } = view;
+  const stamp = `${view.runId}:${view.iteration}:${view.status}:${result?.ref}:${result?.fileCount}:${result?.additions}:${result?.deletions}`;
 
   useEffect(() => {
     let current = true;
@@ -163,7 +164,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
     if (column !== 'todo') return null;
     return <div className="flex flex-col gap-2" data-testid="run-panel">{startButton}</div>;
   }
-  const missingHarness = view.failure?.reason === 'binary_missing';
+  const missingHarness = column === 'in-progress' && view.failure?.reason === 'binary_missing';
 
   const live = view.status === 'working' || view.status === 'checking';
   const ended = view.status === 'failed' || view.status === 'stopped' || view.status === 'done';

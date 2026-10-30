@@ -15,9 +15,10 @@ export interface HookDraft {
 interface SpaceHookSectionProps {
   value: HookDraft;
   onChange: (value: HookDraft) => void;
+  error?: string;
 }
 
-export function SpaceHookSection({ value, onChange }: SpaceHookSectionProps) {
+export function SpaceHookSection({ value, onChange, error }: SpaceHookSectionProps) {
   return (
     <div className="flex flex-col gap-2" data-testid="space-hook-section">
       <div>
@@ -44,6 +45,7 @@ export function SpaceHookSection({ value, onChange }: SpaceHookSectionProps) {
         aria-label="Command"
         className={`${inputClass} font-mono`}
       />
+      {error && <p className="text-xs text-error" role="alert">{error}</p>}
     </div>
   );
 }

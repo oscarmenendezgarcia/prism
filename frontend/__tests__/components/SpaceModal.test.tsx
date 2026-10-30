@@ -105,19 +105,22 @@ describe('SpaceModal', () => {
   it('saves the check with the rest of the space', async () => {
     const mockRename = vi.fn().mockResolvedValue(undefined);
     const space = { id: 's1', name: 'Old', createdAt: '', updatedAt: '' };
-    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename } as any);
+    const mockLoad = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename, loadSpaces: mockLoad, spaces: [space] } as any);
     const user = userEvent.setup();
     render(<SpaceModal />);
-    await user.type(screen.getByLabelText('Command'), 'npm test');
+    // Not typed: the modal's delayed autofocus could take the focus midway.
+    fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'npm test' } });
     await user.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(mockRename).toHaveBeenCalled());
     expect(updateSpaceHooks).toHaveBeenCalledWith('s1', [{ name: 'Tests', command: 'npm test' }]);
+    expect(mockLoad).toHaveBeenCalled();
   });
 
   it('does not touch the check when it did not change', async () => {
     const mockRename = vi.fn().mockResolvedValue(undefined);
     const space = { id: 's1', name: 'Old', hooks: [{ name: 'CI', command: 'x' }], createdAt: '', updatedAt: '' };
-    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename } as any);
+    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename, spaces: [space] } as any);
     const user = userEvent.setup();
     render(<SpaceModal />);
     await user.click(screen.getByRole('button', { name: /save/i }));
@@ -132,9 +135,10 @@ describe('SpaceModal', () => {
     useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename } as any);
     const user = userEvent.setup();
     render(<SpaceModal />);
-    await user.type(screen.getByLabelText('Command'), 'x');
+    // Not typed: the modal's delayed autofocus could take the focus midway.
+    fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'x' } });
     await user.click(screen.getByRole('button', { name: /save/i }));
-    await waitFor(() => expect(screen.getByText('Wait for the running tasks')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Wait for the running tasks'));
     expect(mockRename).not.toHaveBeenCalled();
   });
 

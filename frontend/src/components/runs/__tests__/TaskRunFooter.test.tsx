@@ -93,6 +93,11 @@ describe('TaskRunFooter', () => {
     expect(api.startTaskRun).toHaveBeenCalled();
   });
 
+  it('offers no restart on a card moved to Done with a missing harness', () => {
+    renderFooter('done', { status: 'failed', failure: { kind: 'agent', exitCode: -1, reason: 'binary_missing' } });
+    expect(screen.queryByRole('button', { name: 'Run' })).toBeNull();
+  });
+
   it('does not run a harness known not to be installed', () => {
     useTaskRunStore.setState({
       views: {}, busyTaskIds: new Set(), choice: { cliTool: 'claude' },

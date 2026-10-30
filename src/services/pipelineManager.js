@@ -1873,7 +1873,8 @@ async function finishDirectRun(dataDir, runId) {
   run.status = 'completed';
   writeRun(dataDir, run);
   pipelineLog('run.completed', { runId, totalDurationMs: Date.now() - new Date(run.createdAt).getTime() });
-  await moveKanbanTask(run.spaceId, run.taskId, 'done');
+  // Directly: the HTTP route refuses moves while a queued action holds the task's lock.
+  _store.moveTask(run.spaceId, run.taskId, 'done');
   await maybeConsolidate(dataDir, run);
 }
 
@@ -1938,25 +1939,16 @@ function listDirectRunViews(spaceId) {
 }
 
 /**
- * Whether a task has a direct run that has not ended.
+ * Whether a task has a direct run that has not ended, or an action on it in flight: a
+ * worktree may be being created for a run that is not on record yet.
  *
  * @param {string} dataDir
  * @param {string} taskId
  * @returns {boolean}
  */
 function hasActiveDirectRun(dataDir, taskId) {
-  return !!_store && !!findActiveRunByTaskId(dataDir, taskId)?.direct;
-}
-
-/**
- * Whether an action on a task's direct run is in flight. A worktree may be being created
- * for a run that is not on record yet, so the task must not be deleted meanwhile.
- *
- * @param {string} taskId
- * @returns {boolean}
- */
-function hasDirectRunActionInFlight(taskId) {
-  return taskLocks.has(taskId);
+  if (!_store) return false;
+  return taskLocks.has(taskId) || !!findActiveRunByTaskId(dataDir, taskId)?.direct;
 }
 
 /**
@@ -2755,11 +2747,14 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
 
   const logPath  = stageLogPath(dataDir, run.runId, stageIndex);
   const doneFile = stageDonePath(dataDir, run.runId, stageIndex);
-  // A sentinel left by an earlier attempt would end this one as soon as it starts, and
-  // so would its log: the poller reads a final result event in it as the agent being
-  // done. The old log is kept beside the new one.
+  // A sentinel left by an earlier attempt would end this one as soon as it starts.
   try { fs.unlinkSync(doneFile); } catch { /* not present */ }
-  try { fs.renameSync(logPath, `${logPath}.${Date.now()}`); } catch { /* not present */ }
+  // So would a direct run's earlier log: the poller reads a final result event in it as
+  // the agent being done. Pipeline runs keep appending, because their log viewer and
+  // metrics read one file per stage. The old log stays beside the new one.
+  if (run.direct) {
+    try { fs.renameSync(logPath, `${logPath}.${Date.now()}`); } catch { /* not present */ }
+  }
 
   const stageStartedAt = Date.now();
 
@@ -2860,10 +2855,14 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
   // present to respond to permission prompts, so any interactive pause would
   // hang the stage until the stall watchdog kills it.
   // A direct run does not rely on Claude finding the agent by name: that only works when
-  // PIPELINE_AGENTS_DIR is one of Claude's own directories.
-  const spawnArgs = run.direct
-    ? ['--print', '--output-format', 'stream-json', '--verbose', '--append-system-prompt', agentSpec.systemPrompt]
-    : agentSpec.spawnArgs;
+  // PIPELINE_AGENTS_DIR is one of Claude's own directories. The prompt goes in a file
+  // because it spans lines, which a Windows command line cannot carry.
+  let spawnArgs = agentSpec.spawnArgs;
+  if (run.direct) {
+    const systemPromptPath = path.join(runDir(dataDir, run.runId), `stage-${stageIndex}-system.md`);
+    fs.writeFileSync(systemPromptPath, agentSpec.systemPrompt, 'utf8');
+    spawnArgs = ['--print', '--output-format', 'stream-json', '--verbose', '--append-system-prompt-file', systemPromptPath];
+  }
   const hasPermissionMode = spawnArgs.includes('--permission-mode');
   const baseArgs = hasPermissionMode
     ? spawnArgs
@@ -5214,7 +5213,6 @@ module.exports = {
   DIRECT_AGENT_ID,
   listDirectRunViews,
   hasActiveDirectRun,
-  hasDirectRunActionInFlight,
   spaceHasActiveDirectRun,
   closeDirectRun,
   closeTaskDirectRuns,

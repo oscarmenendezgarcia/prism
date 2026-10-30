@@ -28,11 +28,12 @@ echo "output of turn $n"
 case "$mode" in
   fail) exit 3 ;;
   result-then-work)
-    echo '{"type":"result","subtype":"success"}'
+    echo '{"type":"result","subtype":"success","terminal_reason":"completed"}'
     sleep 4
     echo "late work $n" >> agent-work.txt
     exit 0 ;;
   slow) sleep 3; echo "work $n" >> agent-work.txt; exit 0 ;;
+  slower) sleep 7; echo "work $n" >> agent-work.txt; exit 0 ;;
   question-then-slow)
     echo slow > "$W/mode"
     curl -s -X POST "$KANBAN_API_URL/spaces/$PRISM_TEST_SPACE/tasks/$PRISM_TEST_TASK/comments" \\
@@ -205,7 +206,8 @@ describe('direct task runs', () => {
 
     const args = fs.readFileSync(path.join(agentDir, 'last-args'), 'utf8').split('\n');
     assert.ok(!args.includes('--agent'), 'works whatever the agents directory is');
-    assert.ok(args.includes('--append-system-prompt'));
+    const systemPrompt = args[args.indexOf('--append-system-prompt-file') + 1];
+    assert.match(fs.readFileSync(systemPrompt, 'utf8'), /working on one task/);
     assert.equal(args[args.indexOf('--model') + 1], 'sonnet', 'the model is explicit without --agent');
     assert.ok(args.includes('bypassPermissions'));
 
@@ -213,6 +215,17 @@ describe('direct task runs', () => {
     assert.match(prompt, /YOUR CARD IN PRISM/);
     assert.doesNotMatch(prompt, /todo → in-progress/);
     assert.doesNotMatch(prompt, /LastStage/);
+  });
+
+  test('a card cannot be moved while its run is starting', async () => {
+    const taskId = await makeTask();
+    const started = call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    await new Promise((r) => setTimeout(r, 5));
+    const moved = await call('PUT', `/spaces/${space}/tasks/${taskId}/move`, { to: 'done' });
+    assert.equal((await started).status, 201);
+    assert.equal(moved.status, 409);
+    await waitFor(taskId, 'done');
+    assert.equal(await columnOf(taskId), 'done');
   });
 
   test('refuses a second run, a bad harness and an unsafe model', async () => {
@@ -540,10 +553,11 @@ describe('direct task runs', () => {
     const { json: run } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
     await waitFor(taskId, 'done');
 
-    setMode('slow');
+    setMode('slower');
     await call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'More' });
     await waitFor(taskId, 'working');
-    await new Promise((r) => setTimeout(r, 2500));
+    // The poller needs two ticks of 2s to read the old log and act on it.
+    await new Promise((r) => setTimeout(r, 5000));
     assert.equal((await view(taskId)).status, 'working');
     await waitFor(taskId, 'done');
     assert.match(git(repo, 'show', `${run.worktree.branch}:agent-work.txt`), /work/);
