@@ -22,11 +22,11 @@ All tool names are prefixed `kanban_` and available as `mcp__prism__kanban_*` in
 
 | Tool | Required params | Optional params | Description |
 |------|----------------|----------------|-------------|
-| `kanban_list_tasks` | — | `column`, `assigned`, `limit` (def 50, max 200), `cursor`, `spaceId` | List tasks with pagination. Returns `{ todo, in-progress, done, total, nextCursor }` |
-| `kanban_get_task` | `id` | `spaceId` | Get a single task by ID |
-| `kanban_create_task` | `title`, `type` | `description`, `assigned`, `arc`, `dependsOn`, `spaceId` | Create task in `todo`. `dependsOn` = task IDs this one waits on (max 20); a blocked task cannot start a run |
-| `kanban_update_task` | `id` | `title`, `type`, `description`, `assigned`, `arc`, `dependsOn`, `attachments`, `mode`, `pipeline`, `spaceId` | Update fields and/or attachments. `mode` defaults to `merge`; pass `mode:'replace'` to overwrite the entire array |
-| `kanban_move_task` | `id`, `to` | `spaceId` | Move to `todo \| in-progress \| done` |
+| `kanban_list_tasks` | — | `column`, `assigned`, `limit` (def 50, max 200), `cursor`, `spaceId` | List tasks with pagination. Returns `{ <status id>: [...], total, nextCursor }` |
+| `kanban_get_task` | `id` | `spaceId` | Get a single issue by ID or key (`WEB-142`) |
+| `kanban_create_task` | `title`, `type` | `description`, `assigned`, `priority`, `labels`, `parentId`, `dueDate`, `estimate`, `dependsOn`, `spaceId` | Create an issue in the first to-do status. `type` may be `epic`. `dependsOn` = task IDs this one waits on (max 20); a blocked task cannot start a run |
+| `kanban_update_task` | `id` | `title`, `type`, `description`, `assigned`, `priority`, `labels`, `parentId`, `dueDate`, `estimate`, `dependsOn`, `attachments`, `mode`, `spaceId` | Update fields and/or attachments. `mode` defaults to `merge`; pass `mode:'replace'` to overwrite the entire array |
+| `kanban_move_task` | `id`, `to` | `spaceId` | Move to a status of the space, by id. Defaults: `todo`, `in-progress`, `in-review`, `done` |
 | `kanban_delete_task` | `id` | `spaceId` | Delete a task |
 | `kanban_clear_board` | — | `spaceId` | Delete all tasks in a space |
 | `kanban_search_tasks` | `q` | `limit` (def 20, max 50) | Full-text search (FTS5/BM25) across **all spaces** — title + description. Returns `{ task, spaceId, spaceName, column }` per hit. Prefer this over iterating `kanban_get_task` when you don't know the spaceId. |

@@ -16,12 +16,15 @@
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/spaces/:spaceId/tasks` | List tasks. Params: `?column=`, `?assigned=`, `?limit=` (default 50, max 200), `?cursor=` |
-| POST | `/spaces/:spaceId/tasks` | Create task `{ title, type, description?, assigned?, attachments?, dependsOn? }` |
+| GET | `/spaces/:spaceId/tasks` | List issues grouped by status id. Params: `?status=` (or `?column=`), `?category=todo\|in-progress\|done`, `?assigned=`, `?limit=` (default 50, max 200), `?cursor=` |
+| POST | `/spaces/:spaceId/tasks` | Create issue `{ title, type, statusId?, priority?, labels?, parentId?, dueDate?, estimate?, description?, assigned?, attachments?, dependsOn? }`. `type` may be `epic`. Starts in the first to-do status |
 | DELETE | `/spaces/:spaceId/tasks` | Clear all tasks in space |
-| GET | `/spaces/:spaceId/tasks/:id` | Get single task |
-| PATCH | `/spaces/:spaceId/tasks/:id` | Update task fields |
-| PUT | `/spaces/:spaceId/tasks/:id/move` | Move task `{ to: "todo|in-progress|done" }` |
+| GET | `/spaces/:spaceId/tasks/:id` | Get an issue, with its `children`. Every route here takes the key (`WEB-142`) in place of the id |
+| GET | `/spaces/:spaceId/tasks/:id/history` | What changed, newest first: `{ history: [{ actor, field, oldValue, newValue, createdAt }] }` |
+| GET | `/issues/:key` | Find an issue by key in any space. Old keys keep working |
+| PUT | `/spaces/:spaceId/statuses` | Replace the statuses `{ statuses: [{ id?, name, category }], moves?: { removedId: targetId } }`. No id means new. 409 `STATUS_IN_USE` if a removed status has issues and no destination |
+| PUT | `/spaces/:spaceId/tasks/:id` | Update fields. `parentId`, `dueDate` and `estimate` take null to clear; `labels` takes [] |
+| PUT | `/spaces/:spaceId/tasks/:id/move` | Move to a status of the space `{ to: "<status id>" }`. Defaults: `todo`, `in-progress`, `in-review`, `done` |
 | DELETE | `/spaces/:spaceId/tasks/:id` | Delete task |
 | PUT | `/spaces/:spaceId/tasks/:id/attachments` | Replace attachments array entirely (empty array clears all) |
 | PATCH | `/spaces/:spaceId/tasks/:id/attachments` | Merge attachments by name (upsert in place, keep unlisted) |
