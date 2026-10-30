@@ -9,7 +9,7 @@
 
 const crypto = require('crypto');
 const { promisify } = require('util');
-const { isAgentId } = require('../utils/agents');
+const { isAgentId, AGENT_DISPLAY_NAMES } = require('../utils/agents');
 
 const scrypt = promisify(crypto.scrypt);
 
@@ -59,8 +59,37 @@ const ACCOUNTS_SQL = `
   );
 `;
 
+const API_TOKENS_SQL = `
+  CREATE TABLE IF NOT EXISTS api_tokens (
+    id           TEXT PRIMARY KEY,
+    token_hash   TEXT NOT NULL UNIQUE,
+    user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    access       TEXT NOT NULL CHECK (access IN ('full', 'read')),
+    created_at   TEXT NOT NULL,
+    last_used_at TEXT,
+    expires_at   TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+
+  CREATE TABLE IF NOT EXISTS run_tokens (
+    run_id        TEXT PRIMARY KEY,
+    token_hash    TEXT NOT NULL UNIQUE,
+    space_id      TEXT NOT NULL,
+    task_id       TEXT NOT NULL,
+    task_key      TEXT,
+    agent         TEXT NOT NULL,
+    started_by_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at    TEXT NOT NULL
+  );
+`;
+
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 const newToken = () => crypto.randomBytes(32).toString('base64url');
+/** Tells them apart from a password at a glance, and lets secret scanners find them. */
+const API_TOKEN_PREFIX = 'prism_';
+/** Longer than an agent is allowed to run. */
+const RUN_TOKEN_HOURS = 2;
 const inDays = (days) => new Date(Date.now() + days * DAY_MS).toISOString();
 
 /** @param {string} password */
@@ -115,6 +144,19 @@ function createAccounts(db) {
     setActive:    db.prepare('UPDATE users SET active = ? WHERE id = ?'),
     countAdmins:  db.prepare(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1`),
     dropUserLinks: db.prepare('DELETE FROM account_links WHERE user_id = ?'),
+    insertToken:  db.prepare(`
+      INSERT INTO api_tokens (id, token_hash, user_id, name, access, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`),
+    listTokens:   db.prepare('SELECT * FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC'),
+    findToken:    db.prepare('SELECT * FROM api_tokens WHERE token_hash = ?'),
+    touchToken:   db.prepare('UPDATE api_tokens SET last_used_at = ? WHERE id = ?'),
+    dropToken:    db.prepare('DELETE FROM api_tokens WHERE id = ? AND user_id = ?'),
+    dropTokens:   db.prepare('DELETE FROM api_tokens WHERE user_id = ?'),
+    insertRunToken: db.prepare(`
+      INSERT OR REPLACE INTO run_tokens (run_id, token_hash, space_id, task_id, task_key, agent, started_by_id, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+    findRunToken: db.prepare('SELECT * FROM run_tokens WHERE token_hash = ?'),
+    dropRunToken: db.prepare('DELETE FROM run_tokens WHERE run_id = ?'),
     dropLinksMadeBy: db.prepare('DELETE FROM account_links WHERE created_by_id = ?'),
     listNames:    db.prepare('SELECT name FROM users'),
     insertSession: db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, used_at, expires_at) VALUES (?, ?, ?, ?, ?)'),
@@ -250,7 +292,9 @@ function createAccounts(db) {
       if (link.kind === 'reset') {
         stmts.dropLink.run(link.id);
         stmts.setPassword.run(passwordHash, link.user_id);
+        // Someone who needs this may be locked out for a reason: what was open closes.
         stmts.dropSessions.run(link.user_id);
+        stmts.dropTokens.run(link.user_id);
         return publicUser(stmts.getUser.get(link.user_id));
       }
       if (stmts.getByEmail.get(link.email)) return { error: 'EMAIL_TAKEN' };
@@ -280,15 +324,74 @@ function createAccounts(db) {
       if (active === false) {
         stmts.dropSessions.run(id);
         stmts.dropUserLinks.run(id);
+        stmts.dropTokens.run(id);
       }
       if (wasActiveAdmin && !staysActiveAdmin) stmts.dropLinksMadeBy.run(id);
       return publicUser(stmts.getUser.get(id));
     })();
   }
 
+  const publicToken = (row) => ({
+    id: row.id, name: row.name, access: row.access, createdAt: row.created_at, lastUsedAt: row.last_used_at, expiresAt: row.expires_at,
+  });
+
+  /** @returns {object} The token as listed, and the secret, which is never shown again. */
+  function createApiToken({ userId, name, access, days }) {
+    const secret = `${API_TOKEN_PREFIX}${newToken()}`;
+    const id = crypto.randomUUID();
+    stmts.insertToken.run(id, hashToken(secret), userId, name, access, new Date().toISOString(), days ? inDays(days) : null);
+    return { ...publicToken(stmts.findToken.get(hashToken(secret))), secret };
+  }
+
+  /**
+   * Who holds a token of the API. A person's acts as them, but never above their role, and a
+   * read-only one as a viewer. An agent's only works while whoever started it is still active.
+   *
+   * @returns {object|null} What a request with it counts as.
+   */
+  function identityForToken(secret) {
+    const tokenHash = hashToken(secret);
+    const now = Date.now();
+    const personal = stmts.findToken.get(tokenHash);
+    if (personal) {
+      const user = stmts.getUser.get(personal.user_id);
+      if (user?.active !== 1 || (personal.expires_at && Date.parse(personal.expires_at) <= now)) return null;
+      if (!personal.last_used_at || now - Date.parse(personal.last_used_at) > SESSION_TOUCH_MS) {
+        stmts.touchToken.run(new Date(now).toISOString(), personal.id);
+      }
+      const person = publicUser(user);
+      return { ...person, role: personal.access === 'read' ? 'viewer' : person.role, viaToken: true };
+    }
+    const run = stmts.findRunToken.get(tokenHash);
+    if (!run || Date.parse(run.expires_at) <= now) return null;
+    const starter = stmts.getUser.get(run.started_by_id);
+    if (starter?.active !== 1) return null;
+    return {
+      id: `agent:${run.agent}`,
+      name: `${AGENT_DISPLAY_NAMES[run.agent] ?? run.agent}, started by ${starter.name}`,
+      role: 'agent',
+      viaToken: true,
+      run: { runId: run.run_id, spaceId: run.space_id, taskId: run.task_id, taskKey: run.task_key },
+    };
+  }
+
+  /** @returns {string} A token good for this run alone. A new turn replaces the last one's. */
+  function createRunToken({ runId, spaceId, taskId, taskKey, agent, startedById }) {
+    const secret = newToken();
+    const expiresAt = new Date(Date.now() + RUN_TOKEN_HOURS * 60 * 60 * 1000).toISOString();
+    stmts.insertRunToken.run(runId, hashToken(secret), spaceId, taskId, taskKey ?? null, agent, startedById, expiresAt);
+    return secret;
+  }
+
   return {
     hasUsers,
     updateUser,
+    createApiToken,
+    identityForToken,
+    createRunToken,
+    endRunToken: (runId) => stmts.dropRunToken.run(runId),
+    listApiTokens: (userId) => stmts.listTokens.all(userId).map(publicToken),
+    deleteApiToken: (id, userId) => stmts.dropToken.run(id, userId).changes > 0,
     createFirstAdmin,
     signIn,
     createSession,
@@ -308,4 +411,4 @@ function createAccounts(db) {
   };
 }
 
-module.exports = { ACCOUNTS_SQL, ROLES, createAccounts, normalizeEmail };
+module.exports = { ACCOUNTS_SQL, API_TOKENS_SQL, API_TOKEN_PREFIX, ROLES, createAccounts, normalizeEmail };

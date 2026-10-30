@@ -73,6 +73,11 @@ async function readObjectBody(req, res) {
   return body;
 }
 
+/** Who starts an agent, whose it is until it ends. */
+function startedBy(req) {
+  return req.user && !req.user.unverified ? { id: req.user.id, name: req.user.name } : null;
+}
+
 function sendRunError(res, err, op) {
   const status = ERROR_STATUS[err.code];
   if (status && status < 500) return sendError(res, status, err.code, err.message);
@@ -150,7 +155,7 @@ async function handleStartTaskRun(req, res, store, spaceId, taskId, workingDirec
   }
 
   try {
-    const run = await taskRunner.createRun({ spaceId, taskId, workingDirectory, agentConfig: config });
+    const run = await taskRunner.createRun({ spaceId, taskId, workingDirectory, agentConfig: config, startedBy: startedBy(req) });
     return sendJSON(res, 201, run);
   } catch (err) {
     return sendRunError(res, err, 'starting task run');
@@ -206,7 +211,7 @@ async function handleRequestChanges(req, res, store, spaceId, taskId) {
   }
 
   try {
-    return sendJSON(res, 200, await taskRunner.requestChanges(view.runId, text, { author: readActor(req, 'user'), authorId: req.user?.unverified ? undefined : req.user?.id }));
+    return sendJSON(res, 200, await taskRunner.requestChanges(view.runId, text, { author: readActor(req, 'user'), authorId: req.user?.unverified ? undefined : req.user?.id, startedBy: startedBy(req) }));
   } catch (err) {
     return sendRunError(res, err, 'requesting changes');
   }
@@ -274,7 +279,7 @@ async function handleResumeRun(req, res, store, runId) {
     if (run && !req.user?.unverified && !agentIsOn(store.getSpace(run.spaceId), run.agentConfig?.cliTool ?? 'claude')) {
       return sendError(res, 403, 'AGENT_OFF', 'This agent is off in this space. An admin can turn it on in Space settings.');
     }
-    return sendJSON(res, 200, await taskRunner.resumeRun(runId));
+    return sendJSON(res, 200, await taskRunner.resumeRun(runId, startedBy(req)));
   } catch (err) {
     return sendRunError(res, err, 'resuming run');
   }

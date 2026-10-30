@@ -24,6 +24,7 @@ import type {
   Status,
   AuthStatus,
   AccountLink,
+  ApiToken,
   Invite,
   Role,
   SpaceAgents,
@@ -122,6 +123,14 @@ export const getUnlinkedAssignees = (): Promise<string[]> => apiFetch<string[]>(
 
 export const claimAssignee = (userId: string, name: string): Promise<{ moved: number }> =>
   apiFetch<{ moved: number }>(`/users/${encodeURIComponent(userId)}/claim-assignee`, { method: 'POST', body: JSON.stringify({ name }) });
+
+export const getApiTokens = (): Promise<ApiToken[]> => apiFetch<ApiToken[]>('/tokens');
+
+export const createApiToken = (body: { name: string; access: ApiToken['access']; days: number | null }): Promise<ApiToken & { secret: string }> =>
+  apiFetch<ApiToken & { secret: string }>('/tokens', { method: 'POST', body: JSON.stringify(body) });
+
+export const deleteApiToken = (id: string): Promise<{ deleted: true; id: string }> =>
+  apiFetch<{ deleted: true; id: string }>(`/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
 export const getUsers = (): Promise<User[]> => apiFetch<User[]>('/users');
 

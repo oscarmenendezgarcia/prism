@@ -363,6 +363,15 @@ export interface Invite {
   expiresAt: string;
 }
 
+export interface ApiToken {
+  id: string;
+  name: string;
+  access: 'full' | 'read';
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+}
+
 export interface AccountLink {
   kind: 'invite' | 'reset';
   email: string;

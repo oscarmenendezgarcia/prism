@@ -7,6 +7,8 @@
 
 const AGENT_IDS = ['claude', 'opencode', 'pi', 'hermes'];
 
+const AGENT_DISPLAY_NAMES = { claude: 'Claude Code', opencode: 'opencode', pi: 'pi', hermes: 'Hermes' };
+
 /** How the old free-text assignee might have named an agent. */
 const CLAUDE_ALIASES = ['claude code', 'sonnet', 'opus', 'haiku'];
 
@@ -23,4 +25,4 @@ function agentFromOldName(name) {
 /** Whether a space has this agent turned on. They start off. */
 const agentIsOn = (space, id) => space?.hooks?.agents?.[id]?.enabled === true;
 
-module.exports = { AGENT_IDS, isAgentId, agentFromOldName, agentIsOn };
+module.exports = { AGENT_IDS, AGENT_DISPLAY_NAMES, isAgentId, agentFromOldName, agentIsOn };

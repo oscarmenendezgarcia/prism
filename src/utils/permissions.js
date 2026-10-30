@@ -14,6 +14,8 @@ const ISSUE = `${TASKS}/[^/]+`;
 
 /** [methods, path, the least role that may]. The first that matches decides. */
 const RULES = [
+  ['POST',           /^\/api\/v1\/tokens$/, 'viewer'],
+  ['DELETE',         /^\/api\/v1\/tokens\/[^/]+$/, 'viewer'],
   ['GET',            /^\/api\/v1\/runs\/[^/]+\/(diff|log)$/, 'member'],
   ['DELETE',         new RegExp(`^${TASKS}$`), 'admin'],
   ['POST',           new RegExp(`^${TASKS}$`), 'member'],
@@ -27,6 +29,36 @@ const RULES = [
   ['POST',           new RegExp(`^${ISSUE}/(run|request-changes|close|pr)$`), 'member'],
   ['POST',           /^\/api\/v1\/runs\/[^/]+\/(stop|resume)$/, 'member'],
 ];
+
+/**
+ * What an agent may do with the token of its run: read the space it works in, and comment on
+ * and update its own issue. Nothing about accounts, other spaces or the server.
+ *
+ * @param {{ spaceId: string, taskId: string, taskKey: string|null }} run
+ * @param {string} method
+ * @param {string} urlPath
+ * @returns {boolean}
+ */
+function runMayRequest(run, method, urlPath) {
+  // The legacy routes are the default space, except a search, which covers them all.
+  if (urlPath === '/api/v1/tasks/search') return false;
+  const path = urlPath.replace(/^\/api\/v1\/tasks(?=\/|$)/, '/api/v1/spaces/default/tasks');
+  const space = `/api/v1/spaces/${run.spaceId}`;
+  const own = [run.taskId, run.taskKey].filter(Boolean).some((ref) => path === `${space}/tasks/${ref}` || path.startsWith(`${space}/tasks/${ref}/`));
+
+  if (method === 'GET') {
+    return path === '/api/v1/spaces' || path === space || path === `${space}/tasks` || path.startsWith(`${space}/tasks/`);
+  }
+  if (!own) return false;
+  const rest = path.slice(path.indexOf('/tasks/') + '/tasks/'.length).split('/').slice(1).join('/');
+  if (method === 'PUT') return rest === '';
+  if (method === 'POST') return rest === 'comments';
+  if (method === 'PATCH') return rest === 'attachments' || /^comments\/[^/]+$/.test(rest);
+  return false;
+}
+
+/** With a token, nothing that gives more access: only someone signed in manages accounts. */
+const ACCOUNT_ROUTES = /^\/api\/v1\/(tokens|invites|assignees|users\/)/;
 
 /**
  * @param {string} method
@@ -47,7 +79,9 @@ function leastRole(method, urlPath) {
  * @returns {boolean}
  */
 function mayRequest(user, method, urlPath) {
+  if (user.run) return runMayRequest(user.run, method, urlPath);
+  if (user.viaToken && ACCOUNT_ROUTES.test(urlPath)) return false;
   return RANK[user.role] >= RANK[leastRole(method, urlPath)];
 }
 
-module.exports = { leastRole, mayRequest };
+module.exports = { leastRole, mayRequest, runMayRequest };

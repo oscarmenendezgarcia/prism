@@ -36,6 +36,8 @@ const PUBLIC_ROUTES = [
   /^(GET|POST) \/api\/v1\/auth\/links\/[^/]+$/,
 ];
 
+const TOKEN_ROUTE = /^\/api\/v1\/tokens\/([^/]+)$/;
+const TOKEN_DAYS = [30, 90, 365];
 const CLAIM_ROUTE = /^\/api\/v1\/users\/([^/]+)\/claim-assignee$/;
 const USER_ROUTE = /^\/api\/v1\/users\/([^/]+)$/;
 const INVITE_ROUTE = /^\/api\/v1\/invites\/([^/]+)$/;
@@ -168,6 +170,8 @@ function createAuth({ store: { accounts, assignees, renameAssignee }, required, 
       return true;
     }
     const urlPath = req.url.split('?')[0];
+    const bearer = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1];
+    if (bearer) return admitToken(req, res, bearer, urlPath);
     const token = sessionToken(req);
     const session = token ? accounts.sessionFor(token) : null;
     req.user = session?.user ?? null;
@@ -191,6 +195,27 @@ function createAuth({ store: { accounts, assignees, renameAssignee }, required, 
       sendError(res, 403, 'FORBIDDEN', 'Your role does not allow this.');
       return false;
     }
+    return true;
+  }
+
+  /** A token counts for the request alone. A wrong one does not fall back to a cookie. */
+  function admitToken(req, res, bearer, urlPath) {
+    req.user = accounts.identityForToken(bearer);
+    if (!urlPath.startsWith('/api/')) return true;
+    if (!req.user) {
+      sendError(res, 401, 'UNAUTHENTICATED', 'That token is not valid. It may have expired or been revoked.');
+      return false;
+    }
+    if (!mayRequest(req.user, req.method, urlPath)) {
+      sendError(res, 403, 'FORBIDDEN', 'This token does not allow this.');
+      return false;
+    }
+    req.stillAllowed = () => {
+      const now = accounts.identityForToken(bearer);
+      if (!now || !mayRequest(now, req.method, urlPath)) return false;
+      req.user = now;
+      return true;
+    };
     return true;
   }
 
@@ -314,6 +339,16 @@ function createAuth({ store: { accounts, assignees, renameAssignee }, required, 
     sendJSON(res, 200, { moved: renameAssignee(body.name, user.name) });
   }
 
+  async function handleCreateToken(req, res) {
+    const body = await readBody(req, res);
+    if (!body) return;
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!name || name.length > NAME_MAX) return sendError(res, 400, 'VALIDATION_ERROR', `The name must have 1 to ${NAME_MAX} characters.`);
+    if (!['full', 'read'].includes(body.access)) return sendError(res, 400, 'VALIDATION_ERROR', 'access must be full or read.');
+    if (body.days !== null && !TOKEN_DAYS.includes(body.days)) return sendError(res, 400, 'VALIDATION_ERROR', `days must be null or one of: ${TOKEN_DAYS.join(', ')}.`);
+    sendJSON(res, 201, accounts.createApiToken({ userId: req.user.id, name, access: body.access, days: body.days }));
+  }
+
   async function handleUpdateUser(req, res, userId) {
     const body = await readBody(req, res);
     if (!body) return;
@@ -368,6 +403,18 @@ function createAuth({ store: { accounts, assignees, renameAssignee }, required, 
       return true;
     }
     if (urlPath === '/api/v1/invites' && method === 'POST') { await handleCreateInvite(req, res); return true; }
+
+    if (urlPath === '/api/v1/tokens' && method === 'GET') {
+      sendJSON(res, 200, accounts.listApiTokens(req.user.id));
+      return true;
+    }
+    if (urlPath === '/api/v1/tokens' && method === 'POST') { await handleCreateToken(req, res); return true; }
+    const apiToken = TOKEN_ROUTE.exec(urlPath);
+    if (apiToken && method === 'DELETE') {
+      if (accounts.deleteApiToken(apiToken[1], req.user.id)) sendJSON(res, 200, { deleted: true, id: apiToken[1] });
+      else sendError(res, 404, 'NOT_FOUND', 'You have no such token.');
+      return true;
+    }
 
     if (urlPath === '/api/v1/assignees/unlinked' && method === 'GET') {
       if (requireAdmin(req, res)) sendJSON(res, 200, unlinkedAssignees());

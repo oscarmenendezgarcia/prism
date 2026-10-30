@@ -33,7 +33,11 @@ const {
   buildDirectCardBlock,
   buildCommentsBlock,
   buildChangeRequestBlock,
+  UNTRUSTED_RULES,
+  untrusted,
 } = require('../utils/promptBuilder');
+
+const { AGENT_DISPLAY_NAMES } = require('../utils/agents');
 
 const AGENT_NAME          = 'prism-agent';
 const AGENT_FILE          = path.join(__dirname, '..', '..', 'agents', `${AGENT_NAME}.md`);
@@ -135,6 +139,8 @@ function readRun(runId) {
 function writeRun(run) {
   run.updatedAt = new Date().toISOString();
   _store.upsertRun(run);
+  // An agent that stopped running needs its token no more.
+  if (run.agent?.status !== 'running') _store.accounts?.endRunToken(run.runId);
 }
 
 function requireRun(runId) {
@@ -169,7 +175,8 @@ function assertNotEpic(task) {
 
 /** Who the history says did what a run did. */
 function agentName(run) {
-  return run.agentConfig?.cliTool ?? 'claude';
+  const agent = run.agentConfig?.cliTool ?? 'claude';
+  return run.startedBy ? `${AGENT_DISPLAY_NAMES[agent] ?? agent}, started by ${run.startedBy.name}` : agent;
 }
 
 /**
@@ -611,8 +618,9 @@ function buildPrompt(run) {
   const task = _store.getTask(spaceId, taskId);
   const cwd  = run.worktree.path;
 
-  let prompt = `Task: ${task.key}: ${task.title}\n`;
-  if (task.description) prompt += `Description: ${task.description}\n`;
+  let prompt = `${UNTRUSTED_RULES}\n\n`;
+  prompt += `Task: ${task.key}\n${untrusted('title', task.title)}\n`;
+  if (task.description) prompt += `${untrusted('description', task.description)}\n`;
   prompt += `TaskId: ${task.id}\nSpaceId: ${spaceId}\nRunId: ${runId}\n`;
   prompt += `\nWorking Directory: ${cwd}\n`;
   prompt += '⚠️ You MUST cd into this directory before starting work. All file paths should be relative to this directory.\n';
@@ -634,10 +642,31 @@ function buildPrompt(run) {
   }
   if (run.hook?.status === 'failed') {
     const what = run.hook.command ? ` (\`${run.hook.command}\`)` : '';
-    prompt += `\n## FAILED CHECK\nThe check "${run.hook.name}"${what} failed after your last turn. Fix what it reports. Its output:\n\n${run.hook.outputTail}\n`;
+    prompt += `\n## FAILED CHECK\nThe check "${run.hook.name}"${what} failed after your last turn. Fix what it reports. Its output:\n\n${untrusted('check output', run.hook.outputTail)}\n`;
   }
-  prompt += `\n${buildDirectCardBlock(spaceId, taskId, AGENT_NAME)}\n`;
+  prompt += `\n${buildDirectCardBlock(spaceId, taskId)}\n`;
   return prompt;
+}
+
+/**
+ * What an agent runs with: the server's environment, with no credential of anyone's but a
+ * token good for this run alone.
+ *
+ * @returns {NodeJS.ProcessEnv}
+ */
+function agentEnv(run, config) {
+  const { PRISM_TOKEN: _ours, ...env } = process.env;
+  if (run.startedBy) {
+    env.PRISM_TOKEN = _store.accounts.createRunToken({
+      runId: run.runId,
+      spaceId: run.spaceId,
+      taskId: run.taskId,
+      taskKey: _store.getTask(run.spaceId, run.taskId)?.key,
+      agent: config.cliTool,
+      startedById: run.startedBy.id,
+    });
+  }
+  return env;
 }
 
 function failAgent(run, reason, exitCode = -1) {
@@ -736,8 +765,8 @@ async function startAgent(runId) {
 
   const child = process.platform === 'win32'
     // /V:ON evaluates !ERRORLEVEL! after the CLI exits, not at parse time.
-    ? spawn('cmd.exe', ['/V:ON', '/C', adapter.buildWindowsCommand(commandOpts)], { stdio: 'ignore', detached: true, cwd: run.worktree.path, env: { ...process.env } })
-    : spawn('sh', ['-c', adapter.buildUnixCommand(commandOpts)], { stdio: 'ignore', detached: true, cwd: run.worktree.path, env: { ...process.env } });
+    ? spawn('cmd.exe', ['/V:ON', '/C', adapter.buildWindowsCommand(commandOpts)], { stdio: 'ignore', detached: true, cwd: run.worktree.path, env: agentEnv(run, config) })
+    : spawn('sh', ['-c', adapter.buildUnixCommand(commandOpts)], { stdio: 'ignore', detached: true, cwd: run.worktree.path, env: agentEnv(run, config) });
 
   // The agent keeps running if the server restarts.
   child.unref();
@@ -1059,7 +1088,7 @@ function assertRoomForRun() {
  * @throws NOT_A_GIT_REPO, RUN_ACTIVE, TASK_NOT_FOUND, TASK_NOT_IN_TODO,
  *   MAX_CONCURRENT_REACHED, WORKTREE_PROVISION_FAILED.
  */
-async function createRun({ spaceId, taskId, workingDirectory, agentConfig = null }) {
+async function createRun({ spaceId, taskId, workingDirectory, agentConfig = null, startedBy = null }) {
   if (!workingDirectory) {
     throw runnerError('NOT_A_GIT_REPO', 'This space has no working directory. Set one to a git repository to run tasks.');
   }
@@ -1116,6 +1145,7 @@ async function createRun({ spaceId, taskId, workingDirectory, agentConfig = null
       workingDirectory,
       worktree,
       ...(agentConfig && { agentConfig }),
+      ...(startedBy && { startedBy }),
       createdAt: now,
       updatedAt: now,
     };
@@ -1291,7 +1321,7 @@ async function closeSpaceRuns(spaceId) {
  * @returns {Promise<object>} Updated run.
  * @throws RUN_NOT_FOUND, RUN_ACTIVE, WORKTREE_UNAVAILABLE.
  */
-async function requestChanges(runId, text, { author = 'user', authorId } = {}) {
+async function requestChanges(runId, text, { author = 'user', authorId, startedBy = null } = {}) {
   const { taskId } = requireRun(runId);
   const stops = stopCounts.get(runId);
   return withTaskLock(taskId, async () => {
@@ -1325,6 +1355,7 @@ async function requestChanges(runId, text, { author = 'user', authorId } = {}) {
     });
 
     run.changeRequest = { text, at: now };
+    if (startedBy) run.startedBy = startedBy;
     launchTurn(run);
     moveToInProgress(run);
     return run;
@@ -1339,7 +1370,7 @@ async function requestChanges(runId, text, { author = 'user', authorId } = {}) {
  * @returns {Promise<object>} Updated run.
  * @throws RUN_NOT_FOUND, RUN_NOT_RESUMABLE, OPEN_QUESTION, WORKTREE_UNAVAILABLE.
  */
-async function resumeRun(runId) {
+async function resumeRun(runId, startedBy = null) {
   const { taskId } = requireRun(runId);
   const stops = stopCounts.get(runId);
   return withTaskLock(taskId, async () => {
@@ -1368,11 +1399,12 @@ async function resumeRun(runId) {
       throw runnerError('RUN_NOT_RESUMABLE', `Run '${runId}' was stopped while this was waiting.`);
     }
 
+    if (startedBy) run.startedBy = startedBy;
     // It may have been moved by hand since it stopped.
     moveToInProgress(run);
 
     if (run.agent.status === 'completed' && !run.blockedReason) {
-      run.status = 'running';
+run.status = 'running';
       run.turnId = crypto.randomUUID();
       delete run.closedAt;
       writeRun(run);

@@ -5,6 +5,7 @@
 import { useRef, useState } from 'react';
 import { ContextMenu } from '@/components/shared/ContextMenu';
 import { TeamModal } from '@/components/modals/TeamModal';
+import { TokensModal } from '@/components/modals/TokensModal';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { getGradient, getInitials } from '@/utils/avatar';
 
@@ -16,6 +17,7 @@ export function UserMenu() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const [teamOpen, setTeamOpen] = useState(false);
+  const [tokensOpen, setTokensOpen] = useState(false);
 
   if (!user) return null;
 
@@ -46,15 +48,18 @@ export function UserMenu() {
         )}
         items={[
           ...(user.role === 'admin' ? [{ id: 'team', label: 'Team', icon: 'group' }] : []),
+          { id: 'tokens', label: 'API tokens', icon: 'key' },
           { id: 'sign-out', label: 'Sign out', icon: 'logout' },
         ]}
         onSelect={(id) => {
           if (id === 'team') setTeamOpen(true);
+          if (id === 'tokens') setTokensOpen(true);
           if (id === 'sign-out') void signOut();
         }}
         onClose={() => setAnchor(null)}
       />
       {teamOpen && <TeamModal onClose={() => setTeamOpen(false)} />}
+      {tokensOpen && <TokensModal onClose={() => setTokensOpen(false)} />}
     </>
   );
 }

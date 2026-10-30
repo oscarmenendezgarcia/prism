@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
-const { ACCOUNTS_SQL, createAccounts } = require('./accounts');
+const { ACCOUNTS_SQL, API_TOKENS_SQL, createAccounts } = require('./accounts');
 const { agentFromOldName } = require('../utils/agents');
 
 const DEFAULT_PRIORITY = 'medium';
@@ -611,6 +611,7 @@ function createStore(dataDir) {
   if (db.pragma('user_version', { simple: true }) < ISSUES_SCHEMA_VERSION) migrateToIssues(db);
 
   db.exec(ACCOUNTS_SQL);
+  db.exec(API_TOKENS_SQL);
   addAccountColumns(db);
   if (db.pragma('user_version', { simple: true }) < SCHEMA_VERSION) {
     db.transaction(() => {
