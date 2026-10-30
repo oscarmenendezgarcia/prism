@@ -78,13 +78,12 @@ const SAVE_GIT_OPTS = { timeout: 120_000, maxBuffer: 64 * 1024 * 1024 };
 const MAX_PATCH_BYTES = 1024 * 1024;
 
 /**
- * Emit a structured pipeline log event to stderr.
- * Avoids importing pipelineManager (circular dependency risk).
+ * Emit a structured worktree log event to stderr.
  *
  * @param {string} event
  * @param {object} payload
  */
-function pipelineLog(event, payload = {}) {
+function worktreeLog(event, payload = {}) {
   process.stderr.write(
     `[PIPELINE] ${JSON.stringify({ event, ...payload, ts: new Date().toISOString() })}\n`
   );
@@ -198,7 +197,7 @@ async function provision(workingDirectory, runId) {
   await runGit(workingDirectory, ['worktree', 'add', worktreePath, '-b', branch, baseRef]);
 
   const durationMs = Date.now() - t0;
-  pipelineLog('worktree.created', { runId, path: worktreePath, branch, baseRef, baseBranch, durationMs });
+  worktreeLog('worktree.created', { runId, path: worktreePath, branch, baseRef, baseBranch, durationMs });
 
   return { path: worktreePath, branch, baseBranch, baseRef };
 }
@@ -220,7 +219,7 @@ async function excludeWorktreeDir(workingDirectory) {
     const separator = current === '' || current.endsWith('\n') ? '' : '\n';
     fs.appendFileSync(excludeFile, `${separator}${pattern}\n`);
   } catch (err) {
-    pipelineLog('worktree.error', { op: 'exclude', message: err.message });
+    worktreeLog('worktree.error', { op: 'exclude', message: err.message });
   }
 }
 
@@ -287,7 +286,7 @@ async function saveWork(worktreeMeta, opts = {}) {
       ]);
       saved = true;
       const files = names.trim().split('\n');
-      pipelineLog('worktree.work_saved', {
+      worktreeLog('worktree.work_saved', {
         runId: opts.runId, path: worktreePath, reason, fileCount: files.length, files: files.slice(0, 50),
       });
     }
@@ -303,7 +302,7 @@ async function saveWork(worktreeMeta, opts = {}) {
   if (head.trim() !== branch && branch) {
     ref = `${branch}-saved`;
     await git(['branch', '-f', ref, 'HEAD']);
-    pipelineLog('worktree.off_branch_work_saved', { runId: opts.runId, path: worktreePath, ref, head: head.trim() });
+    worktreeLog('worktree.off_branch_work_saved', { runId: opts.runId, path: worktreePath, ref, head: head.trim() });
   }
 
   return { saved, ref };
@@ -333,7 +332,7 @@ async function branchHasWork(workingDirectory, { branch, baseRef }) {
  * If the work cannot be saved the worktree stays on disk. Nothing removes it until
  * someone deals with what is logged under worktree.error.
  *
- * Never throws — errors are logged via pipelineLog('worktree.error', …).
+ * Never throws — errors are logged via worktreeLog('worktree.error', …).
  * If opts.deleteBranch is true, also deletes the branch after removing the worktree.
  *
  * @param {object|null|undefined} worktreeMeta - run.worktree object ({ path, branch, baseBranch, baseRef })
@@ -365,15 +364,15 @@ async function teardown(worktreeMeta, opts = {}) {
     try {
       await saveWork(worktreeMeta, { reason, runId });
     } catch (err) {
-      pipelineLog('worktree.error', { runId, op: 'save_work', code: err.code, message: err.message, kept: worktreePath });
+      worktreeLog('worktree.error', { runId, op: 'save_work', code: err.code, message: err.message, kept: worktreePath });
       return { keptError: err.message };
     }
 
     try {
       await runGit(workingDirectory, ['worktree', 'remove', '--force', worktreePath]);
-      pipelineLog('worktree.removed', { runId, path: worktreePath, reason });
+      worktreeLog('worktree.removed', { runId, path: worktreePath, reason });
     } catch (err) {
-      pipelineLog('worktree.error', { runId, op: 'remove', code: err.code, message: err.message });
+      worktreeLog('worktree.error', { runId, op: 'remove', code: err.code, message: err.message });
       // Continue — try to prune stale entries at minimum.
       try {
         await runGit(workingDirectory, ['worktree', 'prune']);
@@ -389,14 +388,14 @@ async function teardown(worktreeMeta, opts = {}) {
 
   // --- Optionally delete the branch ---
   if (deleteBranch && branch && (await branchHasWork(workingDirectory, worktreeMeta))) {
-    pipelineLog('worktree.branch_kept', { runId, branch, reason: 'holds_work' });
+    worktreeLog('worktree.branch_kept', { runId, branch, reason: 'holds_work' });
   } else if (deleteBranch && branch) {
     try {
       await runGit(workingDirectory, ['branch', '-D', branch]);
-      pipelineLog('worktree.branch_deleted', { runId, branch, reason });
+      worktreeLog('worktree.branch_deleted', { runId, branch, reason });
     } catch (err) {
       // Branch may already be deleted or not yet created — log and move on.
-      pipelineLog('worktree.error', { runId, op: 'branch_delete', code: err.code, message: err.message });
+      worktreeLog('worktree.error', { runId, op: 'branch_delete', code: err.code, message: err.message });
     }
   }
   return {};
@@ -482,7 +481,7 @@ async function restore(workingDirectory, worktreeMeta, opts = {}) {
   await runGit(workingDirectory, branchExists || !baseRef
     ? ['worktree', 'add', worktreePath, branch]
     : ['worktree', 'add', worktreePath, '-b', branch, baseRef]);
-  pipelineLog('worktree.restored', { runId: opts.runId, path: worktreePath, branch });
+  worktreeLog('worktree.restored', { runId: opts.runId, path: worktreePath, branch });
   return { restored: true };
 }
 
@@ -602,7 +601,7 @@ async function reapOrphans(dataDir, workingDirectories, store) {
         baseRef:    null,
       };
 
-      pipelineLog('worktree.orphan_reaped', { path: wtPath, reason, matchedRunId });
+      worktreeLog('worktree.orphan_reaped', { path: wtPath, reason, matchedRunId });
 
       await teardown(meta, {
         reason,
