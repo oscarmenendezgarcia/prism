@@ -10,6 +10,7 @@
 const crypto = require('crypto');
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { ROLES, normalizeEmail } = require('../services/accounts');
+const { mayRequest } = require('../utils/permissions');
 
 const COOKIE_PREFIX = 'prism_session';
 const COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
@@ -34,6 +35,7 @@ const PUBLIC_ROUTES = [
   /^(GET|POST) \/api\/v1\/auth\/links\/[^/]+$/,
 ];
 
+const USER_ROUTE = /^\/api\/v1\/users\/([^/]+)$/;
 const INVITE_ROUTE = /^\/api\/v1\/invites\/([^/]+)$/;
 const RESET_LINK_ROUTE = /^\/api\/v1\/users\/([^/]+)\/reset-link$/;
 const LINK_ROUTE = /^\/api\/v1\/auth\/links\/([^/]+)$/;
@@ -160,7 +162,7 @@ function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, 
    */
   function admit(req, res) {
     if (!required) {
-      req.user = { id: 'system', name: 'System', email: '', role: 'admin', active: true };
+      req.user = { id: 'system', name: 'System', email: '', role: 'admin', active: true, unverified: true };
       return true;
     }
     const token = sessionToken(req);
@@ -168,10 +170,17 @@ function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, 
     req.user = session?.user ?? null;
     if (session?.renewed) setSessionCookie(req, res, token);
     const urlPath = req.url.split('?')[0];
-    if (req.user || !urlPath.startsWith('/api/')) return true;
+    if (!urlPath.startsWith('/api/')) return true;
     if (PUBLIC_ROUTES.some((route) => route.test(`${req.method} ${urlPath}`))) return true;
-    sendError(res, 401, 'UNAUTHENTICATED', 'Sign in to continue.');
-    return false;
+    if (!req.user) {
+      sendError(res, 401, 'UNAUTHENTICATED', 'Sign in to continue.');
+      return false;
+    }
+    if (!mayRequest(req.user, req.method, urlPath)) {
+      sendError(res, 403, 'FORBIDDEN', 'Your role does not allow this.');
+      return false;
+    }
+    return true;
   }
 
   async function readBody(req, res) {
@@ -275,6 +284,24 @@ function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, 
     sendJSON(res, 201, { ...invite, path: `/invite/${token}` });
   }
 
+  async function handleUpdateUser(req, res, userId) {
+    const body = await readBody(req, res);
+    if (!body) return;
+    if (body.role !== undefined && !ROLES.includes(body.role)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', `The role must be one of: ${ROLES.join(', ')}.`);
+    }
+    if (body.active !== undefined && typeof body.active !== 'boolean') {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'active must be true or false.');
+    }
+    if (body.role === undefined && body.active === undefined) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'Nothing to change.');
+    }
+    const result = accounts.updateUser(userId, { role: body.role, active: body.active });
+    if (result.error === 'NOT_FOUND') return sendError(res, 404, 'NOT_FOUND', 'There is no such user.');
+    if (result.error === 'LAST_ADMIN') return sendError(res, 409, 'LAST_ADMIN', 'This is the last admin. Make someone else admin first.');
+    sendJSON(res, 200, result);
+  }
+
   /**
    * @returns {Promise<boolean>} Whether this was a route of accounts.
    */
@@ -311,6 +338,12 @@ function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, 
       return true;
     }
     if (urlPath === '/api/v1/invites' && method === 'POST') { await handleCreateInvite(req, res); return true; }
+
+    const user = USER_ROUTE.exec(urlPath);
+    if (user && method === 'PATCH') {
+      if (requireAdmin(req, res)) await handleUpdateUser(req, res, user[1]);
+      return true;
+    }
 
     const invite = INVITE_ROUTE.exec(urlPath);
     if (invite && method === 'DELETE') {

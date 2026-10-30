@@ -18,7 +18,7 @@
 
 const path = require('path');
 
-const { sendJSON, sendError, parseBody } = require('../utils/http');
+const { sendJSON, sendError, parseBody, readActor } = require('../utils/http');
 // Required at module level (not lazily) so that the same initialized instance
 // (with _store set by pipelineManager.init) is used across all handler calls.
 // Lazy require inside handlers risks getting an uninitialized module instance
@@ -62,11 +62,13 @@ async function handleCreateComment(req, res, store, spaceId, taskId) {
   }
 
   const errors = [];
-  const { author, text, type, parentId } = body;
+  const { text, type, parentId } = body;
+  const author = readActor(req, body.author);
 
-  if (!author || typeof author !== 'string' || author.trim().length === 0) {
+  // Only a server without accounts takes the name from the client.
+  if (req.user?.unverified && (!body.author || typeof body.author !== 'string' || body.author.trim().length === 0)) {
     errors.push('author is required and must be a non-empty string');
-  } else if (author.trim().length > AUTHOR_MAX_LEN) {
+  } else if (req.user?.unverified && body.author.trim().length > AUTHOR_MAX_LEN) {
     errors.push(`author must not exceed ${AUTHOR_MAX_LEN} characters`);
   }
 
@@ -114,7 +116,8 @@ async function handleCreateComment(req, res, store, spaceId, taskId) {
     const now     = new Date().toISOString();
     const comment = {
       id:       crypto.randomUUID(),
-      author:   author.trim(),
+      author,
+      ...(req.user && !req.user.unverified && { authorId: req.user.id }),
       text:     text.trim(),
       type,
       ...(parentId    !== undefined && { parentId:    parentId.trim() }),
@@ -209,6 +212,11 @@ async function handleUpdateComment(req, res, store, spaceId, taskId, commentId) 
 
     const now             = new Date().toISOString();
     const existingComment = comments[commentIndex];
+    // Anyone who can write can resolve a question. The words are their author's.
+    const changesWords = ('text' in body && body.text.trim() !== existingComment.text) || ('type' in body && body.type !== existingComment.type);
+    if (changesWords && req.user?.role !== 'admin' && existingComment.authorId !== req.user?.id) {
+      return sendError(res, 403, 'FORBIDDEN', 'Only its author or an admin can change a comment.');
+    }
     const updatedComment  = {
       ...existingComment,
       ...('text'       in body && { text:       body.text.trim() }),

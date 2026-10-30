@@ -6,6 +6,7 @@ import { Button } from '@/components/shared/Button';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
 import { UserMenu } from '@/components/layout/UserMenu';
 import { useAppStore } from '@/stores/useAppStore';
+import { useCanEdit } from '@/stores/useAuthStore';
 
 // The global-search shortcut binds metaKey || ctrlKey (App.tsx), so it fires on both
 // platforms. Show the matching modifier label: ⌘K on macOS, Ctrl K elsewhere.
@@ -18,6 +19,7 @@ const SEARCH_LABEL = `Search tasks (${SEARCH_HINT})`;
 export function Header() {
   const openCreateModal = useAppStore((s) => s.openCreateModal);
   const openGlobalSearch = useAppStore((s) => s.openGlobalSearch);
+  const canEdit = useCanEdit();
 
   return (
     <header className="flex items-center justify-between h-header px-6 bg-surface-elevated glass-heavy border-b border-border sticky top-0 z-[100]">
@@ -88,16 +90,18 @@ export function Header() {
 
       <div className="flex items-center gap-2 flex-shrink-0">
         <ThemeToggle />
-        <Button
-          variant="primary"
-          onClick={openCreateModal}
-          aria-label="Add new issue"
-        >
-          <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
-            add
-          </span>
-          <span className="hidden sm:inline">New issue</span>
-        </Button>
+        {canEdit && (
+          <Button
+            variant="primary"
+            onClick={openCreateModal}
+            aria-label="Add new issue"
+          >
+            <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
+              add
+            </span>
+            <span className="hidden sm:inline">New issue</span>
+          </Button>
+        )}
         <UserMenu />
       </div>
     </header>

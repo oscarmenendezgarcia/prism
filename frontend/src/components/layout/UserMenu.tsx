@@ -4,6 +4,7 @@
 
 import { useRef, useState } from 'react';
 import { ContextMenu } from '@/components/shared/ContextMenu';
+import { TeamModal } from '@/components/modals/TeamModal';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { getGradient, getInitials } from '@/utils/avatar';
 
@@ -14,6 +15,7 @@ export function UserMenu() {
   const signOut = useAuthStore((s) => s.signOut);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const [teamOpen, setTeamOpen] = useState(false);
 
   if (!user) return null;
 
@@ -42,10 +44,17 @@ export function UserMenu() {
             <p className="text-xs text-text-secondary">{ROLE_LABELS[user.role]}</p>
           </>
         )}
-        items={[{ id: 'sign-out', label: 'Sign out', icon: 'logout' }]}
-        onSelect={(id) => { if (id === 'sign-out') void signOut(); }}
+        items={[
+          ...(user.role === 'admin' ? [{ id: 'team', label: 'Team', icon: 'group' }] : []),
+          { id: 'sign-out', label: 'Sign out', icon: 'logout' },
+        ]}
+        onSelect={(id) => {
+          if (id === 'team') setTeamOpen(true);
+          if (id === 'sign-out') void signOut();
+        }}
         onClose={() => setAnchor(null)}
       />
+      {teamOpen && <TeamModal onClose={() => setTeamOpen(false)} />}
     </>
   );
 }

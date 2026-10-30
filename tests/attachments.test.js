@@ -615,21 +615,14 @@ async function runTests() {
       assert(res.body.content === 'Hello from inline text', 'Wrong content');
     });
 
-    await test('file attachment reads from disk and includes source', async () => {
+    await test('file attachment outside the folder of the space is refused', async () => {
       const res = await request('GET', `/api/v1/tasks/${contentTaskId}/attachments/1`);
-      assert(res.status === 200, `Expected 200, got ${res.status}`);
-      assert(res.body.type === 'file', 'Wrong type');
-      assert(
-        typeof res.body.content === 'string' && res.body.content.length > 0,
-        'Should have content'
-      );
-      assert(res.body.source === '/etc/hosts', 'Should include source path');
+      assert(res.status === 403, `Expected 403, got ${res.status}`);
     });
 
-    await test('file attachment returns 422 when file does not exist', async () => {
+    await test('and it does not tell whether a file exists there', async () => {
       const res = await request('GET', `/api/v1/tasks/${contentTaskId}/attachments/2`);
-      assert(res.status === 422, `Expected 422, got ${res.status}`);
-      assert(res.body.error.code === 'FILE_NOT_FOUND', `Wrong code: ${res.body.error.code}`);
+      assert(res.status === 403, `Expected 403, got ${res.status}`);
     });
 
     await test('index out of range returns 404', async () => {

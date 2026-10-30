@@ -155,6 +155,8 @@ export interface Comment {
 
 /** A Kanban task. */
 export interface Task {
+  /** Id of the account that created it. */
+  createdBy?: string;
   id: string;
   /** Such as WEB-142. */
   key?: string;
@@ -353,6 +355,14 @@ export interface User {
 export interface AuthStatus {
   needsSetup: boolean;
   user: User | null;
+}
+
+export interface Invite {
+  id: string;
+  email: string;
+  role: Role;
+  createdBy?: string;
+  expiresAt: string;
 }
 
 export interface AccountLink {

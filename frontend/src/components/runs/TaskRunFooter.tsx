@@ -5,6 +5,7 @@
 
 import { Button } from '@/components/shared/Button';
 import { useAppStore } from '@/stores/useAppStore';
+import { useCanEdit, useIsAdmin } from '@/stores/useAuthStore';
 import { isAwaitingReview } from '@/utils/issues';
 import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
 import type { StatusCategory, Task } from '@/types';
@@ -35,6 +36,9 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   const openSpaceModal  = useAppStore((s) => s.openSpaceModal);
   const space           = useAppStore((s) => s.spaces.find((sp) => sp.id === spaceId));
 
+  const canEdit         = useCanEdit();
+  const isAdmin         = useIsAdmin();
+
   const missingHarness = column === 'in-progress' && view?.failure?.reason === 'binary_missing';
 
   // A card back in To do starts over, whatever its last run did. So does one whose
@@ -42,8 +46,10 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   // moved back to In progress by hand. One waiting for review has its result to look at.
   const canStart = column === 'todo' || missingHarness
     || (column === 'in-progress' && (!view || (view.status === 'done' && !isAwaitingReview(task, space))));
+  if (!canEdit) return null;
   if (canStart) {
     if (space && !space.workingDirectory) {
+      if (!isAdmin) return null;
       return (
         <div className="flex items-center mt-3 -ml-2 [@media(pointer:coarse)]:mt-0" data-testid="run-footer">
           <Button

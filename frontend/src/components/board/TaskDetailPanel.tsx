@@ -21,6 +21,7 @@ import React, {
   useState,
 } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
+import { useCanEdit } from '@/stores/useAuthStore';
 import { LabelsInput } from '@/components/shared/LabelsInput';
 import { ChildIssues } from '@/components/board/ChildIssues';
 import { IssueHistory } from '@/components/board/IssueHistory';
@@ -161,6 +162,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const openDetailPanel      = useAppStore((s) => s.openDetailPanel);
   const showToast            = useAppStore((s) => s.showToast);
   const openAttachmentModal  = useAppStore((s) => s.openAttachmentModal);
+  const canEdit              = useCanEdit();
   const openMarkdownModal    = useAppStore((s) => s.openMarkdownModal);
   const activeSpaceId        = useAppStore((s) => s.activeSpaceId);
 
@@ -584,6 +586,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   }
                 }}
                 aria-label="Issue title"
+                readOnly={!canEdit}
                 className="w-full bg-transparent border-b border-transparent hover:border-border/40 focus:border-primary/50 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled/50 focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-40 disabled:cursor-not-allowed transition-[border-color] duration-[220ms] ease-spring"
                 placeholder="Issue title"
               />
@@ -602,6 +605,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   value={localDescription}
                   onChange={(e) => setLocalDescription(e.target.value)}
                   onBlur={handleSaveDescription}
+                  readOnly={!canEdit}
                   rows={1}
                   className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[1.5rem] transition-[border-color] duration-[220ms] ease-spring"
                   placeholder="Add a description…"
@@ -653,6 +657,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
             {/* ── RIGHT: metadata sidebar ────────────────────────────── */}
             <div className={`flex-shrink-0 border-border/40 bg-surface-elevated/25 overflow-y-auto px-4 pt-3 pb-6 flex flex-col md:w-[300px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
 
+              {/* A viewer sees every field and can change none, but can open the attachments below. */}
+              <fieldset disabled={!canEdit} className="contents">
               {/* Status */}
               <div className={SIDE_FIELD}>
                 <label htmlFor="detail-status" className={SIDE_LABEL}>Status</label>
@@ -809,6 +815,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   }}
                 />
               </div>
+              </fieldset>
 
               {/* Attachments */}
               {detailTask.attachments && detailTask.attachments.length > 0 && (

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/shared/Button';
+import { useCanEdit } from '@/stores/useAuthStore';
 
 export interface BoardEmptyStateProps {
   onCreateTask: () => void;
@@ -57,6 +58,7 @@ const STEPS: StepProps[] = [
 ];
 
 export function BoardEmptyState({ onCreateTask }: BoardEmptyStateProps) {
+  const canEdit = useCanEdit();
   return (
     <section
       aria-labelledby="onboarding-title"
@@ -82,7 +84,7 @@ export function BoardEmptyState({ onCreateTask }: BoardEmptyStateProps) {
             </p>
           </div>
 
-          <div className="animate-fade-in-up [animation-delay:60ms]">
+          {canEdit && <div className="animate-fade-in-up [animation-delay:60ms]">
             <Button
               variant="primary"
               onClick={onCreateTask}
@@ -92,7 +94,7 @@ export function BoardEmptyState({ onCreateTask }: BoardEmptyStateProps) {
               <span className="material-symbols-outlined text-lg" aria-hidden="true">add</span>
               Add first task
             </Button>
-          </div>
+          </div>}
         </div>
 
         {/* Right — steps */}

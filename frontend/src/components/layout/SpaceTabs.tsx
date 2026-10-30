@@ -18,6 +18,7 @@
 import React, { useState } from 'react';
 import { ContextMenu } from '@/components/shared/ContextMenu';
 import { useAppStore } from '@/stores/useAppStore';
+import { useIsAdmin } from '@/stores/useAuthStore';
 import { useOverflowItems } from '@/hooks/useOverflowItems';
 import { SpaceTab } from './SpaceTab';
 import { SpaceOverflowMenu } from './SpaceOverflowMenu';
@@ -29,6 +30,7 @@ export function SpaceTabs() {
   const setActiveSpace   = useAppStore((s) => s.setActiveSpace);
   const loadBoard        = useAppStore((s) => s.loadBoard);
   const openSpaceModal   = useAppStore((s) => s.openSpaceModal);
+  const isAdmin          = useIsAdmin();
   const openDeleteDialog = useAppStore((s) => s.openDeleteSpaceDialog);
   const pinSpace         = useAppStore((s) => s.pinSpace);
   const unpinSpace       = useAppStore((s) => s.unpinSpace);
@@ -224,17 +226,19 @@ export function SpaceTabs() {
       <span className="w-px h-5 bg-border mx-1 flex-shrink-0" aria-hidden="true" />
 
       {/* Add space button */}
-      <button
-        id="space-add-btn"
-        aria-label="Create new space"
-        title="Create new space"
-        onClick={() => openSpaceModal('create')}
-        className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary active:scale-90 transition-[color,background-color,transform] duration-fast flex-shrink-0"
-      >
-        <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
-          add
-        </span>
-      </button>
+      {isAdmin && (
+        <button
+          id="space-add-btn"
+          aria-label="Create new space"
+          title="Create new space"
+          onClick={() => openSpaceModal('create')}
+          className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary active:scale-90 transition-[color,background-color,transform] duration-fast flex-shrink-0"
+        >
+          <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
+            add
+          </span>
+        </button>
+      )}
 
       {/* Context menu (portal) — for Edit / Delete from kebab */}
       <ContextMenu

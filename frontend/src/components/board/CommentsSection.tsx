@@ -16,6 +16,7 @@ import React, { useCallback, useState } from 'react';
 import type { Comment } from '@/types';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import { Button } from '@/components/shared/Button';
+import { useAuthStore, useCanEdit } from '@/stores/useAuthStore';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,6 +136,7 @@ interface AddCommentFormProps {
 }
 
 function AddCommentForm({ onSubmit, onRequestChanges, disabled }: AddCommentFormProps) {
+  const initial = useAuthStore((s) => s.status?.user?.name?.[0]?.toUpperCase()) ?? 'Y';
   const [text, setText]             = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -176,7 +178,7 @@ function AddCommentForm({ onSubmit, onRequestChanges, disabled }: AddCommentForm
     <div className="flex gap-3">
       {/* Avatar */}
       <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0 mt-1">
-        Y
+        {initial}
       </div>
       {/* Textarea */}
       <textarea
@@ -280,10 +282,12 @@ export function CommentsSection({
   onCommentUpdated,
   onAnswerQuestion,
   onRequestChanges,
-  disabled,
+  disabled: disabledProp,
 }: CommentsSectionProps): React.ReactElement {
-  /** Default author for new comments — could be extended to read from settings. */
+  // The server signs comments with who is signed in.
   const author = 'user';
+  const canEdit = useCanEdit();
+  const disabled = disabledProp || !canEdit;
 
   const handleSubmit = useCallback(
     (type: Comment['type'], text: string) =>
@@ -359,7 +363,7 @@ export function CommentsSection({
       )}
 
       {/* Add-comment form */}
-      <AddCommentForm onSubmit={handleSubmit} onRequestChanges={onRequestChanges} disabled={disabled} />
+      {canEdit && <AddCommentForm onSubmit={handleSubmit} onRequestChanges={onRequestChanges} disabled={disabled} />}
     </div>
   );
 }

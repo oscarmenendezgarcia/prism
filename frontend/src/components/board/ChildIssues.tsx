@@ -6,6 +6,7 @@ import React, { useState } from 'react';
 import * as api from '@/api/client';
 import { Button } from '@/components/shared/Button';
 import { useAppStore, useTasks } from '@/stores/useAppStore';
+import { useCanEdit } from '@/stores/useAuthStore';
 import { boardIndex, parentIssueOf, progressOf, statusDotClass } from '@/utils/issues';
 import type { Task } from '@/types';
 
@@ -15,6 +16,7 @@ interface ChildIssuesProps {
 }
 
 export function ChildIssues({ task, spaceId }: ChildIssuesProps) {
+  const canEdit = useCanEdit();
   const board = useTasks();
   const openDetailPanel = useAppStore((s) => s.openDetailPanel);
   const loadBoard = useAppStore((s) => s.loadBoard);
@@ -32,6 +34,7 @@ export function ChildIssues({ task, spaceId }: ChildIssuesProps) {
   const isEpic = task.type === 'epic';
   const children = index.children.get(task.id) ?? [];
   const { done, total } = progressOf(task.id, index);
+  if (!canEdit && children.length === 0) return null;
 
   const add = async () => {
     const trimmed = title.trim();
@@ -77,7 +80,7 @@ export function ChildIssues({ task, spaceId }: ChildIssuesProps) {
           </button>
         );
       })}
-      {adding ? (
+      {!canEdit ? null : adding ? (
         <input
           type="text"
           autoFocus

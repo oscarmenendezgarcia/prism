@@ -6,7 +6,7 @@ import { useAppStore } from '../../src/stores/useAppStore';
 vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(), getTasks: vi.fn(), createTask: vi.fn(), moveTask: vi.fn(),
   deleteTask: vi.fn(), createSpace: vi.fn(), renameSpace: vi.fn(), deleteSpace: vi.fn(),
-  getAttachmentContent: vi.fn(), setSignedOutHandler: vi.fn(),
+  getAttachmentContent: vi.fn(),
 }));
 
 beforeEach(() => {

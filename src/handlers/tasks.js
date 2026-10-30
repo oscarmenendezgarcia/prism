@@ -9,6 +9,7 @@
  * All storage calls are delegated to the Store instance — no direct file I/O.
  */
 
+const fs = require('fs');
 const path = require('path');
 
 const { CATEGORIES }                       = require('../constants');
@@ -192,6 +193,30 @@ function validateDependsOnField(value) {
  * @param {import('../services/store').Store} store   - The open Store instance.
  * @returns {{ router: Function, ensureDataFiles: Function }}
  */
+/**
+ * Whether a file really is in a folder, once links are followed. So an attachment cannot read
+ * anything else on the server.
+ *
+ * @param {string} file
+ * @param {string|undefined|null} folder
+ * @returns {boolean}
+ */
+function isInsideFolder(file, folder) {
+  if (!folder) return false;
+  try {
+    const root = fs.realpathSync(folder);
+    const inRoot = (candidate) => candidate.startsWith(root + path.sep);
+    try {
+      return inRoot(fs.realpathSync(file));
+    } catch {
+      // Not there. Say so only for a path inside, or this would tell what exists elsewhere.
+      return inRoot(path.resolve(file));
+    }
+  } catch {
+    return false;
+  }
+}
+
 function createApp(spaceId, store) {
   // -------------------------------------------------------------------------
   // Attachment validation
@@ -508,7 +533,7 @@ function createApp(spaceId, store) {
     }
 
     try {
-      store.insertTask(task, spaceId, statusId, { actor: readActor(req) });
+      store.insertTask(task, spaceId, statusId, { actor: readActor(req), createdBy: req.user?.id });
 
       sendJSON(res, 201, stripAttachmentContent(task));
     } catch (err) {
@@ -859,6 +884,10 @@ function createApp(spaceId, store) {
 
   function handleDeleteTask(req, res, taskId) {
     try {
+      const existing = store.getTask(spaceId, taskId);
+      if (existing && req.user?.role !== 'admin' && existing.createdBy !== req.user?.id) {
+        return sendError(res, 403, 'FORBIDDEN', 'Only whoever created an issue or an admin can delete it.');
+      }
       if (taskRunner.hasActiveRun(taskId)) {
         return sendError(res, 409, 'TASK_RUN_ACTIVE',
           'An agent is running this task. Stop it before deleting the card.');
@@ -1039,8 +1068,12 @@ function createApp(spaceId, store) {
         return sendError(res, 403, 'FORBIDDEN', 'Invalid file path');
       }
 
-      const fs   = require('fs');
       const normalizedPath = path.normalize(attachment.content);
+
+      // Checked on reading, where it counts: this covers links and attachments from before.
+      if (!isInsideFolder(normalizedPath, store.getSpace(spaceId)?.workingDirectory)) {
+        return sendError(res, 403, 'FORBIDDEN', "This file is outside the space's repository folder.");
+      }
 
       if (!fs.existsSync(normalizedPath)) {
         console.warn(`[attachment] File not found: ${normalizedPath}`);

@@ -47,7 +47,7 @@ function startKanbanServer(port) {
 
     // Spin up a real Kanban server instance on the test port.
     // We spawn it as a child process so it is completely isolated.
-    const proc = spawn('node', [SERVER_JS_PATH], {
+    const proc = spawn('node', ['-e', `require(${JSON.stringify(SERVER_JS_PATH)}).runServer({ auth: false })`], {
       env: { ...process.env, PORT: String(port), DATA_DIR: TEST_DATA_DIR, PIPELINE_NO_SPAWN: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

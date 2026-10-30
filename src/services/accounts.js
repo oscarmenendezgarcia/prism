@@ -109,6 +109,10 @@ function createAccounts(db) {
     getByEmail:   db.prepare('SELECT * FROM users WHERE email = ?'),
     insertUser:   db.prepare(`INSERT INTO users (id, email, name, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)`),
     setPassword:  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?'),
+    setRole:      db.prepare('UPDATE users SET role = ? WHERE id = ?'),
+    setActive:    db.prepare('UPDATE users SET active = ? WHERE id = ?'),
+    countAdmins:  db.prepare(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1`),
+    dropUserLinks: db.prepare('DELETE FROM account_links WHERE user_id = ?'),
     insertSession: db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, used_at, expires_at) VALUES (?, ?, ?, ?, ?)'),
     findSession:  db.prepare(`
       SELECT s.used_at, s.expires_at, u.*
@@ -250,8 +254,32 @@ function createAccounts(db) {
     })();
   }
 
+  /**
+   * Change a role or turn an account off. Turning it off ends its sessions and links, so that
+   * turning it back on does not revive them. There is always an active admin left.
+   *
+   * @returns {object|{ error: string }} The user.
+   */
+  function updateUser(id, { role, active }) {
+    return db.transaction(() => {
+      const user = stmts.getUser.get(id);
+      if (!user) return { error: 'NOT_FOUND' };
+      const wasActiveAdmin = user.role === 'admin' && user.active === 1;
+      const staysActiveAdmin = (role ?? user.role) === 'admin' && (active ?? user.active === 1);
+      if (wasActiveAdmin && !staysActiveAdmin && stmts.countAdmins.get().n === 1) return { error: 'LAST_ADMIN' };
+      if (role !== undefined) stmts.setRole.run(role, id);
+      if (active !== undefined) stmts.setActive.run(active ? 1 : 0, id);
+      if (active === false) {
+        stmts.dropSessions.run(id);
+        stmts.dropUserLinks.run(id);
+      }
+      return publicUser(stmts.getUser.get(id));
+    })();
+  }
+
   return {
     hasUsers,
+    updateUser,
     createFirstAdmin,
     signIn,
     createSession,

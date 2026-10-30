@@ -3,6 +3,7 @@
  */
 
 import { useAppStore, useTasks } from '@/stores/useAppStore';
+import { useIsAdmin } from '@/stores/useAuthStore';
 import { allTasks } from '@/utils/issues';
 
 export function EpicBar() {
@@ -10,6 +11,7 @@ export function EpicBar() {
   const epicFilter = useAppStore((s) => s.epicFilter);
   const setEpicFilter = useAppStore((s) => s.setEpicFilter);
   const openSpaceModal = useAppStore((s) => s.openSpaceModal);
+  const isAdmin = useIsAdmin();
   const space = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId));
 
   const epics = allTasks(tasks)
@@ -47,7 +49,7 @@ export function EpicBar() {
         </div>
       )}
 
-      {space && (
+      {space && isAdmin && (
         <button
           type="button"
           onClick={() => openSpaceModal('rename', space)}

@@ -260,6 +260,7 @@ function rowToTask(row) {
   const labels = fromJson(row.labels);
   if (labels !== undefined) task.labels = labels;
   if (row.parent_id != null) task.parentId = row.parent_id;
+  if (row.created_by != null) task.createdBy = row.created_by;
   if (row.due_date != null) task.dueDate = row.due_date;
   if (row.estimate != null) task.estimate = row.estimate;
   // MODEL-1: per-stage model routing overrides.
@@ -274,6 +275,7 @@ function rowToComment(row) {
   return {
     id:       row.id,
     author:   row.author,
+    ...(row.author_id != null && { authorId: row.author_id }),
     text:     row.text,
     type:     row.type,
     ...(row.parent_id != null && { parentId: row.parent_id }),
@@ -384,6 +386,13 @@ function addIssueSchema(db) {
     estimate:  'REAL',
   });
   db.exec(ISSUE_SCHEMA_SQL);
+}
+
+/** Who created an issue or wrote a comment, for those that have someone to say so. */
+function addAccountColumns(db) {
+  const has = (table, column) => db.pragma(`table_info(${table})`).some((c) => c.name === column);
+  if (!has('tasks', 'created_by')) db.exec('ALTER TABLE tasks ADD COLUMN created_by TEXT');
+  if (!has('comments', 'author_id')) db.exec('ALTER TABLE comments ADD COLUMN author_id TEXT');
 }
 
 /**
@@ -592,6 +601,7 @@ function createStore(dataDir) {
   if (db.pragma('user_version', { simple: true }) < ISSUES_SCHEMA_VERSION) migrateToIssues(db);
 
   db.exec(ACCOUNTS_SQL);
+  addAccountColumns(db);
   if (db.pragma('user_version', { simple: true }) < SCHEMA_VERSION) db.pragma(`user_version = ${SCHEMA_VERSION}`);
   const accounts = createAccounts(db);
 
@@ -650,9 +660,9 @@ function createStore(dataDir) {
     insertTask: db.prepare(`
       INSERT INTO tasks
         (id, space_id, column, status_id, number, title, type, priority, labels, parent_id, due_date, estimate,
-         description, assigned, attachments, stage_models, rank, created_at, updated_at, depends_on)
+         description, assigned, attachments, stage_models, rank, created_at, updated_at, depends_on, created_by)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     updateTask: db.prepare(`
       UPDATE tasks
@@ -718,8 +728,8 @@ function createStore(dataDir) {
        WHERE t.space_id = ? ORDER BY c.created_at ASC, c.rowid ASC
     `),
     insertComment: db.prepare(`
-      INSERT INTO comments (id, task_id, author, text, type, parent_id, resolved, change_request, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO comments (id, task_id, author, text, type, parent_id, resolved, change_request, created_at, updated_at, author_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     updateComment: db.prepare('UPDATE comments SET text = ?, type = ?, resolved = ?, updated_at = ? WHERE id = ? AND task_id = ?'),
     touchTask: db.prepare('UPDATE tasks SET updated_at = ? WHERE space_id = ? AND id = ?'),
@@ -1074,7 +1084,7 @@ function createStore(dataDir) {
    * @param {string} statusId
    * @param {{ actor?: string }} [opts]
    */
-  function insertTask(task, spaceId, statusId, { actor } = {}) {
+  function insertTask(task, spaceId, statusId, { actor, createdBy } = {}) {
     db.transaction(() => {
       const status = getStatuses(spaceId).find((s) => s.id === statusId);
       if (!status) {
@@ -1108,7 +1118,9 @@ function createStore(dataDir) {
         task.createdAt,
         task.updatedAt,
         task.dependsOn   !== undefined ? JSON.stringify(task.dependsOn)  : null,
+        createdBy ?? null,
       ));
+      if (createdBy) task.createdBy = createdBy;
       recordHistory(task.id, actor, 'created', null, null);
       // BUG-001 (QOL-1): expose what the database decided on the caller's task object
       // so POST /tasks 201 responses can see it without re-fetching.
@@ -1205,6 +1217,7 @@ function createStore(dataDir) {
       stmts.insertComment.run(
         comment.id, taskId, comment.author, comment.text, comment.type, comment.parentId ?? null,
         comment.resolved ? 1 : 0, comment.changeRequest ? 1 : 0, comment.createdAt, comment.updatedAt ?? null,
+        comment.authorId ?? null,
       );
       stmts.touchTask.run(comment.createdAt, spaceId, taskId);
     })();

@@ -13,6 +13,8 @@ interface AuthState {
   /** Could not reach the server. */
   failed: boolean;
   load: () => Promise<void>;
+  /** Check again, for a role that changed. If it fails, things stay as they are. */
+  refresh: () => Promise<void>;
   signedIn: (user: User) => void;
   signedOut: () => void;
   signOut: () => Promise<void>;
@@ -29,6 +31,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch {
       set({ failed: true });
     }
+  },
+
+  refresh: async () => {
+    try {
+      set({ status: await api.getAuthStatus() });
+    } catch { /* Next time. */ }
   },
 
   signedIn: (user) => set({ status: { needsSetup: false, user } }),
@@ -51,4 +59,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 }));
 
-api.setSignedOutHandler(() => useAuthStore.getState().signedOut());
+/** May change issues. A page rendered with nobody signed in has nothing to protect. */
+export const useCanEdit = () => useAuthStore((s) => s.status?.user?.role !== 'viewer');
+
+/** May change spaces, the team and what runs on the server. */
+export const useIsAdmin = () => useAuthStore((s) => {
+  const role = s.status?.user?.role;
+  return role === undefined || role === 'admin';
+});
+
+/** May delete this issue: an admin, or whoever created it. */
+export const useCanDelete = (task: { createdBy?: string } | null | undefined) => useAuthStore((s) => {
+  const user = s.status?.user;
+  if (!user) return true;
+  return user.role === 'admin' || (user.role === 'member' && !!task?.createdBy && task.createdBy === user.id);
+});
+

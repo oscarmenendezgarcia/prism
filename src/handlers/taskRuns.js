@@ -16,7 +16,7 @@
  *   POST /api/v1/runs/:runId/resume
  */
 
-const { sendJSON, sendError, parseBody } = require('../utils/http');
+const { sendJSON, sendError, parseBody, readActor } = require('../utils/http');
 const taskRunner      = require('../services/taskRunner');
 const worktreeManager = require('../services/worktreeManager');
 
@@ -182,7 +182,7 @@ async function handleRequestChanges(req, res, store, spaceId, taskId) {
   }
 
   try {
-    return sendJSON(res, 200, await taskRunner.requestChanges(view.runId, text));
+    return sendJSON(res, 200, await taskRunner.requestChanges(view.runId, text, readActor(req, 'user')));
   } catch (err) {
     return sendRunError(res, err, 'requesting changes');
   }

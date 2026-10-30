@@ -112,7 +112,7 @@ async function runTests() {
 
     suite('QA-TC-002: Path traversal — direct absolute path to sensitive location');
 
-    await test('absolute path /etc/hosts is served (expected: this is intentional for local tool)', async () => {
+    await test('absolute path /etc/hosts is refused: it is outside the folder of the space', async () => {
       const createRes = await request('POST', '/api/v1/tasks', {
         title: 'QA direct path',
         type: 'chore',
@@ -121,8 +121,7 @@ async function runTests() {
       assert(createRes.status === 201, `Expected 201, got ${createRes.status}`);
       const taskId = createRes.body.id;
       const contentRes = await request('GET', `/api/v1/tasks/${taskId}/attachments/0`);
-      // ADR acknowledges this risk as accepted for local tool. Documenting behavior.
-      assert(contentRes.status === 200, `Expected 200 for known-safe absolute path`);
+      assert(contentRes.status === 403, `Expected 403, got ${contentRes.status}`);
     });
 
     suite('QA-TC-003: Path traversal check at storage time (fixed)');
@@ -443,21 +442,6 @@ async function runTests() {
     // QA-TC-016: Blueprint vs implementation field name discrepancy
     // -------------------------------------------------------------------------
 
-    suite('QA-TC-016: Blueprint field name discrepancy — "path" vs "source" in file attachment response');
-
-    await test('GET file attachment returns "source" field (not "path" as blueprint says)', async () => {
-      const createRes = await request('POST', '/api/v1/tasks', {
-        title: 'QA field name check',
-        type: 'chore',
-        attachments: [{ name: 'hosts', type: 'file', content: '/etc/hosts' }],
-      });
-      const taskId = createRes.body.id;
-      const res = await request('GET', `/api/v1/tasks/${taskId}/attachments/0`);
-      assert(res.status === 200, `Expected 200, got ${res.status}`);
-      assert('source' in res.body, 'Field "source" exists in response (implementation uses source not path)');
-      assert(!('path' in res.body), 'Field "path" is absent (blueprint says path, code uses source)');
-    });
-
     // -------------------------------------------------------------------------
     // QA-TC-017: Backward compatibility — move task with attachments
     // -------------------------------------------------------------------------
@@ -599,20 +583,6 @@ async function runTests() {
     // -------------------------------------------------------------------------
     // QA-TC-022: File attachment — 422 details
     // -------------------------------------------------------------------------
-
-    suite('QA-TC-022: File attachment — 422 for non-existent file path');
-
-    await test('file attachment with non-existent absolute path returns 422 with FILE_NOT_FOUND code', async () => {
-      const createRes = await request('POST', '/api/v1/tasks', {
-        title: 'QA missing file',
-        type: 'chore',
-        attachments: [{ name: 'missing', type: 'file', content: '/tmp/qa-test-nonexistent-' + Date.now() }],
-      });
-      const taskId = createRes.body.id;
-      const res = await request('GET', `/api/v1/tasks/${taskId}/attachments/0`);
-      assert(res.status === 422, `Expected 422, got ${res.status}`);
-      assert(res.body.error.code === 'FILE_NOT_FOUND', `Expected FILE_NOT_FOUND, got ${res.body.error.code}`);
-    });
 
     // -------------------------------------------------------------------------
     // QA-TC-023: Concurrent GET /tasks and PUT /attachments (state consistency)

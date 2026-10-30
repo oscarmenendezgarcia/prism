@@ -28,14 +28,17 @@ function sendError(res, status, code, message, extra = {}) {
 const ACTOR_MAX_LEN = 100;
 
 /**
- * Who is making a request, for the history. Until there are accounts it is what the client
- * says it is, so it records who did what but proves nothing.
+ * Who is making a request, as the history and comments will sign it. It comes from the session,
+ * whatever the client says. Only a server without accounts, which tests start, has nothing else
+ * to go by.
  *
  * @param {import('http').IncomingMessage} req
+ * @param {string} [claimed] - Who the client says it is.
  * @returns {string}
  */
-function readActor(req) {
-  const actor = String(req.headers?.['x-prism-actor'] ?? '').trim().slice(0, ACTOR_MAX_LEN);
+function readActor(req, claimed = req.headers?.['x-prism-actor']) {
+  if (req.user && !req.user.unverified) return req.user.name;
+  const actor = String(claimed ?? '').trim().slice(0, ACTOR_MAX_LEN);
   return actor || 'API';
 }
 

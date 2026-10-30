@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import * as api from '@/api/client';
 import { Button } from '@/components/shared/Button';
 import { useAppStore } from '@/stores/useAppStore';
+import { useCanEdit, useIsAdmin } from '@/stores/useAuthStore';
 import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
 import type { ChangedFile, StatusCategory, Task, TaskRunView } from '@/types';
 import { isAwaitingReview } from '@/utils/issues';
@@ -148,6 +149,8 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
   const openSpaceModal = useAppStore((s) => s.openSpaceModal);
   const space = useAppStore((s) => s.spaces.find((sp) => sp.id === spaceId));
 
+  const canEdit = useCanEdit();
+  const isAdmin = useIsAdmin();
   const problem = choiceProblem(choice, harnesses);
   const startButton = (
     <div className="flex items-center gap-1">
@@ -165,9 +168,11 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
     </div>
   );
 
+  if (!canEdit) return null;
   if (!view || column === 'todo' || (column === 'in-progress' && view.status === 'done' && !isAwaitingReview(task, space))) {
     if (column === 'done') return null;
     if (space && !space.workingDirectory) {
+      if (!isAdmin) return null;
       return (
         <div className="flex flex-col gap-2" data-testid="run-panel">
           <div><Button variant="ghost" size="sm" onClick={() => openSpaceModal('rename', space)}>Set a repository to run agents</Button></div>

@@ -42,7 +42,7 @@ let pendingResolvers = [];
 function startKanbanServer(port) {
   return new Promise((resolve, reject) => {
     mkdirSync(TEST_DATA_DIR, { recursive: true });
-    const proc = spawn('node', [SERVER_JS_PATH], {
+    const proc = spawn('node', ['-e', `require(${JSON.stringify(SERVER_JS_PATH)}).runServer({ auth: false })`], {
       env: { ...process.env, PORT: String(port), DATA_DIR: TEST_DATA_DIR, PIPELINE_NO_SPAWN: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

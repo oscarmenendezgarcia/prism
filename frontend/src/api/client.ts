@@ -25,6 +25,8 @@ import type {
   Status,
   AuthStatus,
   AccountLink,
+  Invite,
+  Role,
   User,
 } from '@/types';
 
@@ -43,10 +45,16 @@ export class ApiError extends Error {
 }
 
 let onSignedOut: () => void = () => {};
+let onForbidden: () => void = () => {};
 
 /** What to do when the server no longer knows who this is, as when a session expires. */
 export function setSignedOutHandler(handler: () => void): void {
   onSignedOut = handler;
+}
+
+/** What to do when the server refuses for the role, which may have changed. */
+export function setForbiddenHandler(handler: () => void): void {
+  onForbidden = handler;
 }
 
 /**
@@ -60,8 +68,6 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
-    // For the history. There are no accounts yet, so everyone here is the same person.
-    'X-Prism-Actor': 'user',
   };
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -78,6 +84,7 @@ export async function apiFetch<T>(
     const message = errorBody?.error?.message || `HTTP ${res.status}`;
     const code    = errorBody?.error?.code;
     if (code === 'UNAUTHENTICATED') onSignedOut();
+    if (code === 'FORBIDDEN') onForbidden();
     throw new ApiError(message, res.status, code);
   }
 
@@ -107,6 +114,22 @@ export const getAccountLink = (token: string): Promise<AccountLink> =>
 
 export const redeemAccountLink = (token: string, body: { name?: string; password: string }): Promise<{ user: User }> =>
   apiFetch<{ user: User }>(`/auth/links/${encodeURIComponent(token)}`, { method: 'POST', body: JSON.stringify(body) });
+
+export const getUsers = (): Promise<User[]> => apiFetch<User[]>('/users');
+
+export const updateUser = (id: string, patch: { role?: Role; active?: boolean }): Promise<User> =>
+  apiFetch<User>(`/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+
+export const getInvites = (): Promise<Invite[]> => apiFetch<Invite[]>('/invites');
+
+export const createInvite = (email: string, role: Role): Promise<Invite & { path: string }> =>
+  apiFetch<Invite & { path: string }>('/invites', { method: 'POST', body: JSON.stringify({ email, role }) });
+
+export const deleteInvite = (id: string): Promise<{ deleted: true; id: string }> =>
+  apiFetch<{ deleted: true; id: string }>(`/invites/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+export const createResetLink = (userId: string): Promise<{ expiresAt: string; path: string }> =>
+  apiFetch<{ expiresAt: string; path: string }>(`/users/${encodeURIComponent(userId)}/reset-link`, { method: 'POST' });
 
 // ---------------------------------------------------------------------------
 // Space management

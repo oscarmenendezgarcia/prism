@@ -14,6 +14,7 @@ import React, { memo, useMemo } from 'react';
 import type { Task, Column } from '@/types';
 import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore } from '@/stores/useAppStore';
+import { useCanDelete, useCanEdit } from '@/stores/useAuthStore';
 import { useTaskRunStore } from '@/stores/useTaskRunStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { Badge } from '@/components/shared/Badge';
@@ -67,6 +68,8 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
     return status === 'working' || status === 'checking';
   });
   const openDetailPanel   = useAppStore((s) => s.openDetailPanel);
+  const canEdit           = useCanEdit();
+  const canDelete         = useCanDelete(task);
   const statuses          = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId)?.statuses);
   // Only what this card shows, so that polling does not re-render every card.
   const epicTitle         = useAppStore((s) => epicOf(task, boardIndex(s.tasks))?.title);
@@ -115,7 +118,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       openDetailPanel(task);
       return;
     }
-    if (!onKeyboardReorder) return;
+    if (!onKeyboardReorder || !canEdit) return;
     if (!e.altKey) return;
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
     if (isMutating) {
@@ -137,7 +140,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   return (
     <article
       role="listitem"
-      draggable
+      draggable={canEdit}
       tabIndex={0}
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
       data-id={task.id}
@@ -325,7 +328,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         {/* With touch there is no hover: the actions and the agent share a row at the end of the card. */}
         <div className="[@media(pointer:coarse)]:flex [@media(pointer:coarse)]:flex-wrap [@media(pointer:coarse)]:items-center [@media(pointer:coarse)]:justify-end [@media(pointer:coarse)]:gap-2 [@media(pointer:coarse)]:mt-2">
         {/* Action menu — absolute top-right, hover/focus-within only */}
-        <div
+        {canEdit && <div
           data-testid="hover-overlay"
           className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:static transition-opacity duration-fast"
           onClick={(e) => e.stopPropagation()}
@@ -341,10 +344,10 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
               canMoveDown={canMoveDown}
               onMoveLeft={leftStatus ? () => moveTask(task.id, leftStatus.id) : undefined}
               onMoveRight={rightStatus ? () => moveTask(task.id, rightStatus.id) : undefined}
-              onDelete={() => deleteTask(task.id)}
+              onDelete={canDelete ? () => deleteTask(task.id) : undefined}
             />
           </div>
-        </div>
+        </div>}
 
         {!isEpic && <TaskRunFooter task={task} column={task.category ?? 'todo'} spaceId={activeSpaceId} />}
         </div>

@@ -33,14 +33,15 @@ export interface CardActionMenuProps {
    */
   canMoveUp?: boolean;
   canMoveDown?: boolean;
-  onDelete: () => void;
+  /** Left out for someone who may not delete this card. */
+  onDelete?: () => void;
 }
 
 /**
  * Inline action toolbar for a Kanban card.
  *
  * Renders a row of icon buttons: move-left (when applicable), move-right
- * (when applicable), and delete (always).
+ * (when applicable), and delete (if allowed).
  * Each button is 28×28 px per the design spec.
  */
 export function CardActionMenu({
@@ -135,18 +136,20 @@ export function CardActionMenu({
         </button>
       )}
 
-      <button
-        type="button"
-        onClick={onDelete}
-        disabled={isMutating}
-        aria-label="Delete issue"
-        title="Delete issue"
-        className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-error hover:bg-error/[0.08] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
-      >
-        <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
-          delete
-        </span>
-      </button>
+      {onDelete && (
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={isMutating}
+          aria-label="Delete issue"
+          title="Delete issue"
+          className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-error hover:bg-error/[0.08] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+        >
+          <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
+            delete
+          </span>
+        </button>
+      )}
     </div>
   );
 }
