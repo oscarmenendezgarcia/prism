@@ -212,6 +212,10 @@ async function handleUpdateComment(req, res, store, spaceId, taskId, commentId) 
 
     const now             = new Date().toISOString();
     const existingComment = comments[commentIndex];
+    // Resolving its own question would bring the agent back with nobody having answered.
+    if (req.user?.role === 'agent' && 'resolved' in body) {
+      return sendError(res, 403, 'FORBIDDEN', 'An agent cannot resolve comments.');
+    }
     // Anyone who can write can resolve a question. The words are their author's.
     const changesWords = ('text' in body && body.text.trim() !== existingComment.text) || ('type' in body && body.type !== existingComment.type);
     if (changesWords && req.user?.role !== 'admin' && existingComment.authorId !== req.user?.id) {
@@ -228,7 +232,9 @@ async function handleUpdateComment(req, res, store, spaceId, taskId, commentId) 
     store.updateComment(spaceId, taskId, updatedComment);
 
     if (body.resolved === true && existingComment.type === 'question') {
-      taskRunner.questionAnswered(taskId);
+      taskRunner.questionAnswered(taskId, {
+        startedBy: req.user && !req.user.unverified ? { id: req.user.id, name: req.user.name } : null,
+      });
     }
 
     return sendJSON(res, 200, updatedComment);

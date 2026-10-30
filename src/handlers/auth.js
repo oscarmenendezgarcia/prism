@@ -11,7 +11,7 @@ const crypto = require('crypto');
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { ROLES, normalizeEmail } = require('../services/accounts');
 const { mayRequest } = require('../utils/permissions');
-const { isAgentId } = require('../utils/agents');
+const { isAgentId, isReservedName } = require('../utils/agents');
 
 const COOKIE_PREFIX = 'prism_session';
 const COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
@@ -79,7 +79,8 @@ function invalidEmail(email) {
 
 function invalidName(name) {
   const clean = typeof name === 'string' ? name.trim() : '';
-  return clean && clean.length <= NAME_MAX ? null : `The name must have 1 to ${NAME_MAX} characters.`;
+  if (!clean || clean.length > NAME_MAX) return `The name must have 1 to ${NAME_MAX} characters.`;
+  return isReservedName(clean) ? "That name is for an agent. Choose another." : null;
 }
 
 function invalidPassword(password) {
@@ -147,9 +148,10 @@ function createLoginLimiter({ maxEntries = LOGIN_MAX_ENTRIES } = {}) {
  * @param {boolean} deps.required - False only from code, for the tests of what comes after this.
  * @param {string|null} [deps.setupCode] - Asked of whoever makes the first account.
  * @param {Function} [deps.onSetUp] - Called once the first account exists.
+ * @param {Function} [deps.onDeactivated] - Called with the id of an account turned off.
  * @param {boolean} [deps.trustProxy] - Take the client's address from X-Forwarded-For.
  */
-function createAuth({ store: { accounts, assignees, renameAssignee }, required, setupCode = null, onSetUp = () => {}, trustProxy = false }) {
+function createAuth({ store: { accounts, assignees, renameAssignee }, required, setupCode = null, onSetUp = () => {}, onDeactivated = () => {}, trustProxy = false }) {
   const limiter = createLoginLimiter();
   let loginsRunning = 0;
 
@@ -364,6 +366,7 @@ function createAuth({ store: { accounts, assignees, renameAssignee }, required, 
     const result = accounts.updateUser(userId, { role: body.role, active: body.active });
     if (result.error === 'NOT_FOUND') return sendError(res, 404, 'NOT_FOUND', 'There is no such user.');
     if (result.error === 'LAST_ADMIN') return sendError(res, 409, 'LAST_ADMIN', 'This is the last admin. Make someone else admin first.');
+    if (body.active === false) onDeactivated(userId);
     sendJSON(res, 200, result);
   }
 

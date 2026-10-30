@@ -577,7 +577,7 @@ describe('upgrading a database', () => {
       assert.equal(fs.statSync(path.join(dir, 'prism.db.before-v4')).mode & 0o777, 0o600);
       assert.ok(fs.existsSync(path.join(dir, 'prism.db.before-v4')));
       const after = new (require('better-sqlite3'))(path.join(dir, 'prism.db'), { readonly: true });
-      assert.equal(after.pragma('user_version', { simple: true }), 4);
+      assert.equal(after.pragma('user_version', { simple: true }), 5);
       after.close();
 
       // A database from a newer version keeps its number, so that going back to it still works.

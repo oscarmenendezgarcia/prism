@@ -331,9 +331,9 @@ function statusSlug(name, isTaken) {
 
 /**
  * Bumped when a version changes what the data means.
- * 2: pipelines and Folio retired. 3: tasks became issues. 4: accounts.
+ * 2: pipelines and Folio retired. 3: tasks became issues. 4: accounts. 5: agents as assignees.
  */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const ISSUES_SCHEMA_VERSION = 3;
 
 /**
@@ -400,7 +400,13 @@ function addAccountColumns(db) {
 function nameAgentsByTheirId(db) {
   const setAssigned = db.prepare('UPDATE tasks SET assigned = ? WHERE assigned = ?');
   for (const { assigned } of db.prepare('SELECT DISTINCT assigned FROM tasks WHERE assigned IS NOT NULL').all()) {
-    const agent = agentFromOldName(fromJson(assigned) ?? '');
+    let name;
+    try {
+      name = JSON.parse(assigned);
+    } catch {
+      continue; // Not what this app writes. It stays as it is.
+    }
+    const agent = agentFromOldName(name);
     if (agent) setAssigned.run(JSON.stringify(agent), assigned);
   }
 }

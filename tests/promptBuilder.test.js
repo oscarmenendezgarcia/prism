@@ -175,7 +175,7 @@ async function runTests() {
       { author: 'user', type: 'note', text: 'First' },
       { author: 'agent', type: 'question', text: 'x'.repeat(2500) },
     ]);
-    assert(block.includes('- user (note): First'), 'first comment present');
+    assert(block.includes('<untrusted source="comment, note" author="user">\nFirst\n</untrusted>'), 'first comment present');
     assert(block.includes('[truncated]'), 'long comment truncated');
     assert(block.indexOf('First') < block.indexOf('xxx'), 'oldest first');
   });

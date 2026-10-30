@@ -467,3 +467,72 @@ describe('what a viewer sees of a run', () => {
     }
   });
 });
+
+describe('two people editing the same issue', () => {
+  let t, url;
+  before(async () => {
+    t = await team();
+    url = `/api/v1/spaces/${t.space.id}/tasks`;
+  });
+  after(() => t.close());
+
+  const issue = async () => (await t.api('POST', url, { cookie: t.admin.cookie, body: { title: 'T', type: 'chore', description: 'Start' } })).json;
+  const put = (id, who, body) => t.api('PUT', `${url}/${id}`, { cookie: who.cookie, body });
+
+  test('the second to save the same field is told, and nothing is overwritten', async () => {
+    const { id } = await issue();
+    assert.equal((await put(id, t.admin, { description: 'Ana was here', base: { description: 'Start' } })).status, 200);
+    const res = await put(id, t.member, { description: 'Bea was here', base: { description: 'Start' } });
+    assert.equal(res.status, 409);
+    assert.equal(res.json.error.code, 'EDIT_CONFLICT');
+    assert.equal(res.json.error.field, 'description');
+    assert.equal(res.json.error.theirs, 'Ana was here');
+    assert.equal(res.json.error.by, 'Ana López');
+    assert.ok(res.json.error.at);
+    assert.equal((await t.api('GET', `${url}/${id}`, { cookie: t.member.cookie })).json.description, 'Ana was here');
+  });
+
+  test('changes to different fields both stand', async () => {
+    const { id } = await issue();
+    assert.equal((await put(id, t.admin, { title: 'New title', base: { title: 'T' } })).status, 200);
+    assert.equal((await put(id, t.member, { description: 'New text', base: { description: 'Start' } })).status, 200);
+    const seen = (await t.api('GET', `${url}/${id}`, { cookie: t.member.cookie })).json;
+    assert.equal(seen.title, 'New title');
+    assert.equal(seen.description, 'New text');
+  });
+
+  test('both writing the same thing is no conflict', async () => {
+    const { id } = await issue();
+    await put(id, t.admin, { description: 'Same', base: { description: 'Start' } });
+    assert.equal((await put(id, t.member, { description: 'Same', base: { description: 'Start' } })).status, 200);
+  });
+
+  test('choosing to save mine goes through, from what is there now', async () => {
+    const { id } = await issue();
+    await put(id, t.admin, { description: 'Ana', base: { description: 'Start' } });
+    assert.equal((await put(id, t.member, { description: 'Bea', base: { description: 'Ana' } })).status, 200);
+  });
+
+  test('clients that send no base work as before', async () => {
+    const { id } = await issue();
+    await put(id, t.admin, { description: 'Ana', base: { description: 'Start' } });
+    assert.equal((await put(id, t.member, { description: 'Bea' })).status, 200);
+  });
+
+  test('a field from the base that is not being changed does not count', async () => {
+    const { id } = await issue();
+    await put(id, t.admin, { title: 'New', base: { title: 'T' } });
+    assert.equal((await put(id, t.member, { description: 'Bea', base: { title: 'T', description: 'Start' } })).status, 200);
+  });
+
+  test('a description that was empty', async () => {
+    const created = (await t.api('POST', url, { cookie: t.admin.cookie, body: { title: 'T', type: 'chore' } })).json;
+    await put(created.id, t.admin, { description: 'First', base: { description: '' } });
+    assert.equal((await put(created.id, t.member, { description: 'Second', base: { description: '' } })).status, 409);
+  });
+
+  test('a strange base is ignored', async () => {
+    const { id } = await issue();
+    for (const base of ['x', 7, null, []]) assert.equal((await put(id, t.member, { title: `T${base}`, base })).status, 200, String(base));
+  });
+});

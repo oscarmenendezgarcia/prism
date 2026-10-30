@@ -10,7 +10,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { useCanEdit, useIsAdmin } from '@/stores/useAuthStore';
 import { runProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
 import { agentOf } from '@/utils/agents';
-import type { ChangedFile, StatusCategory, Task, TaskRunView } from '@/types';
+import type { ChangedFile, ModelCliTool, StatusCategory, Task, TaskRunView } from '@/types';
 import { isAwaitingReview } from '@/utils/issues';
 import { HarnessIcon, HARNESS_NAMES, type DirectCliTool } from './HarnessIcon';
 import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
@@ -169,7 +169,9 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
   );
 
   if (!canEdit) return null;
-  if (!view || column === 'todo' || (column === 'in-progress' && view.status === 'done' && !isAwaitingReview(task, space))) {
+  // An issue given to another agent starts over with it.
+  const reassigned = !!view && !!agent && agent !== view.cliTool && ['failed', 'stopped'].includes(view.status) && column !== 'done';
+  if (!view || column === 'todo' || reassigned || (column === 'in-progress' && view.status === 'done' && !isAwaitingReview(task, space))) {
     if (column === 'done' || !agent) return null;
     if (space && !space.workingDirectory) {
       if (!isAdmin) return null;
@@ -205,7 +207,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
           </Button>
         )}
         {missingHarness && agent && startButton}
-        {(view.status === 'failed' || view.status === 'stopped') && !missingHarness && (
+        {(view.status === 'failed' || view.status === 'stopped') && !missingHarness && task.assigned === view.cliTool && !runProblem(view.cliTool as ModelCliTool, space, harnesses) && (
           <Button variant="primary" size="sm" disabled={busy} onClick={() => { retry(spaceId, task.id).catch(() => {}); }}>
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">refresh</span>
             Retry

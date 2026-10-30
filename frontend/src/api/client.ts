@@ -39,7 +39,7 @@ const API_BASE = '/api/v1';
  * (e.g. 409 MAX_CONCURRENT_REACHED) without string-matching the message.
  */
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number, readonly code?: string) {
+  constructor(message: string, readonly status: number, readonly code?: string, readonly details?: Record<string, unknown>) {
     super(message);
     this.name = 'ApiError';
   }
@@ -81,12 +81,12 @@ export async function apiFetch<T>(
   const data = await res.json();
 
   if (!res.ok) {
-    const errorBody = data as { error?: { message?: string; code?: string } };
+    const errorBody = data as { error?: { message?: string; code?: string } & Record<string, unknown> };
     const message = errorBody?.error?.message || `HTTP ${res.status}`;
     const code    = errorBody?.error?.code;
     if (code === 'UNAUTHENTICATED') onSignedOut();
     if (code === 'FORBIDDEN') onForbidden();
-    throw new ApiError(message, res.status, code);
+    throw new ApiError(message, res.status, code, errorBody?.error);
   }
 
   return data as T;

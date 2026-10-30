@@ -34,7 +34,8 @@ import { DependsOnSection } from '@/components/board/DependsOnSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import * as api from '@/api/client';
-import type { Comment, Priority, Task, TaskType } from '@/types';
+import type { Comment, ModelCliTool, Priority, Task, TaskType } from '@/types';
+import { agentIsOn } from '@/utils/agents';
 
 // ---------------------------------------------------------------------------
 // Shared input style for the details column's editable fields
@@ -164,6 +165,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const showToast            = useAppStore((s) => s.showToast);
   const openAttachmentModal  = useAppStore((s) => s.openAttachmentModal);
   const canEdit              = useCanEdit();
+  const activeSpace          = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId));
   const openMarkdownModal    = useAppStore((s) => s.openMarkdownModal);
   const activeSpaceId        = useAppStore((s) => s.activeSpaceId);
 
@@ -195,6 +197,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
   // Track initial values to detect actual changes on blur.
   const savedTitle       = useRef('');
   const savedAssigned    = useRef('');
+  /** What the description said when this edit of it began. */
+  const descriptionBase  = useRef('');
 
   // ── Refs for focus management ────────────────────────────────────────────
 
@@ -212,6 +216,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
     setLocalTitle(detailTask.title);
     setLocalAssigned(detailTask.assigned ?? '');
     setLocalDescription(detailTask.description ?? '');
+    descriptionBase.current = detailTask.description ?? '';
     setLocalEstimate(detailTask.estimate != null ? String(detailTask.estimate) : '');
     setLocalDueDate(detailTask.dueDate ?? '');
     setActivityTab('comments');
@@ -334,8 +339,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
       setLocalTitle(savedTitle.current);
       return;
     }
+    const base = savedTitle.current;
     savedTitle.current = trimmed;
-    updateTask(detailTask.id, { title: trimmed });
+    updateTask(detailTask.id, { title: trimmed, base: { title: base } });
   }, [detailTask, localTitle, updateTask]);
 
   const handleAssignedChange = useCallback((assigned: string) => {
@@ -372,8 +378,42 @@ export function TaskDetailPanel(): React.ReactElement | null {
     const description = localDescription.trim();
     // An agent may have changed it since this form loaded. Leaving the field must not undo that.
     if (description === (detailTask.description ?? '').trim()) return;
-    updateTask(detailTask.id, { description });
+    const base = descriptionBase.current;
+    descriptionBase.current = description;
+    updateTask(detailTask.id, { description, base: { description: base } });
   }, [detailTask, localDescription, updateTask]);
+
+  // Others change an issue while it is open. What they wrote shows at once, unless this person
+  // is typing in that field: saving will tell them, rather than swap the text under their hands.
+  const liveIssue = detailTask ? boardIndex(tasks).byId.get(detailTask.id) : undefined;
+  const liveTitle = liveIssue?.title;
+  const liveDescription = liveIssue?.description ?? '';
+  useEffect(() => {
+    if (liveTitle === undefined || isMutating || document.activeElement === titleInputRef.current) return;
+    if (liveTitle !== savedTitle.current) {
+      savedTitle.current = liveTitle;
+      setLocalTitle(liveTitle);
+    }
+  }, [liveTitle, isMutating]);
+  useEffect(() => {
+    if (!liveIssue || isMutating || document.activeElement === descTextareaRef.current) return;
+    descriptionBase.current = liveDescription;
+    setLocalDescription(liveDescription);
+  }, [liveDescription, isMutating]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // After a conflict: back to the text they chose, starting from what is saved now.
+  const resumedEdit = useAppStore((s) => s.resumedEdit);
+  useEffect(() => {
+    if (!resumedEdit || resumedEdit.taskId !== detailTask?.id) return;
+    if (resumedEdit.field === 'title') {
+      savedTitle.current = resumedEdit.base;
+      setLocalTitle(resumedEdit.text);
+    } else {
+      descriptionBase.current = resumedEdit.base;
+      setLocalDescription(resumedEdit.text);
+    }
+    useAppStore.setState({ resumedEdit: null });
+  }, [resumedEdit, detailTask?.id]);
 
   // Comment handlers — delegate to the store so the board badge refreshes.
   const handleCommentCreated = useCallback(
@@ -473,7 +513,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const canRequestChanges = !!taskRunView
     && column !== 'todo'
     && ['failed', 'stopped', 'done'].includes(taskRunView.status)
-    && !hasOpenQuestion;
+    && !hasOpenQuestion
+    && detailTask?.assigned === taskRunView.cliTool
+    && agentIsOn(activeSpace, taskRunView.cliTool as ModelCliTool);
   // ── Shared sub-elements ──────────────────────────────────────────────────
 
   const closeButton = (

@@ -236,7 +236,9 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     // -------------------------------------------------------------------------
     if (SPACES_LIST_ROUTE.test(urlPath)) {
       if (method === 'GET') {
-        return sendJSON(res, 200, spaceManager.listSpaces());
+        // The token of a run knows of its own space, and no others.
+        const spaces = spaceManager.listSpaces();
+        return sendJSON(res, 200, req.user?.run ? spaces.filter((space) => space.id === req.user.run.spaceId) : spaces);
       }
 
       if (method === 'POST') {

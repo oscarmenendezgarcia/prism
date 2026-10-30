@@ -155,7 +155,7 @@ describe('assigning', () => {
   test('nobody can take the name of an agent', async () => {
     const invite = await api('POST', '/api/v1/invites', { cookie: admin, body: { email: 'c@example.com', role: 'member' } });
     const token = invite.json.path.split('/').pop();
-    assert.equal((await api('POST', `/api/v1/auth/links/${token}`, { body: { name: 'Claude', password: PASSWORD } })).status, 409);
+    assert.equal((await api('POST', `/api/v1/auth/links/${token}`, { body: { name: 'Claude', password: PASSWORD } })).status, 400);
     assert.equal((await api('POST', `/api/v1/auth/links/${token}`, { body: { name: 'Carla', password: PASSWORD } })).status, 200);
   });
 
@@ -193,7 +193,7 @@ describe('upgrading', () => {
   for (const [old, agent] of [
     ['Claude Code', 'claude'], ['claude-code', 'claude'], ['claude', 'claude'], ['developer-agent', 'claude'], ['Sonnet', 'claude'],
     ['opencode', 'opencode'], ['Hermes', 'hermes'], ['pi', 'pi'],
-    ['Ana López', null], ['Piero', null], ['agent smith', null],
+    ['Ana López', null], ['Piero', null], ['agent smith', null], ['Sales Agent', null], ['Bond-Agent', null], ['Pi', null], [5, null], [['claude'], null],
   ]) {
     test(`"${old}" means ${agent ?? 'a person'}`, () => assert.equal(agentFromOldName(old), agent));
   }
@@ -210,6 +210,9 @@ describe('upgrading', () => {
       add.run('a', 1, JSON.stringify('Claude Code'));
       add.run('b', 2, JSON.stringify('Ana López'));
       add.run('c', 3, JSON.stringify('developer-agent'));
+      db.prepare(`UPDATE tasks SET assigned = 'not json' WHERE id = 'b'`).run();
+      add.run('d', 4, JSON.stringify('Sales Agent'));
+      add.run('e', 5, JSON.stringify('Ana López'));
       db.pragma('user_version = 3');
       db.close();
 
@@ -218,11 +221,35 @@ describe('upgrading', () => {
       const after = new (require('better-sqlite3'))(path.join(dir, 'prism.db'), { readonly: true });
       const assigned = (id) => JSON.parse(after.prepare('SELECT assigned FROM tasks WHERE id = ?').get(id).assigned);
       assert.equal(assigned('a'), 'claude');
-      assert.equal(assigned('b'), 'Ana López');
+      assert.equal(assigned('e'), 'Ana López');
+      assert.equal(assigned('d'), 'Sales Agent');
+      assert.equal(after.prepare(`SELECT assigned FROM tasks WHERE id = 'b'`).get().assigned, 'not json');
       assert.equal(assigned('c'), 'claude');
       after.close();
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('names that read as an agent', () => {
+  test('are refused for people, also the first one', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-names-'));
+    const server = startServer({ port: 0, dataDir: root, silent: true });
+    await new Promise((resolve) => server.once('listening', resolve));
+    const { port } = server.address();
+    const setupCode = fs.readFileSync(path.join(root, 'setup-code'), 'utf8').trim();
+    try {
+      const body = (name) => ({ name, email: 'a@b.c', password: PASSWORD, setupCode });
+      for (const name of ['claude', 'Claude Code', 'Hermes', 'Claude Code, started by Olga']) {
+        assert.equal((await call(port, 'POST', '/api/v1/auth/setup', { body: body(name) })).status, 400, name);
+      }
+      assert.equal((await call(port, 'POST', '/api/v1/auth/setup', { body: body('Ana') })).status, 201);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+      server._store.close();
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 });

@@ -15,6 +15,7 @@ const path = require('path');
 const { CATEGORIES }                       = require('../constants');
 const { sendJSON, sendError, parseBody, readActor } = require('../utils/http');
 const { agentIsOn, isAgentId } = require('../utils/agents');
+const { isReadableAttachment } = require('../utils/attachments');
 const taskRunner                           = require('../services/taskRunner');
 
 // ---------------------------------------------------------------------------
@@ -210,37 +211,30 @@ function assigneeProblem(req, store, spaceId, assigned, current) {
   return person?.active ? null : `'${assigned}' is not on the team.`;
 }
 
-/** What a repository holds that is not for everyone who can read its issues. */
-const PRIVATE_IN_REPO = (relative) => relative.split(path.sep).some((part) => part === '.git' || part.startsWith('.env'));
+const AGENT_UPDATABLE_FIELDS = ['title', 'description', 'labels', 'estimate', 'dueDate', 'base'];
+
+/** Where people type for a while, and so where two can be at it at once. */
+const CONFLICT_FIELDS = ['title', 'description'];
 
 /**
- * Whether a file attachment may be read: it really is in the folder of the space, once links
- * are followed, so that it cannot read anything else on the server. Prism's own data stays
- * out even if it lives in there, as it does when Prism runs from a checkout.
+ * Whether an edit would overwrite a change it has not seen. `base` holds what each field said
+ * when the edit began. Only the same field counts: changes to different ones both stand.
  *
- * @param {string} file
- * @param {string|undefined|null} folder
- * @param {string} [dataDir]
- * @returns {boolean}
+ * @returns {{ field: string, theirs: string, by: string|null, at: string|null }|null}
  */
-function isReadableAttachment(file, folder, dataDir) {
-  if (!folder) return false;
-  try {
-    const root = fs.realpathSync(folder);
-    const data = dataDir && dataDir !== ':memory:' ? fs.realpathSync(dataDir) : null;
-    let real;
-    try {
-      real = fs.realpathSync(file);
-    } catch {
-      // Not there. Say so only for a path inside, or this would tell what exists elsewhere.
-      real = path.resolve(file);
-    }
-    if (!real.startsWith(root + path.sep)) return false;
-    if (data && (real === data || real.startsWith(data + path.sep))) return false;
-    return !PRIVATE_IN_REPO(path.relative(root, real));
-  } catch {
-    return false;
+function editConflict(store, spaceId, taskId, body) {
+  const base = body.base;
+  if (!base || typeof base !== 'object') return null;
+  const task = store.getTask(spaceId, taskId);
+  if (!task) return null;
+  for (const field of CONFLICT_FIELDS) {
+    if (!(field in body) || !(field in base)) continue;
+    const current = task[field] ?? '';
+    if ((base[field] ?? '') === current || (body[field] ?? '') === current) continue;
+    const last = store.getHistory(taskId).find((entry) => entry.field === field);
+    return { field, theirs: current, by: last?.actor ?? null, at: last?.createdAt ?? null };
   }
+  return null;
 }
 
 function createApp(spaceId, store) {
@@ -736,6 +730,15 @@ function createApp(spaceId, store) {
       return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
     }
 
+    // An agent describes its issue. Who has it, what it hangs from and what it waits for are
+    // for people, and would let a tricked agent reach beyond it.
+    if (req.user?.role === 'agent') {
+      const notItsToChange = Object.keys(body).filter((field) => !AGENT_UPDATABLE_FIELDS.includes(field));
+      if (notItsToChange.length > 0) {
+        return sendError(res, 403, 'FORBIDDEN', `An agent cannot change: ${notItsToChange.join(', ')}`);
+      }
+    }
+
     resolveIssueRefs(body);
     const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'priority', 'labels', 'parentId', 'dueDate', 'estimate', 'dependsOn'];
     const provided         = UPDATABLE_FIELDS.filter((f) => f in body);
@@ -786,6 +789,11 @@ function createApp(spaceId, store) {
       const problem = assigneeProblem(req, store, spaceId, body.assigned, store.getTask(spaceId, taskId)?.assigned);
       if (problem) return sendError(res, 400, 'VALIDATION_ERROR', problem);
     }
+
+    // Someone else changed what this edit started from. No await from here to the write,
+    // so nothing can slip in between.
+    const conflict = editConflict(store, spaceId, taskId, body);
+    if (conflict) return sendError(res, 409, 'EDIT_CONFLICT', `${conflict.by ?? 'Someone'} changed the ${conflict.field} while this was being edited.`, conflict);
 
     try {
       // Nothing is written until every field has been validated: the dependsOn

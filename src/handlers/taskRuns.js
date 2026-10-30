@@ -78,6 +78,30 @@ function startedBy(req) {
   return req.user && !req.user.unverified ? { id: req.user.id, name: req.user.name } : null;
 }
 
+/**
+ * Why an agent cannot go on with an issue, which is the same as why it could not start: it
+ * is off here, or the issue is no longer assigned to it. A server without accounts has no
+ * such rules.
+ *
+ * @returns {{ status: number, code: string, message: string }|null}
+ */
+function continueProblem(req, store, spaceId, taskId, agent) {
+  if (req.user?.unverified) return null;
+  if (!agentIsOn(store.getSpace(spaceId), agent)) {
+    return { status: 403, code: 'AGENT_OFF', message: 'This agent is off in this space. An admin can turn it on in Space settings.' };
+  }
+  if (store.getTask(spaceId, taskId)?.assigned !== agent) {
+    return { status: 409, code: 'REASSIGNED', message: 'This issue is no longer assigned to this agent. Run it again.' };
+  }
+  return null;
+}
+
+/** The model the space has now for a run's agent: it may have changed since the run began. */
+function spaceModel(req, store, run) {
+  if (req.user?.unverified || !run) return undefined;
+  return store.getSpace(run.spaceId)?.hooks?.agents?.[run.agentConfig?.cliTool ?? 'claude']?.model;
+}
+
 function sendRunError(res, err, op) {
   const status = ERROR_STATUS[err.code];
   if (status && status < 500) return sendError(res, status, err.code, err.message);
@@ -197,9 +221,8 @@ async function handleRequestChanges(req, res, store, spaceId, taskId) {
 
   const view = latestRunView(spaceId, taskId);
   if (!view) return sendError(res, 409, 'NO_RUN', 'This task has not been run yet.');
-  if (!req.user?.unverified && !agentIsOn(store.getSpace(spaceId), view.cliTool)) {
-    return sendError(res, 403, 'AGENT_OFF', 'This agent is off in this space. An admin can turn it on in Space settings.');
-  }
+  const problem = continueProblem(req, store, spaceId, taskId, view.cliTool);
+  if (problem) return sendError(res, problem.status, problem.code, problem.message);
 
   const comments = Array.isArray(task.comments) ? task.comments : [];
   if (comments.length >= COMMENT_MAX_COUNT) {
@@ -211,7 +234,7 @@ async function handleRequestChanges(req, res, store, spaceId, taskId) {
   }
 
   try {
-    return sendJSON(res, 200, await taskRunner.requestChanges(view.runId, text, { author: readActor(req, 'user'), authorId: req.user?.unverified ? undefined : req.user?.id, startedBy: startedBy(req) }));
+    return sendJSON(res, 200, await taskRunner.requestChanges(view.runId, text, { author: readActor(req, 'user'), authorId: req.user?.unverified ? undefined : req.user?.id, startedBy: startedBy(req), model: spaceModel(req, store, { spaceId, agentConfig: { cliTool: view.cliTool } }) }));
   } catch (err) {
     return sendRunError(res, err, 'requesting changes');
   }
@@ -275,11 +298,10 @@ async function handleStopRun(res, runId) {
 
 async function handleResumeRun(req, res, store, runId) {
   try {
-    const run = taskRunner.getRun?.(runId);
-    if (run && !req.user?.unverified && !agentIsOn(store.getSpace(run.spaceId), run.agentConfig?.cliTool ?? 'claude')) {
-      return sendError(res, 403, 'AGENT_OFF', 'This agent is off in this space. An admin can turn it on in Space settings.');
-    }
-    return sendJSON(res, 200, await taskRunner.resumeRun(runId, startedBy(req)));
+    const run = taskRunner.getRun(runId);
+    const problem = run && continueProblem(req, store, run.spaceId, run.taskId, run.agentConfig?.cliTool ?? 'claude');
+    if (problem) return sendError(res, problem.status, problem.code, problem.message);
+    return sendJSON(res, 200, await taskRunner.resumeRun(runId, { startedBy: startedBy(req), model: spaceModel(req, store, run) }));
   } catch (err) {
     return sendRunError(res, err, 'resuming run');
   }
@@ -293,13 +315,14 @@ async function handleUpdateAgents(req, res, store, spaceId) {
   const body = await readObjectBody(req, res);
   if (!body) return undefined;
 
-  const agents = {};
+  // What it does not mention stays as it is.
+  const agents = { ...store.getSpace(spaceId).hooks?.agents };
   for (const [id, setting] of Object.entries(body)) {
     if (!isAgentId(id)) return sendError(res, 400, 'VALIDATION_ERROR', `Unknown agent: ${id}`);
     if (!setting || typeof setting !== 'object' || typeof setting.enabled !== 'boolean') {
       return sendError(res, 400, 'VALIDATION_ERROR', `${id} needs enabled: true or false`);
     }
-    const model = setting.model || undefined;
+    const model = setting.model || (id === 'claude' ? 'sonnet' : undefined);
     if (setting.enabled) {
       const { error } = readAgentConfig({ cliTool: id, model });
       if (error) return sendError(res, 400, 'VALIDATION_ERROR', error);

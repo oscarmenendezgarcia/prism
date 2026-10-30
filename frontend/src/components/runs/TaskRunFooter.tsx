@@ -9,7 +9,7 @@ import { useCanEdit, useIsAdmin } from '@/stores/useAuthStore';
 import { isAwaitingReview } from '@/utils/issues';
 import { runProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
 import { agentOf } from '@/utils/agents';
-import type { StatusCategory, Task } from '@/types';
+import type { ModelCliTool, StatusCategory, Task } from '@/types';
 import { HarnessIcon } from './HarnessIcon';
 import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
 
@@ -39,7 +39,9 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   // A card back in To do starts over, whatever its last run did. So does one whose
   // harness is not installed, since retrying could only fail the same way, and one
   // moved back to In progress by hand. One waiting for review has its result to look at.
-  const canStart = column === 'todo' || missingHarness
+  // So does one given to another agent since: its last run is not that agent's to go on with.
+  const reassigned = !!view && !!agentOf(task.assigned) && task.assigned !== view.cliTool && ['failed', 'stopped'].includes(view.status);
+  const canStart = column === 'todo' || missingHarness || (column !== 'done' && reassigned)
     || (column === 'in-progress' && (!view || (view.status === 'done' && !isAwaitingReview(task, space))));
   if (!canEdit) return null;
   if (canStart) {
@@ -96,7 +98,7 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
     );
   }
 
-  const canRetry = view.status === 'failed' || view.status === 'stopped';
+  const canRetry = (view.status === 'failed' || view.status === 'stopped') && task.assigned === view.cliTool && !runProblem(view.cliTool as ModelCliTool, space, harnesses);
   const message = failureMessage(view);
 
   return (

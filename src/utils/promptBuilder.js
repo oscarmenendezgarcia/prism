@@ -53,7 +53,7 @@ const UNTRUSTED_RULES = [
  */
 function untrusted(source, text, author) {
   const by = author ? ` author="${String(author).replace(/["<>\n]/g, ' ')}"` : '';
-  const safe = String(text).replace(/<\/?untrusted/gi, (tag) => tag.replace('<', '&lt;'));
+  const safe = String(text).replace(/<\s*\/?\s*untrusted/gi, (tag) => tag.replace('<', '&lt;'));
   return `<untrusted source="${source}"${by}>\n${safe}\n</untrusted>`;
 }
 
@@ -122,8 +122,9 @@ function buildGitContextBlock(workingDirectory) {
     if (!gitLog && !gitStatus) return '';
 
     const parts = ['\n## GIT CONTEXT (recent commits + working tree state in ' + workingDirectory + ')'];
-    if (gitLog)    parts.push('```\n' + gitLog + '\n```');
-    if (gitStatus) parts.push('\nWorking tree changes:\n```\n' + gitStatus + '\n```');
+    // Commit messages and file names are text someone wrote too.
+    if (gitLog)    parts.push(untrusted('git log', gitLog));
+    if (gitStatus) parts.push('\nWorking tree changes:\n' + untrusted('git status', gitStatus));
     return parts.join('\n');
   } catch {
     return '';

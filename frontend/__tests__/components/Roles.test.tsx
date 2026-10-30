@@ -7,6 +7,9 @@ import { UserMenu } from '../../src/components/layout/UserMenu';
 import { CommentsSection } from '../../src/components/board/CommentsSection';
 import { BoardEmptyState } from '../../src/components/board/BoardEmptyState';
 import { SpaceTabs } from '../../src/components/layout/SpaceTabs';
+import { AssigneeSelect } from '../../src/components/shared/AssigneeSelect';
+import { TaskRunFooter } from '../../src/components/runs/TaskRunFooter';
+import { useTaskRunStore } from '../../src/stores/useTaskRunStore';
 import { useAuthStore } from '../../src/stores/useAuthStore';
 import { useAppStore } from '../../src/stores/useAppStore';
 import * as api from '../../src/api/client';
@@ -156,5 +159,83 @@ describe('TeamModal', () => {
     render(<TeamModal onClose={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Reactivate' }));
     await waitFor(() => expect(update).toHaveBeenCalledWith('b', { active: true }));
+  });
+});
+
+describe('AssigneeSelect', () => {
+  const space = (agents: object) => ({ id: 's', name: 'Web', hooks: { checkCommand: null, autoPr: false, agents }, createdAt: '', updatedAt: '' });
+  const ACTIVE = { ...person('member', 'b'), name: 'Bea Ruiz' };
+  const GONE = { ...person('member', 'c'), name: 'Carlos Mena', active: false };
+
+  beforeEach(() => {
+    useAuthStore.setState({ people: [ACTIVE, GONE], loadPeople: vi.fn() } as never);
+    useAppStore.setState({ spaces: [space({ claude: { enabled: true } })], activeSpaceId: 's' } as never);
+  });
+
+  const options = () => (screen.getByRole('combobox') as HTMLSelectElement);
+  const option = (text: string) => screen.getByRole('option', { name: text }) as HTMLOptionElement;
+
+  it('lists active people, and agents with those off disabled', () => {
+    render(<AssigneeSelect id="a" value="" onChange={() => {}} />);
+    expect(option('Bea Ruiz')).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Carlos Mena' })).not.toBeInTheDocument();
+    expect(option('Claude Code').disabled).toBe(false);
+    expect(option('Hermes (off here)').disabled).toBe(true);
+  });
+
+  it('keeps showing someone who left, or a name from before accounts, as what it is', () => {
+    render(<AssigneeSelect id="a" value="Carlos Mena" onChange={() => {}} />);
+    expect(options()).toHaveValue('Carlos Mena');
+    expect(option('Carlos Mena (no account)')).toBeInTheDocument();
+  });
+
+  it('keeps an agent that was turned off, so that the issue still reads right', () => {
+    render(<AssigneeSelect id="a" value="hermes" onChange={() => {}} />);
+    expect(options()).toHaveValue('hermes');
+  });
+});
+
+describe('Run, when the assigned agent is not the one that ran', () => {
+  const VIEW = { runId: 'r', taskId: 't1', status: 'stopped', cliTool: 'claude', model: null, iteration: 1, createdAt: '', updatedAt: '', closedAt: null, result: null, hook: null, failure: null };
+  const ON = (agents: object) => ({ id: 's', name: 'Web', workingDirectory: '/repo', hooks: { checkCommand: null, autoPr: false, agents }, createdAt: '', updatedAt: '' });
+
+  beforeEach(() => {
+    signIn('member');
+    useTaskRunStore.setState({ views: { t1: VIEW }, busyTaskIds: new Set(), harnesses: null } as never);
+  });
+
+  const renderFooter = (assigned: string) => render(<TaskRunFooter task={{ ...TASK, assigned }} column="in-progress" spaceId="s" />);
+
+  it('offers Retry on the agent that ran, while it is the one assigned and on', () => {
+    useAppStore.setState({ spaces: [ON({ claude: { enabled: true } })], activeSpaceId: 's' } as never);
+    renderFooter('claude');
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+  });
+
+  it('offers Run, not Retry, once it is given to another agent', () => {
+    useAppStore.setState({ spaces: [ON({ claude: { enabled: false }, opencode: { enabled: true, model: 'a/b' } })], activeSpaceId: 's' } as never);
+    renderFooter('opencode');
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^run$/i })).toBeEnabled();
+  });
+
+  it('offers neither once it is given to a person', () => {
+    useAppStore.setState({ spaces: [ON({ claude: { enabled: true } })], activeSpaceId: 's' } as never);
+    renderFooter('Bea Ruiz');
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^run$/i })).not.toBeInTheDocument();
+  });
+
+  it('offers no Retry while the agent is off', () => {
+    useAppStore.setState({ spaces: [ON({ claude: { enabled: false } })], activeSpaceId: 's' } as never);
+    renderFooter('claude');
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+  });
+
+  it('a viewer sees no Run or Retry', () => {
+    signIn('viewer');
+    useAppStore.setState({ spaces: [ON({ claude: { enabled: true } })], activeSpaceId: 's' } as never);
+    renderFooter('claude');
+    expect(screen.queryByTestId('run-footer')).not.toBeInTheDocument();
   });
 });

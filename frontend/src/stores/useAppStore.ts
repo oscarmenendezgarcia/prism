@@ -24,9 +24,10 @@ import type {
   DeleteSpaceDialogState,
   ToastState,
   Comment,
+  EditConflict,
 } from '@/types';
 import { safeStorage } from '@/utils/safeStorage';
-import { allTasks, keepUnchanged, localToday, mapBoard } from '@/utils/issues';
+import { allTasks, boardIndex, keepUnchanged, localToday, mapBoard } from '@/utils/issues';
 
 /** Key used to persist the active space across page reloads. */
 const ACTIVE_SPACE_KEY = 'prism-active-space';
@@ -170,6 +171,11 @@ interface AppState {
    * @param patch  - Partial payload; only present keys are sent.
    */
   updateTask: (taskId: string, patch: UpdateTaskPayload) => Promise<void>;
+  /** Someone else changed a field while this person was editing it, and they have to choose. */
+  editConflict: EditConflict | null;
+  /** Text to go back to editing, after a conflict. */
+  resumedEdit: { taskId: string; field: EditConflict['field']; text: string; base: string } | null;
+  resolveConflict: (choice: 'keep-editing' | 'theirs' | 'mine') => void;
 
   /**
    * Post a new comment on a task.
@@ -555,7 +561,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ detailTask: null });
   },
 
-  updateTask: async (taskId: string, patch: UpdateTaskPayload) => {
+  editConflict: null,
+  resumedEdit: null,
+
+  resolveConflict: (choice) => {
+    const conflict = get().editConflict;
+    if (!conflict) return;
+    const { taskId, field, mine, theirs } = conflict;
+    set({ editConflict: null });
+    if (choice === 'mine') {
+      void get().updateTask(taskId, { [field]: mine, base: { [field]: theirs } });
+      set({ resumedEdit: { taskId, field, text: mine, base: mine } });
+      return;
+    }
+    const text = choice === 'theirs' ? theirs : mine;
+    set({ resumedEdit: { taskId, field, text, base: theirs } });
+    // The panel may have closed as they saved, and they asked to go on.
+    if (choice === 'keep-editing' && get().detailTask?.id !== taskId) {
+      const task = boardIndex(get().tasks).byId.get(taskId);
+      if (task) get().openDetailPanel(task);
+    }
+  },
+
+  updateTask: async (taskId: string, { base, ...patch }: UpdateTaskPayload) => {
     const { activeSpaceId, tasks, detailTask, showToast } = get();
 
     // Optimistic update: apply patch immediately in-place across all statuses.
@@ -573,7 +601,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
 
     try {
-      const updated = await api.updateTask(activeSpaceId, taskId, patch);
+      const updated = await api.updateTask(activeSpaceId, taskId, { ...patch, ...(base && { base }) });
 
       // Reconcile with server response (authoritative timestamps, etc.).
       set({
@@ -588,7 +616,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (err) {
       // Roll back optimistic changes on error. A panel closed meanwhile stays closed.
       set({ tasks, ...(get().detailTask?.id === detailTask?.id && { detailTask }) });
-      showToast(`Failed to save: ${(err as Error).message}`, 'error');
+      const { code, details } = err as { code?: string; details?: Omit<EditConflict, 'taskId' | 'mine' | 'key'> };
+      if (code === 'EDIT_CONFLICT' && details) {
+        // Nothing is lost: what they wrote waits for them to choose.
+        const { field, theirs, by, at } = details;
+        const mine = patch[field as 'title' | 'description'] ?? '';
+        const key = boardIndex(tasks).byId.get(taskId)?.key;
+        set({ editConflict: { taskId, key, field, mine, theirs, by, at } });
+        void get().loadBoard();
+      } else {
+        showToast(`Failed to save: ${(err as Error).message}`, 'error');
+      }
     } finally {
       set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });
     }

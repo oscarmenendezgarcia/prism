@@ -9,7 +9,7 @@
 
 const crypto = require('crypto');
 const { promisify } = require('util');
-const { isAgentId, AGENT_DISPLAY_NAMES } = require('../utils/agents');
+const { isReservedName, AGENT_DISPLAY_NAMES } = require('../utils/agents');
 
 const scrypt = promisify(crypto.scrypt);
 
@@ -157,6 +157,7 @@ function createAccounts(db) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
     findRunToken: db.prepare('SELECT * FROM run_tokens WHERE token_hash = ?'),
     dropRunToken: db.prepare('DELETE FROM run_tokens WHERE run_id = ?'),
+    dropRunTokensOf: db.prepare('DELETE FROM run_tokens WHERE started_by_id = ?'),
     dropLinksMadeBy: db.prepare('DELETE FROM account_links WHERE created_by_id = ?'),
     listNames:    db.prepare('SELECT name FROM users'),
     insertSession: db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, used_at, expires_at) VALUES (?, ?, ?, ?, ?)'),
@@ -299,7 +300,7 @@ function createAccounts(db) {
       }
       if (stmts.getByEmail.get(link.email)) return { error: 'EMAIL_TAKEN' };
       // Everything is signed by name, so two people cannot share one.
-      if (isAgentId(name.toLocaleLowerCase()) || stmts.listNames.all().some((u) => u.name.toLocaleLowerCase() === name.toLocaleLowerCase())) return { error: 'NAME_TAKEN' };
+      if (isReservedName(name) || stmts.listNames.all().some((u) => u.name.toLocaleLowerCase() === name.toLocaleLowerCase())) return { error: 'NAME_TAKEN' };
       stmts.dropLink.run(link.id);
       return publicUser(insertUser({ email: link.email, name, passwordHash, role: link.role }));
     })();
@@ -325,6 +326,7 @@ function createAccounts(db) {
         stmts.dropSessions.run(id);
         stmts.dropUserLinks.run(id);
         stmts.dropTokens.run(id);
+        stmts.dropRunTokensOf.run(id);
       }
       if (wasActiveAdmin && !staysActiveAdmin) stmts.dropLinksMadeBy.run(id);
       return publicUser(stmts.getUser.get(id));
@@ -365,9 +367,9 @@ function createAccounts(db) {
     const run = stmts.findRunToken.get(tokenHash);
     if (!run || Date.parse(run.expires_at) <= now) return null;
     const starter = stmts.getUser.get(run.started_by_id);
-    if (starter?.active !== 1) return null;
+    if (starter?.active !== 1 || starter.role === 'viewer') return null;
     return {
-      id: `agent:${run.agent}`,
+      id: `agent:${run.run_id}`,
       name: `${AGENT_DISPLAY_NAMES[run.agent] ?? run.agent}, started by ${starter.name}`,
       role: 'agent',
       viaToken: true,

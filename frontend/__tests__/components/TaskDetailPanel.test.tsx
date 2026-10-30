@@ -204,7 +204,7 @@ describe('TaskDetailPanel — auto-save on blur: title', () => {
     fireEvent.change(titleInput, { target: { value: 'New Title' } });
     fireEvent.blur(titleInput);
 
-    expect(updateTask).toHaveBeenCalledWith(TASK.id, { title: 'New Title' });
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, expect.objectContaining({ title: 'New Title' }));
   });
 
   it('does NOT call updateTask when title blur has no change', () => {
@@ -383,7 +383,7 @@ describe('TaskDetailPanel — issue fields', () => {
     input.focus();
     fireEvent.change(input, { target: { value: 'Someone new' } });
     fireEvent.keyDown(input, { key: 'Escape' });
-    expect(updateTask).toHaveBeenCalledWith(TASK.id, { title: 'Someone new' });
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, expect.objectContaining({ title: 'Someone new' }));
   });
 
   it('Escape leaves the panel alone when another dialog is on top', () => {
@@ -518,7 +518,7 @@ describe('TaskDetailPanel — save on blur: description', () => {
     fireEvent.blur(textarea);
 
     await waitFor(() => {
-      expect(updateTask).toHaveBeenCalledWith(TASK.id, { description: 'Updated description text' });
+      expect(updateTask).toHaveBeenCalledWith(TASK.id, expect.objectContaining({ description: 'Updated description text' }));
     });
   });
 });

@@ -223,6 +223,8 @@ export interface CreateTaskPayload {
  * supports partial updates by checking `'key' in body`.
  */
 export interface UpdateTaskPayload {
+  /** What these fields said when the edit began, to find out if someone changed them since. */
+  base?: Partial<Record<'title' | 'description', string>>;
   title?: string;
   type?: TaskType;
   /** Empty string deletes the field on the server. */
@@ -361,6 +363,16 @@ export interface Invite {
   role: Role;
   createdBy?: string;
   expiresAt: string;
+}
+
+export interface EditConflict {
+  taskId: string;
+  key?: string;
+  field: 'title' | 'description';
+  mine: string;
+  theirs: string;
+  by: string | null;
+  at: string | null;
 }
 
 export interface ApiToken {

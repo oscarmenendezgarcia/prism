@@ -62,8 +62,8 @@ function handleGetHarnesses(req, res) {
     return { ...h, available, path };
   });
   // Where they live on the server is only for who sets them up.
-  const isAdmin = req.user?.role === 'admin';
-  return sendJSON(res, 200, { harnesses: isAdmin ? harnesses : harnesses.map((h) => ({ ...h, path: null })) });
+  const hidePaths = req.user && req.user.role !== 'admin';
+  return sendJSON(res, 200, { harnesses: hidePaths ? harnesses.map((h) => ({ ...h, path: null })) : harnesses });
 }
 
 module.exports = { handleGetHarnesses };

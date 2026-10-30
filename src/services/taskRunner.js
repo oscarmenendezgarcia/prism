@@ -37,7 +37,8 @@ const {
   untrusted,
 } = require('../utils/promptBuilder');
 
-const { AGENT_DISPLAY_NAMES } = require('../utils/agents');
+const { AGENT_DISPLAY_NAMES, agentIsOn } = require('../utils/agents');
+const { isReadableAttachment } = require('../utils/attachments');
 
 const AGENT_NAME          = 'prism-agent';
 const AGENT_FILE          = path.join(__dirname, '..', '..', 'agents', `${AGENT_NAME}.md`);
@@ -625,10 +626,12 @@ function buildPrompt(run) {
   prompt += `\nWorking Directory: ${cwd}\n`;
   prompt += '⚠️ You MUST cd into this directory before starting work. All file paths should be relative to this directory.\n';
 
-  const files = (task.attachments ?? []).filter((a) => a.type === 'file' && a.content);
+  // The same files anyone could read through the API, or this would be a way around that.
+  const folder = _store.getSpace(spaceId)?.workingDirectory;
+  const files = (task.attachments ?? []).filter((a) => a.type === 'file' && a.content && isReadableAttachment(a.content, folder, _store.dataDir));
   if (files.length > 0) {
     prompt += '\n## FILES ATTACHED TO THE TASK\n';
-    for (const file of files) prompt += `- ${file.name}: ${file.content}\n`;
+    for (const file of files) prompt += `${untrusted(`attached file, ${file.name.replace(/["<>\n]/g, ' ')}`, file.content)}\n`;
   }
 
   const comments = buildCommentsBlock(task.comments);
@@ -667,6 +670,18 @@ function agentEnv(run, config) {
     });
   }
   return env;
+}
+
+/** Whether a run's agent is still the one for its issue, and on. */
+function mayContinue(run) {
+  const agent = run.agentConfig?.cliTool ?? 'claude';
+  return agentIsOn(_store.getSpace(run.spaceId), agent) && _store.getTask(run.spaceId, run.taskId)?.assigned === agent;
+}
+
+/** Stop what someone started, when they leave. */
+async function stopRunsStartedBy(userId) {
+  const runs = _store.listActiveRuns().filter((run) => isTaskRun(run) && run.startedBy?.id === userId);
+  await Promise.all(runs.map((run) => stopRun(run.runId).catch((err) => log('run.stop_error', { runId: run.runId, message: err.message }))));
 }
 
 function failAgent(run, reason, exitCode = -1) {
@@ -1321,7 +1336,7 @@ async function closeSpaceRuns(spaceId) {
  * @returns {Promise<object>} Updated run.
  * @throws RUN_NOT_FOUND, RUN_ACTIVE, WORKTREE_UNAVAILABLE.
  */
-async function requestChanges(runId, text, { author = 'user', authorId, startedBy = null } = {}) {
+async function requestChanges(runId, text, { author = 'user', authorId, startedBy = null, model } = {}) {
   const { taskId } = requireRun(runId);
   const stops = stopCounts.get(runId);
   return withTaskLock(taskId, async () => {
@@ -1356,6 +1371,7 @@ async function requestChanges(runId, text, { author = 'user', authorId, startedB
 
     run.changeRequest = { text, at: now };
     if (startedBy) run.startedBy = startedBy;
+    if (model && run.agentConfig) run.agentConfig = { ...run.agentConfig, model };
     launchTurn(run);
     moveToInProgress(run);
     return run;
@@ -1370,7 +1386,7 @@ async function requestChanges(runId, text, { author = 'user', authorId, startedB
  * @returns {Promise<object>} Updated run.
  * @throws RUN_NOT_FOUND, RUN_NOT_RESUMABLE, OPEN_QUESTION, WORKTREE_UNAVAILABLE.
  */
-async function resumeRun(runId, startedBy = null) {
+async function resumeRun(runId, { startedBy = null, model } = {}) {
   const { taskId } = requireRun(runId);
   const stops = stopCounts.get(runId);
   return withTaskLock(taskId, async () => {
@@ -1400,6 +1416,7 @@ async function resumeRun(runId, startedBy = null) {
     }
 
     if (startedBy) run.startedBy = startedBy;
+    if (model && run.agentConfig) run.agentConfig = { ...run.agentConfig, model };
     // It may have been moved by hand since it stopped.
     moveToInProgress(run);
 
@@ -1425,9 +1442,21 @@ run.status = 'running';
  *
  * @param {string} taskId
  */
-function questionAnswered(taskId) {
+function questionAnswered(taskId, { startedBy = null } = {}) {
   const found = _store.findActiveRunByTaskId(taskId);
   if (!isTaskRun(found)) return;
+  // An answer brings the agent back, so the same rules apply as to starting it: an agent that
+  // was turned off or taken off the issue stays stopped, and can be run again as usual.
+  if (startedBy && !mayContinue(found)) {
+    if (found.status === 'blocked') {
+      found.status = 'interrupted';
+      writeRun(found);
+      log('run.not_resumed', { runId: found.runId });
+    } else {
+      delete found.answeredDuringTurn;
+    }
+    return;
+  }
   if (found.status === 'running' && found.agent.status === 'running') {
     found.answeredDuringTurn = true;
     writeRun(found);
@@ -1439,6 +1468,7 @@ function questionAnswered(taskId) {
     const run = readRun(found.runId);
     if (run?.status !== 'blocked' || openQuestions(run).length > 0) return;
     log('run.unblocked', { runId: run.runId });
+    if (startedBy) run.startedBy = startedBy;
     launchTurn(run);
   }).catch((err) => log('run.unblock_error', { taskId, message: err.message }));
 }
@@ -1565,6 +1595,7 @@ module.exports = {
   stopRun,
   createPullRequest,
   questionAnswered,
+  stopRunsStartedBy,
   readAgentLog,
   abortAll,
   getActiveProcessCount,

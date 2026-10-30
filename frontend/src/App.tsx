@@ -20,6 +20,7 @@ import { MarkdownModal } from '@/components/modals/MarkdownModal';
 import { SpaceModal } from '@/components/modals/SpaceModal';
 import { DeleteSpaceDialog } from '@/components/modals/DeleteSpaceDialog';
 import { GlobalSearchModal } from '@/components/modals/GlobalSearchModal';
+import { EditConflictDialog } from '@/components/modals/EditConflictDialog';
 import { Toast } from '@/components/shared/Toast';
 import { AuthGate } from '@/components/auth/AuthGate';
 import { useAppStore } from '@/stores/useAppStore';
@@ -152,6 +153,7 @@ function AppContent() {
       <SpaceModal />
       <DeleteSpaceDialog />
       <GlobalSearchModal open={isGlobalSearchOpen} onClose={closeGlobalSearch} />
+      <EditConflictDialog />
 
       <Toast />
     </div>
