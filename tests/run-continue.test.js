@@ -71,6 +71,11 @@ describe('going on with a run, on a server with accounts', () => {
     fs.writeFileSync(path.join(root, 'bin', 'claude'), `#!/bin/sh
 echo "$@" >> ${root}/starts
 cat > ${root}/prompt
+if [ -f ${root}/slow ]; then
+  [ -f ${root}/ask ] && rm ${root}/ask && curl -s -X POST "http://127.0.0.1:$(cat ${root}/port)/api/v1/spaces/$(cat ${root}/space)/tasks/$(cat ${root}/task)/comments" -H "Authorization: Bearer $PRISM_TOKEN" -H 'Content-Type: application/json' -d '{"type":"question","text":"Which one?"}' > /dev/null
+  while [ -f ${root}/slow ]; do sleep 0.1; done
+  exit 0
+fi
 if [ -f ${root}/ask ]; then
   rm ${root}/ask
   curl -s -X POST "http://127.0.0.1:$(cat ${root}/port)/api/v1/spaces/$(cat ${root}/space)/tasks/$(cat ${root}/task)/comments" -H "Authorization: Bearer $PRISM_TOKEN" -H 'Content-Type: application/json' -d '{"type":"question","text":"Which one?"}' > ${root}/asked
@@ -186,6 +191,45 @@ exit 0
     assert.match(prompt, /<untrusted source="attached file/);
     assert.ok(!prompt.includes('SECRET-NAME') && !prompt.includes('/etc/hostname'));
     assert.match(prompt, /<untrusted source="git log">/);
+  });
+
+  test('an answer given before an agent is turned off does not bring it back after', async () => {
+    fs.writeFileSync(path.join(root, 'slow'), '');
+    const issue = (await api('POST', url, { cookie: member, body: { title: 'x', type: 'chore', assigned: 'claude' } })).json;
+    fs.writeFileSync(path.join(root, 'task'), issue.id);
+    fs.writeFileSync(path.join(root, 'ask'), '');
+    assert.equal((await api('POST', `${url}/${issue.id}/run`, { cookie: member, body: {} })).status, 201);
+    let question;
+    for (let i = 0; i < 60 && !question; i++) {
+      question = (await api('GET', `${url}/${issue.id}`, { cookie: member })).json.comments?.find((c) => c.type === 'question');
+      if (!question) await new Promise((r) => setTimeout(r, 100));
+    }
+    const before = starts();
+    await api('PATCH', `${url}/${issue.id}/comments/${question.id}`, { cookie: member, body: { resolved: true } });
+    await setAgents({ claude: { enabled: false, model: 'opus' } });
+    fs.rmSync(path.join(root, 'slow'));
+    await wait(issue.id, ['done', 'stopped', 'failed']);
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal(starts(), before);
+    await setAgents({ claude: { enabled: true, model: 'opus' } });
+  });
+
+  test('a person who can no longer run agents has theirs stopped', async () => {
+    fs.writeFileSync(path.join(root, 'slow'), '');
+    const issue = (await api('POST', url, { cookie: member, body: { title: 'x', type: 'chore', assigned: 'claude' } })).json;
+    assert.equal((await api('POST', `${url}/${issue.id}/run`, { cookie: member, body: {} })).status, 201);
+    await new Promise((r) => setTimeout(r, 500));
+    const bea = server._store.accounts.getUserByEmail('bea@example.com');
+    await api('PATCH', `/api/v1/users/${bea.id}`, { cookie: admin, body: { role: 'viewer' } });
+    let view;
+    for (let i = 0; i < 80; i++) {
+      view = (await api('GET', `/api/v1/spaces/${spaceId}/task-runs`, { cookie: admin })).json[issue.id];
+      if (view?.status === 'stopped') break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    fs.rmSync(path.join(root, 'slow'));
+    assert.equal(view.status, 'stopped');
+    await api('PATCH', `/api/v1/users/${bea.id}`, { cookie: admin, body: { role: 'member' } });
   });
 
   test('settings of one agent leave the others alone, and Claude always has a model', async () => {

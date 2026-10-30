@@ -170,11 +170,14 @@ interface AppState {
    * @param taskId - The task to update.
    * @param patch  - Partial payload; only present keys are sent.
    */
-  updateTask: (taskId: string, patch: UpdateTaskPayload) => Promise<void>;
+  /** @returns Whether it was saved. */
+  updateTask: (taskId: string, patch: UpdateTaskPayload) => Promise<boolean>;
   /** Someone else changed a field while this person was editing it, and they have to choose. */
   editConflict: EditConflict | null;
+  /** Others waiting for that one to be settled. */
+  conflictQueue: EditConflict[];
   /** Text to go back to editing, after a conflict. */
-  resumedEdit: { taskId: string; field: EditConflict['field']; text: string; base: string } | null;
+  resumedEdit: { taskId: string; field: EditConflict['field']; text: string; base: string; focus?: boolean } | null;
   resolveConflict: (choice: 'keep-editing' | 'theirs' | 'mine') => void;
 
   /**
@@ -228,6 +231,9 @@ interface AppState {
 // ---------------------------------------------------------------------------
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Saves of an issue so far, to tell a board read before one from one read after. */
+let savesStarted = 0;
 
 export const useAppStore = create<AppState>((set, get) => ({
   // ── Spaces ──────────────────────────────────────────────────────────────
@@ -363,9 +369,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadBoard: async () => {
     const { activeSpaceId, showToast } = get();
     try {
+      const startedAt = savesStarted;
       const data = await api.getTasks(activeSpaceId);
       // The user may have moved to another space while this was on its way.
       if (get().activeSpaceId !== activeSpaceId) return;
+      // From before a save, it would undo it on the screen until the next one.
+      if (savesStarted !== startedAt) return;
       // An epic that is gone would leave the board empty, with nothing to clear the filter.
       const { epicFilter } = get();
       const epicGone = epicFilter !== null && !allTasks(data).some((t) => t.id === epicFilter && t.type === 'epic');
@@ -562,29 +571,38 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   editConflict: null,
+  conflictQueue: [],
   resumedEdit: null,
 
   resolveConflict: (choice) => {
     const conflict = get().editConflict;
     if (!conflict) return;
-    const { taskId, field, mine, theirs } = conflict;
-    set({ editConflict: null });
+    const { taskId, field, mine, theirs, base } = conflict;
+    const [next = null, ...rest] = get().conflictQueue;
+    set({ editConflict: next, conflictQueue: rest });
+    const isOpen = get().detailTask?.id === taskId;
+
     if (choice === 'mine') {
-      void get().updateTask(taskId, { [field]: mine, base: { [field]: theirs } });
-      set({ resumedEdit: { taskId, field, text: mine, base: mine } });
-      return;
-    }
-    const text = choice === 'theirs' ? theirs : mine;
-    set({ resumedEdit: { taskId, field, text, base: theirs } });
-    // The panel may have closed as they saved, and they asked to go on.
-    if (choice === 'keep-editing' && get().detailTask?.id !== taskId) {
-      const task = boardIndex(get().tasks).byId.get(taskId);
-      if (task) get().openDetailPanel(task);
+      if (isOpen) set({ resumedEdit: { taskId, field, text: mine, base: theirs } });
+      // If it fails, they have not chosen yet, and their text has nowhere else to be.
+      void get().updateTask(taskId, { [field]: mine, base: { [field]: theirs } }).then((saved) => {
+        if (saved === false && !get().editConflict) set({ editConflict: conflict });
+      });
+    } else if (choice === 'theirs') {
+      if (isOpen) set({ resumedEdit: { taskId, field, text: theirs, base: theirs } });
+    } else {
+      // From what it started from, so that saving asks again rather than overwrite what they saw.
+      set({ resumedEdit: { taskId, field, text: mine, base, focus: true } });
+      if (!isOpen) {
+        const task = boardIndex(get().tasks).byId.get(taskId);
+        if (task) get().openDetailPanel(task);
+      }
     }
   },
 
   updateTask: async (taskId: string, { base, ...patch }: UpdateTaskPayload) => {
     const { activeSpaceId, tasks, detailTask, showToast } = get();
+    savesStarted += 1;
 
     // Optimistic update: apply patch immediately in-place across all statuses.
     const optimisticTasks = mapBoard(tasks, (t) => (t.id === taskId ? { ...t, ...patch } : t));
@@ -613,20 +631,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
 
       showToast('Saved');
+      return true;
     } catch (err) {
       // Roll back optimistic changes on error. A panel closed meanwhile stays closed.
       set({ tasks, ...(get().detailTask?.id === detailTask?.id && { detailTask }) });
-      const { code, details } = err as { code?: string; details?: Omit<EditConflict, 'taskId' | 'mine' | 'key'> };
+      const { code, details } = err as { code?: string; details?: Omit<EditConflict, 'taskId' | 'mine' | 'key' | 'base'> };
       if (code === 'EDIT_CONFLICT' && details) {
         // Nothing is lost: what they wrote waits for them to choose.
         const { field, theirs, by, at } = details;
         const mine = patch[field as 'title' | 'description'] ?? '';
         const key = boardIndex(tasks).byId.get(taskId)?.key;
-        set({ editConflict: { taskId, key, field, mine, theirs, by, at } });
+        const conflict: EditConflict = { taskId, key, field, mine, theirs, base: base?.[field] ?? '', by, at };
+        if (get().editConflict) set({ conflictQueue: [...get().conflictQueue, conflict] });
+        else set({ editConflict: conflict });
         void get().loadBoard();
       } else {
         showToast(`Failed to save: ${(err as Error).message}`, 'error');
       }
+      return false;
     } finally {
       set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });
     }

@@ -371,6 +371,8 @@ export interface EditConflict {
   field: 'title' | 'description';
   mine: string;
   theirs: string;
+  /** What the field said when the edit began. */
+  base: string;
   by: string | null;
   at: string | null;
 }

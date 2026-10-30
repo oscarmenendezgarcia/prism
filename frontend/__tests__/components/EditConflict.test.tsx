@@ -11,7 +11,7 @@ const conflictError = () => new api.ApiError('Bea changed it', 409, 'EDIT_CONFLI
 beforeEach(() => {
   vi.restoreAllMocks();
   useAppStore.setState({
-    activeSpaceId: 's', tasks: { todo: [TASK] }, detailTask: TASK, editConflict: null, resumedEdit: null,
+    activeSpaceId: 's', tasks: { todo: [TASK] }, detailTask: TASK, editConflict: null, conflictQueue: [], resumedEdit: null,
     showToast: vi.fn(), loadBoard: vi.fn().mockResolvedValue(undefined),
   } as never);
 });
@@ -74,7 +74,7 @@ describe('a conflict when saving', () => {
     await save();
     useAppStore.setState({ detailTask: null } as never);
     fireEvent.click(await screen.findByRole('button', { name: 'Keep editing' }));
-    expect(useAppStore.getState().resumedEdit).toEqual({ taskId: 't1', field: 'description', text: 'Mine', base: 'From Bea' });
+    expect(useAppStore.getState().resumedEdit).toEqual({ taskId: 't1', field: 'description', text: 'Mine', base: 'Start', focus: true });
     expect(useAppStore.getState().detailTask?.id).toBe('t1');
   });
 });

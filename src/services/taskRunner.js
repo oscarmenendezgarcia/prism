@@ -928,6 +928,8 @@ async function handleAgentExit(runId, exitCode, signalledPid) {
   }
 
   // The user answered while the agent was still going, so it has not seen the answer.
+  // Not if it was turned off or taken off the issue since: then this is where it ends.
+  if (run.answeredDuringTurn && run.startedBy && !mayContinue(run)) delete run.answeredDuringTurn;
   if (run.answeredDuringTurn) {
     log('agent.turn_for_answer', { runId });
     await waitForExit(signalledPid);

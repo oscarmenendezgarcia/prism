@@ -149,7 +149,7 @@ function startServer(options = {}) {
     required: usesAccounts,
     setupCode,
     onSetUp: () => removeSetupCode(dataDir),
-    onDeactivated: (userId) => { void taskRunner.stopRunsStartedBy(userId); },
+    onLostAccess: (userId) => { void taskRunner.stopRunsStartedBy(userId); },
     trustProxy: !!process.env.PRISM_TRUST_PROXY,
   });
 

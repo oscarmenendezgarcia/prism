@@ -274,6 +274,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   useFocusTrap(panelRef, detailTask !== null);
 
+  const closePanelRef = useRef<() => void>(() => {});
+
   // ── Escape key handler ───────────────────────────────────────────────────
 
   useEffect(() => {
@@ -292,14 +294,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
         if ((e.target as HTMLElement).closest?.('[data-escape-local]')) return;
         e.stopPropagation();
         // Leaving the field saves what it holds, as clicking outside does.
-        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-        closeDetailPanel();
+        closePanelRef.current();
       }
     };
 
     document.addEventListener('keydown', handleKeyDown, true);
     return () => document.removeEventListener('keydown', handleKeyDown, true);
-  }, [detailTask, closeDetailPanel]);
+  }, [detailTask]);
 
   // A save that failed rolled the issue back, and the fields must not keep what was refused.
   const isMutating = useAppStore((s) => (s.detailTask ? s.mutatingTaskIds.has(s.detailTask.id) : false));
@@ -310,7 +311,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
     const task = useAppStore.getState().detailTask;
     if (!finished || !task) return;
     const focused = document.activeElement;
-    if (focused !== titleInputRef.current) { setLocalTitle(task.title); savedTitle.current = task.title; }
     if (focused?.id !== 'detail-assigned') { setLocalAssigned(task.assigned ?? ''); savedAssigned.current = task.assigned ?? ''; }
     if (focused?.id !== 'detail-estimate') setLocalEstimate(task.estimate != null ? String(task.estimate) : '');
     if (focused?.id !== 'detail-due') setLocalDueDate(task.dueDate ?? '');
@@ -333,15 +333,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const handleTitleBlur = useCallback(() => {
     const trimmed = localTitle.trim();
-    if (!detailTask || trimmed === savedTitle.current) return;
+    if (!detailTask || trimmed === savedTitle.current.trim()) return;
     if (!trimmed) {
       // Revert empty title to last saved value (never send blank title).
       setLocalTitle(savedTitle.current);
       return;
     }
-    const base = savedTitle.current;
-    savedTitle.current = trimmed;
-    updateTask(detailTask.id, { title: trimmed, base: { title: base } });
+    void updateTask(detailTask.id, { title: trimmed, base: { title: savedTitle.current } });
   }, [detailTask, localTitle, updateTask]);
 
   const handleAssignedChange = useCallback((assigned: string) => {
@@ -376,44 +374,68 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const handleSaveDescription = useCallback(() => {
     if (!detailTask) return;
     const description = localDescription.trim();
-    // An agent may have changed it since this form loaded. Leaving the field must not undo that.
-    if (description === (detailTask.description ?? '').trim()) return;
-    const base = descriptionBase.current;
-    descriptionBase.current = description;
-    updateTask(detailTask.id, { description, base: { description: base } });
+    // Only what was written counts: what others changed meanwhile must not be undone by leaving.
+    if (description === descriptionBase.current.trim()) return;
+    void updateTask(detailTask.id, { description, base: { description: descriptionBase.current } });
   }, [detailTask, localDescription, updateTask]);
 
-  // Others change an issue while it is open. What they wrote shows at once, unless this person
-  // is typing in that field: saving will tell them, rather than swap the text under their hands.
+  // What someone is writing is theirs until it is saved: nothing that arrives may replace it,
+  // and a save that fails leaves it there. Text nobody has touched follows the issue as others
+  // change it. While a save is on its way the board already shows it, which proves nothing.
   const liveIssue = detailTask ? boardIndex(tasks).byId.get(detailTask.id) : undefined;
   const liveTitle = liveIssue?.title;
   const liveDescription = liveIssue?.description ?? '';
   useEffect(() => {
-    if (liveTitle === undefined || isMutating || document.activeElement === titleInputRef.current) return;
-    if (liveTitle !== savedTitle.current) {
+    if (liveTitle === undefined || isMutating) return;
+    const untouched = localTitle.trim() === savedTitle.current.trim();
+    if (untouched || localTitle.trim() === liveTitle.trim()) {
       savedTitle.current = liveTitle;
-      setLocalTitle(liveTitle);
+      if (localTitle !== liveTitle) setLocalTitle(liveTitle);
     }
-  }, [liveTitle, isMutating]);
+  }, [liveTitle, isMutating]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!liveIssue || isMutating || document.activeElement === descTextareaRef.current) return;
-    descriptionBase.current = liveDescription;
-    setLocalDescription(liveDescription);
+    if (!liveIssue || isMutating) return;
+    const untouched = localDescription.trim() === descriptionBase.current.trim();
+    if (untouched || localDescription.trim() === liveDescription.trim()) {
+      descriptionBase.current = liveDescription;
+      if (localDescription !== liveDescription) setLocalDescription(liveDescription);
+    }
   }, [liveDescription, isMutating]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // After a conflict: back to the text they chose, starting from what is saved now.
+  // After a conflict: back to the text they chose.
   const resumedEdit = useAppStore((s) => s.resumedEdit);
   useEffect(() => {
     if (!resumedEdit || resumedEdit.taskId !== detailTask?.id) return;
-    if (resumedEdit.field === 'title') {
+    const isTitle = resumedEdit.field === 'title';
+    if (isTitle) {
       savedTitle.current = resumedEdit.base;
       setLocalTitle(resumedEdit.text);
     } else {
       descriptionBase.current = resumedEdit.base;
       setLocalDescription(resumedEdit.text);
     }
+    if (resumedEdit.focus) {
+      requestAnimationFrame(() => (isTitle ? titleInputRef : descTextareaRef).current?.focus());
+    }
     useAppStore.setState({ resumedEdit: null });
   }, [resumedEdit, detailTask?.id]);
+
+  // Closing saves what was left unsaved, wherever the focus is: a failed save, say.
+  const closePanel = useCallback(() => {
+    const active = document.activeElement;
+    if (active === titleInputRef.current || active === descTextareaRef.current) (active as HTMLElement).blur();
+    else {
+      handleTitleBlur();
+      handleSaveDescription();
+    }
+    closeDetailPanel();
+  }, [closeDetailPanel, handleTitleBlur, handleSaveDescription]);
+
+  closePanelRef.current = () => {
+    closePanel();
+    // Whatever field had focus, leaving saves what it holds, as clicking outside does.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  };
 
   // Comment handlers — delegate to the store so the board badge refreshes.
   const handleCommentCreated = useCallback(
@@ -520,7 +542,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const closeButton = (
     <button
-      onClick={closeDetailPanel}
+      onClick={closePanel}
       aria-label="Close issue detail"
       className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.90] transition-all duration-[150ms] ease-spring flex-shrink-0"
     >
@@ -537,7 +559,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-[105] bg-black/30 dark:bg-black/72 backdrop-blur-[10px]" aria-hidden="true" onClick={closeDetailPanel} />
+      <div className="fixed inset-0 z-[105] bg-black/30 dark:bg-black/72 backdrop-blur-[10px]" aria-hidden="true" onClick={closePanel} />
 
       {/* Centering wrapper */}
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 pointer-events-none">

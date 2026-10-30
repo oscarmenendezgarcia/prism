@@ -50,6 +50,17 @@ node server.js &
 cd frontend && npm run dev   # → http://localhost:5173
 ```
 
+The first run prints a link to create the admin account (the code is also in `<dataDir>/setup-code`). `prism reset-password <email>` prints a link if the only admin forgets theirs.
+
+---
+
+## Accounts and permissions
+
+- What each role may do, for every route, is in `src/utils/permissions.js`. What is not listed: anyone reads, only an admin writes. A new route that writes stays closed until opened there.
+- Who signs something comes from the session: `readActor(req)`. Never from the request.
+- Agents act with a token per run (`createRunToken`), limited by `runMayRequest`. Whatever people wrote goes into prompts through `untrusted()`.
+- Tests use `tests/helpers/server.js`, whose server runs without accounts (`auth: false`, only from code). Tests of accounts and roles start a real one: see `tests/permissions.test.js`.
+
 ---
 
 ## Stack

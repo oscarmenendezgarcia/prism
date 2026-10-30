@@ -100,12 +100,16 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
 
   const canRetry = (view.status === 'failed' || view.status === 'stopped') && task.assigned === view.cliTool && !runProblem(view.cliTool as ModelCliTool, space, harnesses);
   const message = failureMessage(view);
+  // A stopped run whose agent cannot go on says why there is no Retry.
+  const blockedRetry = (view.status === 'failed' || view.status === 'stopped') && task.assigned === view.cliTool
+    ? runProblem(view.cliTool as ModelCliTool, space, harnesses) : null;
 
   return (
     <div className="flex flex-col gap-2 mt-3 w-full" data-testid="run-footer">
       {view.status !== 'working' && view.status !== 'checking' && <ResultLine view={view} />}
       <SaveErrorNote view={view} />
       {message && <p className="text-xs text-error leading-snug line-clamp-2">{message}</p>}
+      {blockedRetry && <p className="text-xs text-text-secondary leading-snug" data-testid="run-problem">{blockedRetry}</p>}
       <div className="flex items-center gap-2">
         <HarnessIcon cliTool={view.cliTool} />
         <StatusLine view={view} />

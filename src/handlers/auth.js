@@ -148,10 +148,10 @@ function createLoginLimiter({ maxEntries = LOGIN_MAX_ENTRIES } = {}) {
  * @param {boolean} deps.required - False only from code, for the tests of what comes after this.
  * @param {string|null} [deps.setupCode] - Asked of whoever makes the first account.
  * @param {Function} [deps.onSetUp] - Called once the first account exists.
- * @param {Function} [deps.onDeactivated] - Called with the id of an account turned off.
+ * @param {Function} [deps.onLostAccess] - Called with the id of an account that can no longer run agents.
  * @param {boolean} [deps.trustProxy] - Take the client's address from X-Forwarded-For.
  */
-function createAuth({ store: { accounts, assignees, renameAssignee }, required, setupCode = null, onSetUp = () => {}, onDeactivated = () => {}, trustProxy = false }) {
+function createAuth({ store: { accounts, assignees, renameAssignee }, required, setupCode = null, onSetUp = () => {}, onLostAccess = () => {}, trustProxy = false }) {
   const limiter = createLoginLimiter();
   let loginsRunning = 0;
 
@@ -366,7 +366,7 @@ function createAuth({ store: { accounts, assignees, renameAssignee }, required, 
     const result = accounts.updateUser(userId, { role: body.role, active: body.active });
     if (result.error === 'NOT_FOUND') return sendError(res, 404, 'NOT_FOUND', 'There is no such user.');
     if (result.error === 'LAST_ADMIN') return sendError(res, 409, 'LAST_ADMIN', 'This is the last admin. Make someone else admin first.');
-    if (body.active === false) onDeactivated(userId);
+    if (body.active === false || body.role === 'viewer') onLostAccess(userId);
     sendJSON(res, 200, result);
   }
 
