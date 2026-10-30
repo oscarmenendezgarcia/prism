@@ -390,9 +390,21 @@ describe('TaskCard — issue tags', () => {
     expect(screen.queryByRole('button', { name: /^.*run$/i })).not.toBeInTheDocument();
   });
 
-  it('does not show the description on the card', () => {
-    render(<TaskCard task={{ ...BASE_TASK, description: 'My description' }} column="todo" />);
-    expect(screen.queryByText('My description')).not.toBeInTheDocument();
+  it('shows the description as plain text, in two lines at most', () => {
+    render(<TaskCard task={{ ...BASE_TASK, description: '## Goal\n\nThe **login** must work' }} column="todo" />);
+    const preview = screen.getByTestId('desc-preview');
+    expect(preview).toHaveTextContent('Goal · The login must work');
+    expect(preview.className).toContain('line-clamp-2');
+  });
+
+  it('shows the description of an epic too', () => {
+    render(<TaskCard task={issue({ type: 'epic', description: 'Everything about paying' })} column="todo" />);
+    expect(screen.getByTestId('desc-preview')).toHaveTextContent('Everything about paying');
+  });
+
+  it.each([undefined, '', '   \n ', '---'])('shows no description row for %j', (description) => {
+    render(<TaskCard task={{ ...BASE_TASK, description }} column="todo" />);
+    expect(screen.queryByTestId('desc-preview')).not.toBeInTheDocument();
   });
 });
 

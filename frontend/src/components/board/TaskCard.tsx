@@ -10,7 +10,7 @@
  * ADR-003 §8.4: transition-all ease-apple, done state opacity-50 grayscale-[30%].
  */
 
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import type { Task, Column } from '@/types';
 import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore } from '@/stores/useAppStore';
@@ -18,6 +18,7 @@ import { useTaskRunStore } from '@/stores/useTaskRunStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { Badge } from '@/components/shared/Badge';
 import { boardIndex, epicOf, formatDueDate, isOverdue, parentIssueOf, priorityOf, progressOf, typeOf } from '@/utils/issues';
+import { plainText } from '@/utils/plainText';
 import { TaskRunFooter } from '@/components/runs/TaskRunFooter';
 
 // ---------------------------------------------------------------------------
@@ -119,7 +120,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const priority = priorityOf(task.priority);
   const type = typeOf(task.type);
   const overdue = isOverdue(task);
-
+  const description = useMemo(() => plainText(task.description ?? ''), [task.description]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -238,6 +239,13 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         <p className="mt-1 text-sm font-semibold text-text-primary leading-snug line-clamp-2">
           {task.title}
         </p>
+
+        {/* ── Description ── */}
+        {description && (
+          <p className="mt-1 text-xs text-text-secondary leading-relaxed line-clamp-2 break-words" data-testid="desc-preview">
+            {description}
+          </p>
+        )}
 
         {/* ── Epic, parent, labels ── */}
         {(epicTitle || parentKey || (task.labels?.length ?? 0) > 0) && (
