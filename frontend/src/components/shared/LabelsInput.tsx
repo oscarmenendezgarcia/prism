@@ -12,10 +12,11 @@ interface LabelsInputProps {
   onChange: (labels: string[]) => void;
   disabled?: boolean;
   inputClassName?: string;
+  chipsClassName?: string;
   id?: string;
 }
 
-export function LabelsInput({ labels, onChange, disabled, inputClassName = '', id }: LabelsInputProps) {
+export function LabelsInput({ labels, onChange, disabled, inputClassName = '', chipsClassName = '', id }: LabelsInputProps) {
   const [draft, setDraft] = useState('');
 
   const commit = () => {
@@ -28,7 +29,7 @@ export function LabelsInput({ labels, onChange, disabled, inputClassName = '', i
   return (
     <div className="flex flex-col gap-1.5" data-testid="labels-input">
       {labels.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className={`flex flex-wrap gap-1.5 ${chipsClassName}`}>
           {labels.map((label) => (
             <span key={label} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-surface-variant text-text-secondary">
               {label}

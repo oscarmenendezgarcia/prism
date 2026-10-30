@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
+  keepUnchanged,
   allTasks, boardIndex, epicOf, formatDueDate, isAwaitingReview, isInEpic, isOverdue, mapBoard,
   parentIssueOf, priorityOf, progressOf, statusDotClass, typeOf,
 } from '../../src/utils/issues';
@@ -243,5 +244,38 @@ describe('dates', () => {
       vi.setSystemTime(new Date(2026, 11, 31, 23, 59, 59));
       expect(isOverdue(issue('t', { dueDate: '2026-12-31' }))).toBe(false);
     });
+  });
+});
+
+describe('keepUnchanged', () => {
+  const issue = (id: string, title = id) => ({ id, title, type: 'feature', createdAt: '', updatedAt: '' }) as Task;
+
+  it('returns the old board when a poll brings the same thing', () => {
+    const old = { todo: [issue('a')], done: [issue('b')] };
+    expect(keepUnchanged(old, JSON.parse(JSON.stringify(old)))).toBe(old);
+  });
+
+  it('replaces only what changed', () => {
+    const old = { todo: [issue('a'), issue('b')], done: [issue('c')] };
+    const fresh = { todo: [issue('a'), issue('b', 'New title')], done: [issue('c')] };
+    const board = keepUnchanged(old, fresh);
+    expect(board).not.toBe(old);
+    expect(board.todo[0]).toBe(old.todo[0]);
+    expect(board.todo[1].title).toBe('New title');
+    expect(board.done).toBe(old.done);
+  });
+
+  it('reuses the issue when it moves, in its new place', () => {
+    const old = { todo: [issue('a')], done: [] as Task[] };
+    const board = keepUnchanged(old, { todo: [], done: [issue('a')] });
+    expect(board.done[0]).toBe(old.todo[0]);
+    expect(board.todo).toEqual([]);
+  });
+
+  it('sees a reorder, a new column and a removed one', () => {
+    const old = { todo: [issue('a'), issue('b')] };
+    expect(keepUnchanged(old, { todo: [issue('b'), issue('a')] }).todo.map((t) => t.id)).toEqual(['b', 'a']);
+    expect(keepUnchanged(old, { ...old, done: [] })).toHaveProperty('done');
+    expect(keepUnchanged({ ...old, done: [] }, old)).not.toHaveProperty('done');
   });
 });

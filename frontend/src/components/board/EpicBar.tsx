@@ -1,13 +1,9 @@
 /**
- * Bar above the board: filter it to an epic, and open the space's settings.
+ * End of the spaces row: filter the board to an epic, and open the space's settings.
  */
 
 import { useAppStore, useTasks } from '@/stores/useAppStore';
 import { allTasks } from '@/utils/issues';
-
-const CHIP = 'inline-flex items-center text-[11px] font-medium px-2.5 py-1 rounded-full border transition-all duration-fast flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-primary/50';
-const CHIP_ON = 'bg-primary/15 border-primary/40 text-primary';
-const CHIP_OFF = 'bg-surface border-border text-text-secondary hover:border-primary/30 hover:text-text-primary';
 
 export function EpicBar() {
   const tasks = useTasks();
@@ -23,44 +19,35 @@ export function EpicBar() {
   return (
     <div
       data-testid="epic-bar"
-      className="flex items-center gap-2 px-6 py-2 border-b border-border bg-surface-elevated/40 overflow-x-auto flex-shrink-0"
+      className="flex items-center gap-1 pr-4 border-b border-border bg-surface-elevated flex-shrink-0"
     >
       {epics.length > 0 && (
-        <>
-          <button
-            type="button"
-            onClick={() => setEpicFilter(null)}
-            aria-pressed={epicFilter === null}
-            className={`${CHIP} ${epicFilter === null ? CHIP_ON : CHIP_OFF}`}
-          >
-            All epics
-          </button>
-          {epics.map((epic) => (
-            <button
-              key={epic.id}
-              type="button"
-              onClick={() => setEpicFilter(epicFilter === epic.id ? null : epic.id)}
-              aria-pressed={epicFilter === epic.id}
-              data-testid={`epic-filter-chip-${epic.key}`}
-              className={`${CHIP} ${epicFilter === epic.id ? CHIP_ON : CHIP_OFF}`}
-            >
-              {epic.title}
-            </button>
-          ))}
-        </>
+        <select
+          value={epicFilter ?? ''}
+          onChange={(e) => setEpicFilter(e.target.value || null)}
+          aria-label="Filter by epic"
+          data-testid="epic-filter"
+          className={`h-7 max-w-[7.5rem] sm:max-w-[12rem] pl-2.5 pr-1 rounded-md border text-xs font-medium truncate cursor-pointer transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+            epicFilter
+              ? 'bg-primary/15 border-primary/40 text-primary'
+              : 'bg-surface border-border text-text-secondary hover:border-primary/30 hover:text-text-primary'
+          }`}
+        >
+          <option value="">All epics</option>
+          {epics.map((epic) => <option key={epic.id} value={epic.id}>{epic.title}</option>)}
+        </select>
       )}
-
-      <div className="flex-1" />
 
       {space && (
         <button
           type="button"
           onClick={() => openSpaceModal('rename', space)}
+          aria-label="Space settings"
+          title="Space settings"
           data-testid="space-settings-button"
-          className={`${CHIP} ${CHIP_OFF} gap-1`}
+          className="flex items-center justify-center w-7 h-7 rounded-md text-text-secondary hover:bg-surface-variant hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-fast"
         >
-          <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">settings</span>
-          Space settings
+          <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">settings</span>
         </button>
       )}
     </div>

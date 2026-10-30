@@ -109,7 +109,7 @@ export function CreateTaskModal() {
   }
 
   const baseInputClass =
-    'w-full bg-surface border border-border rounded-lg px-4 py-3 text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-fast text-sm';
+    'w-full bg-surface border border-border rounded-lg px-3 py-2 text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-fast text-sm';
 
   return (
     <Modal open={open} onClose={closeModal} labelId={TITLE_ID}>
@@ -118,7 +118,7 @@ export function CreateTaskModal() {
           <ModalTitle id={TITLE_ID}>New issue</ModalTitle>
         </ModalHeader>
 
-        <ModalBody className="flex flex-col gap-5">
+        <ModalBody className="flex flex-col gap-4">
           {/* Title */}
           <div>
             <label htmlFor="input-title" className={labelClass}>
@@ -136,12 +136,29 @@ export function CreateTaskModal() {
               autoComplete="off"
               required
             />
-            <div className="flex justify-between mt-1">
-              <span className={titleError ? errorClass : hintClass} role="alert">
-                {titleError || '\u00a0'}
-              </span>
-              <span className={hintClass}>{title.length} / {TITLE_MAX}</span>
-            </div>
+            {(titleError || title.length > TITLE_MAX - 50) && (
+              <div className="flex justify-between mt-1">
+                <span className={titleError ? errorClass : hintClass} role="alert">
+                  {titleError || '\u00a0'}
+                </span>
+                <span className={hintClass}>{title.length} / {TITLE_MAX}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Description */}
+          <div>
+            <label htmlFor="input-description" className={labelClass}>
+              Description
+            </label>
+            <textarea
+              id="input-description"
+              className={`${baseInputClass} min-h-[72px] resize-none`}
+              rows={3}
+              placeholder="Add a description…"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
           </div>
 
           {/* Type — chip group per wireframe S-05 */}
@@ -174,37 +191,6 @@ export function CreateTaskModal() {
             {typeError && (
               <span className={errorClass} role="alert">{typeError}</span>
             )}
-          </div>
-
-          {/* Assigned */}
-          <div>
-            <label htmlFor="input-assigned" className={labelClass}>
-              Assigned to
-            </label>
-            <input
-              id="input-assigned"
-              className={baseInputClass}
-              type="text"
-              placeholder="Unassigned"
-              value={assigned}
-              onChange={(e) => setAssigned(e.target.value)}
-              autoComplete="off"
-            />
-          </div>
-
-          {/* Description */}
-          <div>
-            <label htmlFor="input-description" className={labelClass}>
-              Description
-            </label>
-            <textarea
-              id="input-description"
-              className={`${baseInputClass} min-h-[100px] resize-none`}
-              rows={3}
-              placeholder="Add a description…"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
           </div>
 
           {/* Priority, epic and due date */}
@@ -245,10 +231,26 @@ export function CreateTaskModal() {
             </div>
           </div>
 
-          {/* Labels */}
-          <div>
-            <label htmlFor="input-labels" className={labelClass}>Labels</label>
-            <LabelsInput id="input-labels" labels={labels} onChange={setLabels} inputClassName={baseInputClass} />
+          {/* Assignee and labels */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+            <div>
+              <label htmlFor="input-assigned" className={labelClass}>
+                Assignee
+              </label>
+              <input
+                id="input-assigned"
+                className={baseInputClass}
+                type="text"
+                placeholder="Unassigned"
+                value={assigned}
+                onChange={(e) => setAssigned(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label htmlFor="input-labels" className={labelClass}>Labels</label>
+              <LabelsInput id="input-labels" labels={labels} onChange={setLabels} inputClassName={baseInputClass} />
+            </div>
           </div>
         </ModalBody>
 

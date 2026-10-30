@@ -554,13 +554,13 @@ describe('TaskCard — card wrapper styles', () => {
     ).toContain('relative');
   });
 
-  it('article uses p-4 padding', () => {
+  it('article uses p-3 padding', () => {
     const { container } = render(
       <TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />
     );
     expect(
       container.querySelector('[data-testid="task-card"]')?.className
-    ).toContain('p-4');
+    ).toContain('p-3');
   });
 
   it('article has rounded-xl class', () => {

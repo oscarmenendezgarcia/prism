@@ -398,7 +398,8 @@ describe('TaskDetailPanel — issue fields', () => {
   it('says when it is overdue', () => {
     const late = { ...TASK, dueDate: '2020-01-02' };
     open(late, { todo: [late] });
-    expect(screen.getByText(/Due date · overdue/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Due date \(overdue\)/)).toHaveClass('text-error');
+    expect(screen.getByLabelText(/Due date \(overdue\)/)).not.toHaveClass('text-text-primary');
   });
 
   it('does not say overdue when it is done', () => {

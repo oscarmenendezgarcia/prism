@@ -26,7 +26,7 @@ import type {
   Comment,
 } from '@/types';
 import { safeStorage } from '@/utils/safeStorage';
-import { allTasks, mapBoard } from '@/utils/issues';
+import { allTasks, keepUnchanged, mapBoard } from '@/utils/issues';
 
 /** Key used to persist the active space across page reloads. */
 const ACTIVE_SPACE_KEY = 'prism-active-space';
@@ -359,7 +359,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // An epic that is gone would leave the board empty, with nothing to clear the filter.
       const { epicFilter } = get();
       const epicGone = epicFilter !== null && !allTasks(data).some((t) => t.id === epicFilter);
-      set({ tasks: data, ...(epicGone && { epicFilter: null }) });
+      set({ tasks: keepUnchanged(get().tasks, data), ...(epicGone && { epicFilter: null }) });
       // Someone changed the statuses: the board must show them as they are now.
       const known = get().spaces.find((s) => s.id === activeSpaceId)?.statuses;
       const columns = Object.keys(data);

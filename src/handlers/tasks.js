@@ -106,6 +106,8 @@ const OPTIONAL_STRING_FIELDS = [
  */
 function validateIssueFields(body) {
   const errors = [];
+  // Arcs became epics: saying nothing would lose what the caller meant to group.
+  if ('arc' in body) errors.push('arc is no longer supported: use parentId with the id or key of an epic');
   if ('priority' in body && !VALID_PRIORITIES.includes(body.priority)) {
     errors.push(`priority must be one of: ${VALID_PRIORITIES.join(', ')}`);
   }

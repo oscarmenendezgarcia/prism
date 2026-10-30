@@ -10,7 +10,6 @@ import { useTasks, useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { useAnnouncer } from '@/stores/useAnnouncer';
 import { Column } from './Column';
-import { EpicBar } from './EpicBar';
 import { ColumnTabBar } from './ColumnTabBar';
 import { BoardEmptyState } from './BoardEmptyState';
 import { Announcer } from '@/components/shared/Announcer';
@@ -288,8 +287,6 @@ export function Board() {
         />
       </div>
 
-      <EpicBar />
-
       {/* Shared SR-only aria-live region for keyboard reorder announcements. */}
       <Announcer />
 
@@ -297,7 +294,7 @@ export function Board() {
         role="main"
         className="flex flex-1 min-h-0 overflow-x-auto overflow-y-hidden"
       >
-        <div className="flex gap-4 p-6 mx-auto min-w-fit h-full">
+        <div className="flex gap-4 w-full sm:w-auto sm:p-6 mx-auto sm:min-w-fit h-full">
         {statuses.map(({ id: col }) => (
           <div
             key={col}
@@ -305,7 +302,7 @@ export function Board() {
             role="tabpanel"
             aria-labelledby={col}
             // MB-1: on mobile only show the active column; on sm+ all are shown
-            className={`flex-1 min-w-64 max-w-96 w-72 h-full ${col !== activeColumn ? 'hidden sm:flex' : 'flex'} flex-col`}
+            className={`flex-1 w-full sm:w-72 sm:min-w-64 sm:max-w-96 h-full ${col !== activeColumn ? 'hidden sm:flex' : 'flex'} flex-col`}
           >
             <Column
               column={col}
@@ -325,15 +322,6 @@ export function Board() {
         </div>
       </main>
 
-      {/* MB-2: FAB — only visible on mobile (< 640px), fixed bottom-left with safe-area */}
-      <button
-        type="button"
-        onClick={openCreateModal}
-        aria-label="Create new issue"
-        className="sm:hidden fixed bottom-safe-6 left-6 z-40 w-14 h-14 rounded-full bg-primary text-white shadow-lg hover:bg-primary-hover active:scale-95 transition-all duration-200 ease-spring flex items-center justify-center"
-      >
-        <span className="material-symbols-outlined text-2xl" aria-hidden="true">add</span>
-      </button>
     </div>
   );
 }

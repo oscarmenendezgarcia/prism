@@ -12,6 +12,7 @@ import type { HistoryEntry, Priority } from '@/types';
 /** The name for a field in "changed the …". */
 const FIELD_NAMES: Record<string, string> = {
   status: 'status',
+  category: 'category of its status',
   priority: 'priority',
   type: 'type',
   title: 'title',
@@ -26,6 +27,7 @@ function readable(field: string, value: string | null): string | null {
   if (value === null) return null;
   if (field === 'priority') return priorityOf(value as Priority).label;
   if (field === 'dueDate') return formatDueDate(value);
+  if (field === 'category') return { todo: 'To do', 'in-progress': 'In progress', done: 'Done' }[value] ?? value;
   return value;
 }
 

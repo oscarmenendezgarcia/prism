@@ -70,11 +70,6 @@ function makeProps(comments: Comment[] = [], overrides = {}) {
 // ---------------------------------------------------------------------------
 
 describe('CommentsSection — empty state', () => {
-  it('renders the Comments section heading', () => {
-    render(<CommentsSection {...makeProps()} />);
-    expect(screen.getByText('Comments')).toBeInTheDocument();
-  });
-
   it('shows the add-comment form when comments array is empty (no empty-state text)', () => {
     render(<CommentsSection {...makeProps()} />);
     expect(screen.queryByTestId('comments-empty')).toBeNull();
@@ -126,10 +121,6 @@ describe('CommentsSection — rendering comments', () => {
     expect(screen.getByText('p99 < 200 ms')).toBeInTheDocument();
   });
 
-  it('shows comment count next to heading', () => {
-    render(<CommentsSection {...makeProps([NOTE, QUESTION])} />);
-    expect(screen.getByText('(2)')).toBeInTheDocument();
-  });
 });
 
 // ---------------------------------------------------------------------------

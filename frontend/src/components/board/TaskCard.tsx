@@ -166,7 +166,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       data-column={column}
       data-testid="task-card"
       className={[
-        'group relative bg-surface rounded-xl border border-border p-4 pl-7 cursor-pointer overflow-hidden',
+        'group relative bg-surface rounded-xl border border-border p-3 pl-4 cursor-pointer overflow-hidden',
         'animate-fade-in-up shrink-0',
         // Animate only what changes (transform/shadow/ring/border) instead of `all`,
         // and give a subtle tactile press — the card is clickable (opens the panel).
@@ -191,18 +191,18 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       onDragOver={handleDragOver}
     >
       <div className="relative">
-        {/* Drag handle — visible on hover only, centered in the pl-7 gutter
+        {/* Drag handle — visible on hover only, centered in the pl-4 gutter
             and on the body's own height.
             ADR-1 (touch-reorder): coarse-pointer affordance removed — the
             HTML5 drag it hints at does not fire on touch, so showing a grab
             handle there is misleading. Touch/keyboard users get the ↑ / ↓
             step controls in CardActionMenu instead. */}
         <div
-          className="absolute -left-7 w-7 top-1/2 -translate-y-1/2 flex justify-center opacity-0 group-hover:opacity-40 transition-opacity duration-fast text-text-secondary cursor-grab active:cursor-grabbing"
+          className="absolute -left-4 w-4 top-1/2 -translate-y-1/2 flex justify-center opacity-0 group-hover:opacity-40 transition-opacity duration-fast text-text-secondary cursor-grab active:cursor-grabbing"
           aria-hidden="true"
           data-testid="drag-handle"
         >
-          <span className="material-symbols-outlined text-base leading-none select-none">drag_indicator</span>
+          <span className="material-symbols-outlined text-sm leading-none select-none">drag_indicator</span>
         </div>
 
         {/* ── Priority, key and type ── */}
@@ -223,7 +223,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         </div>
 
         {/* ── Title ── */}
-        <p className="mt-1.5 text-sm font-semibold text-text-primary leading-snug line-clamp-2">
+        <p className="mt-1 text-sm font-semibold text-text-primary leading-snug line-clamp-2">
           {task.title}
         </p>
 
@@ -258,7 +258,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         )}
 
         {/* ── Meta row: assigned + sub-tasks + attachments + questions + due date ── */}
-        <div className="flex items-center gap-2 mt-3 flex-wrap" data-testid="zone-b">
+        <div className="flex items-center gap-2 mt-2 flex-wrap min-h-5" data-testid="zone-b">
           {/* Assigned / Unassigned */}
           {task.assigned ? (
             <>

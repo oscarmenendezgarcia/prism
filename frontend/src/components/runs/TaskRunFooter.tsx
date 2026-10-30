@@ -9,8 +9,12 @@ import { isAwaitingReview } from '@/utils/issues';
 import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
 import type { StatusCategory, Task } from '@/types';
 import { AgentPicker } from './AgentPicker';
-import { HarnessIcon } from './HarnessIcon';
+import { HarnessIcon, isAgentName } from './HarnessIcon';
 import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
+
+const REVEALED_FOOTER = 'absolute right-0 bottom-0 flex items-center gap-1 pl-2 bg-surface rounded-lg opacity-0 '
+  + 'group-hover:opacity-100 group-focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100 transition-opacity duration-fast '
+  + '[@media(pointer:coarse)]:static [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:pl-0 [@media(pointer:coarse)]:mt-2 [@media(pointer:coarse)]:justify-end';
 
 interface TaskRunFooterProps {
   task: Task;
@@ -53,11 +57,14 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
       );
     }
     const problem = choiceProblem(choice, harnesses);
+    // Only an issue meant for an agent keeps these in view: on the rest they appear on
+    // hover, over the end of the last row so that the cards around do not move.
+    const inView = missingHarness || isAgentName(task.assigned);
     return (
-      <div className="flex flex-wrap items-center gap-1 mt-3 -ml-2" data-testid="run-footer">
+      <div className={inView ? 'flex flex-wrap items-center gap-1 mt-2 -ml-2' : REVEALED_FOOTER} data-testid="run-footer">
         {missingHarness && <p className="w-full ml-2 text-xs text-error leading-snug">This agent is not installed on this machine.</p>}
         <AgentPicker />
-        <span className="flex-1" />
+        {inView && <span className="flex-1" />}
         <Button
           variant="primary"
           size="sm"

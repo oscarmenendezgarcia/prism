@@ -46,7 +46,7 @@ export function Toast() {
       role={config.role}
       aria-live={config.ariaLive}
       data-leaving={leaving}
-      className={`fixed bottom-6 left-1/2 z-[200] flex items-center gap-3 px-4 py-3 rounded-lg text-white text-sm font-medium shadow-xl max-w-[400px] ${
+      className={`fixed top-4 left-1/2 z-[200] flex items-center gap-3 px-4 py-3 rounded-lg text-white text-sm font-medium shadow-xl max-w-[400px] ${
         config.bgClass
       } ${leaving ? 'animate-toast-out' : 'animate-toast-in'}`}
     >

@@ -69,7 +69,7 @@ export const Column = memo(function Column({ column, status, statuses = [], task
 
   return (
     <section
-      className={`flex flex-col bg-surface rounded-xl border overflow-hidden min-h-[200px] h-full transition-all duration-fast ${
+      className={`flex flex-col sm:bg-surface sm:rounded-xl border-0 sm:border overflow-hidden min-h-[200px] h-full transition-all duration-fast ${
         isDragOver
           ? 'border-primary/60 ring-2 ring-primary/20 bg-primary/[0.03]'
           : 'border-border'
@@ -81,7 +81,7 @@ export const Column = memo(function Column({ column, status, statuses = [], task
       data-column={column}
     >
       {/* Column header — wireframe S-01/S-02 */}
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-shrink-0">
+      <div className="hidden sm:flex px-4 py-3 border-b border-border items-center justify-between flex-shrink-0">
         <h2 className="flex items-center gap-2 text-xs font-semibold text-text-secondary uppercase tracking-widest">
           {status && <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDotClass(status, statuses)}`} aria-hidden="true" />}
           {label}
@@ -97,7 +97,7 @@ export const Column = memo(function Column({ column, status, statuses = [], task
       {/* Card area */}
       <div
         role="list"
-        className="flex-1 p-3 flex flex-col gap-2 overflow-y-auto pb-20 sm:pb-3"
+        className="flex-1 p-3 flex flex-col gap-2 overflow-y-auto"
       >
         {visibleTasks.length === 0 ? (
           <EmptyState column={status?.category ?? 'todo'} />

@@ -225,6 +225,20 @@ describe('issues over HTTP', () => {
     });
   });
 
+  describe('arc', () => {
+    it('is refused rather than ignored, on its own or with other fields', async () => {
+      const refused = await call('POST', `/spaces/${space.id}/tasks`, { title: 'x', type: 'chore', arc: 'Billing' });
+      assert.equal(refused.status, 400);
+      assert.match(refused.json.error.message, /arc is no longer supported/);
+      const created = await call('POST', `/spaces/${space.id}/tasks`, { title: 'y', type: 'chore' });
+      const update = await call('PUT', `/spaces/${space.id}/tasks/${created.json.id}`, { title: 'z', arc: 'Billing' });
+      assert.equal(update.status, 400);
+      const after = await call('GET', `/spaces/${space.id}/tasks/${created.json.id}`);
+      assert.equal(after.json.title, 'y');
+      assert.equal((await call('PUT', `/spaces/${space.id}/tasks/${created.json.id}`, { arc: 'Billing' })).status, 400);
+    });
+  });
+
   describe('history', () => {
     it('records who changed each field, and nothing when nothing changed', async () => {
       const made = await issue({ priority: 'low' });
@@ -267,6 +281,21 @@ describe('issues over HTTP', () => {
 
     before(async () => {
       own = (await call('POST', '/spaces', { name: 'Own statuses' })).json;
+    });
+
+    it('records a changed category on the issues of that status', async () => {
+      const space2 = (await call('POST', '/spaces', { name: 'Categories' })).json;
+      const made = (await call('POST', `/spaces/${space2.id}/tasks`, { title: 'x', type: 'bug' })).json;
+      await call('PUT', `/spaces/${space2.id}/tasks/${made.id}/move`, { to: 'in-review' });
+      const changed = defaults().map((st) => (st.id === 'in-review' ? { ...st, category: 'done' } : st));
+      const res = await call('PUT', `/spaces/${space2.id}/statuses`, { statuses: changed }, { 'X-Prism-Actor': 'Ana' });
+      assert.equal(res.status, 200);
+      const { history } = (await call('GET', `/spaces/${space2.id}/tasks/${made.id}/history`)).json;
+      assert.deepEqual([history[0].actor, history[0].field, history[0].oldValue, history[0].newValue], ['Ana', 'category', 'in-progress', 'done']);
+      // Saving again with no change adds nothing.
+      await call('PUT', `/spaces/${space2.id}/statuses`, { statuses: changed }, { 'X-Prism-Actor': 'Ana' });
+      const again = (await call('GET', `/spaces/${space2.id}/tasks/${made.id}/history`)).json.history;
+      assert.equal(again.length, history.length);
     });
 
     it('starts with the four defaults, and new issues in the first to-do', async () => {

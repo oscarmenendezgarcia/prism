@@ -4,9 +4,11 @@
  * the dragend safety reset, and the empty-state onboarding lifecycle.
  */
 
+import { Profiler } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import { Board } from '../../src/components/board/Board';
+import { EpicBar } from '../../src/components/board/EpicBar';
 import { useAppStore } from '../../src/stores/useAppStore';
 import { useDragStore } from '../../src/stores/useDragStore';
 import * as api from '../../src/api/client';
@@ -65,13 +67,6 @@ describe('Board — empty-state (BoardEmptyState)', () => {
     expect(screen.queryByText('In Progress')).not.toBeInTheDocument();
   });
 
-  it('does not render mobile FAB when board is empty', () => {
-    render(<Board />);
-    expect(
-      screen.queryByRole('button', { name: 'Create new issue' }),
-    ).not.toBeInTheDocument();
-  });
-
   it('does not render ColumnTabBar when board is empty', () => {
     render(<Board />);
     // ColumnTabBar renders mobile column tabs (Todo / In Progress / Done tabs)
@@ -93,7 +88,6 @@ describe('Board — empty-state (BoardEmptyState)', () => {
     expect(screen.getAllByText('In Progress').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Done').length).toBeGreaterThanOrEqual(1);
     // What the empty board leaves out is back.
-    expect(screen.getByRole('button', { name: 'Create new issue' })).toBeInTheDocument();
     expect(screen.getByRole('tablist')).toBeInTheDocument();
   });
 
@@ -306,20 +300,20 @@ describe('Board — epic filter', () => {
 
   it('choosing an epic in the bar leaves it, its issues and their sub-tasks', () => {
     useAppStore.setState({ tasks: BOARD });
-    render(<Board />);
-    fireEvent.click(screen.getByRole('button', { name: 'Epic One' }));
+    render(<><EpicBar /><Board /></>);
+    fireEvent.change(screen.getByLabelText('Filter by epic'), { target: { value: 'e1' } });
     const cards = screen.getAllByTestId('task-card').map((c) => c.getAttribute('data-id'));
     expect(cards.sort()).toEqual(['a', 'e1', 's']);
   });
 
   it('All epics brings everything back', () => {
     useAppStore.setState({ tasks: BOARD, epicFilter: 'e1' });
-    render(<Board />);
-    fireEvent.click(screen.getByRole('button', { name: 'All epics' }));
+    render(<><EpicBar /><Board /></>);
+    fireEvent.change(screen.getByLabelText('Filter by epic'), { target: { value: '' } });
     expect(screen.getAllByTestId('task-card')).toHaveLength(6);
   });
 
-  // Fails today: nothing clears epicFilter when its epic goes, and the bar hides its chips
+  // Fails today: nothing clears epicFilter when its epic goes, and the bar hides its filter
   // with no epics left. The board stays empty until switching space.
   it('deleting the last epic while filtered to it leaves a way back to the issues', async () => {
     const after = { todo: [issue('c', 'Loose issue')], 'in-progress': [], done: [] };
@@ -328,8 +322,22 @@ describe('Board — epic filter', () => {
     useAppStore.setState({ tasks: { ...after, todo: [issue('e1', 'Epic One', undefined, 'epic'), ...after.todo] }, epicFilter: 'e1' });
     render(<Board />);
     await act(() => useAppStore.getState().deleteTask('e1'));
-    const canReachIt = screen.queryAllByTestId('task-card').length > 0
-      || screen.queryByRole('button', { name: 'All epics' }) !== null;
-    expect(canReachIt).toBe(true);
+    expect(screen.queryAllByTestId('task-card').length).toBeGreaterThan(0);
+  });
+});
+
+// ─── Polling ─────────────────────────────────────────────────────────────────
+
+describe('Board — polling', () => {
+  it('renders nothing again when a poll brings the same issues', async () => {
+    const tasks = { todo: [{ id: 'a', key: 'K-1', title: 'A', type: 'feature', createdAt: '', updatedAt: '' }], 'in-progress': [], done: [] } as never;
+    useAppStore.setState({ tasks });
+    vi.mocked(api.getTasks).mockResolvedValue(JSON.parse(JSON.stringify(tasks)));
+    const onRender = vi.fn();
+    render(<Profiler id="board" onRender={onRender}><Board /></Profiler>);
+    const before = onRender.mock.calls.length;
+    await act(() => useAppStore.getState().loadBoard());
+    expect(onRender.mock.calls.length).toBe(before);
+    expect(useAppStore.getState().tasks).toBe(tasks);
   });
 });

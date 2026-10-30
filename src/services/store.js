@@ -838,6 +838,12 @@ function createStore(dataDir) {
           id = statusSlug(status.name, (candidate) => used.has(candidate));
           used.add(id);
         }
+        const previous = before.find((s) => s.id === id);
+        if (previous && previous.category !== status.category) {
+          for (const row of stmts.getTasksByStatus.all(spaceId, id)) {
+            recordHistory(row.id, actor, 'category', previous.category, status.category);
+          }
+        }
         stmts.upsertStatus.run(spaceId, id, status.name, status.category, position);
         stmts.setCategoryOfStatus.run(status.category, spaceId, id);
       });

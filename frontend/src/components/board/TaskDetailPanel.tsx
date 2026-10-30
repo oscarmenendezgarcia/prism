@@ -21,11 +21,10 @@ import React, {
   useState,
 } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
-import { Badge } from '@/components/shared/Badge';
 import { LabelsInput } from '@/components/shared/LabelsInput';
 import { ChildIssues } from '@/components/board/ChildIssues';
 import { IssueHistory } from '@/components/board/IssueHistory';
-import { allTasks, boardIndex, isOverdue, parentIssueOf, PRIORITIES, TYPES, typeOf } from '@/utils/issues';
+import { allTasks, boardIndex, isOverdue, parentIssueOf, PRIORITIES, TYPES } from '@/utils/issues';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { TaskRunPanel } from '@/components/runs/TaskRunPanel';
 import { useTaskRunStore } from '@/stores/useTaskRunStore';
@@ -41,14 +40,17 @@ import type { Comment, Priority, Task, TaskType } from '@/types';
 // (bg/border/radius/inset) inline since it's a <span>, not an <input>.
 // ---------------------------------------------------------------------------
 
-const SIDE_FIELD = 'flex flex-col gap-1.5 py-3 first:pt-0';
-const SIDE_LABEL = 'text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]';
+const SIDE_FIELD = 'grid grid-cols-[76px_minmax(0,1fr)] items-center gap-2 py-1';
+const SIDE_LABEL = 'text-xs text-text-secondary';
 
-const DETAIL_FIELD_CLASS =
-  'w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary ' +
-  'placeholder:text-text-disabled/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 ' +
-  'disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[220ms] ease-spring ' +
-  'shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]';
+// A value until pointed at: the column is read far more often than edited.
+const DETAIL_FIELD_BASE =
+  'w-full h-8 px-2 rounded-md bg-transparent border border-transparent text-sm cursor-pointer ' +
+  'placeholder:text-text-secondary hover:bg-surface-variant/60 focus:bg-surface focus:cursor-text focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 ' +
+  'disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast';
+const DETAIL_FIELD_CLASS = `${DETAIL_FIELD_BASE} text-text-primary`;
+// A select insets its text by a few more pixels than an input does: this lines them up.
+const DETAIL_INPUT_CLASS = `${DETAIL_FIELD_CLASS} pl-3`;
 
 // ---------------------------------------------------------------------------
 // Copy-to-clipboard helper
@@ -520,7 +522,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 </button>
               </>
             )}
-            <Badge type={issue.type} label={typeOf(issue.type).label} className="flex-shrink-0" />
             <div className="flex-1" />
             {detailTask.createdAt && (
               <time
@@ -528,7 +529,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 title={`Created: ${formatTimestamp(detailTask.createdAt)}${detailTask.updatedAt && detailTask.updatedAt !== detailTask.createdAt ? `\nUpdated: ${formatTimestamp(detailTask.updatedAt)}` : ''}`}
                 className="text-[11px] text-text-tertiary cursor-default hidden sm:block"
               >
-                {formatRelativeTime(detailTask.createdAt)}
+                Created {formatRelativeTime(detailTask.createdAt)}
               </time>
             )}
             {closeButton}
@@ -556,7 +557,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-b-modal">
 
             {/* ── LEFT: title · description · comments ──────────────── */}
-            <div className={`min-w-0 overflow-y-auto px-14 pt-7 pb-8 flex flex-col gap-6 md:flex-1 ${mobileTab === 'content' ? 'flex-1' : 'hidden md:flex'}`}>
+            <div className={`min-w-0 overflow-y-auto px-4 md:px-14 pt-5 md:pt-7 pb-8 flex flex-col gap-6 md:flex-1 ${mobileTab === 'content' ? 'flex-1' : 'hidden md:flex'}`}>
               {/* Title — textarea wraps long titles instead of truncating */}
               <div className="animate-fade-in-up [animation-delay:50ms]">
               <textarea
@@ -591,7 +592,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   onChange={(e) => setLocalDescription(e.target.value)}
                   onBlur={handleSaveDescription}
                   rows={1}
-                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-[border-color] duration-[220ms] ease-spring"
+                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[1.5rem] transition-[border-color] duration-[220ms] ease-spring"
                   placeholder="Add a description…"
                 />
               </div>
@@ -616,6 +617,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                       }`}
                     >
                       {tab}
+                      {tab === 'comments' && comments.length > 0 && <span className="ml-1.5 text-xs font-normal text-text-secondary">{comments.length}</span>}
                     </button>
                   ))}
                 </div>
@@ -638,7 +640,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
             </div>
 
             {/* ── RIGHT: metadata sidebar ────────────────────────────── */}
-            <div className={`flex-shrink-0 border-border/40 bg-surface-elevated/25 overflow-y-auto px-6 pt-5 pb-6 flex flex-col divide-y divide-border/20 md:w-[300px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
+            <div className={`flex-shrink-0 border-border/40 bg-surface-elevated/25 overflow-y-auto px-4 pt-3 pb-6 flex flex-col md:w-[300px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
 
               {/* Status */}
               <div className={SIDE_FIELD}>
@@ -688,7 +690,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   value={localAssigned}
                   onChange={(e) => setLocalAssigned(e.target.value)}
                   onBlur={handleAssignedBlur}
-                  className={DETAIL_FIELD_CLASS}
+                  className={DETAIL_INPUT_CLASS}
                   placeholder="Unassigned"
                 />
               </div>
@@ -734,12 +736,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
               ))}
 
               {/* Labels */}
-              <div className={SIDE_FIELD}>
-                <label htmlFor="detail-labels" className={SIDE_LABEL}>Labels</label>
+              <div className={`${SIDE_FIELD} items-start`}>
+                <label htmlFor="detail-labels" className={`${SIDE_LABEL} pt-2`}>Labels</label>
                 <LabelsInput
                   id="detail-labels"
                   labels={issue.labels ?? []}
-                  inputClassName={DETAIL_FIELD_CLASS}
+                  inputClassName={DETAIL_INPUT_CLASS}
+                  chipsClassName="pl-3 pt-1.5"
                   onChange={(labels) => updateTask(issue.id, { labels })}
                 />
               </div>
@@ -747,7 +750,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               {/* Due date */}
               <div className={SIDE_FIELD}>
                 <label htmlFor="detail-due" className={`${SIDE_LABEL} ${isOverdue(issue) ? 'text-error' : ''}`}>
-                  Due date{isOverdue(issue) ? ' · overdue' : ''}
+                  Due date{isOverdue(issue) && <span className="sr-only"> (overdue)</span>}
                 </label>
                 <input
                   id="detail-due"
@@ -755,14 +758,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   value={localDueDate}
                   onChange={(e) => setLocalDueDate(e.target.value)}
                   onBlur={handleDueDateBlur}
-                  className={DETAIL_FIELD_CLASS}
+                  className={`${DETAIL_FIELD_BASE} pl-3 ${isOverdue(issue) ? 'text-error font-semibold' : 'text-text-primary'}`}
+                  title={isOverdue(issue) ? 'Overdue' : undefined}
                 />
               </div>
 
               {/* Estimate */}
               {!isEpic && (
                 <div className={SIDE_FIELD}>
-                  <label htmlFor="detail-estimate" className={SIDE_LABEL}>Estimate (points)</label>
+                  <label htmlFor="detail-estimate" className={SIDE_LABEL} title="In points">Estimate</label>
                   <input
                     id="detail-estimate"
                     type="number"
@@ -771,7 +775,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                     value={localEstimate}
                     onChange={(e) => setLocalEstimate(e.target.value)}
                     onBlur={handleEstimateBlur}
-                    className={DETAIL_FIELD_CLASS}
+                    className={DETAIL_INPUT_CLASS}
                     placeholder="None"
                   />
                 </div>
@@ -781,7 +785,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   Always rendered: the field has its own "No dependencies" empty state.
                   When the issue is done it is read-only — a finished issue is not
                   waiting on anyone, but the record of what it waited for is worth reading. */}
-              <div className="py-3">
+              <div className="mt-2 pt-3 border-t border-border/30">
                 <DependsOnSection
                   spaceId={activeSpaceId}
                   taskId={detailTask.id}
@@ -797,7 +801,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
               {/* Attachments */}
               {detailTask.attachments && detailTask.attachments.length > 0 && (
-                <div className="flex flex-col gap-2 py-3" data-testid="attachments-section">
+                <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-border/30" data-testid="attachments-section">
                   <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">Attachments</span>
                   <div className="flex flex-col gap-1.5" aria-label="Task attachments">
                     {detailTask.attachments.map((att, index) => (

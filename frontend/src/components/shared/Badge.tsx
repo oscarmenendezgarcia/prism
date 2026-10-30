@@ -35,7 +35,8 @@ const badgeClasses: Record<BadgeType, string> = {
   chore:
     'bg-[rgba(26,26,46,0.07)] dark:bg-[rgba(255,255,255,0.07)] text-badge-chore-text',
   epic:
-    'bg-primary text-white',
+    // Darker than primary in the dark theme, for white text to reach 4.5:1.
+    'bg-badge-epic-bg text-white',
   done:
     'bg-[rgba(30,142,62,0.10)] dark:bg-[rgba(59,214,113,0.13)] text-badge-done-text',
 };

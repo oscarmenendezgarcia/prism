@@ -105,22 +105,6 @@ describe('StatusesEditor — reorder', () => {
     expect(screen.getByRole('button', { name: 'Move Done up' })).toBeEnabled();
   });
 
-  it('moves a status by dragging it onto another', () => {
-    render(<Harness />);
-    const [, , last] = screen.getAllByTestId('status-row');
-    fireEvent.dragStart(screen.getAllByTestId('status-grip')[0], { dataTransfer: { effectAllowed: '' } });
-    fireEvent.drop(last);
-    expect(names()).toEqual(['Doing', 'Done', 'Todo']);
-  });
-
-  it('does nothing when dropped on itself, or with nothing dragged', () => {
-    render(<Harness />);
-    const [first, second] = screen.getAllByTestId('status-row');
-    fireEvent.dragStart(screen.getAllByTestId('status-grip')[0], { dataTransfer: { effectAllowed: '' } });
-    fireEvent.drop(first);
-    fireEvent.drop(second);
-    expect(names()).toEqual(['Todo', 'Doing', 'Done']);
-  });
 });
 
 describe('StatusesEditor — remove', () => {

@@ -313,17 +313,8 @@ export function CommentsSection({
 
   return (
     <div className="flex flex-col gap-4" data-testid="comments-section">
-      {/* Section header */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-semibold text-text-tertiary uppercase tracking-widest">
-          Comments
-        </span>
-        {comments.length > 0 && (
-          <span className="text-[10px] text-text-tertiary">
-            ({comments.length})
-          </span>
-        )}
-        {unresolved > 0 && (
+      {unresolved > 0 && (
+        <div>
           <span
             className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-warning/[0.15] text-warning leading-none"
             data-testid="unresolved-badge"
@@ -331,8 +322,8 @@ export function CommentsSection({
           >
             {unresolved} pending
           </span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Thread */}
       {topLevel.length > 0 && (

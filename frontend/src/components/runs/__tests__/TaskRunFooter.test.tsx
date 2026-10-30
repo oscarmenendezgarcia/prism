@@ -37,6 +37,18 @@ describe('TaskRunFooter', () => {
     useAppStore.setState({ activeSpaceId: 's1', loadBoard: vi.fn().mockResolvedValue(undefined), showToast: vi.fn() } as never);
   });
 
+  it('keeps the agent and Run in view only on an issue assigned to an agent', () => {
+    const { unmount } = renderFooter('todo', undefined, { ...task, assigned: 'Claude Code' });
+    expect(screen.getByTestId('run-footer')).not.toHaveClass('opacity-0');
+    unmount();
+    const other = renderFooter('todo', undefined, { ...task, assigned: 'Ana López' });
+    expect(screen.getByTestId('run-footer')).toHaveClass('opacity-0', 'group-hover:opacity-100');
+    expect(screen.getByRole('button', { name: /Run/ })).toBeInTheDocument();
+    other.unmount();
+    renderFooter('todo', undefined, { ...task, assigned: undefined });
+    expect(screen.getByTestId('run-footer')).toHaveClass('opacity-0');
+  });
+
   it('offers to create a PR on a finished card', async () => {
     renderFooter('done', { status: 'done', result: { ...result, head: 'abc', pr: null } });
     await userEvent.click(screen.getByRole('button', { name: 'Create PR' }));

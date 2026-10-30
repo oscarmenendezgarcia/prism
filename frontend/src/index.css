@@ -1,3 +1,5 @@
+/* In a layer: its rule for icons sets 24px, and outside a layer it would beat every text-* utility. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Roboto+Slab:wght@700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap") layer(fonts);
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -81,6 +83,7 @@
   --color-col-done-pill:        rgba(30, 142, 62, 0.10);
 
   /* ── Badge text colors ───────────────────────────────────────────────── */
+  --color-badge-epic-bg: #6c60e0;
   --color-badge-feature-text:   #6C60E0;
   --color-badge-bug-text:       #D93025;
   --color-badge-tech-debt-text: #E37400;
@@ -438,14 +441,14 @@ html.dark {
 /* Tab content: opacity-only fade when switching tabs */
 /* Toast entrance — slide up + fade */
 @keyframes toast-in {
-  from { opacity: 0; transform: translateX(-50%) translateY(12px); }
+  from { opacity: 0; transform: translateX(-50%) translateY(-12px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-/* Toast exit — slide down + fade */
+/* Toast exit — slide up + fade */
 @keyframes toast-out {
   from { opacity: 1; transform: translateX(-50%) translateY(0); }
-  to   { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 0; transform: translateX(-50%) translateY(-8px); }
 }
 
 /* Hover overlay entrance */

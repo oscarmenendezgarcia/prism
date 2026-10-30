@@ -62,8 +62,12 @@ describe('CreateTaskModal', () => {
     const user = userEvent.setup();
     render(<CreateTaskModal />);
 
-    await user.type(screen.getByLabelText(/title/i), 'abc');
-    expect(screen.getByText('3 / 200')).toBeInTheDocument();
+    const title = screen.getByLabelText(/title/i);
+    await user.type(title, 'abc');
+    // Only once it is close to the limit: the form has little room.
+    expect(screen.queryByText('3 / 200')).not.toBeInTheDocument();
+    fireEvent.change(title, { target: { value: 'x'.repeat(151) } });
+    expect(screen.getByText('151 / 200')).toBeInTheDocument();
   });
 
   it('chip group shows the issue types, epic included, and not the legacy ones', () => {

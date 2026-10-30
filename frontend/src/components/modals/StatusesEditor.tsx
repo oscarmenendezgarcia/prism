@@ -7,7 +7,7 @@ import { Button } from '@/components/shared/Button';
 import type { Status, StatusCategory } from '@/types';
 
 export interface StatusRow {
-  /** Stable across edits, for React and for dragging. */
+  /** Stable across edits, for React. */
   rowKey: string;
   /** Absent in a status not saved yet. */
   id?: string;
@@ -43,7 +43,6 @@ interface StatusesEditorProps {
 
 export function StatusesEditor({ rows, onChange, counts, removed, moves, onRemove, onMoveChange }: StatusesEditorProps) {
   const nextKey = useRef(0);
-  const dragged = useRef<string | null>(null);
 
   const update = (rowKey: string, patch: Partial<StatusRow>) =>
     onChange(rows.map((r) => (r.rowKey === rowKey ? { ...r, ...patch } : r)));
@@ -62,32 +61,15 @@ export function StatusesEditor({ rows, onChange, counts, removed, moves, onRemov
     <fieldset className="flex flex-col gap-1.5 min-w-0" data-testid="statuses-editor">
       <legend className="block text-sm font-medium text-text-primary mb-0.5">Statuses</legend>
       <p className="text-xs text-text-disabled mb-1">
-        Drag to reorder. The category says what a status means for dependencies and agents.
+        The category says what a status means for dependencies and agents.
       </p>
 
       {rows.map((row, i) => (
         <div
           key={row.rowKey}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            const from = rows.findIndex((r) => r.rowKey === dragged.current);
-            if (from >= 0) moveRow(from, i);
-            dragged.current = null;
-          }}
           className="flex items-center gap-1.5 px-2 py-1.5 border border-border rounded-lg bg-surface"
           data-testid="status-row"
         >
-          {/* Only the grip drags: a draggable row would stop its inputs selecting text. */}
-          <span
-            draggable
-            onDragStart={(e) => { dragged.current = row.rowKey; e.dataTransfer.effectAllowed = 'move'; }}
-            className="material-symbols-outlined text-base leading-none text-text-disabled cursor-grab select-none"
-            aria-hidden="true"
-            data-testid="status-grip"
-          >
-            drag_indicator
-          </span>
           <input
             type="text"
             value={row.name}

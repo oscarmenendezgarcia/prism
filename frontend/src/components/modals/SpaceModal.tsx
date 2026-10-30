@@ -192,7 +192,7 @@ export function SpaceModal() {
 
         <div>
           <label htmlFor="space-name-input" className="block text-sm font-medium text-text-primary mb-1.5">
-            Space Name
+            Space name
           </label>
           <input
             id="space-name-input"
@@ -254,7 +254,7 @@ export function SpaceModal() {
 
         <div>
           <label htmlFor="space-wd-input" className="block text-sm font-medium text-text-primary mb-1.5">
-            Working Directory <span className="text-text-disabled font-normal">(optional)</span>
+            Working directory <span className="text-text-disabled font-normal">(optional)</span>
           </label>
           <input
             id="space-wd-input"

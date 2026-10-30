@@ -11,6 +11,7 @@
 import React, { useEffect } from 'react';
 import { Header } from '@/components/layout/Header';
 import { SpaceTabs } from '@/components/layout/SpaceTabs';
+import { EpicBar } from '@/components/board/EpicBar';
 import { Board } from '@/components/board/Board';
 import { TaskDetailPanel } from '@/components/board/TaskDetailPanel';
 import { CreateTaskModal } from '@/components/modals/CreateTaskModal';
@@ -130,7 +131,10 @@ function AppContent() {
       <Header />
 
       <div className="flex-1 overflow-hidden flex flex-col">
-        <SpaceTabs />
+        <div className="flex items-stretch flex-shrink-0">
+          <div className="flex-1 min-w-0"><SpaceTabs /></div>
+          <EpicBar />
+        </div>
         <div className="flex-1 overflow-hidden relative">
           <Board />
         </div>

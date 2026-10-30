@@ -155,7 +155,7 @@ export function DependsOnSection({
     <div className="flex flex-col gap-2" data-testid="depends-on-section">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
+        <span className="text-xs text-text-secondary">
           Depends on
         </span>
         {!disabled && !searchOpen && (

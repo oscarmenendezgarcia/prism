@@ -57,6 +57,27 @@ export function boardIndex(board: BoardTasks): BoardIndex {
   return index;
 }
 
+/**
+ * The new board, reusing the objects of the old one wherever nothing changed. Polling brings
+ * a fresh copy every few seconds, and a new object would re-render a card that looks the same.
+ */
+export function keepUnchanged(old: BoardTasks, fresh: BoardTasks): BoardTasks {
+  const oldById = boardIndex(old).byId;
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const board: BoardTasks = {};
+  for (const [statusId, tasks] of Object.entries(fresh)) {
+    const list = tasks.map((task) => {
+      const seen = oldById.get(task.id);
+      return seen && same(seen, task) ? seen : task;
+    });
+    const before = old[statusId];
+    board[statusId] = before?.length === list.length && list.every((t, i) => t === before[i]) ? before : list;
+  }
+  const keys = Object.keys(board);
+  const unchanged = keys.length === Object.keys(old).length && keys.every((k, i) => board[k] === old[k] && Object.keys(old)[i] === k);
+  return unchanged ? old : board;
+}
+
 /** The epic an issue is in, directly or through its parent. */
 export function epicOf(task: Task, index: BoardIndex): Task | null {
   if (task.type === 'epic' || !task.parentId) return null;

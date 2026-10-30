@@ -1,10 +1,10 @@
 /**
  * EpicBar: filters the board to an epic, and opens the space's settings.
- * Runs against the real store, so that a chip is seen to change the filter.
+ * Runs against the real store, so that the filter is seen to change the filter.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { EpicBar } from '../../src/components/board/EpicBar';
 import { useAppStore } from '../../src/stores/useAppStore';
 import type { Task } from '../../src/types';
@@ -25,80 +25,52 @@ beforeEach(() => {
   useAppStore.setState({ tasks: {}, epicFilter: null, spaces: [SPACE], activeSpaceId: 's1', spaceModal: null });
 });
 
+const filter = () => screen.getByLabelText('Filter by epic') as HTMLSelectElement;
+const options = () => [...filter().options].map((o) => o.textContent);
+
 describe('EpicBar', () => {
-  it('has no chips when the board has no epics', () => {
+  it('has no filter when the board has no epics', () => {
     setTasks({ todo: [task('t1')] });
     render(<EpicBar />);
     expect(screen.getByTestId('epic-bar')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'All epics' })).not.toBeInTheDocument();
-    expect(screen.queryAllByTestId(/epic-filter-chip-/)).toHaveLength(0);
+    expect(screen.queryByLabelText('Filter by epic')).not.toBeInTheDocument();
   });
 
-  it('shows All epics and a chip for each epic, and none for other issues', () => {
-    setTasks({ todo: [task('e1', 'epic', 'Auth'), task('t1', 'feature', 'Not an epic')], done: [task('e2', 'epic', 'Loop')] });
+  it('offers All epics and each epic, sorted across statuses, and no other issue', () => {
+    setTasks({ todo: [task('e1', 'epic', 'Loop'), task('t1', 'feature', 'Not an epic')], doing: [task('e2', 'epic', 'Auth')], done: [task('e3', 'epic', 'Quality')] });
     render(<EpicBar />);
-    expect(screen.getByRole('button', { name: 'All epics' })).toBeInTheDocument();
-    expect(screen.getByTestId('epic-filter-chip-E1')).toHaveTextContent('Auth');
-    expect(screen.getByTestId('epic-filter-chip-E2')).toHaveTextContent('Loop');
-    expect(screen.queryByRole('button', { name: 'Not an epic' })).not.toBeInTheDocument();
+    expect(options()).toEqual(['All epics', 'Auth', 'Loop', 'Quality']);
   });
 
-  it('sorts the chips by title, across statuses', () => {
-    setTasks({ todo: [task('e1', 'epic', 'Loop')], doing: [task('e2', 'epic', 'Auth')], done: [task('e3', 'epic', 'Quality')] });
-    render(<EpicBar />);
-    expect(screen.getAllByTestId(/epic-filter-chip-/).map((c) => c.textContent)).toEqual(['Auth', 'Loop', 'Quality']);
-  });
-
-  it('All epics is pressed with no filter', () => {
-    setTasks({ todo: [task('e1', 'epic')] });
-    render(<EpicBar />);
-    expect(screen.getByRole('button', { name: 'All epics' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('epic-filter-chip-E1')).toHaveAttribute('aria-pressed', 'false');
-  });
-
-  it('the chip of the chosen epic is pressed, and All epics is not', () => {
+  it('shows the chosen epic, and marks that a filter is on', () => {
     setTasks({ todo: [task('e1', 'epic'), task('e2', 'epic')] });
-    useAppStore.setState({ epicFilter: 'e1' });
-    render(<EpicBar />);
-    expect(screen.getByTestId('epic-filter-chip-E1')).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByTestId('epic-filter-chip-E2')).toHaveAttribute('aria-pressed', 'false');
-    expect(screen.getByRole('button', { name: 'All epics' })).toHaveAttribute('aria-pressed', 'false');
+    const { rerender } = render(<EpicBar />);
+    expect(filter().value).toBe('');
+    expect(filter()).not.toHaveClass('text-primary');
+    act(() => useAppStore.setState({ epicFilter: 'e1' }));
+    rerender(<EpicBar />);
+    expect(filter().value).toBe('e1');
+    expect(filter()).toHaveClass('text-primary');
   });
 
-  it('clicking a chip filters by the id of that epic', () => {
+  it('choosing an epic filters by its id', () => {
     setTasks({ todo: [task('e1', 'epic')] });
     render(<EpicBar />);
-    fireEvent.click(screen.getByTestId('epic-filter-chip-E1'));
+    fireEvent.change(filter(), { target: { value: 'e1' } });
     expect(useAppStore.getState().epicFilter).toBe('e1');
   });
 
-  it('clicking another chip changes the filter', () => {
-    setTasks({ todo: [task('e1', 'epic'), task('e2', 'epic')] });
-    useAppStore.setState({ epicFilter: 'e1' });
-    render(<EpicBar />);
-    fireEvent.click(screen.getByTestId('epic-filter-chip-E2'));
-    expect(useAppStore.getState().epicFilter).toBe('e2');
-  });
-
-  it('clicking All epics clears the filter', () => {
+  it('choosing All epics clears the filter', () => {
     setTasks({ todo: [task('e1', 'epic')] });
     useAppStore.setState({ epicFilter: 'e1' });
     render(<EpicBar />);
-    fireEvent.click(screen.getByRole('button', { name: 'All epics' }));
-    expect(useAppStore.getState().epicFilter).toBeNull();
-  });
-
-  it('clicking the chip of the chosen epic turns the filter off', () => {
-    setTasks({ todo: [task('e1', 'epic')] });
-    useAppStore.setState({ epicFilter: 'e1' });
-    render(<EpicBar />);
-    fireEvent.click(screen.getByTestId('epic-filter-chip-E1'));
+    fireEvent.change(filter(), { target: { value: '' } });
     expect(useAppStore.getState().epicFilter).toBeNull();
   });
 
   it('Space settings opens the settings of the active space', () => {
     render(<EpicBar />);
-    fireEvent.click(screen.getByTestId('space-settings-button'));
+    fireEvent.click(screen.getByRole('button', { name: 'Space settings' }));
     expect(useAppStore.getState().spaceModal).toEqual({ open: true, mode: 'rename', space: SPACE });
   });
 
