@@ -57,8 +57,65 @@ export interface Space {
   pinnedRank?: number;
   /** MODEL-1: per-stage model routing overrides for this space. */
   stageModels?: StageModelsMap | null;
+  /** Commands to run in the worktree when an agent finishes a task. */
+  hooks?: SpaceHook[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SpaceHook {
+  name: string;
+  command: string;
+}
+
+/** The harness and model a direct run uses. */
+export interface AgentChoice {
+  cliTool: string;
+  model?: string;
+}
+
+/** A task's latest direct run, as GET /spaces/:id/task-runs returns it. */
+export interface TaskRunView {
+  runId: string;
+  taskId: string;
+  status: 'working' | 'checking' | 'question' | 'failed' | 'stopped' | 'done';
+  cliTool: string;
+  model: string | null;
+  iteration: number;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+  result: {
+    branch: string;
+    baseBranch: string | null;
+    ref: string | null;
+    fileCount: number | null;
+    additions: number | null;
+    deletions: number | null;
+    saveError: string | null;
+  } | null;
+  hook: {
+    name: string;
+    command: string;
+    status: 'running' | 'passed' | 'failed' | 'interrupted';
+    exitCode?: number | null;
+    timedOut?: boolean;
+    outputTail?: string;
+  } | null;
+  failure: {
+    kind: 'agent' | 'hook';
+    exitCode: number | null;
+    timedOut?: boolean;
+    reason?: string | null;
+  } | null;
+}
+
+export interface ChangedFile {
+  path: string;
+  oldPath?: string;
+  additions: number;
+  deletions: number;
+  binary: boolean;
 }
 
 /** Attachment metadata (content stripped in list responses, except for type='link'). */
@@ -297,6 +354,8 @@ export interface BlockedReason {
 /** Run object returned by the backend pipeline API. */
 export interface BackendRun {
   runId: string;
+  /** True for a task run directly on an agent, without stages. */
+  direct?: boolean;
   status: 'pending' | 'running' | 'paused' | 'blocked' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   stages: string[];
   stageStatuses?: BackendStageStatus[];

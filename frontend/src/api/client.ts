@@ -34,6 +34,10 @@ import type {
   HomeDirectoryResponse,
   StageModelsMap,
   HarnessesResponse,
+  AgentChoice,
+  TaskRunView,
+  ChangedFile,
+  SpaceHook,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -535,6 +539,42 @@ export const deleteRun = (runId: string): Promise<void> =>
   apiFetch<void>(`/runs/${runId}`, { method: 'DELETE' });
 
 /** Resume an interrupted or failed pipeline run from the first non-completed stage. */
+const postJson = <T>(path: string, body: unknown): Promise<T> =>
+  apiFetch<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+/** Latest direct run of each task in a space, by task ID. */
+export const getTaskRuns = (spaceId: string): Promise<Record<string, TaskRunView>> =>
+  apiFetch<Record<string, TaskRunView>>(`/spaces/${spaceId}/task-runs`);
+
+export const startTaskRun = (spaceId: string, taskId: string, choice: AgentChoice): Promise<BackendRun> =>
+  postJson<BackendRun>(`/spaces/${spaceId}/tasks/${taskId}/run`, choice);
+
+export const requestTaskChanges = (spaceId: string, taskId: string, text: string): Promise<BackendRun> =>
+  postJson<BackendRun>(`/spaces/${spaceId}/tasks/${taskId}/request-changes`, { text });
+
+export const closeTaskRun = (spaceId: string, taskId: string): Promise<BackendRun> =>
+  postJson<BackendRun>(`/spaces/${spaceId}/tasks/${taskId}/close`, {});
+
+export const getRunFiles = (runId: string): Promise<{ files: ChangedFile[] }> =>
+  apiFetch<{ files: ChangedFile[] }>(`/runs/${runId}/diff`);
+
+export const getRunFilePatch = (runId: string, filePath: string): Promise<{ patch: string; truncated: boolean }> =>
+  apiFetch<{ patch: string; truncated: boolean }>(`/runs/${runId}/diff?path=${encodeURIComponent(filePath)}`);
+
+export const stopRun = (runId: string): Promise<BackendRun> =>
+  postJson<BackendRun>(`/runs/${runId}/stop`, {});
+
+export const updateSpaceHooks = (spaceId: string, hooks: SpaceHook[]): Promise<Space> =>
+  apiFetch<Space>(`/spaces/${spaceId}/hooks`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hooks }),
+  });
+
 export const resumeRun = (runId: string): Promise<BackendRun> =>
   apiFetch<BackendRun>(`/runs/${runId}/resume`, { method: 'POST' });
 

@@ -31,6 +31,8 @@ interface CommentsSectionProps {
   onCommentUpdated: (commentId: string, patch: { resolved?: boolean; text?: string }) => Promise<void>;
   /** Called when an open question is answered (posts the answer + resolves the question). */
   onAnswerQuestion: (commentId: string, text: string) => Promise<void>;
+  /** When set, the comment form also offers to send the text to the agent as changes to make. */
+  onRequestChanges?: (text: string) => Promise<void>;
   /** Whether interactions are disabled (e.g. while an agent pipeline is running). */
   disabled?: boolean;
 }
@@ -141,10 +143,11 @@ function CommentBubble({ comment, isAnswer, onResolveToggle, disabled }: Comment
 
 interface AddCommentFormProps {
   onSubmit: (type: Comment['type'], text: string, targetAgent?: string) => Promise<void>;
+  onRequestChanges?: (text: string) => Promise<void>;
   disabled?: boolean;
 }
 
-function AddCommentForm({ onSubmit, disabled }: AddCommentFormProps) {
+function AddCommentForm({ onSubmit, onRequestChanges, disabled }: AddCommentFormProps) {
   const [text, setText]             = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -160,6 +163,20 @@ function AddCommentForm({ onSubmit, disabled }: AddCommentFormProps) {
     }
   }, [text, onSubmit, submitting, disabled]);
 
+  const handleRequestChanges = useCallback(async () => {
+    const trimmed = text.trim();
+    if (!trimmed || submitting || disabled || !onRequestChanges) return;
+    setSubmitting(true);
+    try {
+      await onRequestChanges(trimmed);
+      setText('');
+    } catch {
+      // The store already showed the error as a toast. Keep the draft to retry.
+    } finally {
+      setSubmitting(false);
+    }
+  }, [text, onRequestChanges, submitting, disabled]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -168,7 +185,8 @@ function AddCommentForm({ onSubmit, disabled }: AddCommentFormProps) {
   }, [handleSubmit]);
 
   return (
-    <div className="flex gap-3 pt-4 border-t border-border" data-testid="add-comment-form">
+    <div className="flex flex-col gap-2 pt-4 border-t border-border" data-testid="add-comment-form">
+    <div className="flex gap-3">
       {/* Avatar */}
       <div className="w-7 h-7 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0 mt-1">
         Y
@@ -184,6 +202,17 @@ function AddCommentForm({ onSubmit, disabled }: AddCommentFormProps) {
         aria-label="Write a comment"
         className="flex-1 min-w-0 bg-surface-elevated border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-disabled resize-none focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
       />
+    </div>
+    {onRequestChanges && (
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" size="sm" disabled={disabled || submitting || !text.trim()} onClick={() => { void handleSubmit(); }}>
+          Just comment
+        </Button>
+        <Button variant="primary" size="sm" disabled={disabled || submitting || !text.trim()} onClick={() => { void handleRequestChanges(); }}>
+          Request changes
+        </Button>
+      </div>
+    )}
     </div>
   );
 }
@@ -263,6 +292,7 @@ export function CommentsSection({
   onCommentCreated,
   onCommentUpdated,
   onAnswerQuestion,
+  onRequestChanges,
   disabled,
 }: CommentsSectionProps): React.ReactElement {
   /** Default author for new comments — could be extended to read from settings. */
@@ -351,7 +381,7 @@ export function CommentsSection({
       )}
 
       {/* Add-comment form */}
-      <AddCommentForm onSubmit={handleSubmit} disabled={disabled} />
+      <AddCommentForm onSubmit={handleSubmit} onRequestChanges={onRequestChanges} disabled={disabled} />
     </div>
   );
 }

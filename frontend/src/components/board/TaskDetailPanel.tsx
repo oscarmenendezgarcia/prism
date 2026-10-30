@@ -26,12 +26,14 @@ import { Button } from '@/components/shared/Button';
 import { ArcAutocomplete } from '@/components/shared/ArcAutocomplete';
 import { ReferenceAutocomplete } from '@/components/folio/ReferenceAutocomplete';
 import { CommentsSection } from '@/components/board/CommentsSection';
+import { TaskRunPanel } from '@/components/runs/TaskRunPanel';
+import { useTaskRunStore } from '@/stores/useTaskRunStore';
 import { DependsOnSection } from '@/components/board/DependsOnSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import { resolveAgentName } from '@/utils/agentName';
 import * as api from '@/api/client';
-import type { Column, Comment } from '@/types';
+import type { Column, Comment, Task } from '@/types';
 import { localModelsToStageModelsMap } from '@/utils/modelRouting';
 import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
 
@@ -597,6 +599,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   // ── Save helpers ─────────────────────────────────────────────────────────
 
+  const taskRunView = useTaskRunStore((s) => (detailTask ? s.views[detailTask.id] : undefined));
   const isReadOnly = isMutating || (activeRun !== null && activeRun.taskId === detailTask?.id);
 
   const handleTitleBlur = useCallback(() => {
@@ -680,6 +683,11 @@ export function TaskDetailPanel(): React.ReactElement | null {
     [detailTask, patchComment],
   );
 
+  const handleRequestChanges = useCallback(
+    (text: string) => useTaskRunStore.getState().requestChanges(activeSpaceId, detailTask?.id ?? '', text),
+    [activeSpaceId, detailTask?.id],
+  );
+
   const handleAnswerQuestion = useCallback(
     async (commentId: string, text: string) => {
       if (!detailTask) return;
@@ -734,6 +742,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
   if (!detailTask) return null;
 
   const column = findTaskColumn(tasks, detailTask.id);
+  // Comments can arrive from the agent while the panel is open, through board polling.
+  const boardComments = column
+    ? (tasks[column] as Task[]).find((t) => t.id === detailTask.id)?.comments
+    : undefined;
+  const hasOpenQuestion = (boardComments ?? detailTask.comments ?? []).some((c) => c.type === 'question' && !c.resolved);
+  const canRequestChanges = !!taskRunView
+    && ['failed', 'stopped', 'done'].includes(taskRunView.status)
+    && !hasOpenQuestion;
   const columnLabel = column ? COLUMN_LABELS[column] : '';
 
   /** Short ID chip — last 7 chars for display. */
@@ -868,6 +884,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
               />
               </div>
 
+              {column && <TaskRunPanel task={detailTask} column={column} spaceId={activeSpaceId} />}
+
               {/* Description */}
               <div className="flex flex-col gap-1.5 animate-fade-in-up [animation-delay:110ms]">
                 <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
@@ -894,10 +912,11 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <CommentsSection
                   spaceId={activeSpaceId}
                   taskId={detailTask.id}
-                  comments={detailTask.comments ?? []}
+                  comments={boardComments ?? detailTask.comments ?? []}
                   onCommentCreated={handleCommentCreated}
                   onCommentUpdated={handleCommentUpdated}
                   onAnswerQuestion={handleAnswerQuestion}
+                  onRequestChanges={canRequestChanges ? handleRequestChanges : undefined}
                   disabled={fieldDisabled}
                 />
               </div>

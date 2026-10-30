@@ -18,6 +18,7 @@ import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore, useActiveRun } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { COLUMNS } from '@/constants/columns';
+import { TaskRunFooter } from '@/components/runs/TaskRunFooter';
 
 // ---------------------------------------------------------------------------
 // Avatar helpers — deterministic gradient + initials from an assigned name
@@ -330,6 +331,8 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
             {task.description}
           </p>
         )}
+
+        <TaskRunFooter task={task} column={column} spaceId={activeSpaceId} />
       </div>
     </article>
   );

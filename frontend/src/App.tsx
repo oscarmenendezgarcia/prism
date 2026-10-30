@@ -31,6 +31,7 @@ import { FolioScreen } from '@/components/folio/FolioScreen';
 import { Toast } from '@/components/shared/Toast';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
+import { useTaskRunsPolling } from '@/hooks/useTaskRunsPolling';
 import { useAgentCompletion } from '@/hooks/useAgentCompletion';
 import { useRunHistoryPolling } from '@/hooks/useRunHistoryPolling';
 import { usePipelineLogStore } from '@/stores/usePipelineLogStore';
@@ -165,6 +166,7 @@ function AppContent() {
   }, [openGlobalSearch]);
 
   usePolling(); // includes external-run detection on each idle tick
+  useTaskRunsPolling();
   useAgentCompletion();
   useRunHistoryPolling(); // polls /api/v1/agent-runs for the Runs panel
   useMobilePanelExclusivity(); // mobile: one side panel open at a time

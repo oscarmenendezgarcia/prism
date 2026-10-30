@@ -43,7 +43,8 @@ export async function attachExternalRunIfAny(): Promise<void> {
     // blocking question the header must show), matching RunIndicator's
     // ACTIVE_STATUSES.
     const activeStatuses = new Set(['running', 'paused', 'blocked']);
-    const candidates = runs.filter((r) => activeStatuses.has(r.status));
+    // Direct runs show on their card, not in the pipeline bar.
+    const candidates = runs.filter((r) => activeStatuses.has(r.status) && !r.direct);
     if (candidates.length === 0) return;
 
     for (const candidate of candidates) {

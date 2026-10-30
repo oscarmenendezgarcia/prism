@@ -1,0 +1,206 @@
+/**
+ * The agent section of the task detail: start or stop it, see what it changed file
+ * by file, and read the output of its check and its log.
+ */
+
+import React, { useEffect, useState } from 'react';
+import * as api from '@/api/client';
+import { Button } from '@/components/shared/Button';
+import { useTaskRunStore } from '@/stores/useTaskRunStore';
+import type { ChangedFile, Column, Task, TaskRunView } from '@/types';
+import { AgentPicker, isChoiceComplete } from './AgentPicker';
+import { HarnessIcon, HARNESS_NAMES, type DirectCliTool } from './HarnessIcon';
+import { failureMessage, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
+
+function PatchView({ patch }: { patch: string }) {
+  return (
+    <pre className="text-[11px] leading-[1.45] font-mono overflow-x-auto bg-surface py-2" data-testid="file-patch">
+      {patch.split('\n').map((line, i) => {
+        const isHeader = /^(diff |index |--- |\+\+\+ )/.test(line);
+        let color = 'text-text-secondary';
+        if (line.startsWith('@@')) color = 'text-info';
+        else if (isHeader) color = 'text-text-disabled';
+        else if (line.startsWith('+')) color = 'text-success bg-success/[0.08]';
+        else if (line.startsWith('-')) color = 'text-error bg-error/[0.08]';
+        return <span key={i} className={`block px-3 min-w-max ${color}`}>{line || ' '}</span>;
+      })}
+    </pre>
+  );
+}
+
+function FileRow({ runId, file }: { runId: string; file: ChangedFile }) {
+  const [open, setOpen]   = useState(false);
+  const [patch, setPatch] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (!open || patch !== null || file.binary) return;
+    api.getRunFilePatch(runId, file.path)
+      .then((d) => { setPatch(d.patch); setTruncated(d.truncated); })
+      .catch(() => setError(true));
+  }, [open, patch, runId, file]);
+
+  return (
+    <div className="border-b border-border/40 last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-2 w-full px-3 py-2 text-left text-xs hover:bg-surface-variant/50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+      >
+        <span className="material-symbols-outlined text-sm leading-none text-text-disabled" aria-hidden="true">{open ? 'expand_more' : 'chevron_right'}</span>
+        <code className="flex-1 min-w-0 truncate font-mono text-text-primary" title={file.path}>{file.path}</code>
+        {file.binary
+          ? <span className="text-text-disabled flex-shrink-0">binary</span>
+          : (
+            <>
+              <span className="text-success flex-shrink-0">+{file.additions}</span>
+              <span className="text-error flex-shrink-0">−{file.deletions}</span>
+            </>
+          )}
+      </button>
+      {open && (
+        <>
+          {error && <p className="px-3 pb-2 text-xs text-error">The diff could not be loaded.</p>}
+          {file.binary && <p className="px-3 pb-2 text-xs text-text-disabled">Binary file.</p>}
+          {patch !== null && <PatchView patch={patch} />}
+          {truncated && <p className="px-3 py-2 text-xs text-text-disabled">This diff is too long to show entirely.</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ChangedFiles({ view }: { view: TaskRunView }) {
+  const [files, setFiles] = useState<ChangedFile[] | null>(null);
+  const [error, setError] = useState(false);
+  // The list changes when a run ends or continues, and updatedAt tracks both.
+  const stamp = `${view.runId}:${view.result?.additions}:${view.result?.deletions}:${view.result?.fileCount}`;
+
+  useEffect(() => {
+    let current = true;
+    setError(false);
+    api.getRunFiles(view.runId)
+      .then((d) => { if (current) setFiles(d.files); })
+      .catch(() => { if (current) setError(true); });
+    return () => { current = false; };
+  }, [stamp, view.runId]);
+
+  if (error) return <p className="text-xs text-error">The list of files could not be loaded.</p>;
+  if (!files || files.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-border/60 overflow-hidden" data-testid="changed-files">
+      {files.map((file) => <FileRow key={file.path} runId={view.runId} file={file} />)}
+    </div>
+  );
+}
+
+function RunLog({ runId }: { runId: string }) {
+  const [log, setLog] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  const onToggle = (e: React.SyntheticEvent<HTMLDetailsElement>) => {
+    if (!e.currentTarget.open) return;
+    api.getStageLog(runId, 0).then(setLog).catch(() => setFailed(true));
+  };
+
+  return (
+    <details className="text-xs text-text-secondary" onToggle={onToggle} data-testid="run-log">
+      <summary className="cursor-pointer select-none hover:text-text-primary">View log</summary>
+      {failed && <p className="mt-2 text-text-disabled">No log yet.</p>}
+      {log !== null && (
+        <pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-surface-variant/40 p-3 font-mono text-[11px] whitespace-pre-wrap break-words">{log || 'The log is empty.'}</pre>
+      )}
+    </details>
+  );
+}
+
+interface TaskRunPanelProps {
+  task: Task;
+  column: Column;
+  spaceId: string;
+}
+
+export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
+  const view   = useTaskRunStore((s) => s.views[task.id]);
+  const busy   = useTaskRunStore((s) => s.busyTaskIds.has(task.id));
+  const choice = useTaskRunStore((s) => s.choice);
+  const { start, stop, retry, close } = useTaskRunStore.getState();
+
+  const startButton = (
+    <div className="flex items-center gap-1">
+      <AgentPicker />
+      <Button
+        variant="primary"
+        size="sm"
+        disabled={busy || task.isBlocked || !isChoiceComplete(choice)}
+        onClick={() => { start(spaceId, task.id).catch(() => {}); }}
+      >
+        <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">play_arrow</span>
+        Run
+      </Button>
+    </div>
+  );
+
+  if (!view || column === 'todo') {
+    if (column !== 'todo') return null;
+    return <div className="flex flex-col gap-2" data-testid="run-panel">{startButton}</div>;
+  }
+
+  const live = view.status === 'working' || view.status === 'checking';
+  const ended = view.status === 'failed' || view.status === 'stopped' || view.status === 'done';
+  const message = failureMessage(view);
+  const hookOutput = view.hook?.status === 'failed' ? view.hook.outputTail : null;
+
+  return (
+    <section className="flex flex-col gap-3" data-testid="run-panel" aria-label="Agent run">
+      <div className="flex items-center gap-2 flex-wrap">
+        <HarnessIcon cliTool={view.cliTool} />
+        <span className="text-xs text-text-secondary">
+          {HARNESS_NAMES[view.cliTool as DirectCliTool] ?? view.cliTool}
+          {view.model ? ` · ${view.model}` : ''}
+        </span>
+        <StatusLine view={view} />
+        <span className="flex-1" />
+        {live && (
+          <Button variant="secondary" size="sm" disabled={busy} onClick={() => { stop(spaceId, task.id).catch(() => {}); }}>
+            <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">stop</span>
+            Stop
+          </Button>
+        )}
+        {(view.status === 'failed' || view.status === 'stopped') && (
+          <Button variant="primary" size="sm" disabled={busy} onClick={() => { retry(spaceId, task.id).catch(() => {}); }}>
+            <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">refresh</span>
+            Retry
+          </Button>
+        )}
+        {ended && !view.closedAt && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            title="Frees the disk space. The branch stays, and asking for changes brings it back."
+            onClick={() => { close(spaceId, task.id).catch(() => {}); }}
+          >
+            Remove worktree
+          </Button>
+        )}
+      </div>
+
+      {message && <p className="text-xs text-error leading-snug" data-testid="run-failure">{message}</p>}
+      <SaveErrorNote view={view} />
+      {hookOutput && (
+        <pre className="max-h-48 overflow-auto rounded-lg bg-error/[0.06] border border-error/20 p-3 font-mono text-[11px] text-text-secondary whitespace-pre-wrap break-words" data-testid="hook-output">{hookOutput}</pre>
+      )}
+
+      {ended && (
+        <>
+          <ResultLine view={view} />
+          <ChangedFiles view={view} />
+        </>
+      )}
+      <RunLog runId={view.runId} />
+    </section>
+  );
+}

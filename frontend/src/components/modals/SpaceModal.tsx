@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { SpaceHookSection } from '@/components/runs/SpaceHookSection';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { DirectoryPicker } from '@/components/shared/DirectoryPicker';
@@ -244,6 +245,8 @@ export function SpaceModal() {
             Override the default agent pipeline for tasks in this space.
           </span>
         </div>
+
+        {mode === 'rename' && space && <SpaceHookSection space={space} />}
 
         {/* Model Overrides — rename mode only (MODEL-1) */}
         {mode === 'rename' && (
