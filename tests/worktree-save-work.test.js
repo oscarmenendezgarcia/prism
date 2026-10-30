@@ -177,6 +177,16 @@ describe('worktreeManager — saving uncommitted work', () => {
     assert.equal(git(repo, 'show', `${meta.branch}:kept.txt`), 'kept');
   });
 
+  test('deleteBranch keeps a branch with earlier commits even if this teardown saved nothing', async () => {
+    fs.writeFileSync(path.join(meta.path, 'kept.txt'), 'kept\n');
+    git(meta.path, 'add', '.');
+    git(meta.path, 'commit', '-qm', 'agent commit');
+
+    await teardown(meta, { reason: 'failed', runId, deleteBranch: true });
+
+    assert.equal(git(repo, 'show', `${meta.branch}:kept.txt`), 'kept');
+  });
+
   test('deleteBranch still deletes a branch with nothing to save', async () => {
     await teardown(meta, { reason: 'failed', runId, deleteBranch: true });
 

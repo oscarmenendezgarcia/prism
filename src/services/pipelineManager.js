@@ -253,6 +253,8 @@ const DEFAULT_MAX_CONCURRENT      = 5;
 const DEFAULT_STALL_TIMEOUT_MS    = 900_000;   // 15 min without any output → kill
 // Resolver agent gets a shorter timeout: it only needs to answer one question.
 const DEFAULT_RESOLVER_TIMEOUT_MS = 300_000;   // 5 min
+const AGENT_EXIT_GRACE_MS         = 5_000;     // SIGTERM → SIGKILL when stopping an agent
+const RESUMABLE_STATUSES          = ['interrupted', 'failed', 'paused', 'blocked'];
 const DEFAULT_WRITEBACK_TIMEOUT_MS = 900_000;   // 15 min — the consolidator reads a whole run; local models routinely need >5 min
 
 // ---------------------------------------------------------------------------
@@ -261,6 +263,12 @@ const DEFAULT_WRITEBACK_TIMEOUT_MS = 900_000;   // 15 min — the consolidator r
 
 /** Map<runId, { interval: ReturnType<setInterval>, stageIndex: number }> */
 const activeProcesses = new Map();
+
+/**
+ * Worktree removals in flight, by runId. Resuming a run waits for its removal.
+ * @type {Map<string, Promise<void>>}
+ */
+const activeFinalizations = new Map();
 
 /** Store instance injected via init(). Used to look up tasks in SQLite. */
 let _store = null;
@@ -1053,7 +1061,7 @@ async function killStage(dataDir, runId, stageIndex, reason) {
   bridgeUpdateRunFinished(dataDir, runId, stageIndex, 'failed', run.stageStatuses[stageIndex].finishedAt, killDurationMs);
 
   // Teardown worktree if this run used one (parallel-worktrees).
-  finalizeRun(dataDir, run).catch((err) => {
+  finalizeRun(dataDir, run, { signalledPid: pid }).catch((err) => {
     pipelineLog('worktree.error', { runId, op: `finalize_${reason}`, message: err.message });
   });
 }
@@ -1554,19 +1562,59 @@ function resolveModelForStage(dataDir, run, agentId, agentSpec) {
 
 /**
  * Resolve the cwd to actually spawn a child process in. Same as effectiveCwd,
- * but falls back to run.workingDirectory when the worktree path no longer
- * exists on disk (e.g. the folio-consolidator and resolver spawns run after
- * the run has reached a terminal state and its worktree has been torn down).
+ * but returns null when the run's worktree no longer exists on disk: such a run
+ * must not fall back to the user's checkout.
  *
  * @param {object|null|undefined} run
- * @returns {string|undefined}
+ * @returns {string|null|undefined}
  */
 function spawnCwd(run) {
   const cwd = effectiveCwd(run);
-  if (cwd && run?.worktree?.path === cwd && !fs.existsSync(cwd)) {
-    return run.workingDirectory || undefined;
-  }
+  // No .git file means git would walk up and act on the user's checkout.
+  if (cwd && run?.worktree?.path === cwd && !fs.existsSync(path.join(cwd, '.git'))) return null;
   return cwd;
+}
+
+/**
+ * Recreate the run's worktree if it was removed when the run stopped. No-op for
+ * runs without a worktree. Throws when it cannot be recreated.
+ *
+ * @param {object} run
+ */
+async function restoreRunWorktree(run) {
+  if (!run.worktree) return;
+  // A removal still in flight would delete the worktree under the resumed agent.
+  await activeFinalizations.get(run.runId);
+  await worktreeManager.restore(run.workingDirectory, run.worktree, { runId: run.runId });
+}
+
+/**
+ * Wait for a process group that was just sent SIGTERM to exit, killing it if it
+ * has not gone after AGENT_EXIT_GRACE_MS.
+ *
+ * @param {number|undefined} pid
+ */
+async function waitForAgentExit(pid) {
+  if (!pid || pid === process.pid) return;
+
+  const groupAlive = () => {
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const deadline = Date.now() + AGENT_EXIT_GRACE_MS;
+  while (groupAlive() && Date.now() < deadline) await sleep(100);
+
+  if (groupAlive()) {
+    pipelineLog('run.agent_killed', { pid });
+    try { process.kill(-pid, 'SIGKILL'); } catch { /* just exited */ }
+    await sleep(200);
+  }
 }
 
 /**
@@ -1575,19 +1623,32 @@ function spawnCwd(run) {
  *
  * @param {string} dataDir
  * @param {object} run  - Run state at the point of finalization.
+ * @param {object} [opts]
+ * @param {number} [opts.signalledPid] - Process group just sent SIGTERM. Waited for,
+ *   so saving the worktree does not race an agent that is still writing.
  */
-async function finalizeRun(dataDir, run) {
+async function finalizeRun(dataDir, run, opts = {}) {
   if (!run || !run.worktree) return; // Solo runs have no worktree — skip.
 
   const deleteBranch =
     process.env.PIPELINE_DELETE_BRANCH_ON_FAILURE === '1' &&
     run.status !== 'completed';
 
-  await worktreeManager.teardown(run.worktree, {
-    reason:       run.status || 'unknown',
-    runId:        run.runId,
-    deleteBranch,
-  });
+  const finalization = (async () => {
+    await waitForAgentExit(opts.signalledPid);
+    await worktreeManager.teardown(run.worktree, {
+      reason:       run.status || 'unknown',
+      runId:        run.runId,
+      deleteBranch,
+    });
+  })();
+
+  activeFinalizations.set(run.runId, finalization.catch(() => {}));
+  try {
+    await finalization;
+  } finally {
+    activeFinalizations.delete(run.runId);
+  }
 }
 
 /**
@@ -2093,11 +2154,38 @@ async function executeNextStage(dataDir, runId) {
  * @param {object} run       - Current run state object.
  * @param {number} stageIndex
  */
+function failStageWorktreeUnavailable(dataDir, run, stageIndex) {
+  run.stageStatuses[stageIndex].status        = 'failed';
+  run.stageStatuses[stageIndex].exitCode      = -1;
+  run.stageStatuses[stageIndex].finishedAt    = new Date().toISOString();
+  run.stageStatuses[stageIndex].failureReason = 'worktree_unavailable';
+  run.status = 'failed';
+  writeRun(dataDir, run);
+}
+
 async function spawnStage(dataDir, run, stageIndex, opts = {}) {
   const agentId     = run.stages[stageIndex];
   const baseTimeout = parseInt(process.env.PIPELINE_STAGE_TIMEOUT_MS || String(DEFAULT_STAGE_TIMEOUT_MS), 10);
   // Orchestrator coordinates the full pipeline internally — give it 6× the per-stage timeout.
   const timeoutMs = agentId === 'orchestrator' ? baseTimeout * 6 : baseTimeout;
+
+  // Never run an agent in the user's checkout because its worktree went missing.
+  if (spawnCwd(run) === null || activeFinalizations.has(run.runId)) {
+    let restoreErr = null;
+    try {
+      await restoreRunWorktree(run);
+    } catch (err) {
+      restoreErr = err;
+    }
+    // The run may have been stopped or deleted while git was working.
+    const fresh = readRun(dataDir, run.runId);
+    if (!fresh || ['aborted', 'interrupted'].includes(fresh.status)) return;
+    if (restoreErr) {
+      pipelineLog('worktree.error', { runId: run.runId, op: 'restore', code: restoreErr.code, message: restoreErr.message });
+      failStageWorktreeUnavailable(dataDir, run, stageIndex);
+      return;
+    }
+  }
 
   // Update stage state to running.
   run.status = 'running';
@@ -2365,6 +2453,11 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
   // Windows (cmd.exe): no trap is available; the sentinel is written before
   //   exit so a forced termination is less likely to lose it.
   const stageCwd = spawnCwd(run);
+  if (stageCwd === null) {
+    pipelineLog('worktree.error', { runId: run.runId, op: 'stage_spawn', message: 'worktree vanished before spawn' });
+    failStageWorktreeUnavailable(dataDir, run, stageIndex);
+    return;
+  }
 
   let child;
   if (process.platform === 'win32') {
@@ -3760,10 +3853,13 @@ async function maybeConsolidate(dataDir, run) {
       doneFile,
     });
 
+    // A worktree run has lost its worktree by now. The consolidator only needs the
+    // absolute paths in its prompt, so it gets the run's data directory rather than
+    // the user's checkout.
     const child = spawn('sh', ['-c', shellCmd], {
       stdio:    'ignore',
       detached: true,
-      cwd:      spawnCwd(run),
+      cwd:      run.worktree ? runDir(dataDir, run.runId) : spawnCwd(run),
       env:      { ...process.env },
     });
     child.unref();
@@ -3930,10 +4026,17 @@ function attemptCrossAgentResolution(dataDir, run, comment) {
     preDoneLine:     _playwrightCleanup2,
   });
 
+  const resolverCwd = spawnCwd(run);
+  if (resolverCwd === null) {
+    pipelineLog('resolver.skipped_no_worktree', { runId: run.runId, commentId: comment.id });
+    markCommentNeedsHuman(dataDir, run.spaceId, run.taskId, comment.id);
+    return;
+  }
+
   const child = spawn('sh', ['-c', shellCmd], {
     stdio:    'ignore',
     detached: true,
-    cwd:      spawnCwd(run),
+    cwd:      resolverCwd,
     env:      { ...process.env },
   });
   child.unref();
@@ -4140,14 +4243,14 @@ function unblockRunByComment(dataDir, taskId, commentId) {
  * @throws On validation failure (RUN_NOT_FOUND, RUN_NOT_RESUMABLE).
  */
 async function resumeRun(runId, dataDir, { fromStage } = {}) {
-  const run = readRun(dataDir, runId);
+  let run = readRun(dataDir, runId);
   if (!run) {
     const err = new Error(`Run '${runId}' not found.`);
     err.code = 'RUN_NOT_FOUND';
     throw err;
   }
 
-  if (!['interrupted', 'failed', 'paused', 'blocked'].includes(run.status)) {
+  if (!RESUMABLE_STATUSES.includes(run.status)) {
     const err = new Error(`Run '${runId}' has status '${run.status}' and cannot be resumed. Only interrupted, failed, paused, or blocked runs can be resumed.`);
     err.code = 'RUN_NOT_RESUMABLE';
     throw err;
@@ -4169,6 +4272,23 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
     // Default: first stage that is not 'completed'.
     resumeIndex = run.stageStatuses.findIndex((s) => s.status !== 'completed');
     if (resumeIndex === -1) resumeIndex = run.stages.length; // all done — will complete immediately
+  }
+
+  // Fail before touching the run state, so the caller sees why and can retry.
+  try {
+    await restoreRunWorktree(run);
+  } catch (restoreErr) {
+    const err = new Error(`Run '${runId}' cannot resume: its worktree could not be restored. ${restoreErr.message}`);
+    err.code = 'WORKTREE_UNAVAILABLE';
+    throw err;
+  }
+
+  // The run may have been stopped, deleted or resumed while git was working.
+  run = readRun(dataDir, runId);
+  if (!run || !RESUMABLE_STATUSES.includes(run.status)) {
+    const err = new Error(`Run '${runId}' changed while its worktree was being restored and cannot be resumed.`);
+    err.code = 'RUN_NOT_RESUMABLE';
+    throw err;
   }
 
   // F2 (round 3) — before resuming forward, recover any stage that was left
@@ -4316,6 +4436,7 @@ async function stopRun(runId, dataDir) {
   const run = readRun(dataDir, runId);
   if (!run) return null;
 
+  let stoppedPid;
   if (activeProcesses.has(runId)) {
     const { interval, stageIndex } = activeProcesses.get(runId);
     clearInterval(interval);
@@ -4326,6 +4447,7 @@ async function stopRun(runId, dataDir) {
     if (pid && pid !== process.pid) {
       pipelineLog('run.stopped', { runId, pid, stageIndex });
       try { process.kill(-pid, 'SIGTERM'); } catch { /* process may already be gone */ }
+      stoppedPid = pid;
     }
 
     // Mark the currently-running stage as interrupted.
@@ -4339,7 +4461,7 @@ async function stopRun(runId, dataDir) {
   writeRun(dataDir, run);
 
   // Teardown worktree if this run used one (parallel-worktrees).
-  finalizeRun(dataDir, run).catch((err) => {
+  finalizeRun(dataDir, run, { signalledPid: stoppedPid }).catch((err) => {
     pipelineLog('worktree.error', { runId, op: 'finalize_stop', message: err.message });
   });
 
@@ -4449,7 +4571,7 @@ async function deleteRun(runId, dataDir) {
     // Teardown worktree on abort (parallel-worktrees).
     if (run) {
       run.status = 'aborted';
-      await finalizeRun(dataDir, run);
+      await finalizeRun(dataDir, run, { signalledPid: pid });
     }
   }
 

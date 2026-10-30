@@ -622,23 +622,25 @@ describe('spawnCwd', () => {
   test('returns the worktree path when it still exists on disk', () => {
     const pm = freshPM();
     const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, '.git'), 'gitdir: /somewhere\n');
     const run = { worktree: { path: dir }, workingDirectory: '/some/repo' };
     assert.equal(pm.spawnCwd(run), dir);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  test('falls back to workingDirectory when the worktree was already torn down', () => {
+  test('never falls back to workingDirectory when the worktree is gone', () => {
     const pm = freshPM();
     const goneDir = path.join(os.tmpdir(), 'prism-oc-test-gone-' + crypto.randomUUID());
     const run = { worktree: { path: goneDir }, workingDirectory: '/some/repo' };
-    assert.equal(pm.spawnCwd(run), '/some/repo');
+    assert.equal(pm.spawnCwd(run), null);
   });
 
-  test('returns undefined when the worktree is gone and there is no workingDirectory', () => {
+  test('rejects a leftover directory that is not a worktree', () => {
     const pm = freshPM();
-    const goneDir = path.join(os.tmpdir(), 'prism-oc-test-gone-' + crypto.randomUUID());
-    const run = { worktree: { path: goneDir } };
-    assert.equal(pm.spawnCwd(run), undefined);
+    const dir = tmpDir();
+    const run = { worktree: { path: dir }, workingDirectory: '/some/repo' };
+    assert.equal(pm.spawnCwd(run), null);
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
   test('matches effectiveCwd when there is no worktree at all (in-place run)', () => {

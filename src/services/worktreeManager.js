@@ -11,7 +11,7 @@
  * Environment variables:
  *   PIPELINE_WORKTREE_ENABLED          - '0' disables all worktree provisioning (default: '1')
  *   PIPELINE_WORKTREE_DIR              - Subdirectory under workingDirectory (default: '.worktrees')
- *   PIPELINE_DELETE_BRANCH_ON_FAILURE  - '1' deletes the branch on non-completed teardown (default: '0')
+ *   PIPELINE_DELETE_BRANCH_ON_FAILURE  - '1' deletes the branch on non-completed teardown if it has no commits (default: '0')
  */
 
 'use strict';
@@ -201,6 +201,19 @@ async function provision(workingDirectory, runId) {
 }
 
 /**
+ * Throw unless the directory is the root of a worktree. A leftover directory
+ * without its own .git file would make git walk up to the user's checkout.
+ *
+ * @param {string} worktreePath
+ */
+async function assertWorktreeRoot(worktreePath) {
+  const { stdout: toplevel } = await runGit(worktreePath, ['rev-parse', '--show-toplevel']);
+  if (fs.realpathSync(toplevel.trim()) !== fs.realpathSync(worktreePath)) {
+    throw new WorktreeError(`'${worktreePath}' is not a worktree root.`, 'GIT_ERROR');
+  }
+}
+
+/**
  * Commit whatever the agent left uncommitted in a worktree, so removing the
  * worktree cannot lose it. Gitignored files are not saved.
  *
@@ -223,11 +236,7 @@ async function saveWork(worktreeMeta, opts = {}) {
   const reason = opts.reason || 'unknown';
   const git    = (args) => runGit(worktreePath, args, SAVE_GIT_OPTS);
 
-  // Without its own .git file, git walks up and would commit the user's checkout.
-  const { stdout: toplevel } = await git(['rev-parse', '--show-toplevel']);
-  if (fs.realpathSync(toplevel.trim()) !== fs.realpathSync(worktreePath)) {
-    throw new WorktreeError(`'${worktreePath}' is not a worktree root.`, 'GIT_ERROR');
-  }
+  await assertWorktreeRoot(worktreePath);
 
   const status = () => git(['status', '--porcelain', '--untracked-files=normal', '--ignore-submodules=none']);
 
@@ -276,6 +285,24 @@ async function saveWork(worktreeMeta, opts = {}) {
 }
 
 /**
+ * Whether the run branch has commits beyond the point it was created from.
+ * Assumes it does when that cannot be established.
+ *
+ * @param {string} workingDirectory
+ * @param {{ branch: string, baseRef?: string|null }} worktreeMeta
+ * @returns {Promise<boolean>}
+ */
+async function branchHasWork(workingDirectory, { branch, baseRef }) {
+  if (!baseRef) return true;
+  try {
+    const { stdout } = await runGit(workingDirectory, ['rev-list', '--count', `${baseRef}..${branch}`]);
+    return stdout.trim() !== '0';
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Save any uncommitted work, then remove a previously provisioned worktree. Idempotent.
  *
  * If the work cannot be saved the worktree stays on disk, and the startup sweep
@@ -308,10 +335,9 @@ async function teardown(worktreeMeta, opts = {}) {
   const workingDirectory = path.dirname(worktreeBase);
 
   // --- Remove the worktree ---
-  let savedWork = false;
   if (fs.existsSync(worktreePath)) {
     try {
-      savedWork = (await saveWork(worktreeMeta, { reason, runId })).saved;
+      await saveWork(worktreeMeta, { reason, runId });
     } catch (err) {
       pipelineLog('worktree.error', { runId, op: 'save_work', code: err.code, message: err.message, kept: worktreePath });
       return;
@@ -336,8 +362,8 @@ async function teardown(worktreeMeta, opts = {}) {
   }
 
   // --- Optionally delete the branch ---
-  if (deleteBranch && branch && savedWork) {
-    pipelineLog('worktree.branch_kept', { runId, branch, reason: 'holds_saved_work' });
+  if (deleteBranch && branch && (await branchHasWork(workingDirectory, worktreeMeta))) {
+    pipelineLog('worktree.branch_kept', { runId, branch, reason: 'holds_work' });
   } else if (deleteBranch && branch) {
     try {
       await runGit(workingDirectory, ['branch', '-D', branch]);
@@ -347,6 +373,69 @@ async function teardown(worktreeMeta, opts = {}) {
       pipelineLog('worktree.error', { runId, op: 'branch_delete', code: err.code, message: err.message });
     }
   }
+}
+
+/**
+ * Move work saved from a detached HEAD back onto the run branch. Throws if the two
+ * diverged, because resuming from the branch alone would silently drop that work.
+ *
+ * @param {string} workingDirectory
+ * @param {string} branch
+ */
+async function recoverDetachedWork(workingDirectory, branch) {
+  const saved = `${branch}-saved`;
+  const refExists = async (name) => {
+    try {
+      await runGit(workingDirectory, ['rev-parse', '--verify', '-q', `refs/heads/${name}`]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  if (!(await refExists(saved))) return;
+
+  if (await refExists(branch)) {
+    try {
+      await runGit(workingDirectory, ['merge-base', '--is-ancestor', branch, saved]);
+    } catch {
+      throw new WorktreeError(`Branch '${saved}' holds saved work that diverged from '${branch}'.`, 'GIT_ERROR');
+    }
+  }
+
+  await runGit(workingDirectory, ['branch', '-f', branch, saved]);
+  await runGit(workingDirectory, ['branch', '-D', saved]);
+}
+
+/**
+ * Make sure a run's worktree exists, recreating it from the run branch if it was
+ * removed when the run stopped. Work saved from a detached HEAD is brought back
+ * when the run branch can fast-forward to it.
+ *
+ * Throws WorktreeError(GIT_ERROR) when it cannot, for example if the branch is
+ * gone or checked out elsewhere. Callers must not fall back to the user's checkout.
+ *
+ * @param {string} workingDirectory - The repository the worktree belongs to.
+ * @param {{ path: string, branch: string }} worktreeMeta
+ * @param {object} [opts]
+ * @param {string} [opts.runId] - Run ID (for observability).
+ * @returns {Promise<{ restored: boolean }>}
+ */
+async function restore(workingDirectory, worktreeMeta, opts = {}) {
+  const { path: worktreePath, branch } = worktreeMeta;
+
+  if (fs.existsSync(worktreePath)) {
+    await assertWorktreeRoot(worktreePath);
+    return { restored: false };
+  }
+
+  await runGit(workingDirectory, ['worktree', 'prune']);
+
+  await recoverDetachedWork(workingDirectory, branch);
+
+  await runGit(workingDirectory, ['worktree', 'add', worktreePath, branch]);
+  pipelineLog('worktree.restored', { runId: opts.runId, path: worktreePath, branch });
+  return { restored: true };
 }
 
 /**
@@ -482,5 +571,6 @@ module.exports = {
   provision,
   saveWork,
   teardown,
+  restore,
   reapOrphans,
 };
