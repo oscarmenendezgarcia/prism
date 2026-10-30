@@ -89,7 +89,7 @@ describe("templateManager unit",()=>{
 
 describe("GET /api/v1/pipeline-templates",()=>{
   var sv,pt,dir;
-  before(async()=>{dir=tmpDir();initDataDir(dir);sv=startServer({port:0,dataDir:dir,silent:true});pt=await listenPort(sv);});
+  before(async()=>{dir=tmpDir();initDataDir(dir);sv=startServer({port:0,dataDir:dir,agentsDir:path.join(dir,"agents"),silent:true});pt=await listenPort(sv);});
   after(()=>{sv.close();fs2.rmSync(dir,{recursive:true,force:true});});
   test("returns [] when empty",async()=>{
     const r=await req(pt,"GET","/api/v1/pipeline-templates");
@@ -99,7 +99,7 @@ describe("GET /api/v1/pipeline-templates",()=>{
 
 describe("POST /api/v1/pipeline-templates",()=>{
   var sv,pt,dir;
-  before(async()=>{dir=tmpDir();initDataDir(dir);sv=startServer({port:0,dataDir:dir,silent:true});pt=await listenPort(sv);});
+  before(async()=>{dir=tmpDir();initDataDir(dir);sv=startServer({port:0,dataDir:dir,agentsDir:path.join(dir,"agents"),silent:true});pt=await listenPort(sv);});
   after(()=>{sv.close();fs2.rmSync(dir,{recursive:true,force:true});});
   test("201 with correct shape",async()=>{
     const r=await req(pt,"POST","/api/v1/pipeline-templates",{name:"Standard",stages:["senior-architect","developer-agent"]});
@@ -135,7 +135,7 @@ describe("POST /api/v1/pipeline-templates",()=>{
 
 describe("PUT /api/v1/pipeline-templates/:id",()=>{
   var sv,pt,dir;
-  before(async()=>{dir=tmpDir();initDataDir(dir);sv=startServer({port:0,dataDir:dir,silent:true});pt=await listenPort(sv);});
+  before(async()=>{dir=tmpDir();initDataDir(dir);sv=startServer({port:0,dataDir:dir,agentsDir:path.join(dir,"agents"),silent:true});pt=await listenPort(sv);});
   after(()=>{sv.close();fs2.rmSync(dir,{recursive:true,force:true});});
   test("200 partial update name only",async()=>{
     const cr=await req(pt,"POST","/api/v1/pipeline-templates",{name:"Old",stages:["developer-agent"]});
@@ -157,7 +157,7 @@ describe("PUT /api/v1/pipeline-templates/:id",()=>{
 
 describe("DELETE /api/v1/pipeline-templates/:id",()=>{
   var sv,pt,dir;
-  before(async()=>{dir=tmpDir();initDataDir(dir);sv=startServer({port:0,dataDir:dir,silent:true});pt=await listenPort(sv);});
+  before(async()=>{dir=tmpDir();initDataDir(dir);sv=startServer({port:0,dataDir:dir,agentsDir:path.join(dir,"agents"),silent:true});pt=await listenPort(sv);});
   after(()=>{sv.close();fs2.rmSync(dir,{recursive:true,force:true});});
   test("200 { deleted: true, id }",async()=>{
     const cr=await req(pt,"POST","/api/v1/pipeline-templates",{name:"Del",stages:["developer-agent"]});
@@ -174,13 +174,13 @@ describe("DELETE /api/v1/pipeline-templates/:id",()=>{
 describe("persistence across restart",()=>{
   test("templates survive server restart",async()=>{
     const dir=tmpDir();initDataDir(dir);
-    const s1=startServer({port:0,dataDir:dir,silent:true});
+    const s1=startServer({port:0,dataDir:dir,agentsDir:path.join(dir,"agents"),silent:true});
     const p1=await listenPort(s1);
     const cr=await req(p1,"POST","/api/v1/pipeline-templates",{name:"Persist",stages:["developer-agent"]});
     assert.equal(cr.status,201);
     const id=cr.body.id;
     await new Promise((r)=>s1.close(r));
-    const s2=startServer({port:0,dataDir:dir,silent:true});
+    const s2=startServer({port:0,dataDir:dir,agentsDir:path.join(dir,"agents"),silent:true});
     const p2=await listenPort(s2);
     const lr=await req(p2,"GET","/api/v1/pipeline-templates");
     assert.equal(lr.status,200);

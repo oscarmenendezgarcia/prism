@@ -165,7 +165,7 @@ async function runTests() {
   before(async () => {
     dataDir = tmpDir();
     initDataDir(dataDir);
-    server = startServer({ port: 0, dataDir, silent: true });
+    server = startServer({ port: 0, dataDir, agentsDir: path.join(dataDir, 'agents'), silent: true });
     port   = await listenPort(server);
   });
 

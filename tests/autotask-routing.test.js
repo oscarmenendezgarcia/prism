@@ -146,13 +146,19 @@ describe('autoTask routing — non-claude cliTool (hermes)', () => {
   });
 
   it('rejects a missing binary with a clean 502 (no uncaught crash)', async () => {
-    // opencode binary is not installed in the test env, so resolveCliBinary
-    // throws BINARY_NOT_FOUND — the handler must turn that into a 502, not
-    // reject the async handler uncaught.
+    // An empty PATH makes opencode missing even where it is installed, so
+    // resolveCliBinary throws BINARY_NOT_FOUND — the handler must turn that into
+    // a 502, not reject the async handler uncaught.
     setup(tmpDir, { cliTool: 'opencode', provider: 'p', model: 'gb10/x' });
 
     const res = makeRes();
-    await handleAutoTaskGenerate(makeReq('x'), res, spaceId, store, tmpDir, tmpDir);
+    const prevPath = process.env.PATH;
+    process.env.PATH = tmpDir;
+    try {
+      await handleAutoTaskGenerate(makeReq('x'), res, spaceId, store, tmpDir, tmpDir);
+    } finally {
+      process.env.PATH = prevPath;
+    }
 
     assert.equal(res._status, 502);
     assert.ok(res._body.error.message.includes('opencode'));

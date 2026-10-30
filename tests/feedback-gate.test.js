@@ -882,15 +882,26 @@ describe('Finding A — tilde in PIPELINE_AGENTS_DIR (round 5)', () => {
     // UNEXPANDED, so `~/.claude/agents` arrives verbatim. resolveAgent expands it
     // and the stage spawns normally; if the gate reader does not, the gate goes
     // inert and is indistinguishable from "this agent is not a gate" — silently.
+    // The agent lives in a throwaway HOME so the test does not depend on what the
+    // machine happens to have installed in ~/.claude/agents.
     const prev = process.env.PIPELINE_AGENTS_DIR;
+    const prevHome = process.env.HOME;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-gate-home-'));
+    fs.mkdirSync(path.join(home, '.claude', 'agents'), { recursive: true });
+    fs.copyFileSync(
+      path.join(__dirname, '..', 'agents', 'code-reviewer.md'),
+      path.join(home, '.claude', 'agents', 'code-reviewer.md'));
+    process.env.HOME = home;
     process.env.PIPELINE_AGENTS_DIR = '~/.claude/agents';
     try {
       const cfg = getAgentGateConfig('code-reviewer');
       assert.ok(cfg, 'gate config must resolve with a literal-tilde agents dir');
       assert.equal(cfg.artifact, 'review-report.md');
     } finally {
+      process.env.HOME = prevHome;
       if (prev === undefined) delete process.env.PIPELINE_AGENTS_DIR;
       else process.env.PIPELINE_AGENTS_DIR = prev;
+      fs.rmSync(home, { recursive: true, force: true });
     }
   });
 });

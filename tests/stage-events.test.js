@@ -38,6 +38,8 @@ function startTestServer() {
   return new Promise((resolve) => {
     const dataDir = tmpDir();
     const { startServer } = require('../server');
+    // The server syncs its agents here, and the runs these tests create resolve them.
+    process.env.PIPELINE_AGENTS_DIR = path.join(dataDir, 'agents');
     const server = startServer({ port: 0, dataDir, silent: true });
     server.once('listening', () => {
       const port = server.address().port;
