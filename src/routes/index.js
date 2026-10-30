@@ -108,6 +108,8 @@ const {
   handleListTaskRuns,
   handleRequestChanges,
   handleCloseTaskRun,
+  handleApproveHook,
+  handleCreatePullRequest,
   handleGetRunDiff,
   handleUpdateHooks,
 } = require('../handlers/taskRuns');
@@ -116,7 +118,7 @@ const {
 // Route patterns
 // ---------------------------------------------------------------------------
 
-const TASK_RUN_ACTION_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/(run|request-changes|close)$/;
+const TASK_RUN_ACTION_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/(run|request-changes|close|approve|pr)$/;
 const SPACE_TASK_RUNS_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/task-runs$/;
 const SPACE_HOOKS_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/hooks$/;
 const RUN_DIFF_ROUTE        = /^\/api\/v1\/runs\/([^/]+)\/diff$/;
@@ -502,6 +504,12 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       }
       if (action === 'request-changes') {
         return handleRequestChanges(req, res, store, spaceId, taskId, dataDir);
+      }
+      if (action === 'approve') {
+        return handleApproveHook(res, spaceId, taskId, dataDir);
+      }
+      if (action === 'pr') {
+        return handleCreatePullRequest(res, spaceId, taskId, dataDir);
       }
       return handleCloseTaskRun(res, spaceId, taskId, dataDir);
     }

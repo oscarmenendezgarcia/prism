@@ -639,6 +639,18 @@ function parseNumstat(raw) {
 }
 
 /**
+ * The commit a branch points at.
+ *
+ * @param {string} workingDirectory
+ * @param {string} ref
+ * @returns {Promise<string>}
+ */
+async function readBranchHead(workingDirectory, ref) {
+  const { stdout } = await execFileAsync('git', ['rev-parse', '--verify', `refs/heads/${ref}^{commit}`], { cwd: workingDirectory });
+  return stdout.trim();
+}
+
+/**
  * List what a branch changed since it was created. Reads refs only, so it works
  * after the worktree is gone.
  *
@@ -691,5 +703,6 @@ module.exports = {
   restore,
   reapOrphans,
   listChangedFiles,
+  readBranchHead,
   readFileDiff,
 };

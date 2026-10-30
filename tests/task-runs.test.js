@@ -19,6 +19,13 @@ const git  = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encod
 
 const FAKE_CLAUDE = `#!/bin/sh
 W="$FAKE_AGENT_DIR"
+case " $* " in
+  *" --system-prompt "*)
+    cat > "$W/review-prompt"
+    pwd > "$W/review-cwd"
+    cat "$W/verdict"
+    exit 0 ;;
+esac
 n=$(ls "$W/prompts" | wc -l)
 cat > "$W/prompts/$n"
 pwd > "$W/last-cwd"
@@ -47,6 +54,10 @@ case "$mode" in
     curl -s -X POST "$KANBAN_API_URL/spaces/$PRISM_TEST_SPACE/tasks/$PRISM_TEST_TASK/comments" \\
       -H 'Content-Type: application/json' \\
       -d '{"author":"claude","type":"question","text":"Which one?"}' > /dev/null
+    exit 0 ;;
+  fix-on-second)
+    echo "work $n" >> agent-work.txt
+    test "$n" -gt 0 && grep -q 'FAILED CHECK' "$W/prompts/$n" && echo "work $n" > agent-fixed.txt
     exit 0 ;;
   nested)
     git init -q nested && cd nested && git config user.email a@a && git config user.name a \\
@@ -742,15 +753,300 @@ describe('direct task runs', () => {
     assert.doesNotMatch(json.patch, /plain/);
   });
 
+  const setHooks = (hooks) => call('PUT', `/spaces/${space}/hooks`, { hooks });
+  const verdict = (pass, ...findings) => fs.writeFileSync(path.join(agentDir, 'verdict'), [
+    'I looked at it.', '', '````prism-gate', `pass: ${pass}`, 'findings:', ...findings.map((f) => `- ${f}`), '````', '',
+  ].join('\n'));
+  const reviewHook = (extra) => ({
+    name: 'Review', type: 'agent', prompt: 'Look for bugs.', agent: { cliTool: 'claude', model: 'haiku' }, ...extra,
+  });
+  const runTask = async () => {
+    const taskId = await makeTask();
+    const { status, json } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    assert.equal(status, 201);
+    return { taskId, run: json };
+  };
+
+  test('hooks run in order, and the view shows each one', async () => {
+    const order = path.join(work, 'order');
+    fs.rmSync(order, { force: true });
+    await setHooks([
+      { name: 'One', command: `echo one >> ${order}` },
+      { name: 'Two', command: `echo two >> ${order}` },
+    ]);
+    const { taskId } = await runTask();
+    const done = await waitFor(taskId, 'done');
+    assert.equal(fs.readFileSync(order, 'utf8'), 'one\ntwo\n');
+    assert.deepEqual(done.steps.map((s) => [s.name, s.status]), [['One', 'passed'], ['Two', 'passed']]);
+    assert.equal(await columnOf(taskId), 'done');
+  });
+
+  test('a failing hook stops the ones after it, and retrying continues from it', async () => {
+    const flag = path.join(work, 'second-passes');
+    const first = path.join(work, 'first-count');
+    const third = path.join(work, 'third-ran');
+    for (const f of [flag, first, third]) fs.rmSync(f, { force: true });
+    await setHooks([
+      { name: 'One', command: `echo x >> ${first}` },
+      { name: 'Two', command: `test -f ${flag}` },
+      { name: 'Three', command: `touch ${third}` },
+    ]);
+    const { taskId, run } = await runTask();
+    const failed = await waitFor(taskId, 'failed');
+    assert.equal(failed.hook.name, 'Two');
+    assert.deepEqual(failed.steps.map((s) => s.status), ['passed', 'failed', 'pending']);
+    assert.equal(fs.existsSync(third), false, 'the third hook did not run');
+
+    const before = prompts();
+    fs.writeFileSync(flag, '');
+    assert.equal((await call('POST', `/runs/${run.runId}/resume`, {})).status, 200);
+    await waitFor(taskId, 'done');
+    assert.equal(fs.readFileSync(first, 'utf8'), 'x\n', 'the hook that passed did not run again');
+    assert.equal(prompts(), before, 'the agent did not run again');
+    assert.equal(fs.existsSync(third), true);
+  });
+
+  test('onFail retry gives the failure to the agent, then every hook runs again', async () => {
+    const first = path.join(work, 'retry-first-count');
+    fs.rmSync(first, { force: true });
+    await setHooks([
+      { name: 'One', command: `echo x >> ${first}` },
+      { name: 'Tests', command: 'echo three tests broke; test -f agent-fixed.txt', onFail: 'retry', maxRetries: 2 },
+    ]);
+    setMode('fix-on-second');
+    const { taskId } = await runTask();
+    const done = await waitFor(taskId, 'done');
+    assert.equal(done.iteration, 2);
+    assert.match(lastPrompt(), /FAILED CHECK/);
+    assert.match(lastPrompt(), /three tests broke/);
+    assert.equal(fs.readFileSync(first, 'utf8'), 'x\nx\n', 'the code changed, so the first hook ran again');
+    const { json: task } = await call('GET', `/spaces/${space}/tasks/${taskId}`);
+    assert.ok(task.comments.some((c) => c.author === 'prism' && /retry 1 of 2/.test(c.text)));
+  });
+
+  test('running out of retries is a failure, and the card stays open', async () => {
+    await setHooks([{ name: 'Tests', command: 'echo nope; exit 1', onFail: 'retry', maxRetries: 2 }]);
+    const before = prompts();
+    const { taskId, run } = await runTask();
+    const failed = await waitFor(taskId, 'failed');
+    assert.equal(prompts() - before, 3, 'the first turn and two retries');
+    assert.equal(failed.failure.kind, 'hook');
+    assert.equal(failed.failure.retries, 2);
+    assert.equal(await columnOf(taskId), 'in-progress');
+
+    // The user asking again gives the check its retries back.
+    const next = prompts();
+    assert.equal((await call('POST', `/runs/${run.runId}/resume`, {})).status, 200);
+    for (let i = 0; i < 150 && prompts() - next < 2; i++) await new Promise((r) => setTimeout(r, 100));
+    await waitFor(taskId, 'failed');
+    assert.equal(prompts() - next, 2, 'two more retries');
+  });
+
+  test('an agent hook that approves lets the card close, and reviews from the worktree', async () => {
+    verdict(true);
+    await setHooks([reviewHook()]);
+    const { taskId, run } = await runTask();
+    const done = await waitFor(taskId, 'done');
+    assert.equal(done.hook.verdict, 'pass');
+    const prompt = fs.readFileSync(path.join(agentDir, 'review-prompt'), 'utf8');
+    assert.match(prompt, /Look for bugs\./);
+    assert.ok(prompt.includes(`git diff ${run.worktree.baseRef}`));
+    assert.equal(fs.readFileSync(path.join(agentDir, 'review-cwd'), 'utf8').trim(), fs.realpathSync(run.worktree.path));
+  });
+
+  test('an agent hook that rejects fails with its findings', async () => {
+    verdict(false, 'a.js:1 is wrong', 'b.js:2 too');
+    await setHooks([reviewHook()]);
+    const { taskId } = await runTask();
+    const failed = await waitFor(taskId, 'failed');
+    assert.equal(failed.failure.verdict, 'fail');
+    assert.deepEqual(failed.hook.findings, ['a.js:1 is wrong', 'b.js:2 too']);
+    assert.match(failed.hook.outputTail, /a\.js:1 is wrong/);
+  });
+
+  test('an agent hook with no clear verdict fails, it never passes', async () => {
+    fs.writeFileSync(path.join(agentDir, 'verdict'), 'Looks good to me!\n');
+    await setHooks([reviewHook()]);
+    const { taskId } = await runTask();
+    const failed = await waitFor(taskId, 'failed');
+    assert.equal(failed.failure.verdict, 'none');
+    assert.equal(await columnOf(taskId), 'in-progress');
+  });
+
+  test('an agent hook that rejects can send its findings back to the agent', async () => {
+    verdict(false, 'fix the off by one');
+    await setHooks([reviewHook({ onFail: 'retry', maxRetries: 1 })]);
+    const { taskId } = await runTask();
+    await waitFor(taskId, 'failed');
+    assert.match(lastPrompt(), /fix the off by one/);
+  });
+
+  test('a hook with approval waits, and approving runs it', async () => {
+    const marker = path.join(work, 'deployed');
+    fs.rmSync(marker, { force: true });
+    await setHooks([{ name: 'Deploy', command: `touch ${marker}`, approval: true }]);
+    const { taskId } = await runTask();
+    const waiting = await waitFor(taskId, 'approval');
+    assert.equal(waiting.hook.name, 'Deploy');
+    assert.equal(waiting.steps[0].status, 'awaiting_approval');
+    assert.equal(fs.existsSync(marker), false, 'it did not run yet');
+    assert.equal(await columnOf(taskId), 'in-progress');
+
+    assert.equal((await setHooks([])).status, 409, 'its hooks cannot change while it waits');
+    assert.equal((await call('POST', `/spaces/${space}/tasks/${taskId}/approve`, {})).status, 200);
+    await waitFor(taskId, 'done');
+    assert.equal(fs.existsSync(marker), true);
+    assert.equal((await call('POST', `/spaces/${space}/tasks/${taskId}/approve`, {})).status, 409, 'nothing left to approve');
+  });
+
+  test('a run waiting for approval survives a restart', async () => {
+    await setHooks([{ name: 'Deploy', command: 'true', approval: true }]);
+    const { taskId } = await runTask();
+    await waitFor(taskId, 'approval');
+    await stopServer();
+    await startServer();
+    assert.equal((await view(taskId)).status, 'approval');
+    assert.equal((await call('POST', `/spaces/${space}/tasks/${taskId}/approve`, {})).status, 200);
+    await waitFor(taskId, 'done');
+  });
+
+  test('asking for changes instead of approving relaunches the agent, and asks again', async () => {
+    const marker = path.join(work, 'deployed-2');
+    fs.rmSync(marker, { force: true });
+    await setHooks([{ name: 'Deploy', command: `touch ${marker}`, approval: true }]);
+    const { taskId } = await runTask();
+    await waitFor(taskId, 'approval');
+    assert.equal((await call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'Rename it' })).status, 200);
+    await waitFor(taskId, 'approval');
+    assert.match(lastPrompt(), /Rename it/);
+    assert.equal(fs.existsSync(marker), false);
+    await call('POST', `/spaces/${space}/tasks/${taskId}/approve`, {});
+    await waitFor(taskId, 'done');
+  });
+
+  test('stopping a run waiting for approval stops it, and retrying asks again', async () => {
+    await setHooks([{ name: 'Deploy', command: 'true', approval: true }]);
+    const { taskId, run } = await runTask();
+    await waitFor(taskId, 'approval');
+    assert.equal((await call('POST', `/runs/${run.runId}/stop`, {})).status, 200);
+    await waitFor(taskId, 'stopped');
+    assert.equal((await call('POST', `/spaces/${space}/tasks/${taskId}/approve`, {})).status, 409);
+    await call('POST', `/runs/${run.runId}/resume`, {});
+    await waitFor(taskId, 'approval');
+    await call('POST', `/spaces/${space}/tasks/${taskId}/approve`, {});
+    await waitFor(taskId, 'done');
+  });
+
+  test('editing a failed hook and retrying runs the new command', async () => {
+    const created = (await setHooks([{ name: 'Tests', command: 'exit 1' }])).json.hooks[0];
+    const { taskId, run } = await runTask();
+    await waitFor(taskId, 'failed');
+    assert.equal((await setHooks([{ ...created, command: 'true' }])).status, 200);
+    await call('POST', `/runs/${run.runId}/resume`, {});
+    await waitFor(taskId, 'done');
+  });
+
+  describe('pull requests', () => {
+    let remote;
+    const ghLog = () => fs.readFileSync(path.join(agentDir, 'gh-log'), 'utf8');
+
+    before(() => {
+      remote = path.join(work, 'remote.git');
+      execFileSync('git', ['init', '-q', '--bare', remote]);
+      git(repo, 'remote', 'add', 'origin', remote);
+      fs.writeFileSync(path.join(work, 'bin', 'gh'), `#!/bin/sh
+W="$FAKE_AGENT_DIR"
+printf '%s\\n' "$*" >> "$W/gh-log"
+case "$1 $2" in
+  "pr view") test -f "$W/gh-pr" || { echo "no pull requests found" >&2; exit 1; }; cat "$W/gh-pr" ;;
+  "pr create")
+    test -f "$W/gh-fail" && { cat "$W/gh-fail" >&2; exit 1; }
+    echo '{"url":"https://example.test/pull/7","number":7,"state":"OPEN"}' > "$W/gh-pr"
+    echo https://example.test/pull/7 ;;
+esac
+`, { mode: 0o755 });
+    });
+
+    after(() => { git(repo, 'remote', 'remove', 'origin'); });
+
+    beforeEach(() => {
+      for (const f of ['gh-pr', 'gh-log', 'gh-fail']) fs.rmSync(path.join(agentDir, f), { force: true });
+    });
+
+    test('the button pushes the branch and records the PR, and pushes what comes later', async () => {
+      const { taskId, run } = await runTask();
+      const done = await waitFor(taskId, 'done');
+      assert.equal(done.result.pr, null);
+
+      const { status, json } = await call('POST', `/spaces/${space}/tasks/${taskId}/pr`, {});
+      assert.equal(status, 200);
+      assert.equal(json.result.pr.number, 7);
+      assert.match(ghLog(), /pr create --head \S+ --title task \d+/);
+      const branch = run.worktree.branch;
+      assert.equal(execFileSync('git', ['-C', remote, 'rev-parse', branch], { encoding: 'utf8' }).trim(), json.result.head);
+      assert.equal((await view(taskId)).result.pr.pushedHead, json.result.head);
+
+      // New commits: the PR stays on the run, and pushing them does not create another.
+      await call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'More' });
+      const again = await waitFor(taskId, 'done');
+      assert.equal(again.result.pr.number, 7);
+      assert.notEqual(again.result.head, again.result.pr.pushedHead);
+      const creates = ghLog().split('\n').filter((l) => l.startsWith('pr create')).length;
+      const pushed = await call('POST', `/spaces/${space}/tasks/${taskId}/pr`, {});
+      assert.equal(pushed.json.result.pr.pushedHead, again.result.head);
+      assert.equal(ghLog().split('\n').filter((l) => l.startsWith('pr create')).length, creates);
+    });
+
+    test('a failure reaches the user', async () => {
+      fs.writeFileSync(path.join(agentDir, 'gh-fail'), 'not logged in to github');
+      const { taskId } = await runTask();
+      await waitFor(taskId, 'done');
+      const { status, json } = await call('POST', `/spaces/${space}/tasks/${taskId}/pr`, {});
+      assert.equal(status, 422);
+      assert.match(json.error.message, /not logged in/);
+    });
+
+    test('a PR hook opens it as the last step, and failing to open it fails the run', async () => {
+      await setHooks([{ name: 'Open PR', type: 'pr' }]);
+      const { taskId } = await runTask();
+      const done = await waitFor(taskId, 'done');
+      assert.equal(done.result.pr.number, 7);
+
+      fs.rmSync(path.join(agentDir, 'gh-pr'));
+      fs.writeFileSync(path.join(agentDir, 'gh-fail'), 'no permission');
+      const second = await runTask();
+      const failed = await waitFor(second.taskId, 'failed');
+      assert.match(failed.hook.outputTail, /no permission/);
+    });
+
+    test('a PR cannot be created while the agent works', async () => {
+      setMode('slow');
+      const { taskId } = await runTask();
+      assert.equal((await call('POST', `/spaces/${space}/tasks/${taskId}/pr`, {})).status, 409);
+      await waitFor(taskId, 'done');
+    });
+  });
+
   test('hooks are validated', async () => {
-    for (const hook of [{ name: '', command: 'x' }, { name: 'x', command: '' }, { name: 'x'.repeat(61), command: 'x' }]) {
+    for (const hook of [
+      { name: '', command: 'x' }, { name: 'x', command: '' }, { name: 'x'.repeat(61), command: 'x' },
+      { name: 'x', type: 'nope', command: 'x' }, { name: 'x', command: 'x', onFail: 'ignore' },
+      { name: 'x', command: 'x', maxRetries: 9 }, { name: 'x', command: 'x', id: '../up' },
+      { name: 'x', type: 'pr', onFail: 'retry' }, { name: 'x', type: 'agent', prompt: 'y' },
+      { name: 'x', type: 'agent', prompt: 'y', agent: { cliTool: 'nope' } },
+      { name: 'x', type: 'agent', agent: { cliTool: 'claude' } },
+    ]) {
       assert.equal((await setHook(hook)).status, 400);
     }
-    const two = [{ name: 'a', command: 'a' }, { name: 'b', command: 'b' }];
+    const two = Array.from({ length: 11 }, () => ({ name: 'x', command: 'y' }));
     assert.equal((await call('PUT', `/spaces/${space}/hooks`, { hooks: two })).status, 400);
     const { json } = await setHook({ name: ' Check ', command: ' true ' });
-    assert.deepEqual(json.hooks, [{ name: 'Check', command: 'true' }]);
+    assert.equal(json.hooks[0].name, 'Check');
+    assert.equal(json.hooks[0].command, 'true');
+    assert.equal(json.hooks[0].type, 'command');
+    assert.equal(json.hooks[0].onFail, 'stop');
+    assert.ok(json.hooks[0].id, 'a new hook gets an id');
     const { json: reread } = await call('GET', `/spaces/${space}`);
-    assert.deepEqual(reread.hooks, [{ name: 'Check', command: 'true' }]);
+    assert.deepEqual(reread.hooks, json.hooks);
   });
 });

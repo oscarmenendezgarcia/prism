@@ -33,7 +33,8 @@ const { resolveAgent, AgentNotFoundError, expandTilde } = require('./agentResolv
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
 const { openFolioRun, closeFolioRun } = require('./folioRunSurface');
 const worktreeManager = require('./worktreeManager');
-const { runCommandHook } = require('./hookRunner');
+const { runHookProcess } = require('./hookRunner');
+const { pushAndOpenPullRequest } = require('./pullRequests');
 const {
   buildKanbanBlock,
   buildGitContextBlock,
@@ -42,6 +43,8 @@ const {
   buildDirectCardBlock,
   buildCommentsBlock,
   buildChangeRequestBlock,
+  buildReviewPrompt,
+  REVIEW_SYSTEM_PROMPT,
 } = require('../utils/promptBuilder');
 const { readSettings }              = require('../handlers/settings');
 const { resolveStageModelConfig }   = require('./modelConfigResolver');
@@ -276,6 +279,9 @@ const activeFinalizations = new Map();
 
 // runId → { pid, done } of the hook running for a direct run.
 const activeHooks = new Map();
+
+const DEFAULT_HOOK_RETRIES = 2;
+const DEFAULT_REVIEW_MODEL = 'sonnet';
 
 // taskId → tail of its queue of direct-run actions. Actions that change a task's run
 // (start, resume, change request, close) wait for each other, because each spans git
@@ -1769,6 +1775,13 @@ async function saveDirectResult(dataDir, runId) {
     pipelineLog('worktree.error', { runId, op: 'list_changed_files', code: err.code, message: err.message });
   }
 
+  let head = null;
+  try {
+    head = await worktreeManager.readBranchHead(run.workingDirectory, ref || branch);
+  } catch (err) {
+    pipelineLog('worktree.error', { runId, op: 'read_head', code: err.code, message: err.message });
+  }
+
   // The run may have been deleted, and its status may have changed, while git worked.
   const fresh = readRun(dataDir, runId);
   if (!fresh) return;
@@ -1776,17 +1789,281 @@ async function saveDirectResult(dataDir, runId) {
     branch,
     baseBranch,
     ref,
+    head,
     fileCount: files ? files.length : null,
     additions: files ? files.reduce((sum, f) => sum + f.additions, 0) : null,
     deletions: files ? files.reduce((sum, f) => sum + f.deletions, 0) : null,
     saveError,
+    pr: fresh.result?.pr ?? null,
   };
   writeRun(dataDir, fresh);
 }
 
 /**
- * The last step of a direct run: save the work, run the space's hook, and close the
- * card if it passes. A failing hook fails the run and the card stays open.
+ * A space's hooks, in order, with the defaults of the ones saved before hooks had options.
+ *
+ * @param {string} spaceId
+ * @returns {object[]}
+ */
+function spaceHooks(spaceId) {
+  return (_store?.getSpace(spaceId)?.hooks ?? []).map((hook, index) => ({
+    id: `hook-${index}`,
+    type: 'command',
+    onFail: 'stop',
+    approval: false,
+    maxRetries: DEFAULT_HOOK_RETRIES,
+    ...hook,
+  }));
+}
+
+function hookSummary(hook) {
+  return {
+    hookId: hook.id,
+    name:   hook.name,
+    type:   hook.type,
+    ...(hook.command !== undefined && { command: hook.command }),
+  };
+}
+
+function waitingForApproval(run) {
+  return run.status === 'paused' && run.hook?.status === 'awaiting_approval';
+}
+
+/**
+ * Start a command or agent hook.
+ *
+ * @returns {{ pid: number|undefined, done: Promise<object> }}
+ * @throws When the agent's harness is not installed.
+ */
+function startHookProcess(run, hook, index, dataDir) {
+  const common = {
+    cwd:       run.worktree.path,
+    logPath:   path.join(runDir(dataDir, run.runId), `hook-${index}.log`),
+    timeoutMs: hook.timeoutMinutes ? hook.timeoutMinutes * 60_000 : undefined,
+    env: {
+      PRISM_RUN_ID:      run.runId,
+      PRISM_SPACE_ID:    run.spaceId,
+      PRISM_TASK_ID:     run.taskId,
+      PRISM_BRANCH:      run.worktree.branch,
+      PRISM_BASE_BRANCH: run.worktree.baseBranch || '',
+    },
+  };
+  if (hook.type !== 'agent') return runHookProcess({ ...common, command: hook.command });
+
+  const adapter = getAdapter(hook.agent.cliTool);
+  const binary  = adapter.resolveBinary();
+  const tmpDir  = path.join(runDir(dataDir, run.runId), `hook-${index}-tmp`);
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const built = adapter.buildArgs({
+    model:        hook.agent.model ?? DEFAULT_REVIEW_MODEL,
+    systemPrompt: REVIEW_SYSTEM_PROMPT,
+    prompt:       buildReviewPrompt({
+      task:         _store.getTask(run.spaceId, run.taskId),
+      instructions: hook.prompt,
+      baseRef:      run.worktree.baseRef,
+    }),
+    tmpDir,
+  });
+  return runHookProcess({ ...common, command: binary, args: built.args, stdin: built.stdin });
+}
+
+/**
+ * Whether a finished hook process passed, and what to show if it did not. An agent that
+ * gives no clear verdict has not approved anything, so that is a failure too.
+ *
+ * @returns {object} Fields for run.hook, with `passed`.
+ */
+function readHookOutcome(hook, outcome) {
+  const base = { exitCode: outcome.exitCode, timedOut: outcome.timedOut, outputTail: outcome.outputTail };
+  if (outcome.exitCode !== 0 || outcome.timedOut) return { ...base, passed: false };
+  if (hook.type !== 'agent') return { ...base, passed: true };
+
+  const verdict = parseGateVerdict(outcome.stdout);
+  if (verdict.pass === null) return { ...base, passed: false, verdict: 'none' };
+  if (verdict.pass) return { ...base, passed: true, verdict: 'pass', findings: verdict.findings };
+  return {
+    ...base,
+    passed:     false,
+    verdict:    'fail',
+    findings:   verdict.findings,
+    outputTail: verdict.findings.map((f) => `- ${f}`).join('\n') || outcome.outputTail,
+  };
+}
+
+/**
+ * Push a run's branch, open its pull request, and record it on the run.
+ *
+ * @param {string} dataDir
+ * @param {object} run
+ * @returns {Promise<{ url: string, number: number }>}
+ * @throws PR_FAILED.
+ */
+async function openRunPullRequest(dataDir, run) {
+  const task = _store.getTask(run.spaceId, run.taskId);
+  const pr = await pushAndOpenPullRequest({
+    cwd:        run.workingDirectory,
+    branch:     run.worktree.branch,
+    sourceRef:  run.result?.ref ?? undefined,
+    baseBranch: run.worktree.baseBranch,
+    title:      task?.title ?? run.worktree.branch,
+    body:       task?.description || 'Created from Prism.',
+  });
+
+  const fresh = readRun(dataDir, run.runId);
+  if (fresh) {
+    // What was pushed is what was saved when this started.
+    fresh.result = { ...fresh.result, pr: { ...pr, pushedHead: run.result?.head ?? null } };
+    writeRun(dataDir, fresh);
+  }
+  return pr;
+}
+
+/**
+ * Run one hook: ask for approval if it needs it, then run it and decide what follows.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ * @param {object} hook
+ * @param {number} index
+ * @returns {Promise<boolean>} Whether the next hook should run.
+ */
+async function runHookStep(dataDir, runId, hook, index) {
+  let run = readRun(dataDir, runId);
+  if (!run || run.status !== 'running') return false; // Stopped meanwhile.
+
+  if (hook.approval && !run.approvedHookIds?.includes(hook.id)) {
+    run.status = 'paused';
+    run.hook   = { ...hookSummary(hook), status: 'awaiting_approval', startedAt: new Date().toISOString() };
+    writeRun(dataDir, run);
+    pipelineLog('hook.awaiting_approval', { runId, name: hook.name });
+    return false;
+  }
+
+  const executionId = crypto.randomUUID();
+  const started = { id: executionId, ...hookSummary(hook), status: 'running', startedAt: new Date().toISOString() };
+
+  // Without its own .git, git in the hook would walk up and act on the user's checkout.
+  try {
+    await worktreeManager.assertWorktreeRoot(run.worktree.path);
+  } catch (err) {
+    pipelineLog('worktree.error', { runId, op: 'hook_cwd', code: err.code, message: err.message });
+    const current = readRun(dataDir, runId);
+    if (!current || current.status !== 'running') return false;
+    current.status = 'failed';
+    current.hook = {
+      ...started,
+      status:     'failed',
+      exitCode:   null,
+      outputTail: 'The worktree is missing or damaged, so this check did not run.',
+      finishedAt: new Date().toISOString(),
+    };
+    writeRun(dataDir, current);
+    return false;
+  }
+
+  run = readRun(dataDir, runId);
+  if (!run || run.status !== 'running') return false; // Stopped meanwhile.
+  run.hook = started;
+  writeRun(dataDir, run);
+  pipelineLog('hook.started', { runId, name: hook.name, type: hook.type });
+
+  let result;
+  if (hook.type === 'pr') {
+    try {
+      await openRunPullRequest(dataDir, run);
+      result = { passed: true, exitCode: 0, timedOut: false };
+    } catch (err) {
+      result = { passed: false, exitCode: null, timedOut: false, outputTail: err.message };
+    }
+  } else {
+    let handle;
+    try {
+      handle = startHookProcess(run, hook, index, dataDir);
+    } catch (err) {
+      result = { passed: false, exitCode: null, timedOut: false, outputTail: err.message };
+    }
+    if (handle) {
+      activeHooks.set(runId, handle);
+      // Persisted so a restart can stop a hook that outlived the server.
+      run.hook.pid = handle.pid;
+      writeRun(dataDir, run);
+      const outcome = await handle.done;
+      if (activeHooks.get(runId) === handle) activeHooks.delete(runId);
+      result = readHookOutcome(hook, outcome);
+    }
+  }
+
+  run = readRun(dataDir, runId);
+  if (!run || run.status !== 'running' || run.hook?.id !== executionId) return false; // Stopped meanwhile.
+
+  const { passed, ...details } = result;
+  run.hook = { ...run.hook, ...details, status: passed ? 'passed' : 'failed', finishedAt: new Date().toISOString() };
+
+  const attempts = run.hookAttempts?.[hook.id] ?? 0;
+  const retry = !passed && hook.onFail === 'retry' && hook.type !== 'pr' && attempts < hook.maxRetries;
+  if (passed) run.hookResults = { ...run.hookResults, [hook.id]: 'passed' };
+  else if (!retry) run.status = 'failed';
+  if (retry) run.hookAttempts = { ...run.hookAttempts, [hook.id]: attempts + 1 };
+  writeRun(dataDir, run);
+  pipelineLog(passed ? 'hook.passed' : 'hook.failed', { runId, name: hook.name, exitCode: result.exitCode, timedOut: result.timedOut, retry });
+
+  // The hook may have changed files (a formatter, a generated changelog).
+  await finalizeRun(dataDir, run);
+  if (retry) {
+    await returnToAgent(dataDir, run, hook, attempts + 1);
+    return false;
+  }
+  return passed;
+}
+
+/**
+ * Give a failed check back to the agent. Its prompt shows the failure, and every check
+ * runs again afterwards because the code changed.
+ *
+ * @param {string} dataDir
+ * @param {object} finished  - The run, as the hook left it.
+ * @param {object} hook
+ * @param {number} attempt   - Which retry of this hook this is.
+ */
+async function returnToAgent(dataDir, finished, hook, attempt) {
+  const { runId, taskId } = finished;
+  await withTaskLock(taskId, async () => {
+    const run = readRun(dataDir, runId);
+    if (!run || run.status !== 'running') return; // Stopped meanwhile.
+
+    try {
+      addAgentComment(run, `"${hook.name}" failed. Asking the agent to fix it (retry ${attempt} of ${hook.maxRetries}).`);
+      prepareAgentTurn(dataDir, run);
+      run.status = 'interrupted'; // resumeRun only takes a run that stopped.
+      writeRun(dataDir, run);
+      await resumeRunUnlocked(runId, dataDir, { fromStage: 0, automatic: true });
+    } catch (err) {
+      pipelineLog('run.failed', { runId, reason: 'hook_retry', code: err.code, message: err.message });
+      const failed = readRun(dataDir, runId);
+      if (failed) {
+        failed.status = 'failed';
+        writeRun(dataDir, failed);
+      }
+    }
+  });
+}
+
+function addAgentComment(run, text) {
+  const task = _store.getTask(run.spaceId, run.taskId);
+  const now  = new Date().toISOString();
+  _store.updateTask(run.spaceId, run.taskId, {
+    comments: [...(task?.comments ?? []), {
+      id: crypto.randomUUID(), author: 'prism', text, type: 'note',
+      needsHuman: false, resolved: false, createdAt: now,
+    }],
+    updatedAt: now,
+  });
+}
+
+/**
+ * The last step of a direct run: save the work, run the space's hooks in order, and
+ * close the card if they all pass. Hooks that passed on an earlier try are skipped: a
+ * retry continues where the run stopped, and a new turn of the agent clears them.
  *
  * @param {string} dataDir
  * @param {string} runId
@@ -1797,78 +2074,17 @@ async function finishDirectRun(dataDir, runId) {
   let run = readRun(dataDir, runId);
   if (!run || run.status !== 'running') return; // Stopped while saving.
 
-  const hook = _store?.getSpace(run.spaceId)?.hooks?.[0];
-  if (hook) {
-    const hookRunId = crypto.randomUUID();
-    run.hook = { id: hookRunId, name: hook.name, command: hook.command, status: 'running', startedAt: new Date().toISOString() };
+  const hooks = spaceHooks(run.spaceId);
+  run.hookPlan = hooks.map(({ id, name, type }) => ({ id, name, type }));
+  writeRun(dataDir, run);
 
-    // Without its own .git, git in the hook would walk up and act on the user's checkout.
-    try {
-      await worktreeManager.assertWorktreeRoot(run.worktree.path);
-    } catch (err) {
-      pipelineLog('worktree.error', { runId, op: 'hook_cwd', code: err.code, message: err.message });
-      const current = readRun(dataDir, runId);
-      if (!current || current.status !== 'running') return;
-      current.status = 'failed';
-      current.hook = {
-        ...run.hook,
-        status:     'failed',
-        exitCode:   null,
-        outputTail: 'The worktree is missing or damaged, so this check did not run.',
-        finishedAt: new Date().toISOString(),
-      };
-      writeRun(dataDir, current);
-      return;
-    }
-
-    run = readRun(dataDir, runId);
-    if (!run || run.status !== 'running') return; // Stopped meanwhile.
-    run.hook = { id: hookRunId, name: hook.name, command: hook.command, status: 'running', startedAt: new Date().toISOString() };
-    writeRun(dataDir, run);
-    pipelineLog('hook.started', { runId, name: hook.name });
-
-    const handle = runCommandHook({
-      command: hook.command,
-      cwd:     run.worktree.path,
-      logPath: path.join(runDir(dataDir, runId), 'hook.log'),
-      env: {
-        PRISM_RUN_ID:      runId,
-        PRISM_SPACE_ID:    run.spaceId,
-        PRISM_TASK_ID:     run.taskId,
-        PRISM_BRANCH:      run.worktree.branch,
-        PRISM_BASE_BRANCH: run.worktree.baseBranch || '',
-      },
-    });
-    activeHooks.set(runId, handle);
-    // Persisted so a restart can stop a hook that outlived the server.
-    run.hook.pid = handle.pid;
-    writeRun(dataDir, run);
-    const outcome = await handle.done;
-    if (activeHooks.get(runId) === handle) activeHooks.delete(runId);
-
-    run = readRun(dataDir, runId);
-    if (!run || run.status !== 'running' || run.hook?.id !== hookRunId) return; // Stopped meanwhile.
-
-    const passed = outcome.exitCode === 0 && !outcome.timedOut;
-    run.hook = {
-      ...run.hook,
-      status:     passed ? 'passed' : 'failed',
-      exitCode:   outcome.exitCode,
-      timedOut:   outcome.timedOut,
-      outputTail: outcome.outputTail,
-      finishedAt: new Date().toISOString(),
-    };
-    if (!passed) run.status = 'failed';
-    writeRun(dataDir, run);
-    pipelineLog(passed ? 'hook.passed' : 'hook.failed', { runId, name: hook.name, exitCode: outcome.exitCode, timedOut: outcome.timedOut });
-
-    // The hook may have changed files (a formatter, a generated changelog).
-    await finalizeRun(dataDir, run);
-    if (!passed) return;
-
-    run = readRun(dataDir, runId);
-    if (!run || run.status !== 'running') return;
+  for (const [index, hook] of hooks.entries()) {
+    if (readRun(dataDir, runId)?.hookResults?.[hook.id] === 'passed') continue;
+    if (!await runHookStep(dataDir, runId, hook, index)) return;
   }
+
+  run = readRun(dataDir, runId);
+  if (!run || run.status !== 'running') return;
 
   run.status = 'completed';
   writeRun(dataDir, run);
@@ -1876,6 +2092,90 @@ async function finishDirectRun(dataDir, runId) {
   // Directly: the HTTP route refuses moves while a queued action holds the task's lock.
   _store.moveTask(run.spaceId, run.taskId, 'done');
   await maybeConsolidate(dataDir, run);
+}
+
+/**
+ * The user's OK for the hook a run is waiting on. The run carries on from that hook.
+ *
+ * @param {string} runId
+ * @param {string} dataDir
+ * @returns {Promise<object>} Updated run.
+ * @throws RUN_NOT_FOUND, RUN_NOT_WAITING.
+ */
+async function approveHook(runId, dataDir) {
+  const found = readRun(dataDir, runId);
+  if (!found || !found.direct) {
+    const err = new Error(`Direct run '${runId}' not found.`);
+    err.code = 'RUN_NOT_FOUND';
+    throw err;
+  }
+  return withTaskLock(found.taskId, async () => {
+    const run = readRun(dataDir, runId);
+    if (!run || !waitingForApproval(run)) {
+      const err = new Error('This task is not waiting for an approval.');
+      err.code = 'RUN_NOT_WAITING';
+      throw err;
+    }
+    run.approvedHookIds = [...(run.approvedHookIds ?? []), run.hook.hookId];
+    run.status = 'running';
+    run.hook.status = 'approved';
+    writeRun(dataDir, run);
+    pipelineLog('hook.approved', { runId, name: run.hook.name });
+    finishDirectRun(dataDir, runId).catch((err) => {
+      pipelineLog('run.failed', { runId, reason: 'hooks_after_approval', message: err.message });
+    });
+    return run;
+  });
+}
+
+/**
+ * Create the pull request of a task's run, or push what is new to the one it has.
+ *
+ * @param {string} runId
+ * @param {string} dataDir
+ * @returns {Promise<object>} Updated run.
+ * @throws RUN_NOT_FOUND, RUN_ACTIVE, PR_FAILED.
+ */
+async function createPullRequest(runId, dataDir) {
+  const found = readRun(dataDir, runId);
+  if (!found || !found.direct) {
+    const err = new Error(`Direct run '${runId}' not found.`);
+    err.code = 'RUN_NOT_FOUND';
+    throw err;
+  }
+  return withTaskLock(found.taskId, async () => {
+    const run = readRun(dataDir, runId);
+    if (!run || (ACTIVE_RUN_STATUSES.includes(run.status) && !waitingForApproval(run))) {
+      const err = new Error('Wait for the agent to finish.');
+      err.code = 'RUN_ACTIVE';
+      throw err;
+    }
+    if (run.result?.saveError) {
+      const err = new Error('Some work could not be saved to the branch, so it would be missing from the pull request.');
+      err.code = 'PR_FAILED';
+      throw err;
+    }
+    await openRunPullRequest(dataDir, run);
+    pipelineLog('pr.opened', { runId });
+    return readRun(dataDir, runId);
+  });
+}
+
+/**
+ * The hooks of a run and how each is going. Until they start, a run still going shows
+ * the ones it will face.
+ *
+ * @param {object} run
+ * @returns {Array<{ id: string, name: string, type: string, status: string }>}
+ */
+function hookSteps(run) {
+  const plan = run.hookPlan ?? (ACTIVE_RUN_STATUSES.includes(run.status) ? spaceHooks(run.spaceId) : []);
+  return plan.map(({ id, name, type }) => {
+    let status = 'pending';
+    if (run.hookResults?.[id] === 'passed') status = 'passed';
+    else if (run.hookPlan && run.hook?.hookId === id) status = run.hook.status;
+    return { id, name, type, status };
+  });
 }
 
 /**
@@ -1887,9 +2187,9 @@ async function finishDirectRun(dataDir, runId) {
 function directRunView(run) {
   const STATUS = {
     pending:     'working',
-    running:     run.hook?.status === 'running' ? 'checking' : 'working',
+    running:     ['running', 'approved'].includes(run.hook?.status) ? 'checking' : 'working',
     blocked:     'question',
-    paused:      'question',
+    paused:      waitingForApproval(run) ? 'approval' : 'question',
     failed:      'failed',
     interrupted: 'stopped',
     aborted:     'stopped',
@@ -1902,7 +2202,13 @@ function directRunView(run) {
 
   let failure = null;
   if (failedHook) {
-    failure = { kind: 'hook', exitCode: run.hook.exitCode, timedOut: run.hook.timedOut };
+    failure = {
+      kind:     'hook',
+      exitCode: run.hook.exitCode ?? null,
+      timedOut: !!run.hook.timedOut,
+      ...(run.hook.verdict && { verdict: run.hook.verdict }),
+      ...(run.hookAttempts?.[run.hook.hookId] && { retries: run.hookAttempts[run.hook.hookId] }),
+    };
   } else if (run.status === 'failed') {
     failure = { kind: 'agent', exitCode: stage.exitCode ?? null, reason: stage.failureReason ?? null };
   }
@@ -1920,6 +2226,7 @@ function directRunView(run) {
     closedAt:   run.closedAt ?? null,
     result:     run.result ?? null,
     hook:       run.hook ?? null,
+    steps:      hookSteps(run),
     failure,
   };
 }
@@ -2030,6 +2337,33 @@ async function closeTaskDirectRuns(spaceId, taskId, dataDir, exceptRunId) {
 }
 
 /**
+ * Set a direct run up for another turn of its agent. The caller writes the run.
+ *
+ * @param {string} dataDir
+ * @param {object} run
+ */
+function prepareAgentTurn(dataDir, run) {
+  // Answered questions may have added stages. Their sentinels and logs go with them, or
+  // a later turn reaching that index would look finished before it starts.
+  for (let i = 0; i < run.stages.length; i++) {
+    try { fs.unlinkSync(stageDonePath(dataDir, runId, i)); } catch { /* not present */ }
+  }
+  const [first] = run.stageStatuses;
+  first.status = 'pending';
+  first.retriedWithFallback = false;
+  delete first.fallbackFrom;
+  run.stages        = [first.agentId];
+  run.stageStatuses = [first];
+  run.iteration     = (run.iteration ?? 1) + 1;
+  // A failed check stays on the run: the agent's prompt shows it.
+  if (run.hook?.status !== 'failed') run.hook = null;
+  delete run.questionAnswers;
+  delete run.blockedReason;
+  delete run.loopCounts;
+  delete run.questionIterations;
+}
+
+/**
  * Relaunch a direct run's agent in the same worktree with what the user asked for.
  * The agent sees the request and the card's comments in a new process. A worktree
  * that was closed is recreated from the run branch.
@@ -2052,7 +2386,7 @@ async function requestChanges(runId, dataDir, text) {
 
 async function requestChangesLocked(runId, dataDir, text) {
   let run = readRun(dataDir, runId);
-  if (!run || ACTIVE_RUN_STATUSES.includes(run.status)) {
+  if (!run || (ACTIVE_RUN_STATUSES.includes(run.status) && !waitingForApproval(run))) {
     const err = new Error(`Run '${runId}' is still active.`);
     err.code = 'RUN_ACTIVE';
     throw err;
@@ -2068,7 +2402,7 @@ async function requestChangesLocked(runId, dataDir, text) {
   }
 
   run = readRun(dataDir, runId);
-  if (!run || ACTIVE_RUN_STATUSES.includes(run.status)) {
+  if (!run || (ACTIVE_RUN_STATUSES.includes(run.status) && !waitingForApproval(run))) {
     const err = new Error(`Run '${runId}' changed while its worktree was being restored.`);
     err.code = 'RUN_ACTIVE';
     throw err;
@@ -2085,25 +2419,8 @@ async function requestChangesLocked(runId, dataDir, text) {
     updatedAt: now,
   });
 
-  // Answered questions may have added stages. Their sentinels and logs go with them, or
-  // a later turn reaching that index would look finished before it starts.
-  for (let i = 0; i < run.stages.length; i++) {
-    try { fs.unlinkSync(stageDonePath(dataDir, runId, i)); } catch { /* not present */ }
-  }
-  const [first] = run.stageStatuses;
-  first.status = 'pending';
-  first.retriedWithFallback = false;
-  delete first.fallbackFrom;
-  run.stages        = [first.agentId];
-  run.stageStatuses = [first];
-  run.iteration     = (run.iteration ?? 1) + 1;
+  prepareAgentTurn(dataDir, run);
   run.changeRequest = { text, at: now };
-  // A failed check stays on the run: the agent's prompt shows it.
-  if (run.hook?.status !== 'failed') run.hook = null;
-  delete run.questionAnswers;
-  delete run.blockedReason;
-  delete run.loopCounts;
-  delete run.questionIterations;
   // resumeRun only takes a run that stopped.
   if (run.status === 'completed') run.status = 'interrupted';
   writeRun(dataDir, run);
@@ -2553,7 +2870,8 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
       promptText += '\n' + buildChangeRequestBlock(directRun.changeRequest.text, directRun.worktree?.baseRef ?? null) + '\n';
     }
     if (directRun.hook?.status === 'failed') {
-      promptText += `\n## FAILED CHECK\nThe check "${directRun.hook.name}" (\`${directRun.hook.command}\`) failed after your last turn. End of its output:\n\n${directRun.hook.outputTail}\n`;
+      const what = directRun.hook.command ? ` (\`${directRun.hook.command}\`)` : '';
+      promptText += `\n## FAILED CHECK\nThe check "${directRun.hook.name}"${what} failed after your last turn. Fix what it reports. Its output:\n\n${directRun.hook.outputTail}\n`;
     }
     promptText += '\n' + buildDirectCardBlock(spaceId, taskId, agentId) + '\n';
   } else {
@@ -2674,6 +2992,13 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
       failStageWorktreeUnavailable(dataDir, run, stageIndex);
       return;
     }
+  }
+
+  // The agent is about to change the code, so what the hooks said about it no longer holds.
+  if (run.direct) {
+    delete run.hookPlan;
+    delete run.hookResults;
+    delete run.approvedHookIds;
   }
 
   // Update stage state to running.
@@ -3141,6 +3466,9 @@ function _processRunsOnStartup(dataDir, runs, knownWorkingDirs) {
 
       // Collect workingDirectory for reapOrphans sweep (parallel-worktrees).
       if (run.workingDirectory) knownWorkingDirs.add(run.workingDirectory);
+
+      // Nothing is running: it still waits for the user.
+      if (run.direct && waitingForApproval(run)) continue;
 
       // Handle blocked runs with an active resolver on restart.
       if (run.status === 'blocked' && run.resolverActive === true) {
@@ -4673,7 +5001,7 @@ function blockRunByComment(dataDir, taskId, comment) {
     return;
   }
 
-  if (run.hook?.status === 'running') return; // The agent has finished.
+  if (['running', 'awaiting_approval', 'approved'].includes(run.hook?.status)) return; // The agent has finished.
 
   // Only block between stages (not mid-execution).
   // "Between stages" means the current stage is pending (not actively running).
@@ -4801,7 +5129,7 @@ async function resumeRun(runId, dataDir, opts = {}) {
   return resumeRunUnlocked(runId, dataDir, opts);
 }
 
-async function resumeRunUnlocked(runId, dataDir, { fromStage } = {}) {
+async function resumeRunUnlocked(runId, dataDir, { fromStage, automatic } = {}) {
   let run = readRun(dataDir, runId);
   if (!run) {
     const err = new Error(`Run '${runId}' not found.`);
@@ -4924,6 +5252,9 @@ async function resumeRunUnlocked(runId, dataDir, { fromStage } = {}) {
     try { fs.unlinkSync(metricsFile); } catch { /* not present — fine */ }
   }
 
+  // The user asking again gives the checks their retries back.
+  if (run.direct && !automatic) delete run.hookAttempts;
+
   run.currentStage       = resumeIndex;
   run.status             = 'running';
   delete run.closedAt; // restoreRunWorktree brought back a closed run's worktree.
@@ -5037,7 +5368,7 @@ async function stopRun(runId, dataDir) {
     try { process.kill(-hookHandle.pid, 'SIGTERM'); } catch { /* already gone */ }
     stoppedPid = hookHandle.pid;
   }
-  if (run.hook?.status === 'running') run.hook.status = 'interrupted';
+  if (['running', 'awaiting_approval', 'approved'].includes(run.hook?.status)) run.hook.status = 'interrupted';
 
   run.status = 'interrupted';
   writeRun(dataDir, run);
@@ -5217,6 +5548,8 @@ module.exports = {
   closeDirectRun,
   closeTaskDirectRuns,
   requestChanges,
+  approveHook,
+  createPullRequest,
   resumeRun,
   blockRun,
   unblockRun,

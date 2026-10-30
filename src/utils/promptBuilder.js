@@ -97,6 +97,39 @@ function buildChangeRequestBlock(text, baseRef) {
   ].join('\n');
 }
 
+const REVIEW_SYSTEM_PROMPT = 'You review the work an agent did on one task. You report what you find and change nothing: do not edit files, commit, or push.';
+
+/**
+ * Build the prompt of an agent hook. The fence is 4 backticks so that a finding can
+ * quote code without closing it.
+ *
+ * @param {object} opts
+ * @param {{ title: string, description?: string }|null} opts.task
+ * @param {string} opts.instructions - What the user asked the reviewer to check.
+ * @param {string|null} opts.baseRef - Commit the run branch started from.
+ * @returns {string}
+ */
+function buildReviewPrompt({ task, instructions, baseRef }) {
+  return [
+    `Task: ${task?.title ?? 'unknown'}`,
+    ...(task?.description ? [`Description: ${task.description}`] : []),
+    '',
+    `The work is committed on the current branch. See it with \`git diff ${baseRef ?? 'HEAD~1'}\`.`,
+    '',
+    '## WHAT TO CHECK',
+    instructions,
+    '',
+    '## YOUR VERDICT',
+    'End your answer with exactly one block like this. Use `pass: false` only for problems that must be fixed, and list each one so that someone else can fix it.',
+    '',
+    '````prism-gate',
+    'pass: false',
+    'findings:',
+    '- file and line: what is wrong and what to do',
+    '````',
+  ].join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // KANBAN block
 // ---------------------------------------------------------------------------
@@ -294,6 +327,8 @@ module.exports = {
   buildCompileGateBlock,
   buildResolvedQuestionsBlock,
   buildDirectCardBlock,
+  buildReviewPrompt,
+  REVIEW_SYSTEM_PROMPT,
   buildCommentsBlock,
   buildChangeRequestBlock,
 };

@@ -9,10 +9,14 @@
  *   POST /api/v1/spaces/:spaceId/tasks/:taskId/run         → start the agent
  *   POST /api/v1/spaces/:spaceId/tasks/:taskId/request-changes
  *   POST /api/v1/spaces/:spaceId/tasks/:taskId/close       → remove the worktree
+ *   POST /api/v1/spaces/:spaceId/tasks/:taskId/approve     → OK the hook the run waits on
+ *   POST /api/v1/spaces/:spaceId/tasks/:taskId/pr          → create or update the PR
  *   GET  /api/v1/runs/:runId/diff[?path=<file>]            → changed files, or one patch
  *
  * Stopping and retrying use the existing /runs/:runId/stop and /resume.
  */
+
+const crypto = require('crypto');
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const pipelineManager = require('../services/pipelineManager');
@@ -23,9 +27,15 @@ const DIRECT_CLI_TOOLS = ['claude', 'opencode', 'pi', 'hermes'];
 // The model reaches a shell command line through the harness adapters.
 const MODEL_RE         = /^[\w./:@-]+$/;
 
-const MAX_HOOKS             = 1;
+const MAX_HOOKS             = 10;
+const HOOK_TYPES            = ['command', 'agent', 'pr'];
+const HOOK_ON_FAIL          = ['stop', 'retry'];
+const HOOK_MAX_RETRIES      = 3;
+const HOOK_MAX_MINUTES      = 240;
+const HOOK_ID_RE            = /^[\w-]{1,64}$/;
 const HOOK_NAME_MAX_LEN     = 60;
 const HOOK_COMMAND_MAX_LEN  = 2000;
+const HOOK_PROMPT_MAX_LEN   = 5000;
 const CHANGE_TEXT_MAX_LEN   = 5000;
 const COMMENT_MAX_COUNT     = 200;
 
@@ -40,6 +50,8 @@ const ERROR_STATUS = {
   MAX_CONCURRENT_REACHED:    409,
   WORKTREE_KEPT:             409,
   WORKTREE_UNAVAILABLE:      409,
+  RUN_NOT_WAITING:           409,
+  PR_FAILED:                 422,
   WORKTREE_PROVISION_FAILED: 500,
 };
 
@@ -186,6 +198,26 @@ async function handleCloseTaskRun(res, spaceId, taskId, dataDir) {
   }
 }
 
+async function handleApproveHook(res, spaceId, taskId, dataDir) {
+  const view = latestRunView(spaceId, taskId);
+  if (!view) return sendError(res, 409, 'NO_RUN', 'This task has not been run yet.');
+  try {
+    return sendJSON(res, 200, await pipelineManager.approveHook(view.runId, dataDir));
+  } catch (err) {
+    return sendRunError(res, err, 'approving hook');
+  }
+}
+
+async function handleCreatePullRequest(res, spaceId, taskId, dataDir) {
+  const view = latestRunView(spaceId, taskId);
+  if (!view) return sendError(res, 409, 'NO_RUN', 'This task has not been run yet.');
+  try {
+    return sendJSON(res, 200, await pipelineManager.createPullRequest(view.runId, dataDir));
+  } catch (err) {
+    return sendRunError(res, err, 'creating pull request');
+  }
+}
+
 async function handleGetRunDiff(req, res, runId, dataDir) {
   const run = await pipelineManager.getRun(runId, dataDir);
   if (!run || !run.direct) return sendError(res, 404, 'RUN_NOT_FOUND', `Direct run '${runId}' not found.`);
@@ -207,6 +239,56 @@ async function handleGetRunDiff(req, res, runId, dataDir) {
   }
 }
 
+/**
+ * Validate a hook from the settings form. It keeps its id across edits, which is how a
+ * run finds the hook it stopped at; a new one gets its id here.
+ *
+ * @param {object} hook
+ * @returns {{ value: object|null, error: string|null }}
+ */
+function readHook(hook) {
+  const fail = (error) => ({ value: null, error });
+  const name = typeof hook?.name === 'string' ? hook.name.trim() : '';
+  if (!name || name.length > HOOK_NAME_MAX_LEN) return fail(`hook name is required, up to ${HOOK_NAME_MAX_LEN} characters`);
+
+  const type = hook.type ?? 'command';
+  if (!HOOK_TYPES.includes(type)) return fail(`hook type must be one of: ${HOOK_TYPES.join(', ')}`);
+  const onFail = hook.onFail ?? 'stop';
+  if (!HOOK_ON_FAIL.includes(onFail)) return fail(`hook onFail must be one of: ${HOOK_ON_FAIL.join(', ')}`);
+  if (type === 'pr' && onFail === 'retry') return fail('an agent cannot fix a pull request that fails to open, so onFail must be stop');
+  const maxRetries = hook.maxRetries ?? 2;
+  if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > HOOK_MAX_RETRIES) return fail(`hook maxRetries must be from 1 to ${HOOK_MAX_RETRIES}`);
+  const minutes = hook.timeoutMinutes;
+  if (minutes !== undefined && (!Number.isInteger(minutes) || minutes < 1 || minutes > HOOK_MAX_MINUTES)) return fail(`hook timeoutMinutes must be from 1 to ${HOOK_MAX_MINUTES}`);
+  if (hook.id !== undefined && (typeof hook.id !== 'string' || !HOOK_ID_RE.test(hook.id))) return fail('hook id is not valid');
+
+  const value = {
+    id: hook.id ?? crypto.randomUUID(),
+    name,
+    type,
+    onFail,
+    approval: hook.approval === true,
+    maxRetries,
+    ...(minutes !== undefined && { timeoutMinutes: minutes }),
+  };
+
+  if (type === 'command') {
+    const command = typeof hook.command === 'string' ? hook.command.trim() : '';
+    if (!command || command.length > HOOK_COMMAND_MAX_LEN) return fail(`hook command is required, up to ${HOOK_COMMAND_MAX_LEN} characters`);
+    value.command = command;
+  }
+  if (type === 'agent') {
+    const prompt = typeof hook.prompt === 'string' ? hook.prompt.trim() : '';
+    if (!prompt || prompt.length > HOOK_PROMPT_MAX_LEN) return fail(`what the agent must check is required, up to ${HOOK_PROMPT_MAX_LEN} characters`);
+    const { config, error } = readAgentConfig(hook.agent ?? {});
+    if (error) return fail(error);
+    if (!config) return fail('hook agent needs a cliTool');
+    value.prompt = prompt;
+    value.agent  = config;
+  }
+  return { value, error: null };
+}
+
 async function handleUpdateHooks(req, res, store, spaceId) {
   const body = await readObjectBody(req, res);
   if (!body) return undefined;
@@ -218,15 +300,12 @@ async function handleUpdateHooks(req, res, store, spaceId) {
 
   const clean = [];
   for (const hook of hooks) {
-    const name    = typeof hook?.name === 'string' ? hook.name.trim() : '';
-    const command = typeof hook?.command === 'string' ? hook.command.trim() : '';
-    if (!name || name.length > HOOK_NAME_MAX_LEN) {
-      return sendError(res, 400, 'VALIDATION_ERROR', `hook name is required, up to ${HOOK_NAME_MAX_LEN} characters`);
-    }
-    if (!command || command.length > HOOK_COMMAND_MAX_LEN) {
-      return sendError(res, 400, 'VALIDATION_ERROR', `hook command is required, up to ${HOOK_COMMAND_MAX_LEN} characters`);
-    }
-    clean.push({ name, command });
+    const { value, error } = readHook(hook);
+    if (error) return sendError(res, 400, 'VALIDATION_ERROR', error);
+    clean.push(value);
+  }
+  if (new Set(clean.map((h) => h.id)).size !== clean.length) {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'hook ids must be unique');
   }
 
   // An agent running in this space must not be able to change the checks it will face.
@@ -246,5 +325,7 @@ module.exports = {
   handleRequestChanges,
   handleCloseTaskRun,
   handleGetRunDiff,
+  handleApproveHook,
+  handleCreatePullRequest,
   handleUpdateHooks,
 };
