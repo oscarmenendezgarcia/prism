@@ -117,7 +117,7 @@ function shortRunId(runId) {
  *
  * Creates:
  *   path:   <workingDirectory>/<PIPELINE_WORKTREE_DIR>/run-<short>
- *   branch: pipeline/run-<short>   (branched off current HEAD of workingDirectory)
+ *   branch: prism/run-<short>   (branched off current HEAD of workingDirectory)
  *
  * baseBranch is null when the parent HEAD is detached.
  *
@@ -179,7 +179,7 @@ async function provision(workingDirectory, runId) {
 
   // --- Determine worktree path ---
   const worktreePath = path.join(workingDirectory, worktreeSubdir(), `run-${short}`);
-  const branch       = `pipeline/run-${short}`;
+  const branch       = `prism/run-${short}`;
 
   // --- Guard: target path must not already exist ---
   if (fs.existsSync(worktreePath)) {
@@ -589,9 +589,9 @@ async function reapOrphans(dataDir, workingDirectories, store) {
       // git worktrees have a .git file (not dir) with "gitdir: ..." pointing to the admin dir.
       // The branch is stored in <repo>/.git/worktrees/<name>/HEAD.
       // For simplicity, pass null branch — teardown will skip branch deletion.
-      // The branch name follows our convention: pipeline/run-<short>.
+      // The branch name follows our convention: prism/run-<short>.
       if (!branch) {
-        branch = `pipeline/run-${short}`;
+        branch = `prism/run-${short}`;
       }
 
       const meta = {

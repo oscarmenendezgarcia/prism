@@ -11,11 +11,11 @@ export function StatusLine({ view }: { view: TaskRunView }) {
     case 'working':
       return <Line icon="dot" className="text-text-secondary">Working</Line>;
     case 'checking':
-      return <Line icon="dot" className="text-text-secondary">{`Checking: ${view.hook?.name ?? ''}`}</Line>;
+      return <Line icon="dot" className="text-text-secondary">{view.hook?.name ? `Checking: ${view.hook.name}` : 'Saving'}</Line>;
     case 'question':
       return <Line icon="help" className="text-warning">Has a question</Line>;
     case 'failed':
-      return <Line icon="error" className="text-error">{view.failure && view.failure.kind !== 'agent' ? `Failed: ${view.hook?.name ?? 'check'}` : 'Failed'}</Line>;
+      return <Line icon="error" className="text-error">{view.failure && view.hook?.name && view.failure.kind !== 'agent' && view.failure.kind !== 'save' ? `Failed: ${view.hook.name}` : 'Failed'}</Line>;
     case 'stopped':
       return <Line icon="stop_circle" className="text-text-secondary">Stopped</Line>;
     case 'done':
@@ -88,6 +88,7 @@ export function PullRequestAction({ view, busy, onCreate }: { view: TaskRunView;
 export function failureMessage(view: TaskRunView): string | null {
   const { failure, hook } = view;
   if (!failure) return null;
+  if (failure.kind === 'save') return 'The work could not be saved to the branch, so the task stays open.';
   if (failure.kind === 'pr') return `The pull request could not be opened.`;
   if (failure.kind === 'check') {
     if (failure.timedOut) return `"${hook?.name}" took too long and was stopped.`;

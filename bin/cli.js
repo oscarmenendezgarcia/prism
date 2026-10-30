@@ -59,7 +59,7 @@ prism stop:
   shutdown — use when the server is hung).
 
 prism doctor:
-  Checks Node.js version, node-pty spawn-helper, better-sqlite3, Claude CLI,
+  Checks Node.js version, git, better-sqlite3, Claude CLI,
   data-dir writability, and server status. Exit 0 if all pass, 1 if any fail.
   --json                Print machine-readable JSON instead of text
 

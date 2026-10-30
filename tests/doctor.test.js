@@ -20,7 +20,7 @@ const { spawnSync }                    = require('child_process');
 
 const {
   checkNodeVersion,
-  checkSpawnHelperExecutable,
+  checkGit,
   checkBetterSqlite3,
   checkClaudeCli,
   checkDataDirWritable,
@@ -86,82 +86,18 @@ describe('checkNodeVersion', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. checkSpawnHelperExecutable
+// 2. checkGit
 // ---------------------------------------------------------------------------
 
-describe('checkSpawnHelperExecutable', () => {
-  it('passes on Windows (N/A)', () => {
-    const result = checkSpawnHelperExecutable(makeCtx({ deps: { platform: 'win32', arch: 'x64' } }));
+describe('checkGit', () => {
+  it('passes with the version when git runs', () => {
+    const result = checkGit(makeCtx({ deps: { execFileSync: () => 'git version 2.40.0\n' } }));
     assert.equal(result.status, 'pass');
-    assert.ok(result.message.includes('N/A'));
+    assert.match(result.message, /2\.40\.0/);
   });
 
-  it('passes when spawn-helper is absent (not installed)', () => {
-    // Point packageRoot at a temp dir with no node_modules
-    const tmp = makeTmp();
-    try {
-      const result = checkSpawnHelperExecutable(makeCtx({
-        packageRoot: tmp,
-        deps: { platform: 'linux', arch: 'x64' },
-      }));
-      assert.equal(result.status, 'pass');
-      assert.ok(result.message.includes('absent'));
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-
-  it('passes when spawn-helper exists and has executable bit', () => {
-    const tmp = makeTmp();
-    try {
-      const helperDir = path.join(tmp, 'node_modules', 'node-pty', 'prebuilds', 'linux-x64');
-      fs.mkdirSync(helperDir, { recursive: true });
-      const helperPath = path.join(helperDir, 'spawn-helper');
-      fs.writeFileSync(helperPath, '#!/bin/sh\n');
-      fs.chmodSync(helperPath, 0o755);
-
-      const result = checkSpawnHelperExecutable(makeCtx({
-        packageRoot: tmp,
-        deps: { platform: 'linux', arch: 'x64' },
-      }));
-      assert.equal(result.status, 'pass');
-      assert.ok(result.message.includes('+x'));
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-
-  it('fails when spawn-helper exists but lacks executable bit', () => {
-    const tmp = makeTmp();
-    try {
-      const helperDir = path.join(tmp, 'node_modules', 'node-pty', 'prebuilds', 'linux-x64');
-      fs.mkdirSync(helperDir, { recursive: true });
-      const helperPath = path.join(helperDir, 'spawn-helper');
-      fs.writeFileSync(helperPath, '#!/bin/sh\n');
-      fs.chmodSync(helperPath, 0o644); // no execute bit
-
-      const result = checkSpawnHelperExecutable(makeCtx({
-        packageRoot: tmp,
-        deps: { platform: 'linux', arch: 'x64' },
-      }));
-      assert.equal(result.status, 'fail');
-      assert.ok(result.message.includes('not executable'));
-    } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-
-  it('uses injected fs stub for statSync', () => {
-    // Stub fs so accessSync succeeds and statSync returns non-executable mode
-    const stubFs = {
-      constants: fs.constants,
-      accessSync: () => undefined, // file "exists"
-      statSync:   () => ({ mode: 0o644 }),
-    };
-    const result = checkSpawnHelperExecutable(makeCtx({
-      packageRoot: '/fake',
-      deps: { platform: 'linux', arch: 'x64', fs: stubFs },
-    }));
+  it('fails when git is not there', () => {
+    const result = checkGit(makeCtx({ deps: { execFileSync: () => { throw new Error('ENOENT'); } } }));
     assert.equal(result.status, 'fail');
   });
 });
@@ -472,7 +408,7 @@ describe('CHECKS array', () => {
 describe('formatText', () => {
   const passingResults = [
     { name: 'node-version',     status: 'pass', message: 'v23.9.0 (>= 20)' },
-    { name: 'spawn-helper',     status: 'pass', message: 'executable (+x)' },
+    { name: 'git',              status: 'pass', message: 'git version 2.40.0' },
     { name: 'better-sqlite3',   status: 'pass', message: 'loads and opens :memory:' },
     { name: 'claude-cli',       status: 'pass', message: '1.2.3' },
     { name: 'data-dir-writable', status: 'pass', message: '/tmp/data' },

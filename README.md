@@ -1,3 +1,5 @@
+> **This branch is the v2 redesign, in progress.** Pipelines, Folio and the terminal are gone. Everything below still describes v1 and will be rewritten before release.
+
 <div align="center">
 
 ![Prism](docs/banner.png)

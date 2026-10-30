@@ -140,28 +140,15 @@
   --animate-search-out:       search-out 140ms cubic-bezier(0.4, 0, 1, 1) forwards;
   --animate-backdrop-in:      backdrop-in 180ms cubic-bezier(0.0, 0, 0.2, 1) both;
   --animate-backdrop-out:     backdrop-out 180ms cubic-bezier(0.4, 0, 1, 1) forwards;
-  --animate-slide-in-bottom:  slide-in-bottom 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
   --animate-slide-in-right:   slide-in-right 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
-  --animate-slide-out-right:  slide-out-right 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
   --animate-modal-out:        modal-out 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
   --animate-toast-in:         toast-in 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
   --animate-toast-out:        toast-out 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
-  --animate-empty-pulse:      empty-pulse 3s ease-in-out infinite;
-  --animate-hover-overlay-in: hover-overlay-in 150ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  --animate-loop-pop:         loop-pop 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
-  --animate-log-line-in:      log-line-in 80ms linear both;
   --animate-run-pulse:        run-pulse 2s ease-in-out infinite;
   --animate-stagger-in:       stagger-in 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
-  --animate-drop-pulse:       drop-pulse 350ms ease-in-out;
-  --animate-tab-slide:        tab-slide 150ms cubic-bezier(0.4, 0, 0.2, 1) both;
-  --animate-panel-in:         slide-in-right 220ms cubic-bezier(0.0, 0, 0.2, 1) both;
-  --animate-panel-out:        slide-out-right 150ms cubic-bezier(0.4, 0, 1, 1) forwards;
-  --animate-panel-back:       slide-in-left 180ms cubic-bezier(0.0, 0, 0.2, 1) both;
-  --animate-detail-in:        slide-in-right 320ms cubic-bezier(0.0, 0, 0.2, 1) both;
   /* Modal dialog: subtle scale 0.96→1 + fade, no spring bounce */
   --animate-modal-dialog-in:  modal-dialog-in 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
   /* Tab content: opacity-only fade for smooth tab switching */
-  --animate-tab-content-fade: tab-content-fade 150ms cubic-bezier(0.0, 0, 0.2, 1) both;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -428,11 +415,6 @@ html.dark {
 }
 
 /* Sheet slide in from bottom */
-@keyframes slide-in-bottom {
-  from { opacity: 0; transform: translateY(12px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
 /* Right-side panel slide in */
 @keyframes slide-in-right {
   from { transform: translateX(100%); }
@@ -440,17 +422,7 @@ html.dark {
 }
 
 /* Right-side panel slide out */
-@keyframes slide-out-right {
-  from { transform: translateX(0); }
-  to   { transform: translateX(100%); }
-}
-
 /* Back navigation: subtle slide from left + fade */
-@keyframes slide-in-left {
-  from { transform: translateX(-20%); opacity: 0; }
-  to   { transform: translateX(0);    opacity: 1; }
-}
-
 /* Modal spring close exit */
 @keyframes modal-out {
   from { opacity: 1; transform: scale(1); }
@@ -464,11 +436,6 @@ html.dark {
 }
 
 /* Tab content: opacity-only fade when switching tabs */
-@keyframes tab-content-fade {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
 /* Toast entrance — slide up + fade */
 @keyframes toast-in {
   from { opacity: 0; transform: translateX(-50%) translateY(12px); }
@@ -482,30 +449,9 @@ html.dark {
 }
 
 /* Hover overlay entrance */
-@keyframes hover-overlay-in {
-  from { opacity: 0; transform: scale(0.96); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
 /* Loop-inject: new stage node pops in */
-@keyframes loop-pop {
-  0%   { opacity: 0; transform: translateX(12px) scale(0.7); }
-  70%  { transform: translateX(-2px) scale(1.06); }
-  100% { opacity: 1; transform: translateX(0) scale(1); }
-}
-
 /* S-1 / S-2: empty state ambient pulse */
-@keyframes empty-pulse {
-  0%, 100% { opacity: 0.35; transform: scale(1); }
-  50%       { opacity: 0.65; transform: scale(1.05); }
-}
-
 /* S-07: pipeline log line fade-in (instant, 80ms) */
-@keyframes log-line-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
 /* S-08: running run status — pulsing dot */
 @keyframes run-pulse {
   0%, 100% { opacity: 1;   transform: scale(1); }
@@ -529,75 +475,7 @@ html.dark {
 .stagger-delay-7 { animation-delay: 200ms; }
 
 /* Drag drop-target column border pulse */
-@keyframes drop-pulse {
-  0%, 100% { opacity: 0.6; }
-  50%       { opacity: 1; }
-}
-
 /* Tab indicator slide */
-@keyframes tab-slide {
-  from { opacity: 0; transform: scaleX(0.7); }
-  to   { opacity: 1; transform: scaleX(1); }
-}
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   AUTO-TASK FAB — pill button aligned to MD3 design system tokens
-───────────────────────────────────────────────────────────────────────────── */
-
-.autotask-fab {
-  position: absolute;
-  right: 24px;
-  bottom: 24px;
-  z-index: 40;
-  height: 48px;
-  padding: 0 20px;
-  border-radius: 9999px;
-  background: var(--color-primary);
-  box-shadow: var(--shadow-md);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--color-on-primary);
-  font-size: 14px;
-  font-weight: 500;
-  font-family: 'Inter', sans-serif;
-  border: none;
-  outline: none;
-  cursor: pointer;
-  transition: transform 150ms cubic-bezier(0.34, 1.56, 0.64, 1),
-              box-shadow 200ms ease,
-              background 150ms ease;
-}
-
-.autotask-fab:hover {
-  transform: scale(1.04);
-  background: var(--color-primary-hover);
-  box-shadow: var(--shadow-lg);
-}
-
-.autotask-fab:active {
-  transform: scale(0.97);
-}
-
-.autotask-fab:focus-visible {
-  outline: 2px solid var(--color-on-primary);
-  outline-offset: 3px;
-}
-
-/* Mobile: icon-only circle */
-@media (max-width: 599px) {
-  .autotask-fab {
-    width: 48px;
-    height: 48px;
-    padding: 0;
-    justify-content: center;
-  }
-
-  .autotask-fab__label {
-    display: none;
-  }
-}
-
 /* ─────────────────────────────────────────────────────────────────────────────
    ACCESSIBILITY — reduce motion
 ───────────────────────────────────────────────────────────────────────────── */

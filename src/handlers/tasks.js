@@ -723,9 +723,14 @@ function createApp(spaceId, store) {
 
   function handleClearBoard(req, res) {
     try {
+      if (taskRunner.spaceHasActiveRun(spaceId)) {
+        return sendError(res, 409, 'SPACE_RUN_ACTIVE',
+          'An agent is running a task here. Stop it before clearing the board.');
+      }
       // Count first (for the response payload).
       const total = store.getAllTasksForSpace(spaceId).length;
       store.clearSpace(spaceId);
+      taskRunner.closeSpaceRuns(spaceId).catch(() => {});
       sendJSON(res, 200, { deleted: total });
     } catch (err) {
       console.error('DELETE tasks error:', err);

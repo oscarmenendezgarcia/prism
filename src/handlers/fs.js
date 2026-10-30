@@ -1,18 +1,17 @@
 'use strict';
 
 /**
- * Filesystem handlers for the directory browser feature.
+ * Checks the working directory typed in the space form.
  *
- * Endpoints:
- *   GET  /api/v1/fs/home     — return os.homedir()
- *   POST /api/v1/fs/browse   — list immediate directory children (dirs only)
- *   POST /api/v1/fs/validate — verify a path exists and is a readable directory
+ * Endpoint:
+ *   POST /api/v1/fs/validate — verify a path is a readable directory, and whether it is
+ *                              a git repository
  *
- * Security: all paths must resolve to absolute locations; ~ is expanded to HOME.
- * Only directories are returned by browse (this is a directory picker, not a file picker).
+ * All paths must resolve to absolute locations; ~ is expanded to HOME.
  */
 
 const fs   = require('fs');
+const { execFileSync } = require('child_process');
 const os   = require('os');
 const path = require('path');
 
@@ -82,9 +81,16 @@ async function handleValidate(req, res) {
     return sendError(res, 400, 'INVALID_PATH', `Path is not a directory: ${dirPath}`);
   }
 
+  let isGitRepo = false;
+  try {
+    execFileSync('git', ['-C', dirPath, 'rev-parse', '--is-inside-work-tree'], { stdio: 'ignore', timeout: 5000 });
+    isGitRepo = true;
+  } catch { /* not a repository, or git is not installed */ }
+
   return sendJSON(res, 200, {
     path:    dirPath,
     isValid: true,
+    isGitRepo,
     message: 'Directory exists and is readable',
   });
 }

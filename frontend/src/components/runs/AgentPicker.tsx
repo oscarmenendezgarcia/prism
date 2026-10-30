@@ -82,7 +82,7 @@ export function AgentPicker() {
   }, [open, placed]);
 
   const select = (cliTool: DirectCliTool) => {
-    if (cliTool !== choice.cliTool) setChoice({ cliTool });
+    if (cliTool !== choice.cliTool) setChoice(cliTool === 'claude' ? { cliTool, model: 'sonnet' } : { cliTool });
   };
 
   return (

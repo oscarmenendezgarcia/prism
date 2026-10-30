@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import * as api from '@/api/client';
 import { Button } from '@/components/shared/Button';
+import { useAppStore } from '@/stores/useAppStore';
 import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
 import type { ChangedFile, Column, Task, TaskRunView } from '@/types';
 import { AgentPicker } from './AgentPicker';
@@ -142,6 +143,8 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
   const choice = useTaskRunStore((s) => s.choice);
   const harnesses = useTaskRunStore((s) => s.harnesses);
   const { start, stop, retry, close, createPullRequest } = useTaskRunStore.getState();
+  const openSpaceModal = useAppStore((s) => s.openSpaceModal);
+  const space = useAppStore((s) => s.spaces.find((sp) => sp.id === spaceId));
 
   const problem = choiceProblem(choice, harnesses);
   const startButton = (
@@ -151,7 +154,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
         variant="primary"
         size="sm"
         disabled={busy || task.isBlocked || !!problem}
-        title={problem ?? undefined}
+        title={task.isBlocked ? 'Blocked by unfinished dependencies' : (problem ?? undefined)}
         onClick={() => { start(spaceId, task.id).catch(() => {}); }}
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">play_arrow</span>
@@ -160,8 +163,15 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
     </div>
   );
 
-  if (!view || column === 'todo') {
-    if (column !== 'todo') return null;
+  if (!view || column === 'todo' || (column === 'in-progress' && view.status === 'done')) {
+    if (column === 'done') return null;
+    if (space && !space.workingDirectory) {
+      return (
+        <div className="flex flex-col gap-2" data-testid="run-panel">
+          <div><Button variant="ghost" size="sm" onClick={() => openSpaceModal('rename', space)}>Set a repository to run agents</Button></div>
+        </div>
+      );
+    }
     return <div className="flex flex-col gap-2" data-testid="run-panel">{startButton}</div>;
   }
   const missingHarness = column === 'in-progress' && view.failure?.reason === 'binary_missing';
@@ -169,7 +179,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
   const live = view.status === 'working' || view.status === 'checking';
   const ended = view.status === 'failed' || view.status === 'stopped' || view.status === 'done';
   const message = failureMessage(view);
-  const hookOutput = view.failure && view.failure.kind !== 'agent' ? view.hook?.outputTail : null;
+  const hookOutput = view.failure?.kind === 'check' || view.failure?.kind === 'pr' ? view.hook?.outputTail : null;
 
   return (
     <section className="flex flex-col gap-3" data-testid="run-panel" aria-label="Agent run">

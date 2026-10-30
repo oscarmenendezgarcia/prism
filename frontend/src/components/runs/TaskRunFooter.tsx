@@ -26,12 +26,30 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   const retry           = useTaskRunStore((s) => s.retry);
   const createPullRequest = useTaskRunStore((s) => s.createPullRequest);
   const openDetailPanel = useAppStore((s) => s.openDetailPanel);
+  const openSpaceModal  = useAppStore((s) => s.openSpaceModal);
+  const space           = useAppStore((s) => s.spaces.find((sp) => sp.id === spaceId));
 
   const missingHarness = column === 'in-progress' && view?.failure?.reason === 'binary_missing';
 
   // A card back in To do starts over, whatever its last run did. So does one whose
-  // harness is not installed: retrying could only fail the same way.
-  if (column === 'todo' || missingHarness) {
+  // harness is not installed, since retrying could only fail the same way, and one
+  // moved to In progress by hand.
+  const canStart = column === 'todo' || missingHarness
+    || (column === 'in-progress' && (!view || view.status === 'done'));
+  if (canStart) {
+    if (space && !space.workingDirectory) {
+      return (
+        <div className="flex items-center mt-3 -ml-2" data-testid="run-footer">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => { e.stopPropagation(); openSpaceModal('rename', space); }}
+          >
+            Set a repository to run agents
+          </Button>
+        </div>
+      );
+    }
     const problem = choiceProblem(choice, harnesses);
     return (
       <div className="flex flex-wrap items-center gap-1 mt-3 -ml-2" data-testid="run-footer">

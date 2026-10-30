@@ -21,7 +21,7 @@ const COLUMN_EMPTY: Record<Column, {
     icon: 'hourglass_empty',
     iconColor: 'text-text-disabled',
     title: 'Nothing in progress',
-    subtitle: 'Move tasks here when you start working',
+    subtitle: 'Tasks move here when someone starts them',
   },
   'done': {
     icon: 'check_circle',

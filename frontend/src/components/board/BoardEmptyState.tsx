@@ -40,7 +40,7 @@ const STEPS: StepProps[] = [
     n: 1,
     icon: 'dashboard',
     title: 'Create a space',
-    body: 'Spaces group related tasks. Pick one from the sidebar, or create a new one with the + button.',
+    body: 'Spaces group related tasks. Pick one from the tabs, or create a new one with the + button.',
   },
   {
     n: 2,

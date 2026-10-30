@@ -12,15 +12,12 @@ WORKDIR /app
 
 # Install backend dependencies (including node-pty, compiled from source).
 # The package's own lifecycle hooks cannot run at this point: `prepare` builds
-# the frontend (not copied yet) and `postinstall` fixes the node-pty exec bit
-# (needs bin/). So: install with scripts disabled, compile the native deps via
-# `npm rebuild`, then run postinstall.js explicitly. The frontend is built in
-# its own step below.
+# the frontend (not copied yet). So: install with scripts disabled and compile the
+# native deps via `npm rebuild`. The frontend is built in its own step below.
 COPY package.json package-lock.json* ./
 COPY bin/ ./bin/
 RUN npm install --ignore-scripts \
- && npm rebuild --build-from-source better-sqlite3 node-pty \
- && node bin/postinstall.js
+ && npm rebuild --build-from-source better-sqlite3
 
 # Install frontend dependencies and build the Vite/React app.
 COPY frontend/package.json frontend/package-lock.json* ./frontend/
@@ -36,6 +33,7 @@ RUN cd mcp && npm install
 # Copy the rest of the source needed at runtime.
 COPY server.js ./
 COPY src/ ./src/
+COPY agents/ ./agents/
 COPY mcp/ ./mcp/
 
 # ============================================================
@@ -44,18 +42,19 @@ COPY mcp/ ./mcp/
 # ============================================================
 FROM node:20-alpine AS runtime
 
-# node-pty and better-sqlite3 native bindings need python3/make/g++ only at
-# build time. At runtime only the compiled .node files are required — no
-# extra OS deps. The SQLite library is statically linked into better-sqlite3.
+# better-sqlite3 needs python3/make/g++ only at build time. The SQLite library is
+# statically linked into it. Agents work in git worktrees and open pull requests with gh.
+RUN apk add --no-cache git github-cli
 
 WORKDIR /app
 
-# Copy compiled backend node_modules (includes pre-built node-pty .node file).
+# Copy compiled backend node_modules.
 COPY --from=builder /app/node_modules ./node_modules
 
 # Copy application source.
 COPY --from=builder /app/server.js ./server.js
 COPY --from=builder /app/src/ ./src/
+COPY --from=builder /app/agents/ ./agents/
 COPY --from=builder /app/mcp/ ./mcp/
 COPY --from=builder /app/mcp/node_modules ./mcp/node_modules
 COPY --from=builder /app/package.json ./package.json

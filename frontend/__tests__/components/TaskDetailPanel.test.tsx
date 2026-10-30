@@ -64,18 +64,13 @@ const TASK_WITH_ATTACHMENTS: Task = {
   ],
 };
 
-const TASK_WITH_PIPELINE: Task = {
-  ...TASK,
-  id: 'task-pipeline-456',
-  pipeline: ['developer-agent', 'qa-engineer-e2e'],
-};
 
 function resetStore(overrides: Partial<ReturnType<typeof useAppStore.getState>> = {}) {
   useAppStore.setState({
     detailTask: null,
     isMutating: false,
     mutatingTaskIds: new Set<string>(),
-    tasks: { todo: [TASK, TASK_WITH_PIPELINE, TASK_WITH_ATTACHMENTS], 'in-progress': [], done: [] },
+    tasks: { todo: [TASK, TASK_WITH_ATTACHMENTS], 'in-progress': [], done: [] },
     activeSpaceId: 'space-1',
     ...overrides,
   } as any);
@@ -261,6 +256,14 @@ describe('TaskDetailPanel — auto-save on change: type', () => {
 });
 
 describe('TaskDetailPanel — explicit save: description', () => {
+  it('does not save a description nobody changed, which could undo an agent\'s edit', () => {
+    const updateTask = vi.fn();
+    useAppStore.setState({ detailTask: TASK, updateTask } as any);
+    render(<TaskDetailPanel />);
+    fireEvent.blur(screen.getByLabelText(/description/i));
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
   it('calls store.updateTask with { description } when Save description button is clicked', async () => {
     const updateTask = vi.fn().mockResolvedValue(undefined);
     useAppStore.setState({ detailTask: TASK, updateTask } as any);
@@ -378,10 +381,6 @@ describe('TaskDetailPanel — ARIA accessibility', () => {
     expect(screen.getByRole('button', { name: /close task detail/i })).toBeInTheDocument();
   });
 });
-
-// ---------------------------------------------------------------------------
-// T-011: Pipeline field editor in TaskDetailPanel
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // BUG FIX: Attachments section — all attachments must render in the panel

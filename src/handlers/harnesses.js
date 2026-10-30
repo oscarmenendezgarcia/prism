@@ -7,7 +7,7 @@
  * this machine and where, so the UI can mark the ones that aren't available as
  * disabled (with a link to install them).
  *
- * `custom` is intentionally excluded: it is a pipeline-stage-only shell-command
+ * `custom` is intentionally excluded: it is a shell-command
  * template (no single binary), not a direct-spawn harness.
  *
  * Routes:

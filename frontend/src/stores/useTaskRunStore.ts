@@ -23,9 +23,11 @@ export function choiceProblem(choice: AgentChoice, harnesses: HarnessInfo[] | nu
 function readSavedChoice(): AgentChoice {
   try {
     const saved = JSON.parse(localStorage.getItem(CHOICE_STORAGE_KEY) ?? 'null');
-    if (DIRECT_CLI_TOOLS.includes(saved?.cliTool)) return saved;
+    if (DIRECT_CLI_TOOLS.includes(saved?.cliTool)) {
+      return saved.cliTool === 'claude' && !saved.model ? { ...saved, model: 'sonnet' } : saved;
+    }
   } catch { /* corrupt or unavailable — use the default */ }
-  return { cliTool: 'claude' };
+  return { cliTool: 'claude', model: 'sonnet' };
 }
 
 interface TaskRunState {

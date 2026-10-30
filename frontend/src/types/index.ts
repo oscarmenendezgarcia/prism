@@ -80,7 +80,7 @@ export interface TaskRunView {
     outputTail?: string;
   } | null;
   failure: {
-    kind: 'agent' | 'check' | 'pr';
+    kind: 'agent' | 'check' | 'pr' | 'save';
     exitCode: number | null;
     timedOut?: boolean;
     reason?: string | null;
@@ -202,12 +202,6 @@ export interface MoveTaskResponse {
   to: Column;
 }
 
-/** Generic API error shape returned by the server. */
-export interface ApiError {
-  code: string;
-  message: string;
-}
-
 /** Attachment modal state. */
 export interface AttachmentModalState {
   open: boolean;
@@ -288,5 +282,6 @@ export interface SearchResponse {
 export interface ValidationResult {
   path: string;
   isValid: boolean;
+  isGitRepo?: boolean;
   message?: string;
 }

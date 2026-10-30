@@ -9,7 +9,7 @@ vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(), getTasks: vi.fn(), createTask: vi.fn(), moveTask: vi.fn(),
   deleteTask: vi.fn(), createSpace: vi.fn(), renameSpace: vi.fn(), deleteSpace: vi.fn(),
   getAttachmentContent: vi.fn(),
-  validateDirectory: vi.fn().mockResolvedValue({ path: '/x', isValid: true }),
+  validateDirectory: vi.fn().mockImplementation(async (p: string) => ({ path: p, isValid: true, isGitRepo: true })),
   updateSpaceHooks: vi.fn().mockResolvedValue({}),
 }));
 
@@ -166,6 +166,31 @@ describe('SpaceModal', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Path does not exist'));
     expect(validateDirectory).toHaveBeenCalledWith('/nope');
     expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('refuses a folder that is not a git repository', async () => {
+    vi.mocked(validateDirectory).mockResolvedValueOnce({ path: '/plain', isValid: true, isGitRepo: false });
+    const mockCreate = vi.fn();
+    useAppStore.setState({ spaceModal: { open: true, mode: 'create' }, createSpace: mockCreate } as any);
+    const user = userEvent.setup();
+    render(<SpaceModal />);
+    fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'S' } });
+    fireEvent.change(screen.getByLabelText(/working directory/i), { target: { value: '/plain' } });
+    await user.click(screen.getByRole('button', { name: /create/i }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('not a git repository'));
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it('saves the path the server resolved, not what was typed', async () => {
+    vi.mocked(validateDirectory).mockResolvedValueOnce({ path: '/home/me/repo', isValid: true, isGitRepo: true });
+    const mockCreate = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({ spaceModal: { open: true, mode: 'create' }, createSpace: mockCreate } as any);
+    const user = userEvent.setup();
+    render(<SpaceModal />);
+    fireEvent.change(screen.getByLabelText(/space name/i), { target: { value: 'S' } });
+    fireEvent.change(screen.getByLabelText(/working directory/i), { target: { value: '~/repo' } });
+    await user.click(screen.getByRole('button', { name: /create/i }));
+    await waitFor(() => expect(mockCreate).toHaveBeenCalledWith('S', '/home/me/repo'));
   });
 
   it('creates the space once the working directory checks out', async () => {

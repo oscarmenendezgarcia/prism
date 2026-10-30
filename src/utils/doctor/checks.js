@@ -46,66 +46,22 @@ function checkNodeVersion(ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. node-pty spawn-helper executable bit
+// 2. git, which every agent run works in
 // ---------------------------------------------------------------------------
 
 /**
- * Replicates bin/postinstall.js logic:
- *   - win32              → pass (spawn-helper is not used on Windows)
- *   - file missing       → pass with "not installed for this platform" note
- *   - file exists + +x   → pass
- *   - file exists, no +x → fail
- *
  * @param {object} ctx
  * @returns {{ name: string, status: 'pass'|'fail', message: string }}
  */
-function checkSpawnHelperExecutable(ctx) {
-  const deps     = ctx.deps || {};
-  const _fs      = deps.fs       || fs;
-  const platform = deps.platform !== undefined ? deps.platform : process.platform;
-  const arch     = deps.arch     !== undefined ? deps.arch     : process.arch;
-
-  const name = 'spawn-helper';
-
-  if (platform === 'win32') {
-    return { name, status: 'pass', message: 'N/A on Windows' };
-  }
-
-  const helperPath = path.join(
-    ctx.packageRoot,
-    'node_modules', 'node-pty', 'prebuilds',
-    `${platform}-${arch}`,
-    'spawn-helper',
-  );
-
-  // Check existence
+function checkGit(ctx) {
+  const deps = ctx.deps || {};
+  const run  = deps.execFileSync || childProcess.execFileSync;
   try {
-    _fs.accessSync(helperPath, _fs.constants.F_OK);
+    const version = String(run('git', ['--version'], { encoding: 'utf8', timeout: 5000 })).trim();
+    return { name: 'git', status: 'pass', message: version };
   } catch {
-    return {
-      name,
-      status:  'pass',
-      message: 'node-pty not installed for this platform (spawn-helper absent)',
-    };
+    return { name: 'git', status: 'fail', message: 'git not found: agents cannot run tasks without it' };
   }
-
-  // Check executable bit
-  let stat;
-  try {
-    stat = _fs.statSync(helperPath);
-  } catch (err) {
-    return { name, status: 'fail', message: `stat failed: ${err.message}` };
-  }
-
-  const isExecutable = (stat.mode & 0o111) !== 0;
-  if (isExecutable) {
-    return { name, status: 'pass', message: 'executable (+x)' };
-  }
-  return {
-    name,
-    status:  'fail',
-    message: 'spawn-helper exists but is not executable (run: npm rebuild node-pty)',
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +223,7 @@ function checkServerStatus(ctx) {
 
 const CHECKS = [
   checkNodeVersion,
-  checkSpawnHelperExecutable,
+  checkGit,
   checkBetterSqlite3,
   checkClaudeCli,
   checkDataDirWritable,
@@ -277,7 +233,7 @@ const CHECKS = [
 module.exports = {
   CHECKS,
   checkNodeVersion,
-  checkSpawnHelperExecutable,
+  checkGit,
   checkBetterSqlite3,
   checkClaudeCli,
   checkDataDirWritable,

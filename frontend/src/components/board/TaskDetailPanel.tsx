@@ -330,7 +330,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const handleSaveDescription = useCallback(() => {
     if (!detailTask) return;
-    updateTask(detailTask.id, { description: localDescription.trim() });
+    const description = localDescription.trim();
+    // An agent may have changed it since this form loaded. Leaving the field must not undo that.
+    if (description === (detailTask.description ?? '').trim()) return;
+    updateTask(detailTask.id, { description });
   }, [detailTask, localDescription, updateTask]);
 
   // Comment handlers — delegate to the store so the board badge refreshes.
@@ -410,14 +413,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const column = findTaskColumn(tasks, detailTask.id);
   // Comments can arrive from the agent while the panel is open, through board polling.
-  const boardComments = column
-    ? (tasks[column] as Task[]).find((t) => t.id === detailTask.id)?.comments
-    : undefined;
+  // The board has the fresh copy: this one is from when the panel opened, or last saved.
+  const boardTask = column ? (tasks[column] as Task[]).find((t) => t.id === detailTask.id) : undefined;
+  const boardComments = boardTask?.comments;
   const comments = mergeComments(boardComments, detailTask.comments);
   const hasOpenQuestion = comments.some((c) => c.type === 'question' && !c.resolved);
   const canRequestChanges = !!taskRunView
     && column !== 'todo'
-    && ['failed', 'stopped', 'done', 'approval'].includes(taskRunView.status)
+    && ['failed', 'stopped', 'done'].includes(taskRunView.status)
     && !hasOpenQuestion;
   const columnLabel = column ? COLUMN_LABELS[column] : '';
 
@@ -540,7 +543,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               />
               </div>
 
-              {column && <TaskRunPanel task={detailTask} column={column} spaceId={activeSpaceId} />}
+              {column && <TaskRunPanel task={boardTask ?? detailTask} column={column} spaceId={activeSpaceId} />}
 
               {/* Description */}
               <div className="flex flex-col gap-1.5 animate-fade-in-up [animation-delay:110ms]">

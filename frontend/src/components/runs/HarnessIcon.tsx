@@ -9,7 +9,7 @@ import opencodeLogo from '@/assets/harness/opencode.svg';
 import piLogo from '@/assets/harness/pi.svg';
 import hermesLogo from '@/assets/harness/hermes.png';
 
-export type DirectCliTool = Exclude<ModelCliTool, 'custom'>;
+export type DirectCliTool = ModelCliTool;
 
 export const HARNESS_NAMES: Record<DirectCliTool, string> = {
   claude:   'Claude Code',

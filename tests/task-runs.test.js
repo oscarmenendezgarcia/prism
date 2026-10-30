@@ -41,7 +41,17 @@ case "$mode" in
       -d '{"author":"claude","type":"question","text":"Second question?"}' > /dev/null
     exit 0 ;;
   break-worktree) rm -f .git; exit 0 ;;
+  vanish) rm -rf "$PWD"; exit 0 ;;
+  question-and-keep-going)
+    echo slower > "$W/mode"
+    curl -s -X POST "$KANBAN_API_URL/spaces/$PRISM_TEST_SPACE/tasks/$PRISM_TEST_TASK/comments" \\
+      -H 'Content-Type: application/json' \\
+      -d '{"author":"claude","type":"question","text":"Totals too?"}' > /dev/null
+    echo "$n" > "$W/asked"
+    sleep 5
+    exit 0 ;;
   block) echo $$ > "$W/agent-pid"; sleep 60 & wait ;;
+  leftover) sleep 60 & echo $! > "$(cat "$W/pidfile")"; sleep 1; exit 0 ;;
   question)
     echo ok > "$W/mode"
     curl -s -X POST "$KANBAN_API_URL/spaces/$PRISM_TEST_SPACE/tasks/$PRISM_TEST_TASK/comments" \\
@@ -468,18 +478,30 @@ describe('task runs', () => {
     assert.equal(done.result.additions, 2);
   });
 
-  test('work that cannot be saved is reported and its worktree stays', async () => {
+  test('work that cannot be saved fails the run, the card stays open and its worktree stays', async () => {
     setMode('nested');
     const taskId = await makeTask();
     const { json: run } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
-    const done = await waitFor(taskId, 'done');
-    assert.match(done.result.saveError, /Nested repository|Could not save/);
+    const failed = await waitFor(taskId, 'failed');
+    assert.equal(failed.failure.kind, 'save');
+    assert.match(failed.result.saveError, /Nested repository|Could not save/);
+    assert.equal(await columnOf(taskId), 'in-progress');
 
     const res = await call('POST', `/spaces/${space}/tasks/${taskId}/close`);
     assert.equal(res.status, 409);
     assert.equal(res.json.error.code, 'WORKTREE_KEPT');
     assert.ok(fs.existsSync(run.worktree.path));
     assert.equal((await view(taskId)).closedAt, null);
+  });
+
+  test('a worktree that vanished under the agent is a failure, not an empty result', async () => {
+    setMode('vanish');
+    const taskId = await makeTask();
+    await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    const failed = await waitFor(taskId, 'failed');
+    assert.equal(failed.failure.kind, 'save');
+    assert.match(failed.result.saveError, /gone/);
+    assert.equal(await columnOf(taskId), 'in-progress');
   });
 
   test('deleting a finished task removes its worktree and keeps its branch', async () => {
@@ -657,7 +679,7 @@ describe('task runs', () => {
     assert.throws(() => process.kill(pid, 0));
   });
 
-  test('a check does not run when the worktree lost its .git', async () => {
+  test('nothing runs on a worktree that lost its .git', async () => {
     const marker = path.join(work, 'hook-ran');
     await setCheck(`touch ${marker}`);
     setMode('break-worktree');
@@ -665,7 +687,7 @@ describe('task runs', () => {
     await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
     const failed = await waitFor(taskId, 'failed');
     assert.ok(!fs.existsSync(marker));
-    assert.match(failed.hook.outputTail, /did not run/);
+    assert.equal(failed.failure.kind, 'save');
     assert.match(failed.result.saveError, /.+/);
     assert.equal(git(repo, 'status', '--porcelain'), '', 'nothing touched the checkout');
   });
@@ -781,6 +803,131 @@ describe('task runs', () => {
     await waitFor(taskId, 'done');
   });
 
+  test('an answer given before the agent exits reaches it in another turn', async () => {
+    const taskId = await makeTask();
+    await withTaskEnv(taskId, async () => {
+      setMode('question-and-keep-going');
+      fs.rmSync(path.join(agentDir, 'asked'), { force: true });
+      await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+      for (let i = 0; i < 100 && !fs.existsSync(path.join(agentDir, 'asked')); i++) await new Promise((r) => setTimeout(r, 100));
+      assert.equal((await view(taskId)).status, 'working');
+      setMode('ok');
+      await answerOpenQuestion(taskId, 'Yes, totals too');
+      const done = await waitFor(taskId, 'done');
+      assert.equal(done.iteration, 2);
+      assert.match(lastPrompt(), /Yes, totals too/);
+    });
+  });
+
+  test('a board or space with a run going cannot be cleared or deleted', async () => {
+    const { json: other } = await call('POST', '/spaces', { name: `busy-${taskCounter}`, workingDirectory: repo });
+    const { json: task } = await call('POST', `/spaces/${other.id}/tasks`, { title: 'x', type: 'feature' });
+    setMode('block');
+    const { json: run } = await call('POST', `/spaces/${other.id}/tasks/${task.id}/run`, {});
+    for (let i = 0; i < 50 && !(await call('GET', `/spaces/${other.id}/task-runs`)).json[task.id]; i++) await new Promise((r) => setTimeout(r, 100));
+    assert.equal((await call('DELETE', `/spaces/${other.id}/tasks`)).status, 409);
+    assert.equal((await call('DELETE', `/spaces/${other.id}`)).status, 409);
+    await call('POST', `/runs/${run.runId}/stop`);
+    for (let i = 0; i < 80 && fs.existsSync(path.join(run.worktree.path, 'never')) === false && (await call('GET', `/spaces/${other.id}/task-runs`)).json[task.id].status !== 'stopped'; i++) await new Promise((r) => setTimeout(r, 100));
+    assert.equal((await call('DELETE', `/spaces/${other.id}/tasks`)).status, 200);
+    for (let i = 0; i < 50 && fs.existsSync(run.worktree.path); i++) await new Promise((r) => setTimeout(r, 100));
+    assert.ok(!fs.existsSync(run.worktree.path), 'clearing removes its worktrees');
+    assert.equal((await call('DELETE', `/spaces/${other.id}`)).status, 200);
+  });
+
+  test('a stop wins over a retry still waiting for the last save', async () => {
+    setMode('block');
+    const { taskId, run } = await runTask();
+    await waitFor(taskId, 'working');
+    for (let i = 0; i < 50 && !fs.existsSync(path.join(agentDir, 'agent-pid')); i++) await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 200));
+    await call('POST', `/runs/${run.runId}/stop`);
+    const resume = call('POST', `/runs/${run.runId}/resume`);
+    await new Promise((r) => setTimeout(r, 20));
+    await call('POST', `/runs/${run.runId}/stop`);
+    // Whichever got there first, the last thing the user said was stop.
+    assert.ok([200, 409].includes((await resume).status));
+    await new Promise((r) => setTimeout(r, 1000));
+    assert.equal((await view(taskId)).status, 'stopped');
+  });
+
+  test('an agent that survives a restart is picked up again', async () => {
+    setMode('slower');
+    const { taskId, run } = await runTask();
+    await waitFor(taskId, 'working');
+    await new Promise((r) => setTimeout(r, 500));
+    server.kill('SIGKILL');
+    await new Promise((r) => server.once('exit', r));
+    await startServer();
+    assert.equal((await view(taskId)).status, 'working');
+    const done = await waitFor(taskId, 'done');
+    assert.equal(done.result.fileCount, 1);
+    assert.match(git(repo, 'show', `${run.worktree.branch}:agent-work.txt`), /work/);
+  });
+
+  test('an agent that finished while the server was down is finished, and its leftovers end', async () => {
+    const pidFile = path.join(work, 'leftover-pid');
+    setMode('leftover');
+    fs.writeFileSync(path.join(agentDir, 'pidfile'), pidFile);
+    const { taskId } = await runTask();
+    for (let i = 0; i < 50 && !fs.existsSync(pidFile); i++) await new Promise((r) => setTimeout(r, 100));
+    server.kill('SIGKILL');
+    await new Promise((r) => server.once('exit', r));
+    await new Promise((r) => setTimeout(r, 2500)); // The agent exits while nothing watches.
+    await startServer();
+    await waitFor(taskId, 'done');
+    await new Promise((r) => setTimeout(r, 500));
+    assert.throws(() => process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 0));
+  });
+
+  test('an agent past its time limit is killed, and what it did is saved', async () => {
+    const baseEnv = env;
+    await stopServer();
+    env = { ...env, PRISM_AGENT_TIMEOUT_MS: '1000', PRISM_POLL_INTERVAL_MS: '200' };
+    await startServer();
+    try {
+      setMode('block');
+      const { taskId, run } = await runTask();
+      await waitFor(taskId, 'working');
+      fs.writeFileSync(path.join(run.worktree.path, 'partial.txt'), 'partial\n');
+      const failed = await waitFor(taskId, 'failed');
+      assert.equal(failed.failure.reason, 'timeout');
+      for (let i = 0; i < 80 && !(await view(taskId)).result; i++) await new Promise((r) => setTimeout(r, 100));
+      assert.equal(git(repo, 'show', `${run.worktree.branch}:partial.txt`), 'partial');
+    } finally {
+      await stopServer();
+      env = baseEnv;
+      await startServer();
+    }
+  });
+
+  test('the limit of runs holds for simultaneous starts and for retries', async () => {
+    const baseEnv = env;
+    await stopServer();
+    env = { ...env, PRISM_MAX_RUNS: '1' };
+    await startServer();
+    try {
+      setMode('block');
+      const ids = [await makeTask(), await makeTask(), await makeTask()];
+      const started = await Promise.all(ids.map((id) => call('POST', `/spaces/${space}/tasks/${id}/run`, {})));
+      assert.deepEqual(started.map((r) => r.status).sort(), [201, 409, 409]);
+      const first = started.find((r) => r.status === 201).json;
+      await call('POST', `/runs/${first.runId}/stop`);
+      await waitFor(first.taskId, 'stopped');
+
+      const other = started.findIndex((r) => r.status === 409);
+      const second = await call('POST', `/spaces/${space}/tasks/${ids[other]}/run`, {});
+      assert.equal(second.status, 201);
+      assert.equal((await call('POST', `/runs/${first.runId}/resume`)).status, 409, 'a retry counts too');
+      await call('POST', `/runs/${second.json.runId}/stop`);
+      await waitFor(ids[other], 'stopped');
+    } finally {
+      await stopServer();
+      env = baseEnv;
+      await startServer();
+    }
+  });
+
   test('the agent\'s output can be read', async () => {
     const { taskId, run } = await runTask();
     await waitFor(taskId, 'done');
@@ -890,7 +1037,6 @@ esac
       const { taskId } = await runTask();
       const failed = await waitFor(taskId, 'failed');
       assert.ok(failed.result.saveError);
-      assert.match(failed.hook.outputTail, /could not be saved/);
       assert.equal(fs.existsSync(path.join(agentDir, 'gh-log')), false, 'gh never ran');
     });
 
@@ -916,6 +1062,16 @@ esac
       await new Promise((r) => setTimeout(r, 300));
       assert.equal((await view(taskId)).result.pr, null);
       assert.equal(await columnOf(taskId), 'in-progress');
+    });
+
+    test('a PR right after a stop carries what the stop saved', async () => {
+      setMode('block');
+      const { taskId, run } = await runTask();
+      await waitFor(taskId, 'working');
+      fs.writeFileSync(path.join(run.worktree.path, 'half.txt'), 'half\n');
+      await call('POST', `/runs/${run.runId}/stop`);
+      assert.equal((await call('POST', `/spaces/${space}/tasks/${taskId}/pr`, {})).status, 200);
+      assert.equal(execFileSync('git', ['-C', remote, 'show', `${run.worktree.branch}:half.txt`], { encoding: 'utf8' }), 'half\n');
     });
 
     test('a PR cannot be created while the agent works', async () => {

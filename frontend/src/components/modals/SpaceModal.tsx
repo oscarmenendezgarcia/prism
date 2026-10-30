@@ -62,13 +62,18 @@ export function SpaceModal() {
       return;
     }
 
-    const wd = workingDirectory.trim() || undefined;
+    let wd = workingDirectory.trim() || undefined;
     setSubmitting(true);
     try {
       setDirectoryError('');
       if (wd) {
         try {
-          await validateDirectory(wd);
+          const checked = await validateDirectory(wd);
+          if (!checked.isGitRepo) {
+            setDirectoryError('This folder is not a git repository. Agents need one to work in.');
+            return;
+          }
+          wd = checked.path;
         } catch (err) {
           setDirectoryError((err as Error).message);
           return;

@@ -4,7 +4,7 @@
  * By default Prism listens on loopback and needs no token, but a loopback server is
  * still reachable from any web page in the user's browser. So requests must carry a
  * loopback Host (blocks DNS rebinding) and a same-site Origin (blocks cross-site
- * requests). The terminal WebSocket is a shell, so this matters.
+ * requests). Tasks start agents with full permissions, so this matters.
  *
  * Listening on anything else requires a token: PRISM_TOKEN, or one generated once and
  * kept in <dataDir>/auth-token. Clients send it as `Authorization: Bearer <token>`.

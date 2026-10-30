@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TaskRunFooter } from '../TaskRunFooter';
 import { useTaskRunStore } from '@/stores/useTaskRunStore';
@@ -24,7 +24,7 @@ const view = (over: Partial<TaskRunView>): TaskRunView => ({
   createdAt: '', updatedAt: '', closedAt: null, result: null, hook: null, failure: null, ...over,
 });
 
-const result = { branch: 'pipeline/run-1', baseBranch: 'main', ref: null, fileCount: 2, additions: 10, deletions: 3, saveError: null };
+const result = { branch: 'prism/run-1', baseBranch: 'main', ref: null, fileCount: 2, additions: 10, deletions: 3, saveError: null };
 
 function renderFooter(column: 'todo' | 'in-progress' | 'done', over?: Partial<TaskRunView>, t: Task = task) {
   useTaskRunStore.setState({ views: over ? { t1: view(over) } : {}, busyTaskIds: new Set(), choice: { cliTool: 'claude' }, harnesses: null });
@@ -76,9 +76,25 @@ describe('TaskRunFooter', () => {
     expect(api.startTaskRun).toHaveBeenCalledWith('s1', 't1', { cliTool: 'claude' });
   });
 
-  it('shows nothing on a card in progress that has never run', () => {
-    const { container } = renderFooter('in-progress');
-    expect(container).toBeEmptyDOMElement();
+  it('offers to run a card moved to In progress by hand', () => {
+    renderFooter('in-progress');
+    expect(screen.getByRole('button', { name: /run/i })).toBeEnabled();
+  });
+
+  it('offers to run a Done card moved back to In progress', () => {
+    renderFooter('in-progress', view({ status: 'done' }));
+    expect(screen.getByRole('button', { name: /run/i })).toBeEnabled();
+  });
+
+  it('asks for a repository before offering to run', () => {
+    const openSpaceModal = vi.fn();
+    const space = { id: 's1', name: 'S', createdAt: '', updatedAt: '' };
+    useAppStore.setState({ spaces: [space], openSpaceModal });
+    renderFooter('todo');
+    expect(screen.queryByRole('button', { name: /^run$/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /set a repository/i }));
+    expect(openSpaceModal).toHaveBeenCalledWith('rename', space);
+    useAppStore.setState({ spaces: [] });
   });
 
   it('does not run a blocked task', () => {
@@ -102,7 +118,7 @@ describe('TaskRunFooter', () => {
     expect(screen.getByTestId('run-result')).toHaveTextContent('2 files');
     expect(screen.getByTestId('run-result')).toHaveTextContent('+10');
     expect(screen.getByTestId('run-result')).toHaveTextContent('−3');
-    expect(screen.getByTestId('run-result')).toHaveTextContent('pipeline/run-1');
+    expect(screen.getByTestId('run-result')).toHaveTextContent('prism/run-1');
     expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
   });
 

@@ -12,6 +12,7 @@
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { createApp }                      = require('../handlers/tasks');
+const taskRunner                         = require('../services/taskRunner');
 const { handleStatic }                   = require('../handlers/static');
 const { handleGetHarnesses }             = require('../handlers/harnesses');
 const { handleCreateComment, handleUpdateComment } = require('../handlers/comments');
@@ -254,6 +255,11 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       }
 
       if (method === 'DELETE') {
+        if (taskRunner.spaceHasActiveRun(spaceId)) {
+          return sendError(res, 409, 'SPACE_RUN_ACTIVE',
+            'An agent is running a task here. Stop it before deleting the space.');
+        }
+        await taskRunner.closeSpaceRuns(spaceId);
         const result = spaceManager.deleteSpace(spaceId);
 
         if (!result.ok) {

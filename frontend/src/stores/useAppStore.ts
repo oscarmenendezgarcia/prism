@@ -8,6 +8,7 @@
 
 import { create } from 'zustand';
 import * as api from '@/api/client';
+import { useTaskRunStore } from '@/stores/useTaskRunStore';
 import { updateSpace as apiUpdateSpace } from '@/api/client';
 import type {
   Space,
@@ -234,7 +235,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     safeStorage.setItem(ACTIVE_SPACE_KEY, id);
     // Arc filter/grouping are per-space: a label from the old space would hide
     // every card in the new one. Reset them on switch.
-    set({ activeSpaceId: id, arcFilter: null, arcGrouping: false });
+    set({
+      activeSpaceId: id, arcFilter: null, arcGrouping: false,
+      ...(id !== get().activeSpaceId && { tasks: emptyBoard() }),
+    });
   },
 
   loadSpaces: async () => {
@@ -355,7 +359,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activeSpaceId, showToast } = get();
     try {
       const data = await api.getTasks(activeSpaceId);
-      set({ tasks: data });
+      // The user may have moved to another space while this was on its way.
+      if (get().activeSpaceId === activeSpaceId) set({ tasks: data });
     } catch (err) {
       showToast(`Failed to load tasks: ${(err as Error).message}`, 'error');
     }
@@ -576,8 +581,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       showToast('Saved');
     } catch (err) {
-      // Roll back optimistic changes on error.
-      set({ tasks, detailTask });
+      // Roll back optimistic changes on error. A panel closed meanwhile stays closed.
+      set({ tasks, ...(get().detailTask?.id === detailTask?.id && { detailTask }) });
       showToast(`Failed to save: ${(err as Error).message}`, 'error');
     } finally {
       set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });
@@ -587,7 +592,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Task comments (task-ui-comments) ────────────────────────────────────
 
   addComment: async (taskId, payload) => {
-    const { activeSpaceId, detailTask, showToast } = get();
+    const { activeSpaceId, showToast } = get();
     try {
       const comment = await api.createComment(activeSpaceId, taskId, payload);
 
@@ -603,7 +608,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           'in-progress': currentTasks['in-progress'].map(applyAdd),
           'done':        currentTasks['done'].map(applyAdd),
         },
-        ...(detailTask?.id === taskId ? { detailTask: applyAdd(detailTask) } : {}),
+        ...(get().detailTask?.id === taskId ? { detailTask: applyAdd(get().detailTask as Task) } : {}),
       });
     } catch (err) {
       showToast(`Failed to post comment: ${(err as Error).message}`, 'error');
@@ -612,7 +617,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   patchComment: async (taskId, commentId, patch) => {
-    const { activeSpaceId, detailTask, showToast } = get();
+    const { activeSpaceId, showToast } = get();
     try {
       const updated = await api.updateComment(activeSpaceId, taskId, commentId, patch);
 
@@ -631,8 +636,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           'in-progress': currentTasks['in-progress'].map(applyPatch),
           'done':        currentTasks['done'].map(applyPatch),
         },
-        ...(detailTask?.id === taskId ? { detailTask: applyPatch(detailTask) } : {}),
+        ...(get().detailTask?.id === taskId ? { detailTask: applyPatch(get().detailTask as Task) } : {}),
       });
+      if (patch.resolved) void useTaskRunStore.getState().load(activeSpaceId); // The agent may be starting again.
     } catch (err) {
       showToast(`Failed to update comment: ${(err as Error).message}`, 'error');
       throw err;
@@ -640,7 +646,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   answerQuestion: async (taskId, questionCommentId, text) => {
-    const { activeSpaceId, detailTask, showToast } = get();
+    const { activeSpaceId, showToast } = get();
     try {
       const { question, answer } = await api.answerQuestion(activeSpaceId, taskId, questionCommentId, text);
 
@@ -660,8 +666,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           'in-progress': currentTasks['in-progress'].map(applyAnswer),
           'done':        currentTasks['done'].map(applyAnswer),
         },
-        ...(detailTask?.id === taskId ? { detailTask: applyAnswer(detailTask) } : {}),
+        ...(get().detailTask?.id === taskId ? { detailTask: applyAnswer(get().detailTask as Task) } : {}),
       });
+      void useTaskRunStore.getState().load(activeSpaceId); // The agent may be starting again.
     } catch (err) {
       showToast(`Failed to answer question: ${(err as Error).message}`, 'error');
       throw err;
@@ -684,22 +691,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   closeGlobalSearch:  () => set({ isGlobalSearchOpen: false }),
 }));
 
-// Convenience selector hooks for common slices
-export const useActiveSpaceId = () => useAppStore((s) => s.activeSpaceId);
-export const useSpaces = () => useAppStore((s) => s.spaces);
 export const useTasks = () => useAppStore((s) => s.tasks);
-export const useIsMutating = () => useAppStore((s) => s.isMutating);
-/**
- * True while `taskId` has an in-flight mutation (move / delete / updateTask / reorder).
- * Scoped per-task so only the affected card shows a disabled state while other
- * cards on the board remain interactive.
- */
-export const useIsTaskMutating = (taskId: string) =>
-  useAppStore((s) => s.mutatingTaskIds.has(taskId));
 export const useToast = () => useAppStore((s) => s.toast);
 /** T-1: true during the exit animation window (200ms before toast clears). */
 export const useToastLeaving = () => useAppStore((s) => s.toastLeaving);
 
-// Named export for direct task access by column
-export const useColumnTasks = (column: Column): Task[] =>
-  useAppStore((s) => s.tasks[column]);

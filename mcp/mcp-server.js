@@ -416,7 +416,7 @@ server.tool(
 
 server.tool(
   'kanban_create_space',
-  'Create a new space (project board) with the given name. Space names must be unique (case-insensitive) and between 1 and 100 characters. Optionally set folioBackend to "file" for git-versioned folio storage in the space working directory (requires workingDirectory; defaults to "sqlite").',
+  'Create a new space (project board) with the given name. Space names must be unique (case-insensitive) and between 1 and 100 characters.',
   {
     name: z.string().describe('Name for the new space (1-100 characters, must be unique).'),
   },
@@ -431,7 +431,7 @@ server.tool(
 
 server.tool(
   'kanban_rename_space',
-  'Rename an existing space. The new name must be unique (case-insensitive) and between 1 and 100 characters. Optionally update folioBackend (cannot change after folio is activated).',
+  'Rename an existing space. The new name must be unique (case-insensitive) and between 1 and 100 characters.',
   {
     id:   z.string().describe('The space ID to rename.'),
     name: z.string().describe('New name for the space.'),

@@ -125,8 +125,8 @@ describe('worktreeManager — saving uncommitted work', () => {
     fs.writeFileSync(path.join(repo, 'user-work.txt'), 'mine\n');
     const before = git(repo, 'rev-parse', 'HEAD');
 
-    await assert.rejects(() => saveWork({ path: broken, branch: 'pipeline/run-broken0' }), /not a worktree root/);
-    await teardown({ path: broken, branch: 'pipeline/run-broken0' }, { reason: 'orphan' });
+    await assert.rejects(() => saveWork({ path: broken, branch: 'prism/run-broken0' }), /not a worktree root/);
+    await teardown({ path: broken, branch: 'prism/run-broken0' }, { reason: 'orphan' });
 
     assert.equal(git(repo, 'rev-parse', 'HEAD'), before);
     assert.match(git(repo, 'status', '--porcelain'), /\?\? user-work\.txt/);

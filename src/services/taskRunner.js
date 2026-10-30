@@ -11,7 +11,7 @@
  * Environment variables:
  *   PRISM_AGENT_TIMEOUT_MS - Kill an agent after this long (default: 1h)
  *   PRISM_STALL_TIMEOUT_MS - Kill an agent with no output for this long (default: 15min)
- *   PRISM_MAX_RUNS         - Agents running at once (default: 5)
+ *   PRISM_MAX_RUNS         - Runs going at once (default: 5)
  *   PRISM_POLL_INTERVAL_MS - How often to look at a running agent (default: 2s)
  *   PIPELINE_RUNS_DIR      - Where runs keep their logs and prompts
  */
@@ -47,6 +47,17 @@ const LOG_TAIL_BYTES      = 16_384;
 const ACTIVE_STATUSES     = ['pending', 'running', 'blocked'];
 const RESUMABLE_STATUSES  = ['interrupted', 'failed', 'blocked'];
 
+// Names these settings had in the pipeline versions, still honoured.
+const OLD_ENV_NAMES = {
+  PRISM_AGENT_TIMEOUT_MS: 'PIPELINE_STAGE_TIMEOUT_MS',
+  PRISM_STALL_TIMEOUT_MS: 'PIPELINE_STALL_TIMEOUT_MS',
+  PRISM_MAX_RUNS:         'PIPELINE_MAX_CONCURRENT',
+};
+
+function envInt(name, fallback) {
+  return parseInt(process.env[name] || process.env[OLD_ENV_NAMES[name]] || String(fallback), 10);
+}
+
 let _store   = null;
 let _dataDir = null;
 
@@ -59,6 +70,10 @@ const activeAgents = new Map();
 const activeHooks = new Map();
 // runId → the save in flight. A new turn waits for it.
 const activeSaves = new Map();
+// runId → how many times it was stopped. An action queued before a stop must not go on.
+const stopCounts = new Map();
+// Runs being created: they count towards the limit before they are on record.
+let creatingRuns = 0;
 // taskId → tail of the queue of actions on its run. Each spans git operations, and two
 // tabs must not interleave them.
 const taskLocks = new Map();
@@ -201,40 +216,57 @@ async function waitForExit(pid) {
   }
 }
 
+function isGroupAlive(pid) {
+  if (!pid || process.platform === 'win32') return isProcessAlive(pid);
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Stop a check that kept running when the server restarted, so it does not write to the
- * worktree while Prism saves it. A pid whose process is now something else, outside the
- * worktree, is left alone.
+ * Whether a pid recorded before a restart is still this run's. A process that now runs
+ * outside the worktree is something else that got the same pid.
  *
  * @param {object} run
- * @returns {number|undefined} The process group signalled.
+ * @param {number} pid
+ * @returns {boolean}
  */
-function killLeftoverHook(run) {
-  const pid = run.hook?.pid;
-  if (!pid || pid === process.pid) return undefined;
+function isRunsProcess(run, pid) {
+  if (!pid || pid === process.pid) return false;
 
   let cwd = null;
   try {
     cwd = fs.realpathSync(`/proc/${pid}/cwd`);
   } catch (err) {
     // ENOENT: the leader is gone, or this is not Linux. While its group lives the kernel
-    // does not reuse the pid, so that group can only be the check's. Anything else, such
+    // does not reuse the pid, so that group can only be the run's. Anything else, such
     // as a process of another user, is not ours to signal.
-    if (err.code !== 'ENOENT') return undefined;
+    return err.code === 'ENOENT';
   }
-  if (cwd !== null) {
-    let worktree;
-    try { worktree = fs.realpathSync(run.worktree.path); } catch { return undefined; }
-    if (cwd !== worktree && !cwd.startsWith(worktree + path.sep)) return undefined;
-  }
-
   try {
-    process.kill(-pid, 'SIGTERM');
-    log('hook.killed_on_startup', { runId: run.runId, pid });
-    return pid;
+    const worktree = fs.realpathSync(run.worktree.path);
+    return cwd === worktree || cwd.startsWith(worktree + path.sep);
   } catch {
-    return undefined;
+    return false;
   }
+}
+
+/**
+ * Stop what a run left running across a restart, so it does not write to the worktree
+ * while Prism saves it.
+ *
+ * @param {object} run
+ * @param {number} pid
+ * @returns {number|undefined} The process group signalled.
+ */
+function killLeftover(run, pid) {
+  if (!isRunsProcess(run, pid) || !isGroupAlive(pid)) return undefined;
+  killGroup(pid);
+  log('process.killed_on_startup', { runId: run.runId, pid });
+  return pid;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +294,9 @@ async function saveResult(runId) {
       saveError = err.message;
       log('worktree.error', { runId, op: 'save_work', code: err.code, message: err.message, kept: run.worktree.path });
     }
+  } else {
+    saveError = 'The worktree is gone, so what the agent left there could not be saved.';
+    log('worktree.error', { runId, op: 'save_work', message: 'worktree missing' });
   }
 
   let files = null;
@@ -492,14 +527,22 @@ async function runAutoPullRequest(runId, turn) {
  *
  * @param {string} runId
  */
-async function finishRun(runId) {
-  await save(runId);
+async function finishRun(runId, signalledPid) {
+  await save(runId, signalledPid);
 
   let run = readRun(runId);
   if (!run || run.status !== 'running') return; // Stopped while saving.
 
   // A failed check was kept for the agent's prompt. The agent has now seen it.
   run.hook = null;
+  // A check would pass on code that is not on the branch, and the task would close
+  // without the work.
+  if (run.result?.saveError) {
+    run.status = 'failed';
+    writeRun(run);
+    log('run.failed', { runId, reason: 'save_failed' });
+    return;
+  }
   run.turnId = run.turnId ?? crypto.randomUUID();
   const turn = run.turnId;
   writeRun(run);
@@ -715,8 +758,8 @@ function readExitCode(doneFile) {
  *   exits: a log that does not grow says nothing about it.
  */
 function watchAgent(runId, startedAt, stallWatch) {
-  const timeoutMs = parseInt(process.env.PRISM_AGENT_TIMEOUT_MS || String(DEFAULT_TIMEOUT_MS), 10);
-  const stallMs   = parseInt(process.env.PRISM_STALL_TIMEOUT_MS || String(DEFAULT_STALL_MS), 10);
+  const timeoutMs = envInt('PRISM_AGENT_TIMEOUT_MS', DEFAULT_TIMEOUT_MS);
+  const stallMs   = envInt('PRISM_STALL_TIMEOUT_MS', DEFAULT_STALL_MS);
   const logPath   = agentLogPath(runId);
   const doneFile  = agentDonePath(runId);
   let lastOutput  = startedAt;
@@ -725,8 +768,9 @@ function watchAgent(runId, startedAt, stallWatch) {
     if (fs.existsSync(doneFile)) {
       stopWatching(runId);
       // Whatever the agent left running (a browser, a dev server) ends with it.
-      killGroup(readRun(runId)?.agent.pid);
-      await handleAgentExit(runId, readExitCode(doneFile));
+      const pid = readRun(runId)?.agent.pid;
+      killGroup(pid);
+      await handleAgentExit(runId, readExitCode(doneFile), pid);
       return;
     }
 
@@ -785,15 +829,16 @@ async function killAgent(runId, reason) {
  *
  * @param {string} runId
  * @param {number} exitCode
+ * @param {number} [signalledPid] - Its process group, just signalled.
  */
-async function handleAgentExit(runId, exitCode) {
+async function handleAgentExit(runId, exitCode, signalledPid) {
   const run = readRun(runId);
   // Stopped, or killed for its time limit, in the meantime.
   if (run?.agent.status !== 'running') return;
 
   if (exitCode !== 0) {
     failAgent(run, null, exitCode);
-    await save(runId);
+    await save(runId, signalledPid);
     return;
   }
 
@@ -811,9 +856,17 @@ async function handleAgentExit(runId, exitCode) {
     return;
   }
 
+  // The user answered while the agent was still going, so it has not seen the answer.
+  if (run.answeredDuringTurn) {
+    log('agent.turn_for_answer', { runId });
+    await waitForExit(signalledPid);
+    launchTurn(run);
+    return;
+  }
+
   writeRun(run);
   log('agent.done', { runId });
-  await finishRun(runId);
+  await finishRun(runId, signalledPid);
 }
 
 async function restoreWorktree(run) {
@@ -836,7 +889,10 @@ function launchTurn(run, { newTurn = true } = {}) {
   // A failed check stays on the run: the agent's prompt shows it.
   if (run.hook?.status !== 'failed') run.hook = null;
   delete run.blockedReason;
+  delete run.answeredDuringTurn;
   delete run.closedAt; // Its worktree is back.
+  // A branch of unsaved work from an earlier turn may be gone by now.
+  if (run.result) run.result.ref = null;
   run.status = 'running';
   run.turnId = crypto.randomUUID();
   writeRun(run);
@@ -866,13 +922,12 @@ function init(dataDir, store) {
   fs.mkdirSync(process.env.PIPELINE_RUNS_DIR || path.join(dataDir, 'runs'), { recursive: true });
 
   const workingDirs = new Set();
+  const stopped = [];
   for (const stored of store.listActiveRuns()) {
     try {
       if (stored.workingDirectory) workingDirs.add(stored.workingDirectory);
       if (!isTaskRun(stored)) {
-        stored.status = 'interrupted';
-        writeRun(stored);
-        log('run.legacy_interrupted', { runId: stored.runId });
+        stopped.push(...endOldRun(stored));
         continue;
       }
       recoverRun(stored);
@@ -882,13 +937,34 @@ function init(dataDir, store) {
   }
 
   if (workingDirs.size > 0) {
-    const sweep = worktreeManager.reapOrphans(dataDir, [...workingDirs], store).catch((err) => {
-      log('worktree.error', { op: 'reap_orphans', message: err.message });
-    }).finally(() => {
-      if (startupSweep === sweep) startupSweep = null;
-    });
+    // After the old agents exit, since the sweep saves and removes their worktrees.
+    const sweep = Promise.all(stopped.map(waitForExit))
+      .then(() => worktreeManager.reapOrphans(dataDir, [...workingDirs], store))
+      .catch((err) => {
+        log('worktree.error', { op: 'reap_orphans', message: err.message });
+      })
+      .finally(() => {
+        if (startupSweep === sweep) startupSweep = null;
+      });
     startupSweep = sweep;
   }
+}
+
+/**
+ * End a run from a pipeline version, along with an agent of it that survived the upgrade.
+ *
+ * @param {object} run
+ * @returns {number[]} The process groups signalled.
+ */
+function endOldRun(run) {
+  const pids = !run.worktree ? [] : (run.stageStatuses ?? [])
+    .filter((stage) => stage.status === 'running')
+    .map((stage) => killLeftover(run, stage.pid))
+    .filter(Boolean);
+  run.status = 'interrupted';
+  writeRun(run);
+  log('run.legacy_interrupted', { runId: run.runId });
+  return pids;
 }
 
 function recoverRun(run) {
@@ -908,22 +984,22 @@ function recoverRun(run) {
   };
 
   if (run.agent.status !== 'running') {
-    const pid = run.hook?.status === 'running' ? killLeftoverHook(run) : undefined;
-    interrupt(pid);
+    interrupt(run.hook?.status === 'running' ? killLeftover(run, run.hook.pid) : undefined);
     return;
   }
 
   // The agent finished while the server was down.
   const doneFile = agentDonePath(runId);
   if (fs.existsSync(doneFile)) {
-    handleAgentExit(runId, readExitCode(doneFile)).catch((err) => {
+    const pid = killLeftover(run, run.agent.pid);
+    handleAgentExit(runId, readExitCode(doneFile), pid).catch((err) => {
       log('agent.exit_error', { runId, message: err.message });
     });
     return;
   }
 
   // The agent survived the restart.
-  if (isProcessAlive(run.agent.pid)) {
+  if (isGroupAlive(run.agent.pid) && isRunsProcess(run, run.agent.pid)) {
     const startedAt = run.agent.startedAt ? new Date(run.agent.startedAt).getTime() : Date.now();
     watchAgent(runId, startedAt, getAdapter(run.agent.cliTool).streamsProgress !== false);
     log('run.reattached', { runId, pid: run.agent.pid });
@@ -931,6 +1007,17 @@ function recoverRun(run) {
   }
 
   interrupt();
+}
+
+/**
+ * @throws MAX_CONCURRENT_REACHED when as many runs as allowed are going.
+ */
+function assertRoomForRun() {
+  const maxRuns = envInt('PRISM_MAX_RUNS', DEFAULT_MAX_RUNS);
+  const going = _store.listActiveRuns().filter((run) => isTaskRun(run) && run.status === 'running').length;
+  if (going + creatingRuns >= maxRuns) {
+    throw runnerError('MAX_CONCURRENT_REACHED', `Maximum concurrent runs (${maxRuns}) reached.`);
+  }
 }
 
 /**
@@ -962,10 +1049,8 @@ async function createRun({ spaceId, taskId, workingDirectory, agentConfig = null
       throw runnerError('TASK_NOT_IN_TODO', `Task '${taskId}' is in column '${found.column}', not 'todo'.`);
     }
 
-    const maxRuns = parseInt(process.env.PRISM_MAX_RUNS || String(DEFAULT_MAX_RUNS), 10);
-    if (activeAgents.size >= maxRuns) {
-      throw runnerError('MAX_CONCURRENT_REACHED', `Maximum concurrent runs (${maxRuns}) reached.`);
-    }
+    assertRoomForRun();
+    creatingRuns++;
 
     const runId = crypto.randomUUID();
     // Before the run exists, so a failure leaves nothing behind and the task where it was.
@@ -973,6 +1058,7 @@ async function createRun({ spaceId, taskId, workingDirectory, agentConfig = null
     try {
       worktree = await worktreeManager.provision(workingDirectory, runId);
     } catch (err) {
+      creatingRuns--;
       if (err.code !== 'NOT_A_GIT_REPO') err.code = 'WORKTREE_PROVISION_FAILED';
       throw err;
     }
@@ -995,6 +1081,7 @@ async function createRun({ spaceId, taskId, workingDirectory, agentConfig = null
     };
     fs.mkdirSync(runDir(runId), { recursive: true });
     writeRun(run);
+    creatingRuns--;
     log('run.created', { runId, spaceId, taskId });
 
     _store.moveTask(spaceId, taskId, 'in-progress');
@@ -1029,7 +1116,9 @@ function runView(run) {
   };
 
   let failure = null;
-  if (run.status === 'failed' && run.agent.status === 'completed' && run.hook?.status === 'failed') {
+  if (run.status === 'failed' && run.agent.status === 'completed' && run.result?.saveError) {
+    failure = { kind: 'save', exitCode: null, timedOut: false };
+  } else if (run.status === 'failed' && run.agent.status === 'completed' && run.hook?.status === 'failed') {
     failure = { kind: run.hook.type === 'pr' ? 'pr' : 'check', exitCode: run.hook.exitCode ?? null, timedOut: !!run.hook.timedOut };
   } else if (run.status === 'failed') {
     failure = { kind: 'agent', exitCode: run.agent.exitCode ?? null, reason: run.agent.failureReason ?? null };
@@ -1135,6 +1224,22 @@ async function closeTaskRuns(spaceId, taskId, exceptRunId) {
 }
 
 /**
+ * Remove the worktrees of a space's ended runs, ignoring failures, when its tasks go away.
+ *
+ * @param {string} spaceId
+ */
+async function closeSpaceRuns(spaceId) {
+  for (const run of _store.listRunsBySpace(spaceId)) {
+    if (!isTaskRun(run) || run.closedAt) continue;
+    try {
+      await closeRun(run.runId);
+    } catch (err) {
+      log('worktree.error', { runId: run.runId, op: 'close', code: err.code, message: err.message });
+    }
+  }
+}
+
+/**
  * Relaunch a run's agent in the same worktree with what the user asked for. The agent
  * sees the request and the task's comments in a new process. A worktree that was closed
  * is recreated from the run branch.
@@ -1146,11 +1251,13 @@ async function closeTaskRuns(spaceId, taskId, exceptRunId) {
  */
 async function requestChanges(runId, text) {
   const { taskId } = requireRun(runId);
+  const stops = stopCounts.get(runId);
   return withTaskLock(taskId, async () => {
     let run = requireRun(runId);
     if (ACTIVE_STATUSES.includes(run.status)) {
       throw runnerError('RUN_ACTIVE', `Run '${runId}' is still active.`);
     }
+    assertRoomForRun();
 
     // Before changing anything, so that a failure leaves the run as it was.
     try {
@@ -1162,6 +1269,9 @@ async function requestChanges(runId, text) {
     run = requireRun(runId);
     if (ACTIVE_STATUSES.includes(run.status)) {
       throw runnerError('RUN_ACTIVE', `Run '${runId}' changed while its worktree was being restored.`);
+    }
+    if (stopCounts.get(runId) !== stops) {
+      throw runnerError('RUN_ACTIVE', `Run '${runId}' was stopped while this was waiting.`);
     }
 
     // The agent reads the task's comments in its prompt, so this goes first.
@@ -1192,6 +1302,7 @@ async function requestChanges(runId, text) {
  */
 async function resumeRun(runId) {
   const { taskId } = requireRun(runId);
+  const stops = stopCounts.get(runId);
   return withTaskLock(taskId, async () => {
     let run = requireRun(runId);
     if (!RESUMABLE_STATUSES.includes(run.status)) {
@@ -1201,6 +1312,7 @@ async function resumeRun(runId) {
     if (run.blockedReason && openQuestions(run).length > 0) {
       throw runnerError('OPEN_QUESTION', 'Answer the open question first.');
     }
+    assertRoomForRun();
 
     try {
       await restoreWorktree(run);
@@ -1211,6 +1323,14 @@ async function resumeRun(runId) {
     run = readRun(runId);
     if (!run || !RESUMABLE_STATUSES.includes(run.status)) {
       throw runnerError('RUN_NOT_RESUMABLE', `Run '${runId}' changed while its worktree was being restored and cannot be resumed.`);
+    }
+    if (stopCounts.get(runId) !== stops) {
+      throw runnerError('RUN_NOT_RESUMABLE', `Run '${runId}' was stopped while this was waiting.`);
+    }
+
+    // It may have been moved by hand since it stopped.
+    if (_store.getTaskWithColumn(run.spaceId, run.taskId)?.column !== 'in-progress') {
+      _store.moveTask(run.spaceId, run.taskId, 'in-progress');
     }
 
     if (run.agent.status === 'completed' && !run.blockedReason) {
@@ -1237,7 +1357,14 @@ async function resumeRun(runId) {
  */
 function questionAnswered(taskId) {
   const found = _store.findActiveRunByTaskId(taskId);
-  if (!isTaskRun(found) || found.status !== 'blocked') return;
+  if (!isTaskRun(found)) return;
+  if (found.status === 'running' && found.agent.status === 'running') {
+    found.answeredDuringTurn = true;
+    writeRun(found);
+    return;
+  }
+  if (found.status !== 'blocked') return;
+  // Not limited by PRISM_MAX_RUNS: the user would lose the answer's turn.
   withTaskLock(taskId, async () => {
     const run = readRun(found.runId);
     if (run?.status !== 'blocked' || openQuestions(run).length > 0) return;
@@ -1255,6 +1382,7 @@ function questionAnswered(taskId) {
 async function stopRun(runId) {
   const run = readRun(runId);
   if (!run) return null;
+  stopCounts.set(runId, (stopCounts.get(runId) ?? 0) + 1);
   if (!ACTIVE_STATUSES.includes(run.status)) return run;
 
   let stoppedPid;
@@ -1296,6 +1424,7 @@ async function stopRun(runId) {
 async function createPullRequest(runId) {
   const { taskId } = requireRun(runId);
   return withTaskLock(taskId, async () => {
+    await activeSaves.get(runId); // A stop just before this is still saving the work.
     const run = requireRun(runId);
     if (ACTIVE_STATUSES.includes(run.status)) {
       throw runnerError('RUN_ACTIVE', 'Wait for the agent to finish.');
@@ -1360,6 +1489,7 @@ module.exports = {
   spaceHasActiveRun,
   closeRun,
   closeTaskRuns,
+  closeSpaceRuns,
   requestChanges,
   resumeRun,
   stopRun,
