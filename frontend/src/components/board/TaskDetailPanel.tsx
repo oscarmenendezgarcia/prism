@@ -74,6 +74,20 @@ async function copyToClipboard(text: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /** Find which column a task lives in from the board tasks. */
+/**
+ * The panel's copy has what the user just did, the board's what the agent did. Either
+ * can be a moment behind, so a comment shows once, in its most recent version.
+ */
+function mergeComments(board: Comment[] | undefined, panel: Comment[] | undefined): Comment[] {
+  const stamp = (c: Comment) => c.updatedAt ?? c.createdAt;
+  const byId = new Map<string, Comment>();
+  for (const c of [...(board ?? []), ...(panel ?? [])]) {
+    const seen = byId.get(c.id);
+    if (!seen || stamp(c) > stamp(seen)) byId.set(c.id, c);
+  }
+  return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
 function findTaskColumn(
   tasks: Record<Column, { id: string }[]>,
   taskId: string,
@@ -585,7 +599,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
         // let its own Escape handler fire first. Standard UX: Escape dismisses
         // the topmost layer, not the panel behind it.
         const hasOpenModal = document.querySelector(
-          '[id="markdown-modal-title"], [id="attachment-modal-title"]'
+          '[id="markdown-modal-title"], [id="attachment-modal-title"], [data-testid="agent-picker-menu"]'
         );
         if (hasOpenModal) return;
         e.stopPropagation();
@@ -746,8 +760,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const boardComments = column
     ? (tasks[column] as Task[]).find((t) => t.id === detailTask.id)?.comments
     : undefined;
-  const hasOpenQuestion = (boardComments ?? detailTask.comments ?? []).some((c) => c.type === 'question' && !c.resolved);
+  const comments = mergeComments(boardComments, detailTask.comments);
+  const hasOpenQuestion = comments.some((c) => c.type === 'question' && !c.resolved);
   const canRequestChanges = !!taskRunView
+    && column !== 'todo'
     && ['failed', 'stopped', 'done'].includes(taskRunView.status)
     && !hasOpenQuestion;
   const columnLabel = column ? COLUMN_LABELS[column] : '';
@@ -912,7 +928,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <CommentsSection
                   spaceId={activeSpaceId}
                   taskId={detailTask.id}
-                  comments={boardComments ?? detailTask.comments ?? []}
+                  comments={comments}
                   onCommentCreated={handleCommentCreated}
                   onCommentUpdated={handleCommentUpdated}
                   onAnswerQuestion={handleAnswerQuestion}

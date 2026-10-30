@@ -6,9 +6,9 @@
 import React, { useEffect, useState } from 'react';
 import * as api from '@/api/client';
 import { Button } from '@/components/shared/Button';
-import { useTaskRunStore } from '@/stores/useTaskRunStore';
+import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
 import type { ChangedFile, Column, Task, TaskRunView } from '@/types';
-import { AgentPicker, isChoiceComplete } from './AgentPicker';
+import { AgentPicker } from './AgentPicker';
 import { HarnessIcon, HARNESS_NAMES, type DirectCliTool } from './HarnessIcon';
 import { failureMessage, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
 
@@ -75,8 +75,9 @@ function FileRow({ runId, file }: { runId: string; file: ChangedFile }) {
 function ChangedFiles({ view }: { view: TaskRunView }) {
   const [files, setFiles] = useState<ChangedFile[] | null>(null);
   const [error, setError] = useState(false);
-  // The list changes when a run ends or continues, and updatedAt tracks both.
-  const stamp = `${view.runId}:${view.result?.additions}:${view.result?.deletions}:${view.result?.fileCount}`;
+  // The list changes when a run ends or continues, and updatedAt tracks both. Rows are
+  // keyed on it too, so an open one does not keep showing an earlier patch.
+  const stamp = `${view.runId}:${view.updatedAt}:${view.status}`;
 
   useEffect(() => {
     let current = true;
@@ -91,27 +92,39 @@ function ChangedFiles({ view }: { view: TaskRunView }) {
   if (!files || files.length === 0) return null;
   return (
     <div className="rounded-lg border border-border/60 overflow-hidden" data-testid="changed-files">
-      {files.map((file) => <FileRow key={file.path} runId={view.runId} file={file} />)}
+      {files.map((file) => <FileRow key={`${file.path}:${stamp}`} runId={view.runId} file={file} />)}
     </div>
   );
 }
 
-function RunLog({ runId }: { runId: string }) {
-  const [log, setLog] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+const LOG_POLL_MS = 3_000;
 
-  const onToggle = (e: React.SyntheticEvent<HTMLDetailsElement>) => {
-    if (!e.currentTarget.open) return;
-    api.getStageLog(runId, 0).then(setLog).catch(() => setFailed(true));
-  };
+function RunLog({ runId, stageIndex, live }: { runId: string; stageIndex: number; live: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [log, setLog]   = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    let current = true;
+    const load = () => {
+      api.getStageLog(runId, stageIndex)
+        .then((text) => { if (current) setLog(text); })
+        .catch(() => { if (current) setLog(null); });
+    };
+    load();
+    const id = live ? setInterval(load, LOG_POLL_MS) : undefined;
+    return () => {
+      current = false;
+      clearInterval(id);
+    };
+  }, [open, runId, stageIndex, live]);
 
   return (
-    <details className="text-xs text-text-secondary" onToggle={onToggle} data-testid="run-log">
+    <details className="text-xs text-text-secondary" onToggle={(e) => setOpen(e.currentTarget.open)} data-testid="run-log">
       <summary className="cursor-pointer select-none hover:text-text-primary">View log</summary>
-      {failed && <p className="mt-2 text-text-disabled">No log yet.</p>}
-      {log !== null && (
-        <pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-surface-variant/40 p-3 font-mono text-[11px] whitespace-pre-wrap break-words">{log || 'The log is empty.'}</pre>
-      )}
+      {log === null
+        ? <p className="mt-2 text-text-secondary">No log yet.</p>
+        : <pre className="mt-2 max-h-72 overflow-auto rounded-lg bg-surface-variant/40 p-3 font-mono text-[11px] whitespace-pre-wrap break-words">{log || 'The log is empty.'}</pre>}
     </details>
   );
 }
@@ -126,15 +139,18 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
   const view   = useTaskRunStore((s) => s.views[task.id]);
   const busy   = useTaskRunStore((s) => s.busyTaskIds.has(task.id));
   const choice = useTaskRunStore((s) => s.choice);
+  const harnesses = useTaskRunStore((s) => s.harnesses);
   const { start, stop, retry, close } = useTaskRunStore.getState();
 
+  const problem = choiceProblem(choice, harnesses);
   const startButton = (
     <div className="flex items-center gap-1">
       <AgentPicker />
       <Button
         variant="primary"
         size="sm"
-        disabled={busy || task.isBlocked || !isChoiceComplete(choice)}
+        disabled={busy || task.isBlocked || !!problem}
+        title={problem ?? undefined}
         onClick={() => { start(spaceId, task.id).catch(() => {}); }}
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">play_arrow</span>
@@ -147,11 +163,12 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
     if (column !== 'todo') return null;
     return <div className="flex flex-col gap-2" data-testid="run-panel">{startButton}</div>;
   }
+  const missingHarness = view.failure?.reason === 'binary_missing';
 
   const live = view.status === 'working' || view.status === 'checking';
   const ended = view.status === 'failed' || view.status === 'stopped' || view.status === 'done';
   const message = failureMessage(view);
-  const hookOutput = view.hook?.status === 'failed' ? view.hook.outputTail : null;
+  const hookOutput = view.failure?.kind === 'hook' ? view.hook?.outputTail : null;
 
   return (
     <section className="flex flex-col gap-3" data-testid="run-panel" aria-label="Agent run">
@@ -163,13 +180,14 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
         </span>
         <StatusLine view={view} />
         <span className="flex-1" />
-        {live && (
+        {(live || view.status === 'question') && (
           <Button variant="secondary" size="sm" disabled={busy} onClick={() => { stop(spaceId, task.id).catch(() => {}); }}>
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">stop</span>
             Stop
           </Button>
         )}
-        {(view.status === 'failed' || view.status === 'stopped') && (
+        {missingHarness && startButton}
+        {(view.status === 'failed' || view.status === 'stopped') && !missingHarness && (
           <Button variant="primary" size="sm" disabled={busy} onClick={() => { retry(spaceId, task.id).catch(() => {}); }}>
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">refresh</span>
             Retry
@@ -200,7 +218,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
           <ChangedFiles view={view} />
         </>
       )}
-      <RunLog runId={view.runId} />
+      <RunLog runId={view.runId} stageIndex={view.stageIndex} live={live} />
     </section>
   );
 }

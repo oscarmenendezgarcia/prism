@@ -82,6 +82,8 @@ export interface TaskRunView {
   cliTool: string;
   model: string | null;
   iteration: number;
+  /** The stage whose log shows the agent's current turn. */
+  stageIndex: number;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;

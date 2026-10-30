@@ -5,14 +5,25 @@
 import { create } from 'zustand';
 import * as api from '@/api/client';
 import { useAppStore } from '@/stores/useAppStore';
-import type { AgentChoice, TaskRunView } from '@/types';
+import type { AgentChoice, HarnessInfo, TaskRunView } from '@/types';
 
 const CHOICE_STORAGE_KEY = 'prism:agent-choice';
+const DIRECT_CLI_TOOLS = ['claude', 'opencode', 'pi', 'hermes'];
+
+/** Why a run cannot start with this choice, or null when it can. */
+export function choiceProblem(choice: AgentChoice, harnesses: HarnessInfo[] | null): string | null {
+  const info = harnesses?.find((h) => h.cliTool === choice.cliTool);
+  if (info && !info.available) return `${choice.cliTool} is not installed`;
+  if (choice.cliTool !== 'claude' && !/^[\w.:@-]+\/[\w./:@-]+$/.test(choice.model ?? '')) {
+    return 'Choose a model as provider/model';
+  }
+  return null;
+}
 
 function readSavedChoice(): AgentChoice {
   try {
     const saved = JSON.parse(localStorage.getItem(CHOICE_STORAGE_KEY) ?? 'null');
-    if (saved && typeof saved.cliTool === 'string') return saved;
+    if (DIRECT_CLI_TOOLS.includes(saved?.cliTool)) return saved;
   } catch { /* corrupt or unavailable — use the default */ }
   return { cliTool: 'claude' };
 }
@@ -22,10 +33,13 @@ interface TaskRunState {
   views: Record<string, TaskRunView>;
   /** The agent new runs use. The last one chosen, across cards and sessions. */
   choice: AgentChoice;
+  /** What is installed on this machine. Null until the first answer. */
+  harnesses: HarnessInfo[] | null;
   /** Tasks with an action in flight, to disable their buttons. */
   busyTaskIds: Set<string>;
 
   setChoice: (choice: AgentChoice) => void;
+  loadHarnesses: () => Promise<void>;
   load: (spaceId: string) => Promise<void>;
   start: (spaceId: string, taskId: string) => Promise<void>;
   stop: (spaceId: string, taskId: string) => Promise<void>;
@@ -37,7 +51,12 @@ interface TaskRunState {
 export const useTaskRunStore = create<TaskRunState>((set, get) => {
   /** Run an action on a task, then refresh. Errors become toasts and are rethrown. */
   async function act(spaceId: string, taskId: string, action: () => Promise<unknown>): Promise<void> {
-    if (get().busyTaskIds.has(taskId)) return;
+    if (get().busyTaskIds.has(taskId)) {
+      // A silent return would read as success, and the comment form clears its draft on it.
+      const err = new Error('Another action on this task is still running.');
+      useAppStore.getState().showToast(err.message, 'error');
+      throw err;
+    }
     set((s) => ({ busyTaskIds: new Set(s.busyTaskIds).add(taskId) }));
     try {
       await action();
@@ -63,6 +82,7 @@ export const useTaskRunStore = create<TaskRunState>((set, get) => {
   return {
     views: {},
     choice: readSavedChoice(),
+    harnesses: null,
     busyTaskIds: new Set(),
 
     setChoice: (choice) => {
@@ -70,6 +90,14 @@ export const useTaskRunStore = create<TaskRunState>((set, get) => {
       try {
         localStorage.setItem(CHOICE_STORAGE_KEY, JSON.stringify(choice));
       } catch { /* the choice just will not survive a reload */ }
+    },
+
+    loadHarnesses: async () => {
+      try {
+        set({ harnesses: (await api.getHarnesses()).harnesses });
+      } catch {
+        // Unknown availability must not block a run. The server reports a missing binary.
+      }
     },
 
     load: async (spaceId) => {

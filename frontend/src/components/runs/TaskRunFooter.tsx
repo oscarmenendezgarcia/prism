@@ -5,9 +5,9 @@
 
 import { Button } from '@/components/shared/Button';
 import { useAppStore } from '@/stores/useAppStore';
-import { useTaskRunStore } from '@/stores/useTaskRunStore';
+import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
 import type { Column, Task } from '@/types';
-import { AgentPicker, isChoiceComplete } from './AgentPicker';
+import { AgentPicker } from './AgentPicker';
 import { HarnessIcon } from './HarnessIcon';
 import { failureMessage, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
 
@@ -21,21 +21,27 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   const view            = useTaskRunStore((s) => s.views[task.id]);
   const busy            = useTaskRunStore((s) => s.busyTaskIds.has(task.id));
   const choice          = useTaskRunStore((s) => s.choice);
+  const harnesses       = useTaskRunStore((s) => s.harnesses);
   const start           = useTaskRunStore((s) => s.start);
   const retry           = useTaskRunStore((s) => s.retry);
   const openDetailPanel = useAppStore((s) => s.openDetailPanel);
 
-  // A card back in To do starts over, whatever its last run did.
-  if (column === 'todo') {
+  const missingHarness = view?.failure?.reason === 'binary_missing';
+
+  // A card back in To do starts over, whatever its last run did. So does one whose
+  // harness is not installed: retrying could only fail the same way.
+  if (column === 'todo' || missingHarness) {
+    const problem = choiceProblem(choice, harnesses);
     return (
-      <div className="flex items-center gap-1 mt-3 -ml-2" data-testid="run-footer">
+      <div className="flex flex-wrap items-center gap-1 mt-3 -ml-2" data-testid="run-footer">
+        {missingHarness && <p className="w-full ml-2 text-xs text-error leading-snug">This agent is not installed on this machine.</p>}
         <AgentPicker />
         <span className="flex-1" />
         <Button
           variant="primary"
           size="sm"
-          disabled={busy || task.isBlocked || !isChoiceComplete(choice)}
-          title={task.isBlocked ? 'Blocked by unfinished dependencies' : undefined}
+          disabled={busy || task.isBlocked || !!problem}
+          title={task.isBlocked ? 'Blocked by unfinished dependencies' : (problem ?? undefined)}
           onClick={(e) => { e.stopPropagation(); start(spaceId, task.id).catch(() => {}); }}
         >
           <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">play_arrow</span>

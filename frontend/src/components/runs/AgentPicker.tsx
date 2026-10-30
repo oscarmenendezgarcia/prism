@@ -5,9 +5,8 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import * as api from '@/api/client';
 import { useTaskRunStore } from '@/stores/useTaskRunStore';
-import type { AgentChoice, HarnessInfo } from '@/types';
+import type { AgentChoice } from '@/types';
 import { HarnessIcon, HARNESS_NAMES, type DirectCliTool } from './HarnessIcon';
 
 const HARNESS_ORDER: DirectCliTool[] = ['claude', 'opencode', 'pi', 'hermes'];
@@ -17,10 +16,6 @@ const CLAUDE_MODELS = [
   { value: 'haiku',  label: 'Haiku' },
 ];
 
-export function isChoiceComplete(choice: AgentChoice): boolean {
-  return choice.cliTool === 'claude' || /^[^/\s]+\/\S+$/.test(choice.model ?? '');
-}
-
 export function choiceLabel(choice: AgentChoice): string {
   const name = HARNESS_NAMES[choice.cliTool as DirectCliTool] ?? choice.cliTool;
   if (choice.cliTool === 'claude') {
@@ -29,29 +24,21 @@ export function choiceLabel(choice: AgentChoice): string {
   return choice.model ? choice.model.split('/').pop() as string : name;
 }
 
-let harnessesRequest: Promise<HarnessInfo[]> | null = null;
-
-function loadHarnesses(): Promise<HarnessInfo[]> {
-  harnessesRequest ??= api.getHarnesses().then((r) => r.harnesses).catch((err) => {
-    harnessesRequest = null;
-    throw err;
-  });
-  return harnessesRequest;
-}
-
 export function AgentPicker() {
   const choice    = useTaskRunStore((s) => s.choice);
   const setChoice = useTaskRunStore((s) => s.setChoice);
 
-  const [open, setOpen]           = useState(false);
-  const [harnesses, setHarnesses] = useState<HarnessInfo[] | null>(null);
-  const [position, setPosition]   = useState<{ left: number; top: number } | null>(null);
+  const harnesses = useTaskRunStore((s) => s.harnesses);
+
+  const [open, setOpen]         = useState(false);
+  const [position, setPosition] = useState<{ left: number; top: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return undefined;
-    loadHarnesses().then(setHarnesses).catch(() => setHarnesses([]));
+    // Something may have been installed since the page loaded.
+    void useTaskRunStore.getState().loadHarnesses();
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as Node;
       if (!popoverRef.current?.contains(target) && !triggerRef.current?.contains(target)) setOpen(false);
@@ -60,6 +47,13 @@ export function AgentPicker() {
       if (e.key === 'Escape') {
         setOpen(false);
         triggerRef.current?.focus();
+      }
+      // It lives outside the page's tab order, and outside the detail panel's focus trap.
+      if (e.key === 'Tab' && popoverRef.current) {
+        const items = [...popoverRef.current.querySelectorAll<HTMLElement>('a[href], button, input')];
+        const at = items.indexOf(document.activeElement as HTMLElement);
+        e.preventDefault();
+        items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length]?.focus();
       }
     };
     document.addEventListener('pointerdown', onPointerDown);
@@ -80,6 +74,12 @@ export function AgentPicker() {
       top:  below + height > window.innerHeight ? Math.max(8, rect.top - height - 4) : below,
     });
   }, [open, harnesses, choice.cliTool]);
+
+  // It stays invisible, and so not focusable, until it has a position.
+  const placed = position !== null;
+  useEffect(() => {
+    if (open && placed) popoverRef.current?.querySelector<HTMLElement>('[aria-pressed="true"], button, a[href]')?.focus();
+  }, [open, placed]);
 
   const select = (cliTool: DirectCliTool) => {
     if (cliTool !== choice.cliTool) setChoice({ cliTool });
@@ -125,7 +125,7 @@ export function AgentPicker() {
                     href={info?.installUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-sm text-text-disabled hover:bg-surface-variant"
+                    className="flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-sm text-text-secondary hover:bg-surface-variant"
                   >
                     <HarnessIcon cliTool={cliTool} className="w-4 h-4 opacity-50" />
                     <span className="flex-1">{HARNESS_NAMES[cliTool]}</span>

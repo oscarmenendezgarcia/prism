@@ -1705,7 +1705,7 @@ async function finalizeRun(dataDir, run, opts = {}) {
 /**
  * Stop a hook that kept running when the server restarted, so it does not write to the
  * worktree while Prism saves it or a retry starts another one. A pid whose process is
- * now something else, in another directory, is left alone.
+ * now something else, outside the worktree, is left alone.
  *
  * @param {object} run
  * @returns {number|undefined} The process group signalled.
@@ -1713,9 +1713,22 @@ async function finalizeRun(dataDir, run, opts = {}) {
 function killLeftoverHook(run) {
   const { pid } = run.hook;
   if (!pid || pid === process.pid) return undefined;
+
+  let cwd = null;
   try {
-    if (fs.realpathSync(`/proc/${pid}/cwd`) !== fs.realpathSync(run.worktree.path)) return undefined;
-  } catch { /* The leader is gone or this is not Linux. Its group can only still be the hook's. */ }
+    cwd = fs.realpathSync(`/proc/${pid}/cwd`);
+  } catch (err) {
+    // ENOENT: the leader is gone, or this is not Linux. While its group lives the kernel
+    // does not reuse the pid, so that group can only be the hook's. Anything else, such
+    // as a process of another user, is not ours to signal.
+    if (err.code !== 'ENOENT') return undefined;
+  }
+  if (cwd !== null) {
+    let worktree;
+    try { worktree = fs.realpathSync(run.worktree.path); } catch { return undefined; }
+    if (cwd !== worktree && !cwd.startsWith(worktree + path.sep)) return undefined;
+  }
+
   try {
     process.kill(-pid, 'SIGTERM');
     pipelineLog('hook.killed_on_startup', { runId: run.runId, pid });
@@ -1900,6 +1913,7 @@ function directRunView(run) {
     cliTool:    stage.cliTool ?? run.agentConfig?.cliTool ?? 'claude',
     model:      stage.model ?? run.agentConfig?.model ?? null,
     iteration:  run.iteration ?? 1,
+    stageIndex: Math.max(0, run.stageStatuses.length - 1),
     createdAt:  run.createdAt,
     updatedAt:  run.updatedAt,
     closedAt:   run.closedAt ?? null,
@@ -1924,15 +1938,25 @@ function listDirectRunViews(spaceId) {
 }
 
 /**
- * Whether a task has a direct run that has not ended, or an action changing it in flight.
+ * Whether a task has a direct run that has not ended.
  *
  * @param {string} dataDir
  * @param {string} taskId
  * @returns {boolean}
  */
 function hasActiveDirectRun(dataDir, taskId) {
-  if (!_store) return false;
-  return taskLocks.has(taskId) || !!findActiveRunByTaskId(dataDir, taskId)?.direct;
+  return !!_store && !!findActiveRunByTaskId(dataDir, taskId)?.direct;
+}
+
+/**
+ * Whether an action on a task's direct run is in flight. A worktree may be being created
+ * for a run that is not on record yet, so the task must not be deleted meanwhile.
+ *
+ * @param {string} taskId
+ * @returns {boolean}
+ */
+function hasDirectRunActionInFlight(taskId) {
+  return taskLocks.has(taskId);
 }
 
 /**
@@ -2069,13 +2093,6 @@ async function requestChangesLocked(runId, dataDir, text) {
     updatedAt: now,
   });
 
-  // Keep the previous turn's log: the next spawn overwrites it.
-  const logPath = stageLogPath(dataDir, runId, 0);
-  const turn = run.iteration ?? 1;
-  if (fs.existsSync(logPath)) {
-    try { fs.copyFileSync(logPath, `${logPath}.turn-${turn}`); } catch { /* best-effort */ }
-  }
-
   // Answered questions may have added stages. Their sentinels and logs go with them, or
   // a later turn reaching that index would look finished before it starts.
   for (let i = 0; i < run.stages.length; i++) {
@@ -2087,7 +2104,7 @@ async function requestChangesLocked(runId, dataDir, text) {
   delete first.fallbackFrom;
   run.stages        = [first.agentId];
   run.stageStatuses = [first];
-  run.iteration     = turn + 1;
+  run.iteration     = (run.iteration ?? 1) + 1;
   run.changeRequest = { text, at: now };
   // A failed check stays on the run: the agent's prompt shows it.
   if (run.hook?.status !== 'failed') run.hook = null;
@@ -2738,8 +2755,11 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
 
   const logPath  = stageLogPath(dataDir, run.runId, stageIndex);
   const doneFile = stageDonePath(dataDir, run.runId, stageIndex);
-  // A sentinel left by an earlier attempt would end this one as soon as it starts.
+  // A sentinel left by an earlier attempt would end this one as soon as it starts, and
+  // so would its log: the poller reads a final result event in it as the agent being
+  // done. The old log is kept beside the new one.
   try { fs.unlinkSync(doneFile); } catch { /* not present */ }
+  try { fs.renameSync(logPath, `${logPath}.${Date.now()}`); } catch { /* not present */ }
 
   const stageStartedAt = Date.now();
 
@@ -2839,13 +2859,18 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
   // Backend spawns always get --permission-mode bypassPermissions: there is no user
   // present to respond to permission prompts, so any interactive pause would
   // hang the stage until the stall watchdog kills it.
-  const hasPermissionMode = agentSpec.spawnArgs.includes('--permission-mode');
+  // A direct run does not rely on Claude finding the agent by name: that only works when
+  // PIPELINE_AGENTS_DIR is one of Claude's own directories.
+  const spawnArgs = run.direct
+    ? ['--print', '--output-format', 'stream-json', '--verbose', '--append-system-prompt', agentSpec.systemPrompt]
+    : agentSpec.spawnArgs;
+  const hasPermissionMode = spawnArgs.includes('--permission-mode');
   const baseArgs = hasPermissionMode
-    ? agentSpec.spawnArgs
-    : [...agentSpec.spawnArgs, '--permission-mode', 'bypassPermissions'];
+    ? spawnArgs
+    : [...spawnArgs, '--permission-mode', 'bypassPermissions'];
 
   // MODEL-1: inject --model override if the resolved model differs from agent default.
-  const agentDefaultModel = agentSpec.model || null;
+  const agentDefaultModel = run.direct ? null : (agentSpec.model || null);
   const effectiveArgs = [...baseArgs];
   if (effectiveConfig.model && effectiveConfig.model !== agentDefaultModel) {
     effectiveArgs.push('--model', effectiveConfig.model);
@@ -5189,6 +5214,7 @@ module.exports = {
   DIRECT_AGENT_ID,
   listDirectRunViews,
   hasActiveDirectRun,
+  hasDirectRunActionInFlight,
   spaceHasActiveDirectRun,
   closeDirectRun,
   closeTaskDirectRuns,

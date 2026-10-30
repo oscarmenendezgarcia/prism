@@ -3,12 +3,6 @@
     .mark {
       fill: #111111;
     }
-
-    @media (prefers-color-scheme: dark) {
-      .mark {
-        fill: #f6f6f6;
-      }
-    }
   </style>
   <path class="mark" d="M420 280H280V140H0V0H420V280Z"/>
   <path class="mark" d="M560 560H420V280H560V560Z"/>

@@ -834,7 +834,7 @@ function createApp(spaceId, store) {
 
   function handleDeleteTask(req, res, taskId) {
     try {
-      if (pipelineManager.hasActiveDirectRun(null, taskId)) {
+      if (pipelineManager.hasActiveDirectRun(null, taskId) || pipelineManager.hasDirectRunActionInFlight(taskId)) {
         return sendError(res, 409, 'TASK_RUN_ACTIVE',
           'An agent is running this task. Stop it before deleting the card.');
       }

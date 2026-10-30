@@ -44,7 +44,7 @@ export function ResultLine({ view }: { view: TaskRunView }) {
       <span className="flex-shrink-0">{result.fileCount} {result.fileCount === 1 ? 'file' : 'files'}</span>
       <span className="text-success flex-shrink-0">+{result.additions}</span>
       <span className="text-error flex-shrink-0">−{result.deletions}</span>
-      <span className="flex-1 min-w-0 truncate text-right font-mono text-[11px] text-text-disabled" title={result.branch}>{result.branch}</span>
+      <span className="flex-1 min-w-0 truncate text-right font-mono text-[11px] text-text-secondary" title={result.branch}>{result.branch}</span>
     </div>
   );
 }

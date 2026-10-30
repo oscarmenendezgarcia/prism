@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SpaceModal } from '../../src/components/modals/SpaceModal';
 import { useAppStore } from '../../src/stores/useAppStore';
+import { updateSpaceHooks } from '../../src/api/client';
 
 vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(), getTasks: vi.fn(), createTask: vi.fn(), moveTask: vi.fn(),
@@ -12,6 +13,7 @@ vi.mock('../../src/api/client', () => ({
   getFsHome: vi.fn().mockResolvedValue({ homePath: '/Users/test' }),
   browseDirectory: vi.fn().mockResolvedValue({ path: '/Users/test', items: [], hasMore: false }),
   validateDirectory: vi.fn(),
+  updateSpaceHooks: vi.fn().mockResolvedValue({}),
 }));
 
 beforeEach(() => {
@@ -98,6 +100,42 @@ describe('SpaceModal', () => {
       // workingDirectory is empty → sent as ''; pipeline empty → []; nicknames empty → {}; stageModels empty → {}
       expect(mockRename).toHaveBeenCalledWith('s1', 'New Name', '', [], {}, {});
     });
+  });
+
+  it('saves the check with the rest of the space', async () => {
+    const mockRename = vi.fn().mockResolvedValue(undefined);
+    const space = { id: 's1', name: 'Old', createdAt: '', updatedAt: '' };
+    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename } as any);
+    const user = userEvent.setup();
+    render(<SpaceModal />);
+    await user.type(screen.getByLabelText('Command'), 'npm test');
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(mockRename).toHaveBeenCalled());
+    expect(updateSpaceHooks).toHaveBeenCalledWith('s1', [{ name: 'Tests', command: 'npm test' }]);
+  });
+
+  it('does not touch the check when it did not change', async () => {
+    const mockRename = vi.fn().mockResolvedValue(undefined);
+    const space = { id: 's1', name: 'Old', hooks: [{ name: 'CI', command: 'x' }], createdAt: '', updatedAt: '' };
+    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename } as any);
+    const user = userEvent.setup();
+    render(<SpaceModal />);
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(mockRename).toHaveBeenCalled());
+    expect(updateSpaceHooks).not.toHaveBeenCalled();
+  });
+
+  it('stays open with the reason when the server refuses the check', async () => {
+    vi.mocked(updateSpaceHooks).mockRejectedValueOnce(new Error('Wait for the running tasks'));
+    const mockRename = vi.fn();
+    const space = { id: 's1', name: 'Old', createdAt: '', updatedAt: '' };
+    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename } as any);
+    const user = userEvent.setup();
+    render(<SpaceModal />);
+    await user.type(screen.getByLabelText('Command'), 'x');
+    await user.click(screen.getByRole('button', { name: /save/i }));
+    await waitFor(() => expect(screen.getByText('Wait for the running tasks')).toBeInTheDocument());
+    expect(mockRename).not.toHaveBeenCalled();
   });
 
   it('submits on Enter key press', async () => {

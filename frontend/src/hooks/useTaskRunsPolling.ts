@@ -10,6 +10,8 @@ const ACTIVE_MS = 2_000;
 const IDLE_MS   = 10_000;
 
 export function useTaskRunsPolling(): void {
+  useEffect(() => { void useTaskRunStore.getState().loadHarnesses(); }, []);
+
   const spaceId = useAppStore((s) => s.activeSpaceId);
   const hasLiveRun = useTaskRunStore((s) =>
     Object.values(s.views).some((v) => v.status === 'working' || v.status === 'checking'));

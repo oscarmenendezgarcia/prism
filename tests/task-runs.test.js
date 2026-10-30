@@ -22,10 +22,16 @@ W="$FAKE_AGENT_DIR"
 n=$(ls "$W/prompts" | wc -l)
 cat > "$W/prompts/$n"
 pwd > "$W/last-cwd"
+printf '%s\\n' "$@" > "$W/last-args"
 mode=$(cat "$W/mode" 2>/dev/null)
 echo "output of turn $n"
 case "$mode" in
   fail) exit 3 ;;
+  result-then-work)
+    echo '{"type":"result","subtype":"success"}'
+    sleep 4
+    echo "late work $n" >> agent-work.txt
+    exit 0 ;;
   slow) sleep 3; echo "work $n" >> agent-work.txt; exit 0 ;;
   question-then-slow)
     echo slow > "$W/mode"
@@ -196,6 +202,12 @@ describe('direct task runs', () => {
     const { json: file } = await call('GET', `/runs/${run.runId}/diff?path=agent-work.txt`);
     assert.match(file.patch, /\+work/);
     assert.equal((await call('GET', `/runs/${run.runId}/diff?path=README.md`)).status, 404);
+
+    const args = fs.readFileSync(path.join(agentDir, 'last-args'), 'utf8').split('\n');
+    assert.ok(!args.includes('--agent'), 'works whatever the agents directory is');
+    assert.ok(args.includes('--append-system-prompt'));
+    assert.equal(args[args.indexOf('--model') + 1], 'sonnet', 'the model is explicit without --agent');
+    assert.ok(args.includes('bypassPermissions'));
 
     const prompt = lastPrompt();
     assert.match(prompt, /YOUR CARD IN PRISM/);
@@ -522,6 +534,21 @@ describe('direct task runs', () => {
     });
   });
 
+  test('a final result in an earlier turn\'s log does not end a later turn', async () => {
+    setMode('result-then-work');
+    const taskId = await makeTask();
+    const { json: run } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    await waitFor(taskId, 'done');
+
+    setMode('slow');
+    await call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'More' });
+    await waitFor(taskId, 'working');
+    await new Promise((r) => setTimeout(r, 2500));
+    assert.equal((await view(taskId)).status, 'working');
+    await waitFor(taskId, 'done');
+    assert.match(git(repo, 'show', `${run.worktree.branch}:agent-work.txt`), /work/);
+  });
+
   test('actions on a task do not interleave', async () => {
     const taskId = await makeTask();
     const { json: run } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
@@ -588,7 +615,7 @@ describe('direct task runs', () => {
 
   test('a restart stops a hook that outlived the server', async () => {
     const pidFile = path.join(work, 'long-hook-pid');
-    await setHook({ name: 'Long', command: `echo $$ > ${pidFile}; sleep 60` });
+    await setHook({ name: 'Long', command: `mkdir -p sub; cd sub; echo $$ > ${pidFile}; sleep 60` });
     const taskId = await makeTask();
     await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
     await waitFor(taskId, 'checking');

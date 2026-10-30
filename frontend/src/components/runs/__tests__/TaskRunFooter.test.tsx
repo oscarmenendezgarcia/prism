@@ -19,14 +19,14 @@ const task: Task = {
 } as Task;
 
 const view = (over: Partial<TaskRunView>): TaskRunView => ({
-  runId: 'r1', taskId: 't1', status: 'working', cliTool: 'claude', model: 'sonnet', iteration: 1,
+  runId: 'r1', taskId: 't1', status: 'working', cliTool: 'claude', model: 'sonnet', iteration: 1, stageIndex: 0,
   createdAt: '', updatedAt: '', closedAt: null, result: null, hook: null, failure: null, ...over,
 });
 
 const result = { branch: 'pipeline/run-1', baseBranch: 'main', ref: null, fileCount: 2, additions: 10, deletions: 3, saveError: null };
 
 function renderFooter(column: 'todo' | 'in-progress' | 'done', over?: Partial<TaskRunView>, t: Task = task) {
-  useTaskRunStore.setState({ views: over ? { t1: view(over) } : {}, busyTaskIds: new Set(), choice: { cliTool: 'claude' } });
+  useTaskRunStore.setState({ views: over ? { t1: view(over) } : {}, busyTaskIds: new Set(), choice: { cliTool: 'claude' }, harnesses: null });
   return render(<TaskRunFooter task={t} column={column} spaceId="s1" />);
 }
 
@@ -53,7 +53,7 @@ describe('TaskRunFooter', () => {
   });
 
   it('does not run a harness without a provider/model', () => {
-    useTaskRunStore.setState({ views: {}, busyTaskIds: new Set(), choice: { cliTool: 'opencode' } });
+    useTaskRunStore.setState({ views: {}, busyTaskIds: new Set(), choice: { cliTool: 'opencode' }, harnesses: null });
     render(<TaskRunFooter task={task} column="todo" spaceId="s1" />);
     expect(screen.getByRole('button', { name: /run/i })).toBeDisabled();
   });
@@ -85,9 +85,21 @@ describe('TaskRunFooter', () => {
     expect(api.resumeRun).toHaveBeenCalledWith('r1');
   });
 
-  it('says when the harness is not installed', () => {
+  it('lets a card whose harness is missing start again on another one', async () => {
     renderFooter('in-progress', { status: 'failed', failure: { kind: 'agent', exitCode: -1, reason: 'binary_missing' } });
     expect(screen.getByText(/not installed/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: /run/i }));
+    expect(api.startTaskRun).toHaveBeenCalled();
+  });
+
+  it('does not run a harness known not to be installed', () => {
+    useTaskRunStore.setState({
+      views: {}, busyTaskIds: new Set(), choice: { cliTool: 'claude' },
+      harnesses: [{ cliTool: 'claude', available: false, path: null, modelFormat: 'preset', installUrl: '' }],
+    });
+    render(<TaskRunFooter task={task} column="todo" spaceId="s1" />);
+    expect(screen.getByRole('button', { name: /run/i })).toBeDisabled();
   });
 
   it('warns when work could not be saved', () => {
