@@ -21,6 +21,14 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+// Not typed: the modal's delayed autofocus could take the focus midway.
+function addCommandHook(command: string) {
+  fireEvent.click(screen.getByRole('button', { name: 'Add hook' }));
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Tests' } });
+  fireEvent.change(screen.getByLabelText('Command'), { target: { value: command } });
+  fireEvent.click(screen.getByRole('button', { name: 'Keep this hook' }));
+}
+
 describe('SpaceModal', () => {
   it('does not render when closed', () => {
     render(<SpaceModal />);
@@ -109,11 +117,10 @@ describe('SpaceModal', () => {
     useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename, loadSpaces: mockLoad, spaces: [space] } as any);
     const user = userEvent.setup();
     render(<SpaceModal />);
-    // Not typed: the modal's delayed autofocus could take the focus midway.
-    fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'npm test' } });
+    addCommandHook('npm test');
     await user.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(mockRename).toHaveBeenCalled());
-    expect(updateSpaceHooks).toHaveBeenCalledWith('s1', [{ name: 'Tests', command: 'npm test' }]);
+    expect(updateSpaceHooks).toHaveBeenCalledWith('s1', [expect.objectContaining({ name: 'Tests', type: 'command', command: 'npm test' })]);
     expect(mockLoad).toHaveBeenCalled();
   });
 
@@ -135,10 +142,21 @@ describe('SpaceModal', () => {
     useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename } as any);
     const user = userEvent.setup();
     render(<SpaceModal />);
-    // Not typed: the modal's delayed autofocus could take the focus midway.
-    fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'x' } });
+    addCommandHook('x');
     await user.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Wait for the running tasks'));
+    expect(mockRename).not.toHaveBeenCalled();
+  });
+
+  it('does not save over a hook still open in the form', async () => {
+    const mockRename = vi.fn();
+    const space = { id: 's1', name: 'Old', createdAt: '', updatedAt: '' };
+    useAppStore.setState({ spaceModal: { open: true, mode: 'rename', space }, renameSpace: mockRename, spaces: [space] } as any);
+    const user = userEvent.setup();
+    render(<SpaceModal />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add hook' }));
+    await user.click(screen.getByRole('button', { name: /^save$/i }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Finish or cancel'));
     expect(mockRename).not.toHaveBeenCalled();
   });
 

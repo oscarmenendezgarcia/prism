@@ -764,7 +764,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const hasOpenQuestion = comments.some((c) => c.type === 'question' && !c.resolved);
   const canRequestChanges = !!taskRunView
     && column !== 'todo'
-    && ['failed', 'stopped', 'done'].includes(taskRunView.status)
+    && ['failed', 'stopped', 'done', 'approval'].includes(taskRunView.status)
     && !hasOpenQuestion;
   const columnLabel = column ? COLUMN_LABELS[column] : '';
 

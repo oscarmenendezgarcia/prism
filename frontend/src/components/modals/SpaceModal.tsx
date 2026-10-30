@@ -4,8 +4,9 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { SpaceHookSection, type HookDraft } from '@/components/runs/SpaceHookSection';
+import { SpaceHookSection } from '@/components/runs/SpaceHookSection';
 import { updateSpaceHooks } from '@/api/client';
+import type { SpaceHook } from '@/types';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { DirectoryPicker } from '@/components/shared/DirectoryPicker';
@@ -41,7 +42,8 @@ export function SpaceModal() {
   const [modelOverridesOpen, setModelOverridesOpen] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [hook, setHook] = useState<HookDraft>({ name: 'Tests', command: '' });
+  const [hooks, setHooks] = useState<SpaceHook[]>([]);
+  const [editingHook, setEditingHook] = useState(false);
   const [hookError, setHookError] = useState('');
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,10 +60,8 @@ export function SpaceModal() {
   useEffect(() => {
     if (isOpen) {
       setHookError('');
-      setHook({
-        name:    space?.hooks?.[0]?.name ?? 'Tests',
-        command: space?.hooks?.[0]?.command ?? '',
-      });
+      setHooks(space?.hooks ?? []);
+      setEditingHook(false);
       setName(mode === 'rename' && space ? space.name : '');
       setWorkingDirectory(mode === 'rename' && space ? (space.workingDirectory ?? '') : '');
       setPipeline(mode === 'rename' && space ? (space.pipeline ?? []) : []);
@@ -117,25 +117,23 @@ export function SpaceModal() {
         await createSpace(trimmed, wd, pl);
         closeModal();
       } else if (mode === 'rename' && space) {
-        const command = hook.command.trim();
-        const hookName = hook.name.trim();
         const { spaces, loadSpaces } = useAppStore.getState();
-        const saved = (spaces.find((sp) => sp.id === space.id) ?? space).hooks?.[0];
+        const saved = (spaces.find((sp) => sp.id === space.id) ?? space).hooks ?? [];
         setHookError('');
-        if (command && !hookName) {
-          setHookError('Give the check a name.');
+        if (editingHook) {
+          setHookError('Finish or cancel the hook you are editing.');
           return;
         }
         // First, because the server refuses it while an agent runs, and then nothing else
         // has changed and the form stays open with the reason.
-        if (command !== (saved?.command ?? '') || (command && hookName !== saved?.name)) {
+        if (JSON.stringify(hooks) !== JSON.stringify(saved)) {
           try {
-            await updateSpaceHooks(space.id, command ? [{ name: hookName, command }] : []);
+            await updateSpaceHooks(space.id, hooks);
           } catch (err) {
             setHookError((err as Error).message);
             return;
           }
-          // Now, in case the rest fails: the board and a reopened form must show the new check.
+          // Now, in case the rest fails: the board and a reopened form must show the new hooks.
           await loadSpaces();
         }
         const stageModels = localModelsToStageModelsMap(localStageModels);
@@ -275,7 +273,7 @@ export function SpaceModal() {
           </span>
         </div>
 
-        {mode === 'rename' && space && <SpaceHookSection value={hook} onChange={setHook} error={hookError} />}
+        {mode === 'rename' && space && <SpaceHookSection value={hooks} onChange={setHooks} onEditingChange={setEditingHook} error={hookError} />}
 
         {/* Model Overrides — rename mode only (MODEL-1) */}
         {mode === 'rename' && (

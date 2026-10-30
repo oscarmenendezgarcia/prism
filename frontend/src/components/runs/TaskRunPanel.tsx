@@ -10,7 +10,7 @@ import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
 import type { ChangedFile, Column, Task, TaskRunView } from '@/types';
 import { AgentPicker } from './AgentPicker';
 import { HarnessIcon, HARNESS_NAMES, type DirectCliTool } from './HarnessIcon';
-import { failureMessage, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
+import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine, StepList } from './TaskRunStatus';
 
 function PatchView({ patch }: { patch: string }) {
   return (
@@ -141,7 +141,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
   const busy   = useTaskRunStore((s) => s.busyTaskIds.has(task.id));
   const choice = useTaskRunStore((s) => s.choice);
   const harnesses = useTaskRunStore((s) => s.harnesses);
-  const { start, stop, retry, close } = useTaskRunStore.getState();
+  const { start, stop, retry, close, approve, createPullRequest } = useTaskRunStore.getState();
 
   const problem = choiceProblem(choice, harnesses);
   const startButton = (
@@ -166,6 +166,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
   }
   const missingHarness = column === 'in-progress' && view.failure?.reason === 'binary_missing';
 
+  const waiting = view.status === 'approval';
   const live = view.status === 'working' || view.status === 'checking';
   const ended = view.status === 'failed' || view.status === 'stopped' || view.status === 'done';
   const message = failureMessage(view);
@@ -181,7 +182,12 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
         </span>
         <StatusLine view={view} />
         <span className="flex-1" />
-        {(live || view.status === 'question') && (
+        {waiting && (
+          <Button variant="primary" size="sm" disabled={busy} onClick={() => { approve(spaceId, task.id).catch(() => {}); }}>
+            Approve {view.hook?.name}
+          </Button>
+        )}
+        {(live || view.status === 'question' || waiting) && (
           <Button variant="secondary" size="sm" disabled={busy} onClick={() => { stop(spaceId, task.id).catch(() => {}); }}>
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">stop</span>
             Stop
@@ -207,15 +213,24 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
         )}
       </div>
 
+      <StepList view={view} />
+      {waiting && (
+        <p className="text-xs text-text-secondary leading-snug">
+          Nothing runs until you approve. To change something first, ask for changes in the comments.
+        </p>
+      )}
       {message && <p className="text-xs text-error leading-snug" data-testid="run-failure">{message}</p>}
       <SaveErrorNote view={view} />
       {hookOutput && (
         <pre className="max-h-48 overflow-auto rounded-lg bg-error/[0.06] border border-error/20 p-3 font-mono text-[11px] text-text-secondary whitespace-pre-wrap break-words" data-testid="hook-output">{hookOutput}</pre>
       )}
 
-      {ended && (
+      {(ended || waiting) && (
         <>
-          <ResultLine view={view} />
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="flex-1 min-w-0"><ResultLine view={view} /></div>
+            <PullRequestAction view={view} busy={busy} onCreate={() => { createPullRequest(spaceId, task.id).catch(() => {}); }} />
+          </div>
           <ChangedFiles view={view} />
         </>
       )}

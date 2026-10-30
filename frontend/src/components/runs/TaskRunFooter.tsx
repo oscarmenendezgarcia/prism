@@ -9,7 +9,7 @@ import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
 import type { Column, Task } from '@/types';
 import { AgentPicker } from './AgentPicker';
 import { HarnessIcon } from './HarnessIcon';
-import { failureMessage, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
+import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine, StepBar } from './TaskRunStatus';
 
 interface TaskRunFooterProps {
   task: Task;
@@ -24,6 +24,8 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   const harnesses       = useTaskRunStore((s) => s.harnesses);
   const start           = useTaskRunStore((s) => s.start);
   const retry           = useTaskRunStore((s) => s.retry);
+  const approve         = useTaskRunStore((s) => s.approve);
+  const createPullRequest = useTaskRunStore((s) => s.createPullRequest);
   const openDetailPanel = useAppStore((s) => s.openDetailPanel);
 
   const missingHarness = column === 'in-progress' && view?.failure?.reason === 'binary_missing';
@@ -67,11 +69,35 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
     );
   }
 
+  if (view.status === 'approval') {
+    return (
+      <div className="flex flex-col gap-2 mt-3" data-testid="run-footer">
+        <StepBar view={view} />
+        <ResultLine view={view} />
+        <p className="text-xs text-warning leading-snug">Needs your approval: {view.hook?.name}</p>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={busy}
+            onClick={(e) => { e.stopPropagation(); approve(spaceId, task.id).catch(() => {}); }}
+          >
+            Approve
+          </Button>
+          <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); openDetailPanel(task); }}>Review</Button>
+          <span className="flex-1" />
+          <HarnessIcon cliTool={view.cliTool} />
+        </div>
+      </div>
+    );
+  }
+
   const canRetry = view.status === 'failed' || view.status === 'stopped';
   const message = failureMessage(view);
 
   return (
     <div className="flex flex-col gap-2 mt-3" data-testid="run-footer">
+      {(view.status === 'working' || view.status === 'checking') && <StepBar view={view} />}
       {view.status !== 'working' && view.status !== 'checking' && <ResultLine view={view} />}
       <SaveErrorNote view={view} />
       {message && <p className="text-xs text-error leading-snug line-clamp-2">{message}</p>}
@@ -79,6 +105,9 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
         <HarnessIcon cliTool={view.cliTool} />
         <StatusLine view={view} />
         <span className="flex-1" />
+        {view.status === 'done' && (
+          <PullRequestAction view={view} busy={busy} onCreate={() => { createPullRequest(spaceId, task.id).catch(() => {}); }} />
+        )}
         {canRetry && (
           <Button
             variant="secondary"

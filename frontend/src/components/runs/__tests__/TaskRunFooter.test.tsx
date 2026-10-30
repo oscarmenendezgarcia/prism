@@ -11,6 +11,8 @@ vi.mock('@/api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/api/client')>()),
   startTaskRun: vi.fn().mockResolvedValue({}),
   resumeRun: vi.fn().mockResolvedValue({}),
+  approveTaskHook: vi.fn().mockResolvedValue({}),
+  createTaskPullRequest: vi.fn().mockResolvedValue({}),
   getTaskRuns: vi.fn().mockResolvedValue({}),
 }));
 
@@ -34,6 +36,54 @@ describe('TaskRunFooter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAppStore.setState({ activeSpaceId: 's1', loadBoard: vi.fn().mockResolvedValue(undefined), showToast: vi.fn() } as never);
+  });
+
+  it('asks for approval on the card, and approves from it', async () => {
+    renderFooter('in-progress', {
+      status: 'approval', result,
+      hook: { name: 'Deploy', status: 'awaiting_approval' },
+      steps: [{ id: 'a', name: 'Deploy', type: 'command', status: 'awaiting_approval' }],
+    });
+    expect(screen.getByText('Needs your approval: Deploy')).toBeInTheDocument();
+    expect(screen.getByTestId('run-result')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(api.approveTaskHook).toHaveBeenCalledWith('s1', 't1');
+  });
+
+  it('shows the steps while a check runs', () => {
+    renderFooter('in-progress', {
+      status: 'checking',
+      hook: { name: 'Two', status: 'running' },
+      steps: [
+        { id: 'a', name: 'One', type: 'command', status: 'passed' },
+        { id: 'b', name: 'Two', type: 'command', status: 'running' },
+      ],
+    });
+    expect(screen.getByRole('img', { name: '1 of 2 checks passed' })).toBeInTheDocument();
+  });
+
+  it('offers to create a PR on a finished card', async () => {
+    renderFooter('done', { status: 'done', result: { ...result, head: 'abc', pr: null } });
+    await userEvent.click(screen.getByRole('button', { name: 'Create PR' }));
+    expect(api.createTaskPullRequest).toHaveBeenCalledWith('s1', 't1');
+  });
+
+  it('links the PR, and offers to push only what is new', () => {
+    const pr = { url: 'https://example.test/pull/7', number: 7, pushedHead: 'abc' };
+    const { unmount } = renderFooter('done', { status: 'done', result: { ...result, head: 'abc', pr } });
+    expect(screen.getByRole('link', { name: /PR #7/ })).toHaveAttribute('href', pr.url);
+    expect(screen.queryByRole('button', { name: 'Push changes' })).toBeNull();
+    unmount();
+    renderFooter('done', { status: 'done', result: { ...result, head: 'def', pr } });
+    expect(screen.getByRole('button', { name: 'Push changes' })).toBeInTheDocument();
+  });
+
+  it('says why an agent check failed', () => {
+    renderFooter('in-progress', {
+      status: 'failed', hook: { name: 'Review', status: 'failed' },
+      failure: { kind: 'hook', exitCode: 0, verdict: 'fail', retries: 2 },
+    });
+    expect(screen.getByText('"Review" found problems. The agent tried to fix it 2 times.')).toBeInTheDocument();
   });
 
   it('offers Run with the chosen agent on a card in To do', async () => {

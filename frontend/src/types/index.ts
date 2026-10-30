@@ -64,8 +64,18 @@ export interface Space {
 }
 
 export interface SpaceHook {
+  /** Assigned by the server when the hook is first saved. */
+  id?: string;
   name: string;
-  command: string;
+  type?: 'command' | 'agent' | 'pr';
+  command?: string;
+  /** What the agent must check. */
+  prompt?: string;
+  agent?: AgentChoice;
+  onFail?: 'stop' | 'retry';
+  approval?: boolean;
+  maxRetries?: number;
+  timeoutMinutes?: number;
 }
 
 /** The harness and model a direct run uses. */
@@ -78,7 +88,7 @@ export interface AgentChoice {
 export interface TaskRunView {
   runId: string;
   taskId: string;
-  status: 'working' | 'checking' | 'question' | 'failed' | 'stopped' | 'done';
+  status: 'working' | 'checking' | 'question' | 'approval' | 'failed' | 'stopped' | 'done';
   cliTool: string;
   model: string | null;
   iteration: number;
@@ -95,20 +105,28 @@ export interface TaskRunView {
     additions: number | null;
     deletions: number | null;
     saveError: string | null;
+    head?: string | null;
+    pr?: { url: string; number: number; pushedHead: string | null } | null;
   } | null;
   hook: {
     name: string;
-    command: string;
-    status: 'running' | 'passed' | 'failed' | 'interrupted';
+    type?: 'command' | 'agent' | 'pr';
+    command?: string;
+    status: 'running' | 'passed' | 'failed' | 'interrupted' | 'awaiting_approval' | 'approved';
     exitCode?: number | null;
     timedOut?: boolean;
     outputTail?: string;
+    verdict?: 'pass' | 'fail' | 'none';
   } | null;
+  /** The space's hooks for this run, in order. */
+  steps?: Array<{ id: string; name: string; type: string; status: string }>;
   failure: {
     kind: 'agent' | 'hook';
     exitCode: number | null;
     timedOut?: boolean;
     reason?: string | null;
+    verdict?: 'fail' | 'none';
+    retries?: number;
   } | null;
 }
 

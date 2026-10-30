@@ -568,6 +568,12 @@ export const getRunFilePatch = (runId: string, filePath: string): Promise<{ patc
 export const stopRun = (runId: string): Promise<BackendRun> =>
   postJson<BackendRun>(`/runs/${runId}/stop`, {});
 
+export const approveTaskHook = (spaceId: string, taskId: string): Promise<BackendRun> =>
+  postJson<BackendRun>(`/spaces/${spaceId}/tasks/${taskId}/approve`, {});
+
+export const createTaskPullRequest = (spaceId: string, taskId: string): Promise<BackendRun> =>
+  postJson<BackendRun>(`/spaces/${spaceId}/tasks/${taskId}/pr`, {});
+
 export const updateSpaceHooks = (spaceId: string, hooks: SpaceHook[]): Promise<Space> =>
   apiFetch<Space>(`/spaces/${spaceId}/hooks`, {
     method: 'PUT',
