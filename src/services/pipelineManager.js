@@ -270,6 +270,9 @@ const activeProcesses = new Map();
  */
 const activeFinalizations = new Map();
 
+/** The startup worktree sweep while it runs. It removes worktrees of failed runs too. */
+let startupSweep = null;
+
 /** Store instance injected via init(). Used to look up tasks in SQLite. */
 let _store = null;
 
@@ -1585,6 +1588,7 @@ async function restoreRunWorktree(run) {
   if (!run.worktree) return;
   // A removal still in flight would delete the worktree under the resumed agent.
   await activeFinalizations.get(run.runId);
+  await startupSweep;
   await worktreeManager.restore(run.workingDirectory, run.worktree, { runId: run.runId });
 }
 
@@ -1629,6 +1633,10 @@ async function waitForAgentExit(pid) {
  */
 async function finalizeRun(dataDir, run, opts = {}) {
   if (!run || !run.worktree) return; // Solo runs have no worktree — skip.
+
+  // Double stop, or a stop overlapping a kill: the first call owns the removal.
+  const pending = activeFinalizations.get(run.runId);
+  if (pending) return pending;
 
   const deleteBranch =
     process.env.PIPELINE_DELETE_BRANCH_ON_FAILURE === '1' &&
@@ -2165,6 +2173,8 @@ function failStageWorktreeUnavailable(dataDir, run, stageIndex) {
   run.stageStatuses[stageIndex].failureReason = 'worktree_unavailable';
   run.status = 'failed';
   writeRun(dataDir, run);
+  pipelineLog('run.failed', { runId: run.runId, stageIndex, reason: 'worktree_unavailable' });
+  bridgeUpdateRunFinished(dataDir, run.runId, stageIndex, 'failed', run.stageStatuses[stageIndex].finishedAt, 0);
 }
 
 async function spawnStage(dataDir, run, stageIndex, opts = {}) {
@@ -2174,7 +2184,8 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
   const timeoutMs = agentId === 'orchestrator' ? baseTimeout * 6 : baseTimeout;
 
   // Never run an agent in the user's checkout because its worktree went missing.
-  if (spawnCwd(run) === null || activeFinalizations.has(run.runId)) {
+  if (spawnCwd(run) === null || activeFinalizations.has(run.runId) || startupSweep) {
+    const statusBefore = run.status;
     let restoreErr = null;
     try {
       await restoreRunWorktree(run);
@@ -2183,7 +2194,8 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
     }
     // The run may have been stopped or deleted while git was working.
     const fresh = readRun(dataDir, run.runId);
-    if (!fresh || ['aborted', 'interrupted'].includes(fresh.status)) return;
+    if (!fresh || fresh.status !== statusBefore) return;
+    Object.assign(run, fresh);
     if (restoreErr) {
       pipelineLog('worktree.error', { runId: run.runId, op: 'restore', code: restoreErr.code, message: restoreErr.message });
       failStageWorktreeUnavailable(dataDir, run, stageIndex);
@@ -2611,9 +2623,12 @@ function init(dataDir, store) {
   // Garbage-collect orphaned worktrees from unclean shutdowns (parallel-worktrees T-008).
   // Run asynchronously — init() is synchronous overall; reapOrphans is a best-effort sweep.
   if (knownWorkingDirs.size > 0) {
-    worktreeManager.reapOrphans(dataDir, [...knownWorkingDirs], _store).catch((err) => {
+    const sweep = worktreeManager.reapOrphans(dataDir, [...knownWorkingDirs], _store).catch((err) => {
       console.warn('[pipelineManager] WARN: reapOrphans failed:', err.message);
+    }).finally(() => {
+      if (startupSweep === sweep) startupSweep = null;
     });
+    startupSweep = sweep;
   }
 }
 

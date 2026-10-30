@@ -43,7 +43,7 @@ const { createApp }          = require('./src/handlers/tasks');
 const { cleanupOldPromptFiles } = require('./src/handlers/prompt');
 const { createRouter }       = require('./src/routes');
 const { resolveDataDir }     = require('./src/utils/dataDir');
-const { resolveAccess, allowRequest, isLoopback } = require('./src/utils/access');
+const { resolveAccess, allowRequest } = require('./src/utils/access');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -217,9 +217,12 @@ function startServer(options = {}) {
   server.listen(port, access.host, () => {
     const boundPort = server.address().port;
 
-    // Bound to one specific address, so the default localhost URL would not connect.
-    if (!process.env.KANBAN_API_URL && !isLoopback(access.host) && !['0.0.0.0', '::'].includes(access.host)) {
-      const urlHost = access.host.includes(':') ? `[${access.host}]` : access.host;
+    // Agents and card moves default to localhost:3000. On another port or address they
+    // would miss this server, or send the token to whatever listens there. Port 0 is
+    // tests, where several servers share one process.
+    if (!process.env.KANBAN_API_URL && port !== 0) {
+      const wildcard = ['0.0.0.0', '::'].includes(access.host);
+      const urlHost  = wildcard ? '127.0.0.1' : access.host.includes(':') ? `[${access.host}]` : access.host;
       process.env.KANBAN_API_URL = `http://${urlHost}:${boundPort}/api/v1`;
     }
 

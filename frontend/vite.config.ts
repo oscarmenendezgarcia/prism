@@ -17,7 +17,9 @@ export default defineConfig({
     },
   },
   server: {
-    host: true,
+    // The proxy reaches the backend as localhost, so it must not listen beyond this
+    // machine or it would bypass the token. `npm run dev -- --host` opens it.
+    host: 'localhost',
     port: 5173,
     proxy: {
       '/api/v1': {

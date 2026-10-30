@@ -24,7 +24,7 @@ const fs     = require('fs');
 const path   = require('path');
 
 const DEFAULT_HOST   = '127.0.0.1';
-const COOKIE_NAME    = 'prism_token';
+const COOKIE_PREFIX  = 'prism_token';
 const TOKEN_FILE     = 'auth-token';
 const LOOPBACK_NAMES = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -81,10 +81,22 @@ function tokensMatch(a, b) {
   return crypto.timingSafeEqual(hash(a), hash(b));
 }
 
+/** Cookies ignore the port, so instances on one machine need different names. */
+function cookieName(req) {
+  const port = /:(\d+)$/.exec(req.headers.host || '');
+  return `${COOKIE_PREFIX}_${port ? port[1] : 'default'}`;
+}
+
 function tokenFromCookie(req) {
+  const wanted = cookieName(req);
   for (const part of (req.headers.cookie || '').split(';')) {
     const [name, ...rest] = part.trim().split('=');
-    if (name === COOKIE_NAME) return rest.join('=');
+    if (name !== wanted) continue;
+    try {
+      return decodeURIComponent(rest.join('='));
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -170,7 +182,7 @@ function handleTokenLogin(access, req, res) {
 
   url.searchParams.delete('token');
   res.writeHead(302, {
-    'Set-Cookie': `${COOKIE_NAME}=${access.token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000`,
+    'Set-Cookie': `${cookieName(req)}=${encodeURIComponent(access.token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000`,
     Location:     url.pathname + url.search,
   });
   res.end();

@@ -306,8 +306,8 @@ async function branchHasWork(workingDirectory, { branch, baseRef }) {
 /**
  * Save any uncommitted work, then remove a previously provisioned worktree. Idempotent.
  *
- * If the work cannot be saved the worktree stays on disk, and the startup sweep
- * tries again.
+ * If the work cannot be saved the worktree stays on disk. Nothing removes it until
+ * someone deals with what is logged under worktree.error.
  *
  * Never throws — errors are logged via pipelineLog('worktree.error', …).
  * If opts.deleteBranch is true, also deletes the branch after removing the worktree.

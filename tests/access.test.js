@@ -162,7 +162,7 @@ describe('server with a token', () => {
     assert.equal((await request(s.port)).status, 401);
     assert.equal((await request(s.port, { url: '/' })).status, 401);
     assert.equal((await request(s.port, { headers: { Authorization: 'Bearer wrong' } })).status, 401);
-    assert.equal((await request(s.port, { headers: { Cookie: 'prism_token=wrong' } })).status, 401);
+    assert.equal((await request(s.port, { headers: { Cookie: `prism_token_${s.port}=wrong` } })).status, 401);
   });
 
   test('accepts the bearer token from any Host', async () => {
@@ -188,6 +188,10 @@ describe('server with a token', () => {
     assert.equal((await request(s.port, { headers: { Authorization: `Bearer ${TOKEN}` } })).status, 200);
   });
 
+  test('a cookie from an instance on another port does not count', async () => {
+    assert.equal((await request(s.port, { headers: { Cookie: `prism_token_1=${TOKEN}` } })).status, 401);
+  });
+
   test('a wrong ?token= gets nothing', async () => {
     const res = await request(s.port, { url: '/?token=wrong' });
     assert.equal(res.status, 401);
@@ -202,7 +206,24 @@ describe('server with a token', () => {
   test('the terminal requires it too', async () => {
     const origin = { Origin: `http://127.0.0.1:${s.port}` };
     assert.equal(await upgrade(s.port, origin), 403);
-    assert.equal(await upgrade(s.port, { ...origin, Cookie: `prism_token=${TOKEN}` }), 'open');
+    assert.equal(await upgrade(s.port, { ...origin, Cookie: `prism_token_${s.port}=${TOKEN}` }), 'open');
+  });
+});
+
+describe('tokens with characters a cookie cannot hold', () => {
+  test('still log in and do not crash the server', async () => {
+    const TOKEN = 'a;b c€';
+    process.env.PRISM_TOKEN = TOKEN;
+    const s = await serve();
+    try {
+      const res = await request(s.port, { url: `/?token=${encodeURIComponent(TOKEN)}` });
+      assert.equal(res.status, 302);
+      const pair = res.headers['set-cookie'][0].split(';')[0];
+      assert.equal((await request(s.port, { headers: { Cookie: pair } })).status, 200);
+    } finally {
+      delete process.env.PRISM_TOKEN;
+      await s.close();
+    }
   });
 });
 

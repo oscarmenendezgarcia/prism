@@ -238,6 +238,21 @@ describe('resuming a run through the API', () => {
     assert.equal(fs.readFileSync(path.join(run.worktree.path, 'kept.txt'), 'utf8'), 'kept\n');
   });
 
+  test('stopping twice removes the worktree once and resuming still works', async () => {
+    const run = await startRun();
+    fs.writeFileSync(path.join(run.worktree.path, 'kept.txt'), 'kept\n');
+
+    await Promise.all([
+      api('POST', `/api/v1/runs/${run.runId}/stop`),
+      api('POST', `/api/v1/runs/${run.runId}/stop`),
+    ]);
+    const res = await api('POST', `/api/v1/runs/${run.runId}/resume`);
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(fs.readFileSync(path.join(run.worktree.path, 'kept.txt'), 'utf8'), 'kept\n');
+  });
+
   test('an invalid fromStage does not recreate the worktree', async () => {
     const run = await startRun();
     await teardown(run.worktree, { reason: 'interrupted', runId: run.runId });
