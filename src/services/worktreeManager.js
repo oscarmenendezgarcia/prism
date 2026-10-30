@@ -218,8 +218,9 @@ async function assertWorktreeRoot(worktreePath) {
  * worktree cannot lose it. Gitignored files are not saved.
  *
  * The user's hooks, signing config and identity must not be able to block the
- * commit, so they are overridden. If HEAD is detached, the commits are unreachable
- * once the worktree is gone, so a `<branch>-saved` branch is pointed at them.
+ * commit, so they are overridden. If the agent ended anywhere but the run branch,
+ * resuming from that branch would not see the work (and on a detached HEAD it becomes
+ * unreachable), so a `<branch>-saved` branch is pointed at it.
  *
  * Throws WorktreeError(GIT_ERROR) when the work could not be saved or the worktree
  * still holds something a commit cannot capture (a nested repo, a dirty submodule).
@@ -275,10 +276,10 @@ async function saveWork(worktreeMeta, opts = {}) {
 
   let ref = null;
   const { stdout: head } = await git(['rev-parse', '--abbrev-ref', 'HEAD']);
-  if (head.trim() === 'HEAD' && branch) {
+  if (head.trim() !== branch && branch) {
     ref = `${branch}-saved`;
     await git(['branch', '-f', ref, 'HEAD']);
-    pipelineLog('worktree.detached_work_saved', { runId: opts.runId, path: worktreePath, ref });
+    pipelineLog('worktree.off_branch_work_saved', { runId: opts.runId, path: worktreePath, ref, head: head.trim() });
   }
 
   return { saved, ref };
@@ -376,13 +377,13 @@ async function teardown(worktreeMeta, opts = {}) {
 }
 
 /**
- * Move work saved from a detached HEAD back onto the run branch. Throws if the two
+ * Move work the agent left off the run branch back onto it. Throws if the two
  * diverged, because resuming from the branch alone would silently drop that work.
  *
  * @param {string} workingDirectory
  * @param {string} branch
  */
-async function recoverDetachedWork(workingDirectory, branch) {
+async function recoverOffBranchWork(workingDirectory, branch) {
   const saved = `${branch}-saved`;
   const refExists = async (name) => {
     try {
@@ -395,10 +396,21 @@ async function recoverDetachedWork(workingDirectory, branch) {
 
   if (!(await refExists(saved))) return;
 
-  if (await refExists(branch)) {
+  const isAncestor = async (a, b) => {
     try {
-      await runGit(workingDirectory, ['merge-base', '--is-ancestor', branch, saved]);
+      await runGit(workingDirectory, ['merge-base', '--is-ancestor', a, b]);
+      return true;
     } catch {
+      return false;
+    }
+  };
+
+  if (await refExists(branch)) {
+    if (await isAncestor(saved, branch)) {
+      await runGit(workingDirectory, ['branch', '-D', saved]); // Nothing unique in it.
+      return;
+    }
+    if (!(await isAncestor(branch, saved))) {
       throw new WorktreeError(`Branch '${saved}' holds saved work that diverged from '${branch}'.`, 'GIT_ERROR');
     }
   }
@@ -413,16 +425,16 @@ async function recoverDetachedWork(workingDirectory, branch) {
  * when the run branch can fast-forward to it.
  *
  * Throws WorktreeError(GIT_ERROR) when it cannot, for example if the branch is
- * gone or checked out elsewhere. Callers must not fall back to the user's checkout.
+ * checked out elsewhere. Callers must not fall back to the user's checkout.
  *
  * @param {string} workingDirectory - The repository the worktree belongs to.
- * @param {{ path: string, branch: string }} worktreeMeta
+ * @param {{ path: string, branch: string, baseRef?: string|null }} worktreeMeta
  * @param {object} [opts]
  * @param {string} [opts.runId] - Run ID (for observability).
  * @returns {Promise<{ restored: boolean }>}
  */
 async function restore(workingDirectory, worktreeMeta, opts = {}) {
-  const { path: worktreePath, branch } = worktreeMeta;
+  const { path: worktreePath, branch, baseRef } = worktreeMeta;
 
   if (fs.existsSync(worktreePath)) {
     await assertWorktreeRoot(worktreePath);
@@ -431,9 +443,19 @@ async function restore(workingDirectory, worktreeMeta, opts = {}) {
 
   await runGit(workingDirectory, ['worktree', 'prune']);
 
-  await recoverDetachedWork(workingDirectory, branch);
+  await recoverOffBranchWork(workingDirectory, branch);
 
-  await runGit(workingDirectory, ['worktree', 'add', worktreePath, branch]);
+  // PIPELINE_DELETE_BRANCH_ON_FAILURE deletes a branch with no commits, so it can be
+  // recreated from where it started without losing anything.
+  let branchExists = true;
+  try {
+    await runGit(workingDirectory, ['rev-parse', '--verify', '-q', `refs/heads/${branch}`]);
+  } catch {
+    branchExists = false;
+  }
+  await runGit(workingDirectory, branchExists || !baseRef
+    ? ['worktree', 'add', worktreePath, branch]
+    : ['worktree', 'add', worktreePath, '-b', branch, baseRef]);
   pipelineLog('worktree.restored', { runId: opts.runId, path: worktreePath, branch });
   return { restored: true };
 }

@@ -69,6 +69,7 @@ COPY --from=builder /app/dist/ ./dist/
 
 # ── Environment variable defaults (all overridable via docker-compose or -e) ──
 ENV PORT=3000
+ENV PRISM_HOST=0.0.0.0
 ENV DATA_DIR=/app/data
 ENV ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 

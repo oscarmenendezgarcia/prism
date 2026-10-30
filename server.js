@@ -7,7 +7,7 @@
  *   nested REST routes with legacy backward-compatibility shim.
  *
  * Usage: node server.js
- * Port: 3000 (or PORT env var)
+ * Port: 3000 (or PORT env var). Listens on 127.0.0.1 unless PRISM_HOST says otherwise.
  *
  * Module layout:
  *   src/services/store.js          — SQLite Store (better-sqlite3), all CRUD ops (ADR-1 sqlite-migration)
@@ -43,6 +43,7 @@ const { createApp }          = require('./src/handlers/tasks');
 const { cleanupOldPromptFiles } = require('./src/handlers/prompt');
 const { createRouter }       = require('./src/routes');
 const { resolveDataDir }     = require('./src/utils/dataDir');
+const { resolveAccess, allowRequest, isLoopback } = require('./src/utils/access');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -69,6 +70,7 @@ const DEFAULT_DATA_DIR = _dataDirResult.path;
  * @param {string}  [options.dataDir]   - Absolute path to data directory.
  * @param {boolean} [options.silent]    - Suppress startup log.
  * @param {string}  [options.agentsDir] - Absolute path to agents dir (overrides env/default).
+ * @param {string}  [options.host]      - Address to listen on (overrides PRISM_HOST, default 127.0.0.1).
  * @returns {import('http').Server}
  */
 function startServer(options = {}) {
@@ -198,7 +200,12 @@ function startServer(options = {}) {
   setInterval(() => cleanupOldPromptFiles(dataDir), 6 * 60 * 60 * 1000).unref();
 
   // Step 6: Create and start the HTTP server.
+  const access = resolveAccess({ host: options.host, dataDir });
+  // Agents and the MCP servers they start inherit this to reach the API.
+  if (access.token) process.env.PRISM_TOKEN = access.token;
+
   const server = http.createServer((req, res) => {
+    if (!allowRequest(access, req, res)) return;
     mainRouter(req, res).catch((err) => {
       console.error('Unhandled error in router:', err);
       const payload = JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
@@ -207,9 +214,23 @@ function startServer(options = {}) {
     });
   });
 
-  server.listen(port, () => {
-    if (!options.silent) {
-      console.log(`Prism running at http://localhost:${server.address().port}`);
+  server.listen(port, access.host, () => {
+    const boundPort = server.address().port;
+
+    // Bound to one specific address, so the default localhost URL would not connect.
+    if (!process.env.KANBAN_API_URL && !isLoopback(access.host) && !['0.0.0.0', '::'].includes(access.host)) {
+      const urlHost = access.host.includes(':') ? `[${access.host}]` : access.host;
+      process.env.KANBAN_API_URL = `http://${urlHost}:${boundPort}/api/v1`;
+    }
+
+    if (options.silent) return;
+    if (!access.token) {
+      console.log(`Prism running at http://localhost:${boundPort}`);
+      return;
+    }
+    console.log(`Prism listening on ${access.host}:${boundPort}. An access token is required.`);
+    if (access.generated) {
+      console.log(`Open: http://<this-machine>:${boundPort}/?token=${access.token}`);
     }
   });
 
@@ -217,6 +238,7 @@ function startServer(options = {}) {
   // invocation bootstrap and tests that need to close the DB) can reach it
   // without breaking the existing `server.once('listening', ...)` pattern.
   server._store = store;
+  server._access = access;
 
   return server;
 }

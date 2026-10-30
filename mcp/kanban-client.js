@@ -65,6 +65,7 @@ function request(method, path, body = null) {
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
         ...(payload !== null && { 'Content-Length': Buffer.byteLength(payload) }),
+        ...(process.env.PRISM_TOKEN && { Authorization: `Bearer ${process.env.PRISM_TOKEN}` }),
       },
     };
 

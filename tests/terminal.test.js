@@ -26,7 +26,7 @@
 
 'use strict';
 
-const { test, describe } = require('node:test');
+const { test, describe, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const http   = require('node:http');
 const net    = require('node:net');
@@ -847,8 +847,8 @@ describe('Graceful degradation — node-pty unavailable', async () => {
 
 /**
  * Helper: load a fresh terminal module with a given ALLOWED_ORIGINS value.
- * Temporarily removes the module from require.cache, sets the env var, re-requires,
- * then immediately cleans up (cache entry + env var) so other tests are unaffected.
+ * Removes the module from require.cache, sets the env var and re-requires.
+ * The suite's afterEach unsets the env var.
  *
  * @param {string} allowedOriginsValue - Value to assign to process.env.ALLOWED_ORIGINS.
  * @returns {{ setupTerminalWebSocket: Function }}
@@ -859,9 +859,8 @@ function requireTerminalWithOrigins(allowedOriginsValue) {
   delete require.cache[terminalPath];
   process.env.ALLOWED_ORIGINS = allowedOriginsValue;
   const mod = require(terminalPath);
-  // Immediately restore: delete cache entry + env var so the running process is clean.
+  // Allowed origins are read per request, so the var stays set until the test ends.
   delete require.cache[terminalPath];
-  delete process.env.ALLOWED_ORIGINS;
   return mod;
 }
 
@@ -886,6 +885,8 @@ async function startCustomServer(setup) {
 }
 
 describe('ALLOWED_ORIGINS env var', async () => {
+  afterEach(() => { delete process.env.ALLOWED_ORIGINS; });
+
   test('custom origin in ALLOWED_ORIGINS is accepted', async () => {
     const { setupTerminalWebSocket: setup } = requireTerminalWithOrigins('http://myapp.example.com:8080');
     const { server, wss, wsUrl } = await startCustomServer(setup);

@@ -5,7 +5,7 @@
  * bin/cli.js — prism CLI entry point
  *
  * Subcommands:
- *   prism start   [--port <n>] [--data-dir <path>] [--silent]
+ *   prism start   [--port <n>] [--host <addr>] [--data-dir <path>] [--silent]
  *   prism stop    [--data-dir <path>] [--force]
  *   prism init    [--data-dir <path>] [--force] [--no-start]
  *   prism update  [--no-update-check]
@@ -30,7 +30,7 @@ const USAGE = `
 prism — local-first kanban + agent pipeline runner
 
 Usage:
-  prism start   [--port <n>] [--data-dir <path>] [--silent]
+  prism start   [--port <n>] [--host <addr>] [--data-dir <path>] [--silent]
   prism stop    [--data-dir <path>] [--force]
   prism init    [--data-dir <path>] [--force] [--no-start]
   prism update
@@ -49,6 +49,9 @@ prism init options:
 
 prism start options:
   --port <n>            Port to listen on (default 3000, env: PORT)
+  --host <addr>         Address to listen on (default 127.0.0.1, env: PRISM_HOST).
+                        Anything else requires an access token (env: PRISM_TOKEN),
+                        generated on first start and printed if not set.
 
 prism stop:
   Reads <dataDir>/prism.pid, sends SIGTERM, and waits up to 35s for the
@@ -101,6 +104,10 @@ function parseArgv(argv) {
       flags.port = arg.slice('--port='.length);
     } else if (arg === '--port') {
       flags.port = args[++i];
+    } else if (arg.startsWith('--host=')) {
+      flags.host = arg.slice('--host='.length);
+    } else if (arg === '--host') {
+      flags.host = args[++i];
     } else if (arg.startsWith('--data-dir=')) {
       flags.dataDir = arg.slice('--data-dir='.length);
     } else if (arg === '--data-dir') {
@@ -143,6 +150,7 @@ function runStart(flags) {
 
   const server = startServer({
     port:    port,
+    host:    flags.host,
     silent:  flags.silent || false,
   });
 

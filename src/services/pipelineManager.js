@@ -1849,7 +1849,11 @@ async function moveKanbanTask(spaceId, taskId, column) {
   return new Promise((resolve) => {
     const req = http.request(
       { hostname, port, path: urlPath, method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } },
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+          ...(process.env.PRISM_TOKEN && { Authorization: `Bearer ${process.env.PRISM_TOKEN}` }),
+        } },
       (res) => {
         res.resume(); // drain response
         res.on('end', () => resolve());

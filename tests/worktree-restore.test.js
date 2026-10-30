@@ -99,12 +99,39 @@ describe('worktreeManager.restore()', () => {
     assert.equal(fs.readFileSync(path.join(meta.path, 'kept.txt'), 'utf8'), 'kept\n');
   });
 
-  test('fails when the branch is gone', async () => {
+  test('recreates an empty branch deleted on failure from its base commit', async () => {
+    await teardown(meta, { reason: 'failed', runId, deleteBranch: true });
+
+    assert.deepEqual(await restore(repo, meta), { restored: true });
+    assert.equal(git(meta.path, 'rev-parse', 'HEAD'), meta.baseRef);
+  });
+
+  test('fails when the branch is checked out elsewhere', async () => {
     await teardown(meta, { reason: 'failed', runId });
-    git(repo, 'branch', '-D', meta.branch);
+    git(repo, 'checkout', '-q', meta.branch);
 
     await assert.rejects(() => restore(repo, meta), /worktree failed/);
     assert.ok(!fs.existsSync(meta.path));
+  });
+
+  test('brings back work left on another named branch', async () => {
+    git(meta.path, 'checkout', '-q', '-b', 'fix');
+    fs.writeFileSync(path.join(meta.path, 'kept.txt'), 'kept\n');
+    await teardown(meta, { reason: 'failed', runId });
+
+    await restore(repo, meta);
+
+    assert.equal(fs.readFileSync(path.join(meta.path, 'kept.txt'), 'utf8'), 'kept\n');
+    assert.equal(git(meta.path, 'rev-parse', '--abbrev-ref', 'HEAD'), meta.branch);
+  });
+
+  test('a saved ref that is merely behind the branch does not block the resume', async () => {
+    git(meta.path, 'commit', '-q', '--allow-empty', '-m', 'agent');
+    git(meta.path, 'checkout', '-q', '--detach', 'HEAD~1');
+    await teardown(meta, { reason: 'failed', runId });
+
+    assert.deepEqual(await restore(repo, meta), { restored: true });
+    assert.equal(git(repo, 'branch', '--list', `${meta.branch}-saved`), '');
   });
 
   test('fails when the path exists but is not a worktree', async () => {
@@ -223,9 +250,12 @@ describe('resuming a run through the API', () => {
 
   test('answers 409 and keeps the run as it was when the worktree cannot come back', async () => {
     const run = await startRun();
-    await teardown(run.worktree, { reason: 'interrupted', runId: run.runId, deleteBranch: true });
+    await teardown(run.worktree, { reason: 'interrupted', runId: run.runId });
+    const original = git(repo, 'rev-parse', '--abbrev-ref', 'HEAD');
+    git(repo, 'checkout', '-q', run.worktree.branch);
 
     const res = await api('POST', `/api/v1/runs/${run.runId}/resume`);
+    git(repo, 'checkout', '-q', original);
 
     assert.equal(res.status, 409, JSON.stringify(res.body));
     assert.equal(res.body.error.code, 'WORKTREE_UNAVAILABLE');

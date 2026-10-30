@@ -139,7 +139,8 @@ async function waitForServer(port, timeoutMs = SERVER_BOOT_BUDGET_MS) {
   while (Date.now() < deadline) {
     try {
       const res = await globalThis.fetch(url);
-      if (res.status === 200) return;
+      // 401: it is up and requires a token this process does not have.
+      if (res.status === 200 || res.status === 401) return;
     } catch {
       // Connection refused or not ready yet — keep polling
     }

@@ -10,6 +10,10 @@ services:
       - ./data:/app/data
     environment:
       PORT: ${PORT:-3000}
+      PRISM_HOST: 0.0.0.0
+      # Required to reach the board. If unset, Prism generates one in the data
+      # directory and prints the URL to open in `docker compose logs`.
+      PRISM_TOKEN: ${PRISM_TOKEN:-}
       DATA_DIR: ${DATA_DIR:-/app/data}
       # Override ALLOWED_ORIGINS when running behind a reverse proxy or on a
       # custom domain (e.g. ALLOWED_ORIGINS=https://myapp.example.com).
