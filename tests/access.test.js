@@ -12,11 +12,9 @@ const http   = require('http');
 const os     = require('os');
 const path   = require('path');
 
-const { WebSocket } = require('ws');
 
 const { resolveAccess, isLoopback } = require('../src/utils/access');
 const { startServer } = require('../server');
-const { setupTerminalWebSocket } = require('../terminal');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'prism-access-'));
 
@@ -34,20 +32,10 @@ function request(port, { method = 'GET', url = '/api/v1/spaces', headers = {}, b
   });
 }
 
-function upgrade(port, headers) {
-  return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/terminal`, { headers });
-    ws.on('open', () => { ws.terminate(); resolve('open'); });
-    ws.on('unexpected-response', (_req, res) => resolve(res.statusCode));
-    ws.on('error', () => {});
-  });
-}
-
 async function serve(options) {
   const dataDir = tmp();
-  const server = startServer({ port: 0, dataDir, silent: true, agentsDir: path.join(dataDir, 'agents'), ...options });
+  const server = startServer({ port: 0, dataDir, silent: true, ...options });
   await new Promise((resolve) => server.once('listening', resolve));
-  setupTerminalWebSocket(server);
   return {
     server,
     dataDir,
@@ -139,11 +127,6 @@ describe('default server', () => {
     assert.equal(res.status, 200);
   });
 
-  test('terminal refuses cross-site, rebound and Origin-less upgrades', async () => {
-    assert.equal(await upgrade(s.port, { Origin: 'http://evil.example' }), 403);
-    assert.equal(await upgrade(s.port, { Host: 'evil.example', Origin: 'http://evil.example' }), 403);
-    assert.equal(await upgrade(s.port, {}), 403);
-  });
 });
 
 describe('server with a token', () => {
@@ -203,11 +186,6 @@ describe('server with a token', () => {
     assert.equal(res.status, 403);
   });
 
-  test('the terminal requires it too', async () => {
-    const origin = { Origin: `http://127.0.0.1:${s.port}` };
-    assert.equal(await upgrade(s.port, origin), 403);
-    assert.equal(await upgrade(s.port, { ...origin, Cookie: `prism_token_${s.port}=${TOKEN}` }), 'open');
-  });
 });
 
 describe('tokens with characters a cookie cannot hold', () => {

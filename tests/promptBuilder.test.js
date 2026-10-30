@@ -18,11 +18,10 @@ const os   = require('os');
 const path = require('path');
 
 const {
-  buildKanbanBlock,
   buildGitContextBlock,
-  buildGitInstructionsBlock,
-  buildCompileGateBlock,
-  buildResolvedQuestionsBlock,
+  buildCommentsBlock,
+  buildChangeRequestBlock,
+  buildDirectCardBlock,
 } = require('../src/utils/promptBuilder');
 
 // ---------------------------------------------------------------------------
@@ -67,95 +66,6 @@ function suite(name) {
 // ---------------------------------------------------------------------------
 
 async function runTests() {
-
-  suite('buildKanbanBlock(spaceId, taskId)');
-
-  await test('returns a string starting with ## KANBAN INSTRUCTIONS', () => {
-    const block = buildKanbanBlock('sp-abc', 'task-123');
-    assert(block.startsWith('## KANBAN INSTRUCTIONS'), 'must start with section header');
-  });
-
-  await test('interpolates spaceId and taskId into the block', () => {
-    const spaceId = 'sp-test-42';
-    const taskId  = 'task-xyz';
-    const block   = buildKanbanBlock(spaceId, taskId);
-    assert(block.includes(`Space ID: ${spaceId}`), 'spaceId must be present');
-    assert(block.includes(`Task ID: ${taskId}`),   'taskId must be present');
-  });
-
-  await test('states the ids once and does not repeat them in every example call', () => {
-    // They used to be interpolated into all six add_comment examples — 14
-    // occurrences of the two uuids in one block, when they are already on the
-    // header line the examples sit under.
-    const spaceId = 'sp-mcp';
-    const taskId  = 'task-mcp';
-    const block   = buildKanbanBlock(spaceId, taskId);
-    assert(block.includes(`Space ID: ${spaceId}`), 'the header carries the ids');
-    assert(block.includes(`Task ID: ${taskId}`),   'the header carries the ids');
-    assert(block.includes('mcp__prism__kanban_add_comment('), 'the example call is still shown');
-    const occurrences = (block.match(new RegExp(spaceId, 'g')) || []).length;
-    assert(occurrences === 1,
-      `spaceId must appear once, in the header — found ${occurrences}`);
-  });
-
-  await test('includes structured STOP conditions', () => {
-    const block = buildKanbanBlock('sp-1', 'task-1');
-    assert(block.includes('STOP and post a question'),    'must have STOP instruction');
-    assert(block.includes('missing or unreadable'),        'must mention missing artifact condition');
-    assert(block.includes('≥2 valid options'),             'must mention ambiguity condition');
-    assert(block.includes('irreversible or cross-team'),  'must mention irreversible decision condition');
-  });
-
-  await test('includes note/handoff guidance (does NOT pause pipeline)', () => {
-    const block = buildKanbanBlock('sp-1', 'task-1');
-    assert(block.includes('POST A NOTE'),               'must include note guidance');
-    assert(block.includes('does NOT pause pipeline'),   'must clarify note does not block');
-    assert(block.includes('HANDOFF SUMMARY'),           'must include handoff summary guidance');
-  });
-
-  await test('includes Assumption, Deviation, Trade-off note patterns', () => {
-    const block = buildKanbanBlock('sp-1', 'task-1');
-    assert(block.includes('Assumption:'), 'must include Assumption note pattern');
-    assert(block.includes('Deviation:'),  'must include Deviation note pattern');
-    assert(block.includes('Trade-off:'),  'must include Trade-off note pattern');
-  });
-
-  await test('last stage (default) instructs moving the task to done', () => {
-    const block = buildKanbanBlock('sp-1', 'task-1');
-    assert(block.includes('done (when finished)'), 'default must allow moving to done');
-    assert(!block.includes('Do NOT move it to done'), 'default must not forbid done');
-  });
-
-  await test('intermediate stage (isLastStage=false) forbids moving the task to done', () => {
-    const block = buildKanbanBlock('sp-1', 'task-1', false);
-    assert(block.includes('Do NOT move it to done'),            'must forbid moving to done');
-    assert(block.includes('a later pipeline stage closes the task'), 'must explain who closes it');
-    assert(!block.includes('done (when finished)'),             'must not include the last-stage wording');
-  });
-
-  await test('includes Handoff guidance before move-to-done', () => {
-    const block = buildKanbanBlock('sp-1', 'task-1');
-    assert(block.includes('Handoff:'),          'must include Handoff pattern');
-    assert(block.includes('Next agent should'), 'must tell agent what next agent should read');
-  });
-
-  await test('each call with different ids produces distinct output', () => {
-    const a = buildKanbanBlock('sp-A', 'task-A');
-    const b = buildKanbanBlock('sp-B', 'task-B');
-    assertNotEqual(a, b, 'different ids must produce different blocks');
-    assert(a.includes('sp-A') && !a.includes('sp-B'),  'block-A must only contain sp-A');
-    assert(b.includes('sp-B') && !b.includes('sp-A'),  'block-B must only contain sp-B');
-  });
-
-  await test('is deterministic — same output on every call with same args', () => {
-    const a = buildKanbanBlock('sp-det', 'task-det');
-    const b = buildKanbanBlock('sp-det', 'task-det');
-    assertEqual(a, b, 'same args must produce same block');
-  });
-
-  // ---------------------------------------------------------------------------
-  // buildGitContextBlock
-  // ---------------------------------------------------------------------------
 
   suite('buildGitContextBlock(workingDirectory)');
 
@@ -252,334 +162,45 @@ async function runTests() {
   // buildGitInstructionsBlock
   // ---------------------------------------------------------------------------
 
-  suite('buildGitInstructionsBlock()');
 
-  await test('returns a string containing branch and commit format guidance', () => {
-    const block = buildGitInstructionsBlock();
-    assert(typeof block === 'string' && block.length > 0, 'must return non-empty string');
-    assert(block.includes('## GIT INSTRUCTIONS'), 'must have section header');
-    assert(block.includes('feat/') || block.includes('branch'), 'must mention branch naming');
-    assert(block.includes('[dev]'),                'must include commit format');
+  suite('buildCommentsBlock(comments)');
+
+  await test('returns nothing without comments', () => {
+    assertEqual(buildCommentsBlock(undefined), '');
+    assertEqual(buildCommentsBlock([]), '');
   });
 
-  await test('is deterministic — same output on every call', () => {
-    assertEqual(buildGitInstructionsBlock(), buildGitInstructionsBlock(), 'must be deterministic');
+  await test('lists who said what, oldest first, and truncates long comments', () => {
+    const block = buildCommentsBlock([
+      { author: 'user', type: 'note', text: 'First' },
+      { author: 'agent', type: 'question', text: 'x'.repeat(2500) },
+    ]);
+    assert(block.includes('- user (note): First'), 'first comment present');
+    assert(block.includes('[truncated]'), 'long comment truncated');
+    assert(block.indexOf('First') < block.indexOf('xxx'), 'oldest first');
   });
 
-  await test('does not include spaceId or taskId placeholders', () => {
-    const block = buildGitInstructionsBlock();
-    assert(!block.includes('spaceId'), 'must not contain spaceId');
-    assert(!block.includes('taskId'),  'must not contain taskId');
+  suite('buildChangeRequestBlock(text, baseRef)');
+
+  await test('carries the request and how to see the earlier work', () => {
+    const block = buildChangeRequestBlock('Rename it', 'abc123');
+    assert(block.includes('Rename it'), 'request present');
+    assert(block.includes('git diff abc123'), 'diff hint present');
   });
 
-  await test('includes guidance to never commit to main', () => {
-    const block = buildGitInstructionsBlock();
-    assert(block.includes('main'),           'must mention main branch');
-    assert(block.includes('Never commit'),   'must include never commit to main guidance');
+  await test('works without a base commit', () => {
+    assert(!buildChangeRequestBlock('Rename it', null).includes('git diff'), 'no diff hint');
   });
 
-  // ---------------------------------------------------------------------------
-  // buildCompileGateBlock
-  // ---------------------------------------------------------------------------
+  suite('buildDirectCardBlock(spaceId, taskId, agentId)');
 
-  suite('buildCompileGateBlock()');
-
-  await test('returns a string starting with ## MANDATORY COMPILE GATE', () => {
-    const block = buildCompileGateBlock();
-    assert(block.startsWith('## MANDATORY COMPILE GATE'), 'must start with section header');
+  await test('names the task and tells the agent how to ask', () => {
+    const block = buildDirectCardBlock('s1', 't1', 'prism-agent');
+    assert(block.includes('t1'), 'task id present');
+    assert(block.includes('type: "question"'), 'question example present');
+    assert(block.includes('Do NOT move this card'), 'the card is not the agent\'s to move');
   });
 
-  await test('mentions all three build system check commands', () => {
-    const block = buildCompileGateBlock();
-    assert(block.includes('mvn compile'),    'must include Maven command');
-    assert(block.includes('compileJava'),     'must include Gradle command');
-    assert(block.includes('npm run build'),   'must include npm build command');
-    assert(block.includes('tsc --noEmit'),    'must include tsc check');
-  });
-
-  await test('is deterministic — same output on every call', () => {
-    assertEqual(buildCompileGateBlock(), buildCompileGateBlock(), 'must be deterministic');
-  });
-
-  await test('contains "fix the errors" message so agent knows to not advance on failure', () => {
-    const block = buildCompileGateBlock();
-    assert(
-      block.includes('fix the errors') || block.includes('fix errors'),
-      'must instruct to fix errors before advancing',
-    );
-  });
-
-  await test('mentions advancing to QA / not advancing with broken code', () => {
-    const block = buildCompileGateBlock();
-    assert(
-      block.includes('broken code') || block.includes('QA'),
-      'must mention not advancing to QA with broken code',
-    );
-  });
-
-  // ---------------------------------------------------------------------------
-  // Integration: pipelineManager uses promptBuilder
-  // ---------------------------------------------------------------------------
-
-  suite('pipelineManager.buildStagePrompt() uses promptBuilder blocks');
-
-  await test('buildStagePrompt includes KANBAN INSTRUCTIONS block', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-pm-test-'));
-    try {
-      const spaceId = 'test-space-1';
-      const taskId  = require('crypto').randomUUID();
-      const spaceDir = path.join(tmpDir, 'spaces', spaceId);
-      fs.mkdirSync(spaceDir, { recursive: true });
-      const task = {
-        id: taskId, title: 'Test task', type: 'chore',
-        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-      };
-      fs.writeFileSync(path.join(spaceDir, 'todo.json'),        JSON.stringify([task]), 'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]),     'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([]),     'utf8');
-
-      const { buildStagePrompt } = require('../src/services/pipelineManager');
-      const { promptText } = buildStagePrompt(tmpDir, spaceId, taskId, 0, 'senior-architect', ['senior-architect']);
-
-      assert(promptText.includes('## KANBAN INSTRUCTIONS'), 'pipelineManager must include KANBAN block');
-      assert(promptText.includes(`Space ID: ${spaceId}`),   'KANBAN block must contain spaceId');
-      assert(promptText.includes(`Task ID: ${taskId}`),     'KANBAN block must contain taskId');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  await test('buildStagePrompt includes note/handoff guidance from buildKanbanBlock', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-pm-test2-'));
-    try {
-      const spaceId  = 'test-space-2';
-      const taskId   = require('crypto').randomUUID();
-      const spaceDir = path.join(tmpDir, 'spaces', spaceId);
-      fs.mkdirSync(spaceDir, { recursive: true });
-      const task = { id: taskId, title: 'T2', type: 'feature', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-      fs.writeFileSync(path.join(spaceDir, 'todo.json'),        JSON.stringify([task]), 'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]),     'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([]),     'utf8');
-
-      const { buildStagePrompt } = require('../src/services/pipelineManager');
-      const { promptText } = buildStagePrompt(tmpDir, spaceId, taskId, 0, 'developer-agent', ['developer-agent']);
-
-      assert(promptText.includes('POST A NOTE'),       'pipelineManager prompt must include note guidance');
-      assert(promptText.includes('HANDOFF SUMMARY'),   'pipelineManager prompt must include handoff guidance');
-
-      // Regression: POST A NOTE and HANDOFF SUMMARY must NOT appear twice.
-      // buildKanbanBlock already contains them — buildCommentGuidanceLines must NOT be appended separately.
-      const postANoteCount    = (promptText.match(/POST A NOTE/g) || []).length;
-      const handoffCount      = (promptText.match(/HANDOFF SUMMARY/g) || []).length;
-      assert(postANoteCount === 1,  `POST A NOTE must appear exactly once in prompt, got ${postANoteCount}`);
-      assert(handoffCount   === 1,  `HANDOFF SUMMARY must appear exactly once in prompt, got ${handoffCount}`);
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  await test('buildStagePrompt includes MANDATORY COMPILE GATE for developer-agent', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-pm-cg-'));
-    try {
-      const spaceId  = 'test-space-3';
-      const taskId   = require('crypto').randomUUID();
-      const spaceDir = path.join(tmpDir, 'spaces', spaceId);
-      fs.mkdirSync(spaceDir, { recursive: true });
-      const task = { id: taskId, title: 'T3', type: 'feature', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-      fs.writeFileSync(path.join(spaceDir, 'todo.json'),        JSON.stringify([task]), 'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]),     'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([]),     'utf8');
-
-      const { buildStagePrompt } = require('../src/services/pipelineManager');
-      const { promptText } = buildStagePrompt(tmpDir, spaceId, taskId, 0, 'developer-agent', ['developer-agent']);
-
-      assert(promptText.includes('## MANDATORY COMPILE GATE'), 'compile gate must appear for developer-agent');
-      assert(promptText.includes('npm run build'),              'compile gate must mention npm run build');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  await test('buildStagePrompt does NOT include compile gate for non-developer agents', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-pm-cg2-'));
-    try {
-      const spaceId  = 'test-space-4';
-      const taskId   = require('crypto').randomUUID();
-      const spaceDir = path.join(tmpDir, 'spaces', spaceId);
-      fs.mkdirSync(spaceDir, { recursive: true });
-      const task = { id: taskId, title: 'T4', type: 'chore', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-      fs.writeFileSync(path.join(spaceDir, 'todo.json'),        JSON.stringify([task]), 'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]),     'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([]),     'utf8');
-
-      const { buildStagePrompt } = require('../src/services/pipelineManager');
-      for (const agentId of ['senior-architect', 'ux-api-designer', 'qa-engineer-e2e']) {
-        const { promptText } = buildStagePrompt(tmpDir, spaceId, taskId, 0, agentId, [agentId]);
-        assert(!promptText.includes('## MANDATORY COMPILE GATE'),
-          `compile gate must NOT appear for ${agentId}`);
-      }
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  // ---------------------------------------------------------------------------
-  // buildResolvedQuestionsBlock()
-  // ---------------------------------------------------------------------------
-
-  suite('buildResolvedQuestionsBlock()');
-
-  await test('returns empty string when comments is empty', () => {
-    assertEqual(buildResolvedQuestionsBlock([]), '', 'empty array → empty string');
-  });
-
-  await test('returns empty string when comments is undefined/null', () => {
-    assertEqual(buildResolvedQuestionsBlock(undefined), '', 'undefined → empty string');
-    assertEqual(buildResolvedQuestionsBlock(null),      '', 'null → empty string');
-  });
-
-  await test('returns empty string when no questions are resolved', () => {
-    const comments = [
-      { id: 'q1', type: 'question', author: 'dev', text: 'Which approach?', resolved: false },
-      { id: 'n1', type: 'note',     author: 'dev', text: 'Assumption: using X', resolved: false },
-    ];
-    assertEqual(buildResolvedQuestionsBlock(comments), '', 'unresolved question → no block');
-  });
-
-  await test('returns empty string when only notes present (no questions)', () => {
-    const comments = [
-      { id: 'n1', type: 'note', author: 'dev', text: 'Note content', resolved: false },
-    ];
-    assertEqual(buildResolvedQuestionsBlock(comments), '', 'notes only → empty string');
-  });
-
-  await test('includes resolved question and its answer', () => {
-    const comments = [
-      { id: 'q1', type: 'question', author: 'developer-agent', text: 'Use A or B?', resolved: true },
-      { id: 'a1', type: 'answer',   author: 'senior-architect', text: 'Use A.', parentId: 'q1' },
-    ];
-    const block = buildResolvedQuestionsBlock(comments);
-    assert(block.includes('## RESOLVED QUESTIONS'),   'includes section header');
-    assert(block.includes('developer-agent'),          'includes question author');
-    assert(block.includes('Use A or B?'),              'includes question text');
-    assert(block.includes('senior-architect'),         'includes answer author');
-    assert(block.includes('Use A.'),                   'includes answer text');
-  });
-
-  await test('includes multiple resolved Q&A pairs', () => {
-    const comments = [
-      { id: 'q1', type: 'question', author: 'dev', text: 'Q1 text?', resolved: true },
-      { id: 'a1', type: 'answer',   author: 'user', text: 'A1 text.', parentId: 'q1' },
-      { id: 'q2', type: 'question', author: 'dev', text: 'Q2 text?', resolved: true },
-      { id: 'a2', type: 'answer',   author: 'user', text: 'A2 text.', parentId: 'q2' },
-    ];
-    const block = buildResolvedQuestionsBlock(comments);
-    assert(block.includes('Q1 text?'), 'Q1 question present');
-    assert(block.includes('A1 text.'), 'A1 answer present');
-    assert(block.includes('Q2 text?'), 'Q2 question present');
-    assert(block.includes('A2 text.'), 'A2 answer present');
-  });
-
-  await test('handles resolved question without a matching answer comment', () => {
-    const comments = [
-      { id: 'q1', type: 'question', author: 'dev', text: 'Only question?', resolved: true },
-    ];
-    const block = buildResolvedQuestionsBlock(comments);
-    assert(block.includes('## RESOLVED QUESTIONS'), 'section header present');
-    assert(block.includes('Only question?'),         'question text present');
-    assert(block.includes('answer not recorded'),    'fallback text present');
-  });
-
-  await test('does not include unresolved questions alongside resolved ones', () => {
-    const comments = [
-      { id: 'q1', type: 'question', author: 'dev', text: 'Resolved Q?',   resolved: true  },
-      { id: 'a1', type: 'answer',   author: 'user', text: 'Answer.',       parentId: 'q1' },
-      { id: 'q2', type: 'question', author: 'dev', text: 'Unresolved Q?', resolved: false },
-    ];
-    const block = buildResolvedQuestionsBlock(comments);
-    assert( block.includes('Resolved Q?'),   'resolved question present');
-    assert(!block.includes('Unresolved Q?'), 'unresolved question absent');
-  });
-
-  await test('does not include notes in the resolved questions block', () => {
-    const comments = [
-      { id: 'q1', type: 'question', author: 'dev', text: 'Q text?', resolved: true },
-      { id: 'a1', type: 'answer',   author: 'user', text: 'Answer.', parentId: 'q1' },
-      { id: 'n1', type: 'note',     author: 'dev', text: 'Note text', resolved: false },
-    ];
-    const block = buildResolvedQuestionsBlock(comments);
-    assert(!block.includes('Note text'), 'note text must not appear in resolved Q block');
-  });
-
-  await test('prompt tells agent not to re-ask resolved questions', () => {
-    const comments = [
-      { id: 'q1', type: 'question', author: 'dev', text: 'Q?', resolved: true },
-      { id: 'a1', type: 'answer',   author: 'user', text: 'A.', parentId: 'q1' },
-    ];
-    const block = buildResolvedQuestionsBlock(comments);
-    assert(block.includes('do not re-ask'), 'must instruct agent not to re-ask');
-  });
-
-  await test('buildStagePrompt includes RESOLVED QUESTIONS when task has resolved comments', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-rq-'));
-    try {
-      const spaceId  = 'test-space-rq';
-      const taskId   = require('crypto').randomUUID();
-      const spaceDir = path.join(tmpDir, 'spaces', spaceId);
-      fs.mkdirSync(spaceDir, { recursive: true });
-      const task = {
-        id: taskId, title: 'RQ Task', type: 'feature',
-        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        comments: [
-          { id: 'q1', type: 'question', author: 'developer-agent', text: 'Use X or Y?', resolved: true },
-          { id: 'a1', type: 'answer',   author: 'senior-architect', text: 'Use X.', parentId: 'q1' },
-        ],
-      };
-      fs.writeFileSync(path.join(spaceDir, 'todo.json'),        JSON.stringify([task]), 'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]),     'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([]),     'utf8');
-
-      const { buildStagePrompt } = require('../src/services/pipelineManager');
-      const { promptText } = buildStagePrompt(tmpDir, spaceId, taskId, 0, 'developer-agent', ['developer-agent']);
-      assert(promptText.includes('## RESOLVED QUESTIONS'), 'prompt must include RESOLVED QUESTIONS block');
-      assert(promptText.includes('Use X or Y?'),           'prompt must include question text');
-      assert(promptText.includes('Use X.'),                'prompt must include answer text');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  await test('buildStagePrompt omits RESOLVED QUESTIONS when task has no resolved comments', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-norq-'));
-    try {
-      const spaceId  = 'test-space-norq';
-      const taskId   = require('crypto').randomUUID();
-      const spaceDir = path.join(tmpDir, 'spaces', spaceId);
-      fs.mkdirSync(spaceDir, { recursive: true });
-      const task = {
-        id: taskId, title: 'No RQ Task', type: 'feature',
-        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        comments: [
-          { id: 'n1', type: 'note', author: 'dev', text: 'Just a note', resolved: false },
-        ],
-      };
-      fs.writeFileSync(path.join(spaceDir, 'todo.json'),        JSON.stringify([task]), 'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'in-progress.json'), JSON.stringify([]),     'utf8');
-      fs.writeFileSync(path.join(spaceDir, 'done.json'),        JSON.stringify([]),     'utf8');
-
-      const { buildStagePrompt } = require('../src/services/pipelineManager');
-      const { promptText } = buildStagePrompt(tmpDir, spaceId, taskId, 0, 'developer-agent', ['developer-agent']);
-      assert(!promptText.includes('## RESOLVED QUESTIONS'), 'prompt must NOT include RESOLVED QUESTIONS when no resolved Qs');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  // ---------------------------------------------------------------------------
-  // Results
-  // ---------------------------------------------------------------------------
-
-  console.log('\n' + '='.repeat(60));
   console.log(`Results: ${passed} passed, ${failed} failed`);
   if (failures.length > 0) {
     console.log('\nFailed tests:');

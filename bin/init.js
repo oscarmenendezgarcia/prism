@@ -9,8 +9,7 @@
  *   2. startServer     — spawn server.js detached + write <dataDir>/prism.pid (skipped with --no-start)
  *   3. waitForServer   — poll /api/v1/spaces until 200 (6 s budget)
  *   4. registerMcp     — merge mcpServers.prism into ~/.claude/settings.json (atomic)
- *   5. installAgents   — copy agents/*.md → ~/.claude/agents/ (skip-existing)
- *   6. verifyClaude    — run `claude mcp list` as advisory check
+ *   5. verifyClaude    — run `claude mcp list` as advisory check
  *
  * Exit codes:
  *   0 — success (some steps may have printed warnings)
@@ -23,7 +22,6 @@ const os            = require('os');
 const { spawn, spawnSync } = require('child_process');
 
 const { resolveDataDir } = require(path.join(__dirname, '..', 'src', 'utils', 'dataDir.js'));
-const { computeHash, readManifest, writeManifest } = require(path.join(__dirname, '..', 'src', 'services', 'agentSync.js'));
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -215,78 +213,6 @@ function registerMcp(packageRoot, homedir) {
 }
 
 // ---------------------------------------------------------------------------
-// T-204: installAgents
-// ---------------------------------------------------------------------------
-
-/**
- * Copies `<packageRoot>/agents/*.md` into `~/.claude/agents/`.
- * Never overwrites existing destination files.
- * Writes (or updates) .prism-manifest.json with source hashes so that
- * the auto-sync in server.js can distinguish Prism-managed files from
- * user-customised ones.
- *
- * For installed files:   uses the src hash (file we just wrote).
- * For skipped files:     uses the src hash too — init asserts the dest
- *   is the Prism baseline; if the user has edited it, the hash will diverge
- *   and the next auto-sync will correctly skip the file.
- *
- * @param {string} packageRoot
- * @param {string} homedir
- * @param {object} [opts]
- * @param {string} [opts.prismVersion] - current Prism version for manifest metadata
- * @returns {{ installed: string[], skipped: string[] }}
- */
-function installAgents(packageRoot, homedir, opts = {}) {
-  const srcDir  = path.join(packageRoot, 'agents');
-  const destDir = path.join(homedir, '.claude', 'agents');
-
-  fs.mkdirSync(destDir, { recursive: true });
-
-  const installed = [];
-  const skipped   = [];
-
-  // Tolerate missing agents/ directory
-  if (!fs.existsSync(srcDir)) {
-    return { installed, skipped };
-  }
-
-  const files = fs.readdirSync(srcDir).filter(f => f.endsWith('.md'));
-
-  // Load existing manifest so we don't lose entries for agents not in this batch
-  const manifest      = readManifest(destDir);
-  let manifestDirty   = false;
-  const prismVersion  = opts.prismVersion || 'unknown';
-  const now           = new Date().toISOString();
-
-  for (const filename of files) {
-    const src  = path.join(srcDir, filename);
-    const dest = path.join(destDir, filename);
-
-    const srcContent = fs.readFileSync(src);
-    const srcHash    = computeHash(srcContent);
-
-    if (fs.existsSync(dest)) {
-      skipped.push(filename);
-    } else {
-      fs.writeFileSync(dest, srcContent);
-      installed.push(filename);
-    }
-
-    // Write manifest entry using the src hash in both cases.
-    // For installed: this is the hash of what we just wrote.
-    // For skipped: we assert the dest is the Prism baseline.
-    manifest.managed[filename] = { hash: srcHash, prismVersion, syncedAt: now };
-    manifestDirty = true;
-  }
-
-  if (manifestDirty) {
-    writeManifest(destDir, manifest);
-  }
-
-  return { installed, skipped };
-}
-
-// ---------------------------------------------------------------------------
 // T-205: verifyClaude
 // ---------------------------------------------------------------------------
 
@@ -441,23 +367,7 @@ async function run(flags = {}) {
     log(`[init] mcp        : WARNING — ${err.message}`);
   }
 
-  // ── Step 5: installAgents ───────────────────────────────────────────────
-  try {
-    let prismVersion = 'unknown';
-    try {
-      prismVersion = require(path.join(pkgRoot, 'package.json')).version;
-    } catch { /* ignore */ }
-    const result = installAgents(pkgRoot, homedir, { prismVersion });
-    const parts  = [];
-    if (result.installed.length > 0) parts.push(`installed ${result.installed.length}`);
-    if (result.skipped.length  > 0) parts.push(`skipped ${result.skipped.length}`);
-    log(`[init] agents     : ${parts.length > 0 ? parts.join(', ') : 'nothing to do'}`);
-  } catch (err) {
-    warnings.push(`agents install: ${err.message}`);
-    log(`[init] agents     : WARNING — ${err.message}`);
-  }
-
-  // ── Step 6: verifyClaude ────────────────────────────────────────────────
+  // ── Step 5: verifyClaude ────────────────────────────────────────────────
   try {
     const result = verifyClaude();
     if (!result.available) {
@@ -489,7 +399,6 @@ module.exports = {
   startServer,
   waitForServer,
   registerMcp,
-  installAgents,
   verifyClaude,
   ensureDataDir,
 };

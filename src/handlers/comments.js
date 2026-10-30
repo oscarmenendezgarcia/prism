@@ -13,8 +13,6 @@
  * Schema of a Comment:
  *   { id, author, text, type: 'note'|'question'|'answer',
  *     parentId?: string,
- *     targetAgent?: string,
- *     needsHuman: boolean,
  *     resolved: boolean,
  *     createdAt: ISO8601, updatedAt?: ISO8601 }
  */
@@ -26,7 +24,7 @@ const { sendJSON, sendError, parseBody } = require('../utils/http');
 // (with _store set by pipelineManager.init) is used across all handler calls.
 // Lazy require inside handlers risks getting an uninitialized module instance
 // when the test suite clears pipelineManager from the Node module cache.
-const pipelineManager = require('../services/pipelineManager');
+const taskRunner = require('../services/taskRunner');
 
 // ---------------------------------------------------------------------------
 // Validation constants
@@ -36,7 +34,6 @@ const VALID_COMMENT_TYPES   = ['note', 'question', 'answer'];
 const AUTHOR_MAX_LEN        = 100;
 const TEXT_MAX_LEN          = 5000;
 const COMMENT_MAX_COUNT     = 200;
-const TARGET_AGENT_MAX_LEN  = 100;
 
 // ---------------------------------------------------------------------------
 // POST /…/tasks/:taskId/comments
@@ -50,7 +47,7 @@ const TARGET_AGENT_MAX_LEN  = 100;
  * @param {string} taskId
  * @param {string} dataDir - Root data directory (for pipelineManager notifications).
  */
-async function handleCreateComment(req, res, store, spaceId, taskId, dataDir) {
+async function handleCreateComment(req, res, store, spaceId, taskId) {
   let body;
   try {
     body = await parseBody(req);
@@ -66,7 +63,7 @@ async function handleCreateComment(req, res, store, spaceId, taskId, dataDir) {
   }
 
   const errors = [];
-  const { author, text, type, parentId, targetAgent } = body;
+  const { author, text, type, parentId } = body;
 
   if (!author || typeof author !== 'string' || author.trim().length === 0) {
     errors.push('author is required and must be a non-empty string');
@@ -87,17 +84,6 @@ async function handleCreateComment(req, res, store, spaceId, taskId, dataDir) {
   if (parentId !== undefined) {
     if (typeof parentId !== 'string' || parentId.trim().length === 0) {
       errors.push('parentId must be a non-empty string when provided');
-    }
-  }
-
-  if (targetAgent !== undefined) {
-    if (type && type !== 'question') {
-      errors.push('targetAgent is only valid when type is "question"');
-    }
-    if (typeof targetAgent !== 'string' || targetAgent.trim().length === 0) {
-      errors.push('targetAgent must be a non-empty string when provided');
-    } else if (targetAgent.trim().length > TARGET_AGENT_MAX_LEN) {
-      errors.push(`targetAgent must not exceed ${TARGET_AGENT_MAX_LEN} characters`);
     }
   }
 
@@ -133,24 +119,12 @@ async function handleCreateComment(req, res, store, spaceId, taskId, dataDir) {
       text:     text.trim(),
       type,
       ...(parentId    !== undefined && { parentId:    parentId.trim() }),
-      ...(targetAgent !== undefined && { targetAgent: targetAgent.trim() }),
-      needsHuman: false,
       resolved:   false,
       createdAt:  now,
     };
 
     const updatedComments = [...comments, comment];
     store.updateTask(spaceId, taskId, { comments: updatedComments, updatedAt: now });
-
-    // Notify pipeline manager when a question is posted.
-    if (comment.type === 'question') {
-      try {
-        const resolvedDataDir = dataDir || _resolveDataDir();
-        if (resolvedDataDir) pipelineManager.blockRunByComment(resolvedDataDir, taskId, comment);
-      } catch (err) {
-        console.warn('[comments] WARN: could not notify pipelineManager (create question):', err.message);
-      }
-    }
 
     return sendJSON(res, 201, comment);
   } catch (err) {
@@ -172,7 +146,7 @@ async function handleCreateComment(req, res, store, spaceId, taskId, dataDir) {
  * @param {string} commentId
  * @param {string} dataDir - Root data directory (for pipelineManager notifications).
  */
-async function handleUpdateComment(req, res, store, spaceId, taskId, commentId, dataDir) {
+async function handleUpdateComment(req, res, store, spaceId, taskId, commentId) {
   let body;
   try {
     body = await parseBody(req);
@@ -187,7 +161,7 @@ async function handleUpdateComment(req, res, store, spaceId, taskId, commentId, 
     return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
   }
 
-  const PATCHABLE = ['text', 'type', 'resolved', 'needsHuman'];
+  const PATCHABLE = ['text', 'type', 'resolved'];
   const provided  = PATCHABLE.filter((f) => f in body);
 
   if (provided.length === 0) {
@@ -217,12 +191,6 @@ async function handleUpdateComment(req, res, store, spaceId, taskId, commentId, 
     }
   }
 
-  if ('needsHuman' in body) {
-    if (typeof body.needsHuman !== 'boolean') {
-      errors.push('needsHuman must be a boolean when provided');
-    }
-  }
-
   if (errors.length > 0) {
     return sendError(res, 400, 'VALIDATION_ERROR', errors.join('; '));
   }
@@ -248,7 +216,6 @@ async function handleUpdateComment(req, res, store, spaceId, taskId, commentId, 
       ...('text'       in body && { text:       body.text.trim() }),
       ...('type'       in body && { type:       body.type }),
       ...('resolved'   in body && { resolved:   body.resolved }),
-      ...('needsHuman' in body && { needsHuman: body.needsHuman }),
       updatedAt: now,
     };
 
@@ -257,14 +224,8 @@ async function handleUpdateComment(req, res, store, spaceId, taskId, commentId, 
 
     store.updateTask(spaceId, taskId, { comments: updatedComments, updatedAt: now });
 
-    // Notify pipeline manager when a question is resolved.
     if (body.resolved === true && existingComment.type === 'question') {
-      try {
-        const resolvedDataDir = dataDir || _resolveDataDir();
-        if (resolvedDataDir) pipelineManager.unblockRunByComment(resolvedDataDir, taskId, commentId);
-      } catch (err) {
-        console.warn('[comments] WARN: could not notify pipelineManager (resolve question):', err.message);
-      }
+      taskRunner.questionAnswered(taskId);
     }
 
     return sendJSON(res, 200, updatedComment);
@@ -272,20 +233,6 @@ async function handleUpdateComment(req, res, store, spaceId, taskId, commentId, 
     console.error(`PATCH comment ${commentId} for task ${taskId} error:`, err);
     return sendError(res, 500, 'INTERNAL_ERROR', 'Failed to update comment');
   }
-}
-
-// ---------------------------------------------------------------------------
-// Helper: resolve dataDir for pipelineManager notifications.
-// pipelineManager stores dataDir in its module state after init(); retrieve it.
-// Falls back to DATA_DIR env var (set by server.js).
-// ---------------------------------------------------------------------------
-function _resolveDataDir() {
-  if (process.env.DATA_DIR) return process.env.DATA_DIR;
-  try {
-    const pm = require('../services/pipelineManager');
-    if (typeof pm.getDataDir === 'function') return pm.getDataDir();
-  } catch { /* ignore */ }
-  return null;
 }
 
 module.exports = { handleCreateComment, handleUpdateComment };

@@ -34,7 +34,7 @@ COPY mcp/package.json mcp/package-lock.json* ./mcp/
 RUN cd mcp && npm install
 
 # Copy the rest of the source needed at runtime.
-COPY server.js terminal.js ./
+COPY server.js ./
 COPY src/ ./src/
 COPY mcp/ ./mcp/
 
@@ -55,7 +55,6 @@ COPY --from=builder /app/node_modules ./node_modules
 
 # Copy application source.
 COPY --from=builder /app/server.js ./server.js
-COPY --from=builder /app/terminal.js ./terminal.js
 COPY --from=builder /app/src/ ./src/
 COPY --from=builder /app/mcp/ ./mcp/
 COPY --from=builder /app/mcp/node_modules ./mcp/node_modules
@@ -78,9 +77,6 @@ EXPOSE $PORT
 # Install Claude Code CLI so agents can run inside the container.
 RUN npm install -g @anthropic-ai/claude-code
 
-# Pre-load the pipeline agents so they are available without mounting the host ~/.claude/agents/.
-RUN mkdir -p /root/.claude/agents
-COPY agents/ /root/.claude/agents/
 
 # Ensure the data directory exists even when the volume is not yet mounted.
 # The volume mount will overlay this directory at runtime.

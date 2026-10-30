@@ -1,28 +1,5 @@
 # Prism — Project Rules
 
-## Folio — design spec (READ FIRST for any Folio task)
-
-The **Folio** feature (a navigable, augmentable knowledge base for agents) is being
-built under `src/services/folio/` + `mcp/folio-tools.js`. Its complete, authoritative
-design lives in the **`.folio/` directory at the repo root** — a working example of the
-format itself (chapter = folder, page = `.md` with YAML frontmatter).
-
-**Before implementing ANY Folio task, read `.folio/` and treat it as the spec.** Key pages:
-- `.folio/architecture/module.md` — module layout, isolation rules, extraction plan
-- `.folio/architecture/storage-backend.md` — pluggable SQLite vs file backend
-- `.folio/architecture/fts5-indexing.md` — FTS5 in the core, in-memory vs cache
-- `.folio/data-model/schema.md` — schema (core keys on `folio_id`, NOT `space_id`)
-- `.folio/data-model/references.md` — `[[chapter/page]]` / `[[chapter/page#section]]`
-- `.folio/injection/` — stage-aware injection by confidence tier
-- `.folio/decisions/log.md` — every closed decision and why
-- `.folio/state/current.md` — current state + task order
-- `.folio/lessons/` — hard-won bug lessons and gotchas; search here before debugging a weird error
-- `.folio/conventions/` — code and UI conventions the implementation must follow
-
-Prefer reading the folio via MCP (`mcp__folio__folio_search` / `folio_get_page`) over raw file reads — the paths above are slugs too (e.g. `architecture/module`).
-
-Do not re-derive these decisions; honour them. Document any deviation in the task notes.
-
 ## Design Skills
 
 When making UI/UX decisions, use these skills in order of scope:
@@ -84,9 +61,9 @@ cd frontend && npm run dev   # → http://localhost:5173
 - **Frontend tests:** `cd frontend && npm test` (Vitest + React Testing Library)
 - **Backend tests:** `npm test` (Node.js `node:test` runner)
 
-## Agent Pipeline Rules
+## Test Rules
 
 > ⚠️ **CRITICAL — Never run test commands as background tasks (`run_in_background: true`).**
-> Session compaction kills background processes mid-run; the pipeline stage stalls with no output and no error.
+> Session compaction kills background processes mid-run; the run stalls with no output and no error.
 > Always run `npm test`, `npm run test:report`, and `node --test` **synchronously (foreground)**.
 > For long-running test suites, use `npm run test:report` which emits a compact summary instead of raw TAP output.

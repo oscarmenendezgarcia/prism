@@ -11,6 +11,10 @@
 
 const { describe, it, before, beforeEach, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const Database = require('better-sqlite3');
 
 const { createStore } = require('../src/services/store');
 
@@ -447,5 +451,43 @@ describe('Store — rebuildFts()', () => {
     assert.equal(results.length, 1);
     assert.equal(results[0].id, 'rb-t1');
     store.close();
+  });
+});
+
+describe('Store — upgrading to v2', () => {
+  let dir;
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-upgrade-')); });
+
+  const makeOldDb = () => {
+    const store = createStore(dir);
+    store.upsertSpace(makeSpace({ id: 'old', name: 'Old space' }));
+    store.close();
+    const db = new Database(path.join(dir, 'prism.db'));
+    db.pragma('user_version = 0');
+    db.exec("CREATE TABLE folio_pages (id TEXT); INSERT INTO folio_pages VALUES ('page');");
+    db.close();
+  };
+
+  it('keeps a copy of the old database, once, and leaves its data in place', () => {
+    makeOldDb();
+    createStore(dir).close();
+    const backup = path.join(dir, 'prism.db.before-v2');
+    const kept = new Database(backup, { readonly: true });
+    assert.equal(kept.prepare('SELECT name FROM spaces').get().name, 'Old space');
+    kept.close();
+
+    const before = fs.statSync(backup).mtimeMs;
+    const store = createStore(dir);
+    assert.equal(store.getSpace('old').name, 'Old space');
+    store.close();
+    assert.equal(fs.statSync(backup).mtimeMs, before, 'the copy is not overwritten');
+    const db = new Database(path.join(dir, 'prism.db'), { readonly: true });
+    assert.equal(db.prepare('SELECT id FROM folio_pages').get().id, 'page', 'Folio data stays');
+    db.close();
+  });
+
+  it('a new database has nothing to keep', () => {
+    createStore(dir).close();
+    assert.equal(fs.existsSync(path.join(dir, 'prism.db.before-v2')), false);
   });
 });

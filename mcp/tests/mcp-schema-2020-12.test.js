@@ -245,7 +245,7 @@ describe('TC-003: kanban_update_task — attachments items use oneOf (discrimina
   });
 });
 
-describe('TC-004: pipeline/comment tools — spaceId/taskId use $ref reuse', () => {
+describe('TC-004: comment tools — spaceId/taskId use $ref reuse', () => {
   /**
    * Helper: extract the $ref string from a property that uses either
    *   direct: { "$ref": "..." }
@@ -262,19 +262,19 @@ describe('TC-004: pipeline/comment tools — spaceId/taskId use $ref reuse', () 
     return undefined;
   }
 
-  it('kanban_start_pipeline spaceId → RequiredSpaceId, taskId → TaskId', async () => {
+  it('kanban_add_comment spaceId → RequiredSpaceId, taskId → TaskId', async () => {
     const tools = await getTools();
-    const tool = findTool(tools, 'kanban_start_pipeline');
+    const tool = findTool(tools, 'kanban_add_comment');
     const schema = tool.inputSchema;
     const defs = schema.definitions ?? schema.$defs ?? {};
 
     const spaceIdRef = extractRef(schema.properties.spaceId);
     const taskIdRef  = extractRef(schema.properties.taskId);
 
-    assert.ok(spaceIdRef, `kanban_start_pipeline.spaceId must use $ref, got: ${JSON.stringify(schema.properties.spaceId)}`);
+    assert.ok(spaceIdRef, `kanban_add_comment.spaceId must use $ref, got: ${JSON.stringify(schema.properties.spaceId)}`);
     assert.ok(spaceIdRef.includes('RequiredSpaceId'), `spaceId must ref RequiredSpaceId, got: ${spaceIdRef}`);
 
-    assert.ok(taskIdRef, `kanban_start_pipeline.taskId must use $ref, got: ${JSON.stringify(schema.properties.taskId)}`);
+    assert.ok(taskIdRef, `kanban_add_comment.taskId must use $ref, got: ${JSON.stringify(schema.properties.taskId)}`);
     assert.ok(taskIdRef.includes('TaskId'), `taskId must ref TaskId, got: ${taskIdRef}`);
 
     // Both defs must be present

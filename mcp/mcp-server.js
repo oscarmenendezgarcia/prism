@@ -8,11 +8,8 @@
  * ADR-1 (Spaces): All 7 existing tools gain an optional spaceId parameter.
  *   4 new tools: kanban_list_spaces, kanban_create_space,
  *                kanban_rename_space, kanban_delete_space.
- * task-comments + pipeline-blocked:
- *   2 new tools: kanban_add_comment, kanban_answer_comment.
- *   kanban_add_comment with type='question' automatically blocks the active
- *   pipeline run for the task. kanban_answer_comment resolves the question
- *   and unblocks the pipeline when all questions are answered.
+ * Comments: kanban_add_comment, kanban_answer_comment. An agent that leaves a question
+ * and exits waits for the answer, then runs again with it.
  *
  * Transport: StdioServerTransport (Claude Code manages process lifecycle).
  * All logs go to stderr — stdout is reserved for the MCP protocol.
@@ -38,18 +35,9 @@ import {
   createSpace,
   renameSpace,
   deleteSpace,
-  listActivity,
   searchTasks,
-  startPipeline,
-  getRunStatus,
-  getRunLogs,
-  resumePipeline,
-  stopPipeline,
   addComment,
   answerComment,
-  blockRun,
-  unblockRun,
-  findActiveRunForTask,
 } from './kanban-client.js';
 
 // ---------------------------------------------------------------------------
@@ -132,7 +120,7 @@ const spaceIdSchema = z
   );
 
 /**
- * Reusable Zod schema for task IDs used across pipeline and comment tools.
+ * Reusable Zod schema for task IDs used across comment tools.
  * Produces $ref: '#/definitions/TaskId' wherever it is referenced.
  */
 const taskIdSchema = z
@@ -141,7 +129,7 @@ const taskIdSchema = z
   .describe('Task ID (UUID).');
 
 /**
- * Required space ID for pipeline and comment tools (spaceId is mandatory there).
+ * Required space ID for comment tools (spaceId is mandatory there).
  * Distinct from spaceIdSchema (which is optional) so each $defs entry is correct.
  */
 const requiredSpaceIdSchema = z
@@ -259,11 +247,7 @@ server.tool(
     assigned: z
       .string()
       .optional()
-      .describe('Optional agent name to assign the task to.'),
-    pipeline: z
-      .array(z.string())
-      .optional()
-      .describe('Optional ordered list of agent IDs for this task\'s pipeline. Overrides the space default when set.'),
+      .describe('Optional name to assign the task to.'),
     dependsOn: z
       .array(z.string())
       .max(20)
@@ -273,9 +257,9 @@ server.tool(
       .describe('Narrative grouping label (e.g. "QOL", "AUTH"). Omit to leave unset.'),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_create_task', async ({ title, type, description, assigned, pipeline, arc, dependsOn, spaceId }) => {
+  withTiming('kanban_create_task', async ({ title, type, description, assigned, arc, dependsOn, spaceId }) => {
     return createTask({
-      title, type, description, assigned, pipeline,
+      title, type, description, assigned,
       ...(arc !== undefined && { arc }),
       ...(dependsOn !== undefined && { dependsOn }),
     }, spaceId);
@@ -288,7 +272,7 @@ server.tool(
 
 server.tool(
   'kanban_update_task',
-  'Updates fields of an existing task (title, description, assigned, type, pipeline) and/or attachments. Only provided fields are changed. ' +
+  'Updates fields of an existing task (title, description, assigned, type) and/or attachments. Only provided fields are changed. ' +
   'For attachments, `mode` defaults to `merge` (upserts incoming items by `name` and keeps the rest). ' +
   'Pass `mode:"replace"` to overwrite the entire array; an empty array under `replace` clears all attachments.',
   {
@@ -297,15 +281,6 @@ server.tool(
     type:  z.enum(['feature', 'bug', 'tech-debt', 'chore']).optional().describe('New type.'),
     description: z.string().optional().describe('New description.'),
     assigned:    z.string().optional().describe('New assigned agent.'),
-    // T-007: per-card pipeline override
-    pipeline: z
-      .array(z.string())
-      .optional()
-      .describe(
-        'Ordered agent IDs for this task\'s pipeline. ' +
-        'Overrides the space-level default when "Run Pipeline" is invoked. ' +
-        'Pass an empty array to clear the field and revert to the space default.',
-      ),
     attachments: z
       .array(
         // oneOf — exactly one attachment type applies.
@@ -347,14 +322,12 @@ server.tool(
       ),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, pipeline, arc, dependsOn, attachments, mode, spaceId }) => {
+  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, arc, dependsOn, attachments, mode, spaceId }) => {
     const fields = {};
     if (title       !== undefined) fields.title       = title;
     if (type        !== undefined) fields.type        = type;
     if (description !== undefined) fields.description = description;
     if (assigned    !== undefined) fields.assigned    = assigned;
-    // T-007: forward pipeline (including empty array = clear semantics)
-    if (pipeline    !== undefined) fields.pipeline    = pipeline;
     if (arc         !== undefined) fields.arc         = arc;
     if (dependsOn  !== undefined) fields.dependsOn  = dependsOn;
 
@@ -446,10 +419,9 @@ server.tool(
   'Create a new space (project board) with the given name. Space names must be unique (case-insensitive) and between 1 and 100 characters. Optionally set folioBackend to "file" for git-versioned folio storage in the space working directory (requires workingDirectory; defaults to "sqlite").',
   {
     name: z.string().describe('Name for the new space (1-100 characters, must be unique).'),
-    folioBackend: z.enum(['sqlite', 'file']).optional().describe('Folio storage backend: "sqlite" (default, works always) or "file" (git-versioned .folio/ in working directory; requires workingDirectory).'),
   },
-  withTiming('kanban_create_space', async ({ name, folioBackend }) => {
-    return createSpace(name, { folioBackend });
+  withTiming('kanban_create_space', async ({ name }) => {
+    return createSpace(name);
   })
 );
 
@@ -463,10 +435,9 @@ server.tool(
   {
     id:   z.string().describe('The space ID to rename.'),
     name: z.string().describe('New name for the space.'),
-    folioBackend: z.enum(['sqlite', 'file']).optional().describe('Folio storage backend: "sqlite" (default) or "file" (git-versioned .folio/ in working directory; requires workingDirectory). Cannot be changed after the folio is activated.'),
   },
-  withTiming('kanban_rename_space', async ({ id, name, folioBackend }) => {
-    return renameSpace(id, name, { folioBackend });
+  withTiming('kanban_rename_space', async ({ id, name }) => {
+    return renameSpace(id, name);
   })
 );
 
@@ -482,51 +453,6 @@ server.tool(
   },
   withTiming('kanban_delete_space', async ({ id }) => {
     return deleteSpace(id);
-  })
-);
-
-// ---------------------------------------------------------------------------
-// Tool: kanban_list_activity (ADR-1 Activity Feed §T-008)
-// ---------------------------------------------------------------------------
-
-server.tool(
-  'kanban_list_activity',
-  'List recent activity events from the Prism kanban board. Returns task and space mutations (task.created, task.moved, task.updated, task.deleted, space.created, space.renamed, space.deleted, board.cleared) in newest-first order. Optionally filter by space, event type, or date range.',
-  {
-    spaceId: z
-      .string()
-      .optional()
-      .describe('Filter to a specific space ID. When omitted, returns events across all spaces.'),
-    type: z
-      .enum([
-        'task.created', 'task.moved', 'task.updated', 'task.deleted',
-        'space.created', 'space.renamed', 'space.deleted', 'board.cleared',
-      ])
-      .optional()
-      .describe('Filter to a specific event type. Omit to get all event types.'),
-    limit: z
-      .number()
-      .int()
-      .min(1)
-      .max(200)
-      .optional()
-      .default(20)
-      .describe('Maximum number of events to return (1–200). Defaults to 20.'),
-    from: z
-      .string()
-      .optional()
-      .describe('Start of date range (ISO-8601). Defaults to 30 days ago.'),
-    to: z
-      .string()
-      .optional()
-      .describe('End of date range (ISO-8601). Defaults to now.'),
-    cursor: z
-      .string()
-      .optional()
-      .describe('Pagination cursor from a previous nextCursor response value.'),
-  },
-  withTiming('kanban_list_activity', async ({ spaceId, type, limit, from, to, cursor }) => {
-    return listActivity({ spaceId, type, limit: limit ?? 20, from, to, cursor });
   })
 );
 
@@ -559,167 +485,14 @@ server.tool(
 );
 
 // ---------------------------------------------------------------------------
-// Run tools (canonical) + deprecated pipeline aliases
-// ---------------------------------------------------------------------------
-//
-// Vocabulary: `run` is a concrete execution (with a runId); `pipeline` is the
-// static list of stages configured on a task/space. The three tools below
-// operate on a runId, so they are named `kanban_<verb>_run`. The historical
-// `kanban_<verb>_pipeline` names are kept as deprecated aliases that delegate
-// to the exact same handler (via a shared closure — see ADR-1
-// mcp-pipeline-run-rename) so any client currently invoking the old names
-// continues to work unchanged. On alias invocation the server emits a single
-// WARN log line: `deprecated_tool_call name=<old> replacement=<new>`.
-//
-// Removal of the aliases is deferred to a future ADR once telemetry shows
-// they are no longer in use.
-
-// -- kanban_start_run -------------------------------------------------------
-
-const startRunDescription =
-  'Launch the Prism agent pipeline on a kanban task. ' +
-  'The task must be in the "todo" column. Returns a runId immediately — ' +
-  'the pipeline executes asynchronously. Poll kanban_get_run_status for progress. ' +
-  'Default pipeline: senior-architect → ux-api-designer → developer-agent → qa-engineer-e2e.';
-
-const startRunSchema = {
-  spaceId: requiredSpaceIdSchema,
-  taskId:  taskIdSchema,
-  stages:  z.array(z.string()).optional()
-            .describe('Ordered agent IDs to run. Defaults to the standard 4-stage pipeline.'),
-};
-
-const startRunHandler = withTiming('kanban_start_run', async ({ spaceId, taskId, stages }) => {
-  return startPipeline({ spaceId, taskId, stages });
-});
-
-server.tool('kanban_start_run', startRunDescription, startRunSchema, startRunHandler);
-
-server.tool(
-  'kanban_start_pipeline',
-  `[DEPRECATED — use kanban_start_run] ${startRunDescription}`,
-  startRunSchema,
-  async (args) => {
-    log('WARN', 'deprecated_tool_call name=kanban_start_pipeline replacement=kanban_start_run');
-    return startRunHandler(args);
-  },
-);
-
-// -- kanban_get_run_status (already canonical, no alias) -------------------
-
-server.tool(
-  'kanban_get_run_status',
-  'Get the current status of a pipeline run by runId. ' +
-  'Returns the full run object including per-stage statuses, currentStage, and overall status. ' +
-  'Possible statuses: pending, running, completed, failed, interrupted.',
-  {
-    runId: z.string().describe('The runId returned by kanban_start_run.'),
-  },
-  withTiming('kanban_get_run_status', async ({ runId }) => {
-    return getRunStatus(runId);
-  })
-);
-
-// ---------------------------------------------------------------------------
-// Tool: kanban_get_run_logs (mcp-get-run-logs feature)
-// ---------------------------------------------------------------------------
-
-server.tool(
-  'kanban_get_run_logs',
-  'Read the stage-by-stage logs of a pipeline run, normalized to human-readable text. ' +
-  'Use this to inspect what a pipeline stage is doing (or did) without spawning a CLI or parsing raw output. ' +
-  'The `runId` may be an 8+ character prefix — the server resolves it to the full runId (returns 409 if the prefix is ambiguous). ' +
-  'Omit `stage` to receive all stages at once (typical case); pass a 0-based index to zoom in on one. ' +
-  'Stages produced by the `claude` CLI (stream-json) are parsed into readable markers ([system], [thinking], [tool], [result], [result-final]); ' +
-  '`opencode`-style ANSI-colored output is stripped and returned as plain text. ' +
-  'Pass `raw:true` to bypass normalization and receive the file bytes as-is (escape hatch for debugging). ' +
-  '`tail:N` returns only the last N normalized lines per stage. ' +
-  'Per-stage content is capped at 256 KB (older bytes dropped, `truncated:true`).',
-  {
-    runId: z.string().min(8, 'runId prefix must be at least 8 chars')
-      .describe('Full runId or a prefix of at least 8 characters.'),
-    stage: z.number().int().min(0).optional()
-      .describe('0-based stage index. Omit to return every stage.'),
-    tail:  z.number().int().min(1).max(10000).optional()
-      .describe('Return only the last N lines of each stage\'s normalized content.'),
-    raw:   z.boolean().optional()
-      .describe('When true, skip stream-json normalization and return the file bytes as-is (still ANSI-stripped for plain-text). Default: false.'),
-  },
-  withTiming('kanban_get_run_logs', async ({ runId, stage, tail, raw }) => {
-    return getRunLogs({ runId, stage, tail, raw });
-  }),
-);
-
-// -- kanban_resume_run ------------------------------------------------------
-
-const resumeRunDescription =
-  'Resume an interrupted or failed pipeline run. ' +
-  'Use this when a run was interrupted by a server restart but the current stage actually completed. ' +
-  'Pass fromStage (zero-based) to skip to a specific stage, or omit it to resume from the first non-completed stage.';
-
-const resumeRunSchema = {
-  runId:     z.string().describe('The runId of the interrupted or failed run.'),
-  fromStage: z.number().int().optional()
-              .describe('Zero-based index of the stage to resume from. Omit to auto-detect the first non-completed stage.'),
-};
-
-const resumeRunHandler = withTiming('kanban_resume_run', async ({ runId, fromStage }) => {
-  return resumePipeline({ runId, fromStage });
-});
-
-server.tool('kanban_resume_run', resumeRunDescription, resumeRunSchema, resumeRunHandler);
-
-server.tool(
-  'kanban_resume_pipeline',
-  `[DEPRECATED — use kanban_resume_run] ${resumeRunDescription}`,
-  resumeRunSchema,
-  async (args) => {
-    log('WARN', 'deprecated_tool_call name=kanban_resume_pipeline replacement=kanban_resume_run');
-    return resumeRunHandler(args);
-  },
-);
-
-// -- kanban_stop_run --------------------------------------------------------
-
-const stopRunDescription =
-  'Stop a running pipeline by sending SIGTERM to the active stage process. ' +
-  'The run is marked as "interrupted" and its state is preserved — ' +
-  'use kanban_resume_run to restart it from where it left off. ' +
-  'Returns 422 if the run is already in a terminal state (completed, failed, interrupted).';
-
-const stopRunSchema = {
-  runId: z.string().describe('The runId of the pipeline run to stop.'),
-};
-
-const stopRunHandler = withTiming('kanban_stop_run', async ({ runId }) => {
-  return stopPipeline(runId);
-});
-
-server.tool('kanban_stop_run', stopRunDescription, stopRunSchema, stopRunHandler);
-
-server.tool(
-  'kanban_stop_pipeline',
-  `[DEPRECATED — use kanban_stop_run] ${stopRunDescription}`,
-  stopRunSchema,
-  async (args) => {
-    log('WARN', 'deprecated_tool_call name=kanban_stop_pipeline replacement=kanban_stop_run');
-    return stopRunHandler(args);
-  },
-);
-
-// ---------------------------------------------------------------------------
-// Tool: kanban_add_comment (task-comments + pipeline-blocked)
+// Tool: kanban_add_comment
 // ---------------------------------------------------------------------------
 
 server.tool(
   'kanban_add_comment',
   'Add a comment to a kanban task. ' +
-  "When type='question', the active pipeline run for this task is automatically " +
-  "blocked so it will not advance to the next stage until the question is answered. " +
-  "Use kanban_answer_comment to provide an answer and unblock the pipeline. " +
-  "Set targetAgent to route the question to a specific pipeline agent for automatic resolution " +
-  "(e.g. 'ux-api-designer' for wireframe questions, 'senior-architect' for ADR questions). " +
-  "The agent must be in the task's pipeline; otherwise the question is escalated to a human.",
+  "An agent that leaves a question and exits waits for the answer, then runs again with it. " +
+  'Use kanban_answer_comment to answer a question.',
   {
     spaceId: requiredSpaceIdSchema,
     taskId:  taskIdSchema.describe('Task ID to comment on.'),
@@ -728,53 +501,28 @@ server.tool(
       .enum(['note', 'question', 'answer'])
       .describe(
         "'note' — informational; " +
-        "'question' — blocks the active pipeline run until answered; " +
+        "'question' — waits for an answer; " +
         "'answer' — reply to a question (use kanban_answer_comment instead).",
       ),
     author: z
       .string()
       .optional()
       .describe("Author name. Defaults to 'user'."),
-    targetAgent: z
-      .string()
-      .optional()
-      .describe(
-        "Agent ID to route this question to (e.g. 'ux-api-designer', 'senior-architect'). " +
-        "Only valid for type='question'. The agent must be in the task's pipeline. " +
-        "If set, pipelineManager spawns the target agent to answer automatically. " +
-        "If the agent cannot resolve it, the question is escalated to a human (needsHuman=true).",
-      ),
   },
-  withTiming('kanban_add_comment', async ({ spaceId, taskId, text, type, author, targetAgent }) => {
-    // 1. Create the comment via REST.
-    const comment = await addComment({ spaceId, taskId, text, type, author: author ?? 'user', targetAgent });
-    if (comment && comment.error) return comment;
-
-    // 2. When it's a question, find the active run and block it.
-    if (type === 'question') {
-      const run = await findActiveRunForTask({ spaceId, taskId });
-      if (run && !run.error) {
-        const blockResult = await blockRun(run.runId);
-        const blocked     = !blockResult?.error;
-        return { comment, pipelineBlocked: blocked, runId: run.runId };
-      }
-      // No active run found — comment created, but nothing to block.
-      return { comment, pipelineBlocked: false };
-    }
-
-    return { comment };
+  withTiming('kanban_add_comment', async ({ spaceId, taskId, text, type, author }) => {
+    return addComment({ spaceId, taskId, text, type, author: author ?? 'user' });
   }),
 );
 
 // ---------------------------------------------------------------------------
-// Tool: kanban_answer_comment (task-comments + pipeline-blocked)
+// Tool: kanban_answer_comment
 // ---------------------------------------------------------------------------
 
 server.tool(
   'kanban_answer_comment',
   'Answer an open question comment on a kanban task. ' +
-  'Creates a new answer comment (parentId = commentId), marks the question as resolved=true, ' +
-  'and unblocks the active pipeline run when no open questions remain.',
+  'Creates a new answer comment (parentId = commentId) and marks the question as resolved=true. ' +
+  'The agent that asked runs again once no question is open.',
   {
     spaceId:   requiredSpaceIdSchema,
     taskId:    taskIdSchema.describe('Task ID that owns the question comment.'),
@@ -786,49 +534,7 @@ server.tool(
       .describe("Author name. Defaults to 'user'."),
   },
   withTiming('kanban_answer_comment', async ({ spaceId, taskId, commentId, answer, author }) => {
-    // 0. Snapshot run status BEFORE answering. The server-side hook
-    //    (unblockRunByComment) fires synchronously during the PATCH that
-    //    answerComment issues, so by the time the HTTP response returns the run
-    //    status has already transitioned blocked → running. We must capture
-    //    wasBlocked now or we will always see status='running' and report
-    //    pipelineUnblocked: false even though the pipeline was unblocked.
-    const runBefore  = await findActiveRunForTask({ spaceId, taskId });
-    const wasBlocked = runBefore && !runBefore.error && runBefore.status === 'blocked';
-
-    // 1. Create answer comment + mark question resolved (atomic pair).
-    const result = await answerComment({ spaceId, taskId, commentId, answer, author: author ?? 'user' });
-    if (result && result.error) return result;
-
-    // 2. Check whether any question comments are still unresolved.
-    const task = await getTask(taskId, spaceId);
-    if (task && task.error) {
-      // Can't read task — return the answer result without unblocking.
-      return { ...result, pipelineUnblocked: false };
-    }
-
-    const comments      = Array.isArray(task.comments) ? task.comments : [];
-    const openQuestions = comments.filter((c) => c.type === 'question' && !c.resolved);
-
-    if (openQuestions.length === 0) {
-      if (wasBlocked) {
-        // Server-side hook already unblocked the run during the PATCH above.
-        // Report the outcome correctly even though status is now 'running'.
-        return { ...result, pipelineUnblocked: true, runId: runBefore.runId };
-      }
-
-      // Run was not blocked when we answered — maybe it became blocked after our
-      // pre-check. Try an explicit REST unblock as a fallback.
-      const run = await findActiveRunForTask({ spaceId, taskId });
-      if (run && !run.error && run.status === 'blocked') {
-        const unblockResult = await unblockRun(run.runId);
-        const unblocked     = !unblockResult?.error;
-        return { ...result, pipelineUnblocked: unblocked, runId: run.runId };
-      }
-
-      return { ...result, pipelineUnblocked: false, openQuestionsRemaining: 0 };
-    }
-
-    return { ...result, pipelineUnblocked: false, openQuestionsRemaining: openQuestions.length };
+    return answerComment({ spaceId, taskId, commentId, answer, author: author ?? 'user' });
   }),
 );
 
@@ -840,6 +546,6 @@ const transport = new StdioServerTransport();
 
 log('INFO', `Starting ${SERVER_NAME} v${SERVER_VERSION}`);
 log('INFO', `Kanban API URL: ${KANBAN_API_URL}`);
-log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_list_activity, kanban_search_tasks, kanban_start_run, kanban_get_run_status, kanban_get_run_logs, kanban_resume_run, kanban_stop_run, kanban_add_comment, kanban_answer_comment (deprecated aliases: kanban_start_pipeline, kanban_resume_pipeline, kanban_stop_pipeline)');
+log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_search_tasks, kanban_add_comment, kanban_answer_comment');
 
 await server.connect(transport);

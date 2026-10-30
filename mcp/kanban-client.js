@@ -311,12 +311,10 @@ export async function listSpaces() {
 /**
  * Create a new space.
  * @param {string} name
- * @param {{ folioBackend?: 'sqlite'|'file' }} [opts]
  * @returns {Promise<object|{ error: true, code: string, message: string }>}
  */
-export async function createSpace(name, opts = {}) {
+export async function createSpace(name) {
   const body = { name };
-  if (opts.folioBackend !== undefined) body.folioBackend = opts.folioBackend;
   return request('POST', '/spaces', body);
 }
 
@@ -324,12 +322,10 @@ export async function createSpace(name, opts = {}) {
  * Rename a space.
  * @param {string} id
  * @param {string} name
- * @param {{ folioBackend?: 'sqlite'|'file' }} [opts]
  * @returns {Promise<object|{ error: true, code: string, message: string }>}
  */
-export async function renameSpace(id, name, opts = {}) {
+export async function renameSpace(id, name) {
   const body = { name };
-  if (opts.folioBackend !== undefined) body.folioBackend = opts.folioBackend;
   return request('PUT', `/spaces/${id}`, body);
 }
 
@@ -343,88 +339,18 @@ export async function deleteSpace(id) {
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline runs — ADR-1 (mcp-start-pipeline)
-// ---------------------------------------------------------------------------
-
-/**
- * Start a new pipeline run for the given kanban task (fire-and-forget).
- * Returns the initial Run object including the runId immediately.
- *
- * @param {{ spaceId: string, taskId: string, stages?: string[] }} params
- * @returns {Promise<object|{ error: true, code: string, message: string }>}
- */
-export async function startPipeline({ spaceId, taskId, stages }) {
-  return request('POST', '/runs', { spaceId, taskId, stages });
-}
-
-/**
- * Get the current status of a pipeline run by runId.
- *
- * @param {string} runId - The runId returned by startPipeline.
- * @returns {Promise<object|{ error: true, code: string, message: string }>}
- */
-export async function getRunStatus(runId) {
-  return request('GET', `/runs/${runId}`);
-}
-
-/**
- * Resume an interrupted or failed pipeline run.
- *
- * @param {string} runId - The runId of the interrupted/failed run.
- * @param {number} [fromStage] - Zero-based stage index to resume from.
- *   Omit to resume from the first non-completed stage.
- * @returns {Promise<object|{ error: true, code: string, message: string }>}
- */
-export async function resumePipeline({ runId, fromStage }) {
-  const body = fromStage !== undefined ? { fromStage } : {};
-  return request('POST', `/runs/${runId}/resume`, body);
-}
-
-/**
- * Read the logs of a pipeline run, normalized to human-readable text.
- *
- * The `runId` may be a prefix ≥ 8 characters — the server resolves it to
- * the full runId. Omit `stage` to receive all stages. Set `raw:true` to
- * bypass the stream-json normalizer and receive the file bytes untouched.
- *
- * @param {{ runId: string, stage?: number, tail?: number, raw?: boolean }} params
- * @returns {Promise<object|{ error: true, code: string, message: string }>}
- */
-export async function getRunLogs({ runId, stage, tail, raw } = {}) {
-  const qs = new URLSearchParams();
-  if (stage !== undefined && stage !== null) qs.set('stage', String(stage));
-  if (tail  !== undefined && tail  !== null) qs.set('tail',  String(tail));
-  if (raw === true)                          qs.set('raw',   'true');
-  const suffix = qs.toString() ? `?${qs.toString()}` : '';
-  return request('GET', `/runs/${encodeURIComponent(runId)}/logs${suffix}`);
-}
-
-/**
- * Stop a running pipeline run by sending SIGTERM to the active stage process.
- * The run is marked as `interrupted` and its directory is preserved so it can
- * be resumed later with resumePipeline.
- *
- * @param {string} runId - The runId to stop.
- * @returns {Promise<object|{ error: true, code: string, message: string }>}
- */
-export async function stopPipeline(runId) {
-  return request('POST', `/runs/${runId}/stop`, {});
-}
-
-// ---------------------------------------------------------------------------
 // Comments — T-001 / T-002 (task-comments feature)
 // ---------------------------------------------------------------------------
 
 /**
  * Create a comment on a task.
  *
- * @param {{ spaceId: string, taskId: string, text: string, type: 'note'|'question'|'answer', author?: string, parentId?: string, targetAgent?: string }} params
+ * @param {{ spaceId: string, taskId: string, text: string, type: 'note'|'question'|'answer', author?: string, parentId?: string }} params
  * @returns {Promise<object|{ error: true, code: string, message: string }>}
  */
-export async function addComment({ spaceId, taskId, text, type, author = 'user', parentId, targetAgent }) {
+export async function addComment({ spaceId, taskId, text, type, author = 'user', parentId }) {
   const body = { text, type, author };
   if (parentId    !== undefined) body.parentId    = parentId;
-  if (targetAgent !== undefined) body.targetAgent = targetAgent;
   return request('POST', `/spaces/${spaceId}/tasks/${taskId}/comments`, body);
 }
 
@@ -459,54 +385,6 @@ export async function answerComment({ spaceId, taskId, commentId, answer, author
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline block/unblock — pipeline-blocked feature
-// ---------------------------------------------------------------------------
-
-/**
- * Block a pipeline run (set status = 'blocked'). Called automatically
- * when an agent adds a question comment.
- *
- * @param {string} runId
- * @returns {Promise<object|{ error: true, code: string, message: string }>}
- */
-export async function blockRun(runId) {
-  return request('POST', `/runs/${runId}/block`, {});
-}
-
-/**
- * Unblock a pipeline run (set status = 'running'). Called automatically
- * when all question comments on a task are resolved.
- *
- * @param {string} runId
- * @returns {Promise<object|{ error: true, code: string, message: string }>}
- */
-export async function unblockRun(runId) {
-  return request('POST', `/runs/${runId}/unblock`, {});
-}
-
-/**
- * Find the most-recent active pipeline run for a (spaceId, taskId) pair.
- * Returns the registry summary object, or null when no active run is found.
- *
- * "Active" = status is one of: pending, running, blocked, paused.
- *
- * @param {{ spaceId: string, taskId: string }} params
- * @returns {Promise<object|null|{ error: true, code: string, message: string }>}
- */
-export async function findActiveRunForTask({ spaceId, taskId }) {
-  const result = await request('GET', '/runs');
-  if (result && result.error) return result;
-
-  const ACTIVE_STATUSES = new Set(['pending', 'running', 'blocked', 'paused']);
-  const runs = Array.isArray(result) ? result : [];
-  const match = runs
-    .filter((r) => r.spaceId === spaceId && r.taskId === taskId && ACTIVE_STATUSES.has(r.status))
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0];
-
-  return match ?? null;
-}
-
-// ---------------------------------------------------------------------------
 // Search — cross-space full-text search
 // ---------------------------------------------------------------------------
 
@@ -527,26 +405,3 @@ export async function searchTasks({ q, limit }) {
 // Activity feed — ADR-1 (Activity Feed) §T-008
 // ---------------------------------------------------------------------------
 
-/**
- * List activity events, optionally scoped to a space.
- *
- * @param {{ spaceId?: string, type?: string, limit?: number, from?: string, to?: string, cursor?: string }} [params]
- * @returns {Promise<{ events: object[], nextCursor: string|null }|{ error: true, code: string, message: string }>}
- */
-export async function listActivity(params = {}) {
-  const { spaceId, type, limit, from, to, cursor } = params;
-
-  const qs = new URLSearchParams();
-  if (type)   qs.set('type',   type);
-  if (limit)  qs.set('limit',  String(limit));
-  if (from)   qs.set('from',   from);
-  if (to)     qs.set('to',     to);
-  if (cursor) qs.set('cursor', cursor);
-
-  const queryString = qs.toString() ? `?${qs.toString()}` : '';
-  const path        = spaceId
-    ? `/spaces/${spaceId}/activity${queryString}`
-    : `/activity${queryString}`;
-
-  return request('GET', path);
-}

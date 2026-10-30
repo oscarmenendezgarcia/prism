@@ -17,8 +17,6 @@
 
 const crypto = require('crypto');
 const { createStore } = require('./store');
-const { validateFolioBackend } = require('./folioValidation');
-const { validateStageModelConfig } = require('./modelConfigResolver');
 
 const SPACE_NAME_MAX      = 100;
 const NICKNAME_VALUE_MAX  = 50;
@@ -42,35 +40,6 @@ function createSpaceManager(storeOrDataDir) {
   // -------------------------------------------------------------------------
   // Name validation helpers
   // -------------------------------------------------------------------------
-
-  /**
-   * Validate and normalise an agentNicknames map.
-   */
-  function normaliseNicknames(raw) {
-    if (raw === undefined || raw === null) {
-      return { ok: true, nicknames: {} };
-    }
-    if (typeof raw !== 'object' || Array.isArray(raw)) {
-      return { ok: false, code: 'VALIDATION_ERROR', message: 'agentNicknames must be an object.' };
-    }
-    const result = {};
-    for (const [key, value] of Object.entries(raw)) {
-      if (typeof value !== 'string') {
-        return { ok: false, code: 'VALIDATION_ERROR', message: `Nickname for "${key}" must be a string.` };
-      }
-      const trimmed = value.trim();
-      if (trimmed.length === 0) continue;
-      if (trimmed.length > NICKNAME_VALUE_MAX) {
-        return {
-          ok:      false,
-          code:    'VALIDATION_ERROR',
-          message: `Nickname for "${key}" must not exceed ${NICKNAME_VALUE_MAX} characters.`,
-        };
-      }
-      result[key] = trimmed;
-    }
-    return { ok: true, nicknames: result };
-  }
 
   /**
    * Validate a space name.
@@ -122,7 +91,7 @@ function createSpaceManager(storeOrDataDir) {
   /**
    * Create a new space.
    */
-  function createSpace(name, workingDirectory, pipeline, projectClaudeMdPath, _id, folioBackend) {
+  function createSpace(name, workingDirectory, _id) {
     const validation = validateName(name);
     if (!validation.valid) {
       return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
@@ -139,32 +108,11 @@ function createSpaceManager(storeOrDataDir) {
       };
     }
 
-    // Default repo-backed spaces to the file backend: the .folio/ directory
-    // travels with the repo (git = sync) and matches where the standalone MCP
-    // server and pipeline write-back operate, so UI + MCP + git stay in sync.
-    // Spaces without a working directory stay on sqlite. Explicit value wins.
-    const resolvedBackend = folioBackend != null
-      ? folioBackend
-      : (workingDirectory ? 'file' : 'sqlite');
-
-    // Validate folioBackend setting.
-    const folioValidation = validateFolioBackend({ folioBackend: resolvedBackend, workingDirectory });
-    if (!folioValidation.valid) {
-      return { ok: false, code: 'VALIDATION_ERROR', message: folioValidation.errors[0] };
-    }
-    const effectiveBackend = folioValidation.data.folioBackend;
-
     const now = new Date().toISOString();
     const space = {
       id:        _id || crypto.randomUUID(),
       name:      validation.name,
       ...(workingDirectory ? { workingDirectory } : {}),
-      ...(Array.isArray(pipeline) && pipeline.length > 0 ? { pipeline } : {}),
-      ...(projectClaudeMdPath && typeof projectClaudeMdPath === 'string'
-        ? { projectClaudeMdPath }
-        : {}),
-      // Only store folioBackend when it's non-default (omit 'sqlite' to keep payload small).
-      ...(effectiveBackend !== 'sqlite' ? { folioBackend: effectiveBackend } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -183,14 +131,10 @@ function createSpaceManager(storeOrDataDir) {
    *   falls back to the existing name so callers can do pin-only updates without
    *   providing a name. (partial PUT support.)
    * @param {string}  [workingDirectory]
-   * @param {string[]} [pipeline]
-   * @param {string}  [projectClaudeMdPath]
-   * @param {object}  [agentNicknames]
-   * @param {string}  [folioBackend]
    * @param {boolean} [pinned]           - Pin/unpin the space.
    * @param {number|null} [pinnedRank]   - Rank within the pinned zone.
    */
-  function renameSpace(id, newName, workingDirectory, pipeline, projectClaudeMdPath, agentNicknames, folioBackend, pinned, pinnedRank, stageModels) {
+  function renameSpace(id, newName, workingDirectory, pinned, pinnedRank) {
     const existing = store.getSpace(id);
     if (!existing) {
       return {
@@ -222,102 +166,12 @@ function createSpaceManager(storeOrDataDir) {
       };
     }
 
-    let normalisedNicknames;
-    if (agentNicknames !== undefined) {
-      const nickResult = normaliseNicknames(agentNicknames);
-      if (!nickResult.ok) return nickResult;
-      normalisedNicknames = nickResult.nicknames;
-    }
-
-    // MODEL-1: validate and resolve stageModels if provided.
-    let resolvedStageModels;
-    if (stageModels !== undefined) {
-      if (stageModels === null) {
-        // null = clear all space-level overrides.
-        resolvedStageModels = null;
-      } else if (typeof stageModels !== 'object' || Array.isArray(stageModels)) {
-        return { ok: false, code: 'VALIDATION_ERROR', message: 'stageModels must be an object or null.' };
-      } else {
-        for (const [agentId, config] of Object.entries(stageModels)) {
-          if (config === null) continue; // null = clear that agent's override
-          const { valid, errors } = validateStageModelConfig(config);
-          if (!valid) {
-            return { ok: false, code: 'VALIDATION_ERROR', message: `Invalid stageModels for '${agentId}': ${errors[0]}` };
-          }
-        }
-        resolvedStageModels = stageModels;
-      }
-    }
-
-    // Validate folioBackend if provided.
-    let resolvedFolioBackend;
-    if (folioBackend !== undefined) {
-      // Determine effective working directory for validation.
-      const effectiveWd = workingDirectory !== undefined
-        ? (workingDirectory || undefined)
-        : existing.workingDirectory;
-
-      // Check if a folio is already activated for this space (immutable-after-activation rule).
-      // We reach into store.folio.binding lazily — if it's not available (e.g. tests), we skip.
-      let existingFolioActivated = false;
-      if (store.folio && store.folio.binding) {
-        try {
-          existingFolioActivated = store.folio.binding.hasFolio(id);
-        } catch (_) {
-          // defensive — never block a rename due to folio check failure
-        }
-      }
-
-      const folioValidation = validateFolioBackend({
-        folioBackend,
-        workingDirectory:       effectiveWd,
-        existingFolioActivated,
-        existingBackend:        existing.folioBackend,
-      });
-      if (!folioValidation.valid) {
-        return { ok: false, code: 'VALIDATION_ERROR', message: folioValidation.errors[0] };
-      }
-      resolvedFolioBackend = folioValidation.data.folioBackend;
-    } else if (
-      workingDirectory && !existing.workingDirectory && existing.folioBackend == null &&
-      store.folio && store.folio.binding
-    ) {
-      // Working directory newly added to a repo-less space: apply the same
-      // default as createSpace (repo → file) so UI + MCP + git share one .folio/.
-      // Only when the folio is NOT yet activated — flipping would otherwise orphan
-      // existing sqlite content (a real migration must move it first, then delete).
-      // Fail-safe: if we cannot confirm it's empty, do NOT flip (stay on sqlite).
-      let activated = true;
-      try { activated = store.folio.binding.hasFolio(id); } catch (_) { activated = true; }
-      if (!activated) resolvedFolioBackend = 'file';
-    }
-
     const updated = {
       ...existing,
       name:      validation.name,
       updatedAt: new Date().toISOString(),
       ...(workingDirectory !== undefined
         ? { workingDirectory: workingDirectory || undefined }
-        : {}),
-      ...(pipeline !== undefined
-        ? { pipeline: (Array.isArray(pipeline) && pipeline.length > 0) ? pipeline : undefined }
-        : {}),
-      ...(projectClaudeMdPath !== undefined
-        ? { projectClaudeMdPath: projectClaudeMdPath || undefined }
-        : {}),
-      ...(normalisedNicknames !== undefined
-        ? {
-            agentNicknames:
-              Object.keys(normalisedNicknames).length > 0 ? normalisedNicknames : undefined,
-          }
-        : {}),
-      // Only update folioBackend when it was explicitly provided.
-      ...(resolvedFolioBackend !== undefined
-        ? { folioBackend: resolvedFolioBackend !== 'sqlite' ? resolvedFolioBackend : undefined }
-        : {}),
-      // MODEL-1: only update stageModels when explicitly provided.
-      ...(resolvedStageModels !== undefined
-        ? { stageModels: resolvedStageModels }
         : {}),
       // pin/rank fields — only update when explicitly provided.
       ...(pinned !== undefined ? { pinned } : {}),
@@ -372,7 +226,7 @@ function createSpaceManager(storeOrDataDir) {
     const spaces = store.listSpaces();
     if (spaces.length === 0) {
       console.log('[spaceManager] No spaces found — creating default General space (id: default)');
-      createSpace('General', undefined, undefined, undefined, 'default');
+      createSpace('General', undefined, 'default');
     }
     // No directory checks needed — DB schema handles integrity.
   }
@@ -384,7 +238,6 @@ function createSpaceManager(storeOrDataDir) {
     renameSpace,
     deleteSpace,
     ensureAllSpaces,
-    normaliseNicknames,
     // Retain these properties so existing tests that read them don't break.
     // They are intentionally no-op/dummy values since we no longer use the FS.
     get manifestPath() { return null; },

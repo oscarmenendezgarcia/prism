@@ -13,13 +13,10 @@
  *   const store = createStore(':memory:');    // in-memory DB for unit tests
  */
 
+const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const { applySchema: applyFolioSchema }              = require('./folio/db');
-const { createFolioService, openSqliteBackend }      = require('./folio/index');
-const { applyBindingSchema, createFolioBinding }     = require('./folioBinding');
-const { createFolioRouter }                          = require('./folioRouter');
 
 // ---------------------------------------------------------------------------
 // DDL
@@ -30,9 +27,7 @@ PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 PRAGMA synchronous = NORMAL;
 -- Wait up to 5s for a write lock instead of throwing SQLITE_BUSY immediately.
--- WAL serialises concurrent writers (e.g. an HTTP request + the bootstrap apply
--- transaction); without this they collide and the loser throws. See the Folio
--- bootstrap transient-failure post-mortem (decision 16 in .folio/decisions/log).
+-- WAL serialises concurrent writers; without this they collide and the loser throws.
 PRAGMA busy_timeout = 5000;
 
 CREATE TABLE IF NOT EXISTS spaces (
@@ -212,6 +207,35 @@ function rowToTask(row) {
 }
 
 // ---------------------------------------------------------------------------
+// Upgrades
+// ---------------------------------------------------------------------------
+
+/** Bumped when a version changes what the data means. */
+const SCHEMA_VERSION = 2;
+
+/**
+ * Keep a copy of a database from before v2, once. v2 no longer runs pipelines or reads
+ * Folio, so someone going back to v1 needs their data as it was. A new database has
+ * nothing to keep, and a backup that fails stops the upgrade rather than risk the data.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} dbPath
+ */
+function backUpBeforeV2(db, dbPath) {
+  if (dbPath === ':memory:' || db.pragma('user_version', { simple: true }) >= SCHEMA_VERSION) return;
+
+  const hasData = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'spaces'").get();
+  if (hasData) {
+    const backupPath = `${dbPath}.before-v2`;
+    if (!fs.existsSync(backupPath)) {
+      db.prepare('VACUUM INTO ?').run(backupPath);
+      console.log(`[store] upgrade: kept a copy of the database in ${backupPath}`);
+    }
+  }
+  db.pragma(`user_version = ${SCHEMA_VERSION}`);
+}
+
+// ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
@@ -227,6 +251,8 @@ function createStore(dataDir) {
     : path.join(dataDir, 'prism.db');
 
   const db = new Database(dbPath);
+
+  backUpBeforeV2(db, dbPath);
 
   // Apply schema (idempotent — uses IF NOT EXISTS).
   // exec() runs multi-statement SQL; also applies the PRAGMAs.
@@ -320,29 +346,7 @@ function createStore(dataDir) {
     }
   }
 
-  // Apply Folio core schema (space-agnostic) and Prism binding schema.
-  applyFolioSchema(db);
-  applyBindingSchema(db);
-
   console.log(`[store] open — WAL mode confirmed, schema ready (${dbPath})`);
-
-  // Create Folio facade (SQLite backend = Prism's prism.db) and Prism-side binding.
-  // The facade is a superset of the core store surface; folioBinding consumes it unchanged.
-  const folioCore    = createFolioService(openSqliteBackend({ db }));
-  const folioBinding = createFolioBinding(db, folioCore);
-
-  // Build the backend router (T-004/T-005 — folio-backend-selection).
-  // The router becomes store.folio.binding; sqliteBinding is kept as store.folio.sqliteBinding.
-  const folioRouter = createFolioRouter({
-    db,
-    sqliteBinding: folioBinding,
-    getSpace: (spaceId) => {
-      // Inline getter that reads directly from the store (avoids circular require).
-      return rowToSpace(stmts.getSpace.get(spaceId));
-    },
-  });
-  // Inject the SQLite core so resolveRefs on the SQLite path works.
-  folioRouter.setSqliteCore(folioCore);
 
   // ---------------------------------------------------------------------------
   // Prepared statements (compiled once, reused for every call)
@@ -1010,18 +1014,11 @@ function createStore(dataDir) {
    * @param {number} [opts.offset] - Skip this many rows (for pagination).
    * @returns {object[]}
    */
-  // Folio side-agent runs (bootstrap, consolidation) are stored as single-stage
-  // runs so their logs are viewable through the normal run log viewer, but they
-  // are NOT pipeline runs — exclude them from the pipeline run lists / active-run
-  // indicator. getRun() still returns them (the log viewer looks one up by id).
-  const FOLIO_SURFACE_KINDS = new Set(['bootstrap', 'consolidation']);
-  const notFolioSurface = (r) => r && !FOLIO_SURFACE_KINDS.has(r.kind);
-
   function listRuns({ limit, offset } = {}) {
     if (limit !== undefined) {
-      return stmts.listRunsLimitOffset.all(limit, offset ?? 0).map(rowToRun).filter(notFolioSurface);
+      return stmts.listRunsLimitOffset.all(limit, offset ?? 0).map(rowToRun);
     }
-    return stmts.listRuns.all().map(rowToRun).filter(notFolioSurface);
+    return stmts.listRuns.all().map(rowToRun);
   }
 
   /**
@@ -1029,7 +1026,7 @@ function createStore(dataDir) {
    * @returns {object[]}
    */
   function listRunsBySpace(spaceId) {
-    return stmts.listRunsBySpace.all(spaceId).map(rowToRun).filter(notFolioSurface);
+    return stmts.listRunsBySpace.all(spaceId).map(rowToRun);
   }
 
   /**
@@ -1037,7 +1034,7 @@ function createStore(dataDir) {
    * @returns {object[]}
    */
   function listActiveRuns() {
-    return stmts.listActiveRuns.all().map(rowToRun).filter(notFolioSurface);
+    return stmts.listActiveRuns.all().map(rowToRun);
   }
 
   /**
@@ -1079,8 +1076,6 @@ function createStore(dataDir) {
   // ---------------------------------------------------------------------------
 
   function close() {
-    // Close all cached file-backed FolioServices first (prevents open-handle leak).
-    try { folioRouter.close(); } catch (_) {}
     db.close();
   }
 
@@ -1120,13 +1115,6 @@ function createStore(dataDir) {
     deleteRun: deleteRun,
     // Lifecycle
     close,
-    // Folio — core (folio_id-keyed), backend-aware router (binding), and original SQLite binding.
-    // Downstream consumers (MCP tools, resolver, injection) use `store.folio.binding` (the router).
-    folio: {
-      core:          folioCore,     // SQLite core — kept for back-compat; use binding for space ops.
-      binding:       folioRouter,   // NEW: backend-aware router (same surface as before + resolveRefs).
-      sqliteBinding: folioBinding,  // The original SQLite binding (router delegates to it for sqlite spaces).
-    },
   };
 }
 

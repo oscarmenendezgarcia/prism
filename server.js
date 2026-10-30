@@ -12,7 +12,7 @@
  * Module layout:
  *   src/services/store.js          — SQLite Store (better-sqlite3), all CRUD ops (ADR-1 sqlite-migration)
  *   src/services/spaceManager.js   — space CRUD backed by Store
- *   src/services/pipelineManager.js — pipeline run lifecycle
+ *   src/services/taskRunner.js — task run lifecycle
  *   src/services/agentResolver.js  — agent file resolution for pipeline
  *   src/services/templateManager.js — pipeline template CRUD
  *   src/routes/index.js            — URL pattern matching and handler dispatch
@@ -37,10 +37,8 @@ const os   = require('os');
 
 const { createStore }        = require('./src/services/store');
 const { createSpaceManager } = require('./src/services/spaceManager');
-const pipelineManager        = require('./src/services/pipelineManager');
-const { readSettings }       = require('./src/handlers/settings');
+const taskRunner             = require('./src/services/taskRunner');
 const { createApp }          = require('./src/handlers/tasks');
-const { cleanupOldPromptFiles } = require('./src/handlers/prompt');
 const { createRouter }       = require('./src/routes');
 const { resolveDataDir }     = require('./src/utils/dataDir');
 const { resolveAccess, allowRequest } = require('./src/utils/access');
@@ -113,63 +111,8 @@ function startServer(options = {}) {
   const spaceManager = createSpaceManager(store);
   spaceManager.ensureAllSpaces();
 
-  // Step 2b: Initialize pipeline manager (startup recovery).
-  // Marks any run with status='running' as 'interrupted' from a previous crash.
-  pipelineManager.init(dataDir, store);
-
-  // Step 2c: Backfill orphaned "running" agent-runs entries whose parent
-  // pipeline run is already terminal (see ADR runs-zombie-active-fix).
-  // Non-fatal — a failure must never block server startup.
-  try {
-    const { runBackfill } = require('./src/services/agentRunsBackfill');
-    runBackfill({ dataDir, store });
-  } catch (err) {
-    console.warn(`[agent-runs-backfill] load failed (non-fatal): ${err.message}`);
-  }
-  // Propagate pipeline.agentsDir from settings to env (if not already set via env var).
-  if (!process.env.PIPELINE_AGENTS_DIR) {
-    const startupSettings = readSettings(dataDir);
-    if (startupSettings.pipeline && startupSettings.pipeline.agentsDir) {
-      process.env.PIPELINE_AGENTS_DIR = startupSettings.pipeline.agentsDir;
-    }
-  }
-
-  // ── Agent auto-sync ─────────────────────────────────────────────────────────
-  // Sync Prism-managed agent definitions to the runtime agents directory on
-  // every startup. Safe-sync: never overwrites user-customised files.
-  try {
-    const { syncAgents } = require('./src/services/agentSync');
-    const _agentsDir = options.agentsDir
-      || process.env.PIPELINE_AGENTS_DIR
-      || path.join(os.homedir(), '.claude', 'agents');
-    const { version: _prismVersion } = require('./package.json');
-    const _syncLog = options.silent ? () => {} : (msg) => console.log(msg);
-
-    const _syncResult = syncAgents({
-      packageRoot:  __dirname,
-      agentsDir:    _agentsDir,
-      prismVersion: _prismVersion,
-      log:          _syncLog,
-    });
-
-    if (!options.silent) {
-      const parts = [];
-      if (_syncResult.synced.length)   parts.push(`synced ${_syncResult.synced.length}`);
-      if (_syncResult.skipped.length)  parts.push(`skipped (user-modified) ${_syncResult.skipped.length}`);
-      if (_syncResult.errors.length)   parts.push(`errors ${_syncResult.errors.length}`);
-      if (parts.length > 0) {
-        console.log(`[agent-sync] ${parts.join(', ')}`);
-      }
-    }
-    // Always log errors, even in silent mode
-    if (_syncResult.errors.length > 0) {
-      console.error(`[agent-sync] errors syncing: ${_syncResult.errors.join(', ')}`);
-    }
-  } catch (err) {
-    // Never let sync failure bring down the server
-    console.error(`[agent-sync] sync failed (non-fatal): ${err.message}`);
-  }
-  // ────────────────────────────────────────────────────────────────────────────
+  // Step 2b: Pick up the runs of the previous server.
+  taskRunner.init(dataDir, store);
 
   // Step 3: Build a Map-based cache of createApp instances by spaceId.
   /** @type {Map<string, ReturnType<import('./src/handlers/tasks').createApp>>} */
@@ -192,14 +135,7 @@ function startServer(options = {}) {
 
   // Step 4b: Tagger startup info — log the configured CLI.
   // Server start is NOT blocked — tagger is not a core feature (ADR-1 §Consequences).
-  const taggerCli = process.env.TAGGER_CLI || 'claude';
-  console.log(`[tagger] using CLI '${taggerCli}' (override with TAGGER_CLI env var)`);
-
-  // Step 5: Run startup cleanup for old prompt files.
-  cleanupOldPromptFiles(dataDir);
-  setInterval(() => cleanupOldPromptFiles(dataDir), 6 * 60 * 60 * 1000).unref();
-
-  // Step 6: Create and start the HTTP server.
+  // Step 5: Create and start the HTTP server.
   const access = resolveAccess({ host: options.host, dataDir });
   // Agents and the MCP servers they start inherit this to reach the API.
   if (access.token) process.env.PRISM_TOKEN = access.token;
@@ -253,11 +189,9 @@ module.exports = { startServer };
 // ---------------------------------------------------------------------------
 
 if (require.main === module) {
-  const { setupTerminalWebSocket } = require('./terminal');
-  const { getActiveProcessCount } = require('./src/services/pipelineManager');
+  const { getActiveProcessCount } = taskRunner;
   const server = startServer();
   const store  = server._store;
-  setupTerminalWebSocket(server);
 
   // Graceful shutdown: wait up to 30s for active pipeline runs to finish
   // before closing the server. This prevents SIGPIPE killing child processes.

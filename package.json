@@ -14,7 +14,6 @@
     "!mcp/node_modules",
     "!mcp/node_modules/**",
     "agents/",
-    "terminal.js",
     "server.js",
     "README.md",
     "LICENSE"
@@ -26,7 +25,6 @@
     "kanban",
     "agents",
     "claude-code",
-    "pipeline",
     "local-first"
   ],
   "license": "MIT",
@@ -38,13 +36,10 @@
     "test": "node --test --test-concurrency=2 tests/*.test.js",
     "test:report": "node --test --test-concurrency=2 --test-reporter=tap tests/*.test.js 2>&1 | node bin/test-report.js",
     "prepare": "node bin/prepare.js",
-    "postinstall": "node bin/postinstall.js",
     "start": "node server.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "better-sqlite3": "^12.9.0",
-    "node-pty": "^1.1.0",
-    "ws": "^8.21.3"
+    "better-sqlite3": "^12.9.0"
   }
 }

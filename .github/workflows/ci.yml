@@ -29,6 +29,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Run MCP tests
+        run: node --test mcp/tests/*.test.js
+
   frontend:
     name: Frontend build & tests
     runs-on: ubuntu-latest

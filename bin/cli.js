@@ -27,7 +27,7 @@ const { version } = require(path.join(__dirname, '..', 'package.json'));
 // ---------------------------------------------------------------------------
 
 const USAGE = `
-prism — local-first kanban + agent pipeline runner
+prism — local-first issue tracker with agents as assignees
 
 Usage:
   prism start   [--port <n>] [--host <addr>] [--data-dir <path>] [--silent]
@@ -145,16 +145,13 @@ function runStart(flags) {
   }
 
   const { startServer }              = require(path.join(__dirname, '..', 'server.js'));
-  const { setupTerminalWebSocket }   = require(path.join(__dirname, '..', 'terminal.js'));
-  const { getActiveProcessCount }    = require(path.join(__dirname, '..', 'src', 'services', 'pipelineManager.js'));
+  const { getActiveProcessCount }    = require(path.join(__dirname, '..', 'src', 'services', 'taskRunner.js'));
 
   const server = startServer({
     port:    port,
     host:    flags.host,
     silent:  flags.silent || false,
   });
-
-  setupTerminalWebSocket(server);
 
   // Graceful shutdown
   function gracefulShutdown(signal) {

@@ -639,29 +639,6 @@ function parseNumstat(raw) {
 }
 
 /**
- * What a worktree holds right now, to tell whether something changed it.
- *
- * @param {string} worktreePath
- * @returns {Promise<{ head: string, status: string }>}
- */
-async function readWorktreeState(worktreePath) {
-  const { stdout: head } = await runGit(worktreePath, ['rev-parse', 'HEAD'], SAVE_GIT_OPTS);
-  const { stdout: status } = await runGit(worktreePath, ['status', '--porcelain'], SAVE_GIT_OPTS);
-  return { head: head.trim(), status: status.trim() };
-}
-
-/**
- * Put a worktree back on a commit, dropping anything else in it.
- *
- * @param {string} worktreePath
- * @param {string} head
- */
-async function resetWorktree(worktreePath, head) {
-  await runGit(worktreePath, ['reset', '--hard', head], SAVE_GIT_OPTS);
-  await runGit(worktreePath, ['clean', '-fd'], SAVE_GIT_OPTS);
-}
-
-/**
  * The commit a branch points at.
  *
  * @param {string} workingDirectory
@@ -727,7 +704,5 @@ module.exports = {
   reapOrphans,
   listChangedFiles,
   readBranchHead,
-  readWorktreeState,
-  resetWorktree,
   readFileDiff,
 };

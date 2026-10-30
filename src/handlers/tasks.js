@@ -13,8 +13,7 @@ const path = require('path');
 
 const { COLUMNS }                          = require('../constants');
 const { sendJSON, sendError, parseBody }   = require('../utils/http');
-const { validateStageModelConfig }         = require('../services/modelConfigResolver');
-const pipelineManager                      = require('../services/pipelineManager');
+const taskRunner                           = require('../services/taskRunner');
 
 // ---------------------------------------------------------------------------
 // Validation constraints
@@ -24,9 +23,6 @@ const VALID_TYPES          = ['feature', 'bug', 'tech-debt', 'chore'];
 const TITLE_MAX_LEN        = 200;
 const DESCRIPTION_MAX_LEN  = 1000;
 const ASSIGNED_MAX_LEN     = 50;
-const PIPELINE_MAX_STAGES  = 20;
-const PIPELINE_STAGE_MAX_LEN = 50;
-const PIPELINE_STAGE_ID_RE = /^[a-z0-9-]+$/;
 const ARC_MAX_LEN          = 60;
 
 const ATTACHMENT_MAX_COUNT         = 20;
@@ -51,7 +47,7 @@ const TASK_SINGLE_ROUTE             = /^\/tasks\/([^/]+)$/;
 // ---------------------------------------------------------------------------
 // Field validation helpers (shared between create + update paths)
 //
-// These are pure, module-scope helpers — same precedent as `validatePipelineField`
+// These are pure, module-scope helpers — same precedent as `validateDependsOnField`
 // below — so they can be unit-tested without an HTTP server or a Store instance.
 // They own the message templates for the two checks that were previously
 // hand-copied across the create and update paths (blueprint §3.2). Presence /
@@ -97,49 +93,6 @@ const OPTIONAL_STRING_FIELDS = [
   { name: 'assigned',    max: ASSIGNED_MAX_LEN },
   { name: 'arc',         max: ARC_MAX_LEN },
 ];
-
-// ---------------------------------------------------------------------------
-// Pipeline field validation (exported for autoTask.js)
-// ---------------------------------------------------------------------------
-
-/**
- * Validate the `pipeline` field from an incoming request body.
- *
- * @param {unknown} value
- * @returns {{ valid: boolean, data: string[] | undefined, error?: string }}
- */
-function validatePipelineField(value) {
-  if (value === undefined) {
-    return { valid: true, data: undefined };
-  }
-
-  if (!Array.isArray(value)) {
-    return { valid: false, error: 'pipeline must be an array of agent ID strings' };
-  }
-
-  if (value.length === 0) {
-    return { valid: true, data: undefined };
-  }
-
-  if (value.length > PIPELINE_MAX_STAGES) {
-    return { valid: false, error: `pipeline must not exceed ${PIPELINE_MAX_STAGES} stages` };
-  }
-
-  for (let i = 0; i < value.length; i++) {
-    const element = value[i];
-    if (typeof element !== 'string' || element.trim().length === 0) {
-      return { valid: false, error: `pipeline[${i}] must be a non-empty string` };
-    }
-    if (element.trim().length > PIPELINE_STAGE_MAX_LEN) {
-      return { valid: false, error: `pipeline[${i}] must not exceed ${PIPELINE_STAGE_MAX_LEN} characters` };
-    }
-    if (!PIPELINE_STAGE_ID_RE.test(element.trim())) {
-      return { valid: false, error: `pipeline[${i}] must contain only lowercase letters, digits, and hyphens` };
-    }
-  }
-
-  return { valid: true, data: value.map((s) => s.trim()) };
-}
 
 /**
  * Validate the `dependsOn` field from an incoming request body.
@@ -299,10 +252,6 @@ function createApp(spaceId, store) {
       if (err) errors.push(err);
     }
 
-    const pipelineResult = validatePipelineField(body.pipeline);
-    if (!pipelineResult.valid) {
-      errors.push(pipelineResult.error);
-    }
 
     if (errors.length > 0) {
       return { valid: false, errors, data: null };
@@ -320,7 +269,6 @@ function createApp(spaceId, store) {
         assigned:    typeof assigned === 'string' && assigned.trim().length > 0
                        ? assigned.trim()
                        : undefined,
-        pipeline:    pipelineResult.data,
         arc:         arcTrimmed && arcTrimmed.length > 0 ? arcTrimmed : undefined,
       },
     };
@@ -448,7 +396,6 @@ function createApp(spaceId, store) {
       type:  data.type,
       ...(data.description !== undefined && { description: data.description }),
       ...(data.assigned    !== undefined && { assigned:    data.assigned }),
-      ...(data.pipeline    !== undefined && { pipeline:    data.pipeline }),
       ...(data.arc         !== undefined && { arc:         data.arc }),
       ...(attachmentResult.data.length > 0 && { attachments: attachmentResult.data }),
       ...(dependsOnResult.data && dependsOnResult.data.length > 0
@@ -471,12 +418,6 @@ function createApp(spaceId, store) {
 
     try {
       store.insertTask(task, spaceId, 'todo');
-      if (task.pipeline) {
-        process.stderr.write(JSON.stringify({
-          event: 'task.pipeline_field_set', spaceId,
-          taskId: task.id, stages: task.pipeline, source: 'api',
-        }) + '\n');
-      }
 
       sendJSON(res, 201, stripAttachmentContent(task));
     } catch (err) {
@@ -528,7 +469,7 @@ function createApp(spaceId, store) {
 
       // Prism closes the card when the agent and the hooks are done, so neither
       // the agent nor anyone else can skip them by moving the card.
-      if (to !== 'in-progress' && pipelineManager.hasActiveDirectRun(null, taskId)) {
+      if (to !== 'in-progress' && taskRunner.hasActiveRun(taskId)) {
         return sendError(res, 409, 'TASK_RUN_ACTIVE',
           'An agent is running this task. Stop it before moving the card.');
       }
@@ -656,7 +597,7 @@ function createApp(spaceId, store) {
       return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
     }
 
-    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline', 'arc', 'dependsOn'];
+    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'arc', 'dependsOn'];
     const provided         = UPDATABLE_FIELDS.filter((f) => f in body);
 
     if (provided.length === 0) {
@@ -687,16 +628,6 @@ function createApp(spaceId, store) {
       if (err) errors.push(err);
     }
 
-    // NB: `pipeline` is validated after the optional-string loop, so on the
-    // update path a `pipeline` error now appears AFTER `arc`. Accepted deviation
-    // — see blueprint §6 and the deviation note on the Kanban card.
-    let pipelineUpdateResult;
-    if ('pipeline' in body) {
-      pipelineUpdateResult = validatePipelineField(body.pipeline);
-      if (!pipelineUpdateResult.valid) {
-        errors.push(pipelineUpdateResult.error);
-      }
-    }
 
     let dependsOnUpdateResult;
     if ('dependsOn' in body) {
@@ -722,7 +653,7 @@ function createApp(spaceId, store) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
 
-      const OTHER_FIELDS = ['title', 'type', 'description', 'assigned', 'pipeline', 'arc', 'stageModels'];
+      const OTHER_FIELDS = ['title', 'type', 'description', 'assigned', 'arc'];
       const hasOtherFields = OTHER_FIELDS.some(f => f in body);
 
       if (!hasOtherFields) {
@@ -749,39 +680,9 @@ function createApp(spaceId, store) {
         patch.assigned = trimmed.length > 0 ? trimmed : undefined;
       }
 
-      if ('pipeline' in body && pipelineUpdateResult) {
-        patch.pipeline = pipelineUpdateResult.data; // undefined = clear
-        if (pipelineUpdateResult.data !== undefined) {
-          process.stderr.write(JSON.stringify({
-            event: 'task.pipeline_field_set', taskId,
-            stages: pipelineUpdateResult.data, source: 'api',
-          }) + '\n');
-        }
-      }
-
       if ('arc' in body) {
         const trimmed = body.arc.trim();
         patch.arc = trimmed.length > 0 ? trimmed : undefined;
-      }
-
-      // MODEL-1: per-stage model routing overrides.
-      if ('stageModels' in body) {
-        if (body.stageModels === null) {
-          patch.stageModels = null; // clear all task-level overrides
-        } else if (typeof body.stageModels === 'object' && !Array.isArray(body.stageModels)) {
-          for (const [agentId, config] of Object.entries(body.stageModels)) {
-            if (config === null) continue; // null = clear that agent's override
-            const { valid, errors } = validateStageModelConfig(config);
-            if (!valid) {
-              return sendError(res, 400, 'VALIDATION_ERROR',
-                `Invalid stageModels for '${agentId}': ${errors[0]}`,
-                { field: `stageModels.${agentId}` });
-            }
-          }
-          patch.stageModels = body.stageModels;
-        } else {
-          return sendError(res, 400, 'VALIDATION_ERROR', 'stageModels must be an object or null', { field: 'stageModels' });
-        }
       }
 
       const written = store.updateTaskWithDependencies(spaceId, taskId, { patch, depIds });
@@ -834,7 +735,7 @@ function createApp(spaceId, store) {
 
   function handleDeleteTask(req, res, taskId) {
     try {
-      if (pipelineManager.hasActiveDirectRun(null, taskId)) {
+      if (taskRunner.hasActiveRun(taskId)) {
         return sendError(res, 409, 'TASK_RUN_ACTIVE',
           'An agent is running this task. Stop it before deleting the card.');
       }
@@ -842,7 +743,7 @@ function createApp(spaceId, store) {
       if (!deleted) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
-      pipelineManager.closeTaskDirectRuns(spaceId, taskId, null).catch(() => {});
+      taskRunner.closeTaskRuns(spaceId, taskId).catch(() => {});
       sendJSON(res, 200, { deleted: true, id: taskId });
     } catch (err) {
       console.error(`DELETE tasks/${taskId} error:`, err);
@@ -1165,7 +1066,6 @@ function createApp(spaceId, store) {
 
 module.exports = {
   createApp,
-  validatePipelineField,
   validateFieldLength,
   validateOptionalStringField,
 };

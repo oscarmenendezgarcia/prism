@@ -1,7 +1,6 @@
 /**
  * Prism — Main Router
  *
- * Extracted from server.js to keep the entry point lean.
  * All URL pattern matching and handler dispatch lives here.
  *
  * Usage:
@@ -12,105 +11,22 @@
 'use strict';
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
-const { createApp }       = require('../handlers/tasks');
+const { createApp }                      = require('../handlers/tasks');
 const { handleStatic }                   = require('../handlers/static');
-const { handleGetSettings, handlePutSettings } = require('../handlers/settings');
-const { handleGetHarnesses } = require('../handlers/harnesses');
-const {
-  CONFIG_FILES_LIST_ROUTE,
-  CONFIG_FILES_SINGLE_ROUTE,
-  handleConfigListFiles,
-  handleConfigReadFile,
-  handleConfigSaveFile,
-} = require('../handlers/config');
-const {
-  AGENTS_LIST_ROUTE,
-  AGENTS_SINGLE_ROUTE,
-  handleListAgents,
-  handleGetAgent,
-} = require('../handlers/agents');
-const {
-  AGENT_PROMPT_ROUTE,
-  handleGeneratePrompt,
-} = require('../handlers/prompt');
-const {
-  AGENT_RUNS_LIST_ROUTE,
-  AGENT_RUNS_SINGLE_ROUTE,
-  handleCreateAgentRun,
-  handleUpdateAgentRun,
-  handleListAgentRuns,
-} = require('../handlers/agentRuns');
-const { handleTaggerRun }          = require('../handlers/tagger');
-const { handleAutoTaskGenerate, handleAutoTaskConfirm } = require('../handlers/autoTask');
-const {
-  TEMPLATES_LIST_ROUTE,
-  TEMPLATES_SINGLE_ROUTE,
-  handleListTemplates,
-  handleCreateTemplate,
-  handleGetTemplate,
-  handleUpdateTemplate,
-  handleDeleteTemplate,
-} = require('../handlers/templates');
-const {
-  handleCreateComment,
-  handleUpdateComment,
-} = require('../handlers/comments');
-const { handleSearchTasks } = require('../handlers/search');
-const {
-  handleGetHome,
-  handleBrowse,
-  handleValidate,
-} = require('../handlers/fs');
-const {
-  handleFolioSearchRefs,
-  handleFolioSections,
-} = require('../handlers/folioRefs');
-const {
-  handleGetFolioIndex,
-  handleGetChapterPages,
-  handleGetFolioPage,
-  handleCreateFolioPage,
-  handleUpdateFolioPage,
-  handleDeleteFolioPage,
-} = require('../handlers/folioPages');
-const folioBootstrap = require('../services/folioBootstrap');
-
-const {
-  PIPELINE_RUNS_LIST_ROUTE,
-  PIPELINE_RUNS_SINGLE_ROUTE,
-  PIPELINE_RUNS_LOG_ROUTE,
-  PIPELINE_RUNS_LOGS_ROUTE,
-  PIPELINE_RUNS_METRICS_ROUTE,
-  PIPELINE_RUNS_EVENTS_ROUTE,
-  PIPELINE_RUNS_PROMPT_ROUTE,
-  PIPELINE_RUNS_PREVIEW_ROUTE,
-  PIPELINE_RUNS_RESUME_ROUTE,
-  PIPELINE_RUNS_STOP_ROUTE,
-  PIPELINE_RUNS_BLOCK_ROUTE,
-  PIPELINE_RUNS_UNBLOCK_ROUTE,
-  handleCreateRun,
-  handleListRuns,
-  handleGetRun,
-  handleGetStageLog,
-  handleGetRunLogs,
-  handleGetStageMetrics,
-  handleGetStageEvents,
-  handleGetStagePrompt,
-  handlePreviewPrompts,
-  handleDeleteRun,
-  handleResumeRun,
-  handleStopRun,
-  handleBlockRun,
-  handleUnblockRun,
-} = require('../handlers/pipeline');
+const { handleGetHarnesses }             = require('../handlers/harnesses');
+const { handleCreateComment, handleUpdateComment } = require('../handlers/comments');
+const { handleValidate }                 = require('../handlers/fs');
+const { handleSearchTasks }              = require('../handlers/search');
 const {
   handleStartTaskRun,
   handleListTaskRuns,
   handleRequestChanges,
   handleCloseTaskRun,
-  handleApproveHook,
   handleCreatePullRequest,
   handleGetRunDiff,
+  handleGetRunLog,
+  handleStopRun,
+  handleResumeRun,
   handleUpdateHooks,
 } = require('../handlers/taskRuns');
 
@@ -118,49 +34,22 @@ const {
 // Route patterns
 // ---------------------------------------------------------------------------
 
-const TASK_RUN_ACTION_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/(run|request-changes|close|approve|pr)$/;
+const TASK_RUN_ACTION_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/(run|request-changes|close|pr)$/;
 const SPACE_TASK_RUNS_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/task-runs$/;
 const SPACE_HOOKS_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/hooks$/;
-const RUN_DIFF_ROUTE        = /^\/api\/v1\/runs\/([^/]+)\/diff$/;
-
+const RUN_ACTION_ROUTE      = /^\/api\/v1\/runs\/([^/]+)\/(diff|log|stop|resume)$/;
 const COMMENTS_LIST_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments$/;
 const COMMENTS_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments\/([^/]+)$/;
-
-// Folio reference autocomplete routes — MUST be before SPACES_TASKS_ROUTE.
-const FOLIO_REFS_SEARCH_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/folio\/refs\/search$/;
-const FOLIO_REFS_SECTIONS_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/folio\/refs\/sections$/;
-
-// Folio CRUD routes — MUST be before SPACES_TASKS_ROUTE.
-// Order matters: more-specific routes must appear before less-specific ones.
-const FOLIO_INDEX_ROUTE          = /^\/api\/v1\/spaces\/([^/]+)\/folio$/;
-const FOLIO_CHAPTER_PAGES_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/folio\/chapters\/([^/]+)\/pages$/;
-const FOLIO_PAGE_SINGLE_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages\/([^/]+)\/([^/]+)$/;
-const FOLIO_PAGES_LIST_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/folio\/pages$/;
-const FOLIO_MIGRATE_ROUTE        = /^\/api\/v1\/spaces\/([^/]+)\/folio\/migrate$/;
-const FOLIO_REVISION_ROUTE       = /^\/api\/v1\/spaces\/([^/]+)\/folio\/revision$/;
-const FOLIO_BOOTSTRAP_ROUTE      = /^\/api\/v1\/spaces\/([^/]+)\/folio\/bootstrap$/;
-
-const SYSTEM_INFO_ROUTE   = /^\/api\/v1\/system\/info$/;
-const FS_HOME_ROUTE       = /^\/api\/v1\/fs\/home$/;
-const FS_BROWSE_ROUTE     = /^\/api\/v1\/fs\/browse$/;
-const FS_VALIDATE_ROUTE   = /^\/api\/v1\/fs\/validate$/;
-const SPACES_LIST_ROUTE   = /^\/api\/v1\/spaces$/;
-const SPACES_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)$/;
+const FS_VALIDATE_ROUTE     = /^\/api\/v1\/fs\/validate$/;
+const SPACES_LIST_ROUTE     = /^\/api\/v1\/spaces$/;
+const SPACES_SINGLE_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)$/;
 // Matches /api/v1/spaces/:spaceId/tasks and everything under it.
-const SPACES_TASKS_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)(\/tasks.*)$/;
-// Tagger route — must be registered BEFORE SPACES_TASKS_ROUTE to avoid regex swallowing.
-const TAGGER_RUN_ROUTE       = /^\/api\/v1\/spaces\/([^/]+)\/tagger\/run$/;
-// Auto-task routes — also before SPACES_TASKS_ROUTE.
-const AUTOTASK_GENERATE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/autotask\/generate$/;
-const AUTOTASK_CONFIRM_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/autotask\/confirm$/;
-// Global search route — MUST be registered before LEGACY_TASKS_ROUTE
-// to avoid being swallowed by the /api/v1/tasks/* shim.
-const SEARCH_ROUTE        = /^\/api\/v1\/tasks\/search(\?|$)/;
+const SPACES_TASKS_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)(\/tasks.*)$/;
+// MUST be registered before LEGACY_TASKS_ROUTE, which would swallow it.
+const SEARCH_ROUTE          = /^\/api\/v1\/tasks\/search(\?|$)/;
 // Legacy: /api/v1/tasks and everything under it.
-const LEGACY_TASKS_ROUTE  = /^\/api\/v1(\/tasks.*)$/;
-// Settings route
-const SETTINGS_ROUTE      = /^\/api\/v1\/settings$/;
-const HARNESSES_ROUTE     = /^\/api\/v1\/harnesses$/;
+const LEGACY_TASKS_ROUTE    = /^\/api\/v1(\/tasks.*)$/;
+const HARNESSES_ROUTE       = /^\/api\/v1\/harnesses$/;
 
 // ---------------------------------------------------------------------------
 // Router factory
@@ -186,283 +75,6 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     const urlPath    = req.url.split('?')[0];
 
     // -------------------------------------------------------------------------
-    // System info route: GET /api/v1/system/info
-    // -------------------------------------------------------------------------
-    if (SYSTEM_INFO_ROUTE.test(urlPath)) {
-      if (method === 'GET') {
-        return sendJSON(res, 200, { platform: process.platform });
-      }
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    // -------------------------------------------------------------------------
-    // Tagger route: POST /api/v1/spaces/:spaceId/tagger/run
-    // Must be before SPACES_TASKS_ROUTE to avoid regex swallowing.
-    // -------------------------------------------------------------------------
-    const taggerMatch = TAGGER_RUN_ROUTE.exec(urlPath);
-    if (taggerMatch) {
-      const spaceId = taggerMatch[1];
-
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-
-      if (method === 'POST') {
-        return handleTaggerRun(req, res, spaceId, store, dataDir);
-      }
-
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-        `Method '${method}' is not allowed on this route`);
-    }
-
-    // -------------------------------------------------------------------------
-    // Auto-task route: POST /api/v1/spaces/:spaceId/autotask/generate
-    // Must be before SPACES_TASKS_ROUTE to avoid regex swallowing.
-    // -------------------------------------------------------------------------
-    const autoTaskMatch = AUTOTASK_GENERATE_ROUTE.exec(urlPath);
-    if (autoTaskMatch) {
-      const spaceId = autoTaskMatch[1];
-
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-
-      if (method === 'POST') {
-        return handleAutoTaskGenerate(req, res, spaceId, store, spaceResult.space.workingDirectory, dataDir);
-      }
-
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-        `Method '${method}' is not allowed on this route`);
-    }
-
-    // -------------------------------------------------------------------------
-    // Auto-task confirm: POST /api/v1/spaces/:spaceId/autotask/confirm
-    // -------------------------------------------------------------------------
-    const autoTaskConfirmMatch = AUTOTASK_CONFIRM_ROUTE.exec(urlPath);
-    if (autoTaskConfirmMatch) {
-      const spaceId = autoTaskConfirmMatch[1];
-
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-
-      if (method === 'POST') {
-        return handleAutoTaskConfirm(req, res, spaceId, store);
-      }
-
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-        `Method '${method}' is not allowed on this route`);
-    }
-
-    // -------------------------------------------------------------------------
-    // Folio CRUD routes — BEFORE SPACES_TASKS_ROUTE (T-002: folio-index-ui).
-    // Grouped with existing folio refs routes; ordered most-specific first.
-    //
-    //   GET    /folio                                  → index (chapters + counts)
-    //   GET    /folio/chapters/:slug/pages             → page list (meta only)
-    //   GET    /folio/pages/:chapterSlug/:pageSlug     → single page (full content)
-    //   POST   /folio/pages                            → create page (activation)
-    //   PUT    /folio/pages/:chapterSlug/:pageSlug     → update page
-    //   DELETE /folio/pages/:chapterSlug/:pageSlug     → delete page
-    // -------------------------------------------------------------------------
-
-    // Single-page route (GET/PUT/DELETE) — must be before pages-list route.
-    const folioPageSingleMatch = FOLIO_PAGE_SINGLE_ROUTE.exec(urlPath);
-    if (folioPageSingleMatch) {
-      const spaceId     = folioPageSingleMatch[1];
-      const chapterSlug = folioPageSingleMatch[2];
-      const pageSlug    = folioPageSingleMatch[3];
-
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-
-      if (method === 'GET') {
-        return handleGetFolioPage(req, res, spaceId, chapterSlug, pageSlug, store);
-      }
-      if (method === 'PUT') {
-        return handleUpdateFolioPage(req, res, spaceId, chapterSlug, pageSlug, store);
-      }
-      if (method === 'DELETE') {
-        return handleDeleteFolioPage(req, res, spaceId, chapterSlug, pageSlug, store);
-      }
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-        `Method '${method}' is not allowed on this route`);
-    }
-
-    // Chapter pages list route (GET).
-    const folioChapterPagesMatch = FOLIO_CHAPTER_PAGES_ROUTE.exec(urlPath);
-    if (folioChapterPagesMatch) {
-      const spaceId     = folioChapterPagesMatch[1];
-      const chapterSlug = folioChapterPagesMatch[2];
-
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-
-      if (method === 'GET') {
-        return handleGetChapterPages(req, res, spaceId, chapterSlug, store);
-      }
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-        `Method '${method}' is not allowed on this route`);
-    }
-
-    // Pages list route (POST only — creation / activation gesture).
-    const folioPagesListMatch = FOLIO_PAGES_LIST_ROUTE.exec(urlPath);
-    if (folioPagesListMatch) {
-      const spaceId = folioPagesListMatch[1];
-
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-
-      if (method === 'POST') {
-        return handleCreateFolioPage(req, res, spaceId, store);
-      }
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-        `Method '${method}' is not allowed on this route`);
-    }
-
-    // Revision route (GET) — cheap external-change probe for the refresh affordance.
-    const folioRevisionMatch = FOLIO_REVISION_ROUTE.exec(urlPath);
-    if (folioRevisionMatch) {
-      const spaceId = folioRevisionMatch[1];
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-      if (method === 'GET') {
-        return sendJSON(res, 200, { revision: store.folio.binding.getRevision(spaceId) });
-      }
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-        `Method '${method}' is not allowed on this route`);
-    }
-
-    // Migrate route (POST) — move an activated sqlite folio to the file backend
-    // (export → flip → delete). Deliberate, destructive cleanup; preserves data.
-    const folioMigrateMatch = FOLIO_MIGRATE_ROUTE.exec(urlPath);
-    if (folioMigrateMatch) {
-      const spaceId = folioMigrateMatch[1];
-
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-
-      if (method === 'POST') {
-        const result = store.folio.binding.migrateSpaceToFile(spaceId);
-        if (!result.ok) {
-          const status = result.code === 'SPACE_NOT_FOUND' ? 404
-                       : result.code === 'ALREADY_FILE'    ? 409
-                       : result.code === 'NO_WORKING_DIR'  ? 400
-                       : 500;
-          return sendError(res, status, result.code, result.message);
-        }
-        return sendJSON(res, 200, result);
-      }
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-        `Method '${method}' is not allowed on this route`);
-    }
-
-    // Bootstrap route (POST) — manual "Bootstrap from repo" trigger for the
-    // Folio empty state. Fire-and-forget background job; surfaces in the Runs
-    // panel. 202 Accepted when started; 409/400 when it can't run.
-    const folioBootstrapMatch = FOLIO_BOOTSTRAP_ROUTE.exec(urlPath);
-    if (folioBootstrapMatch) {
-      const spaceId = folioBootstrapMatch[1];
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-      if (method !== 'POST') {
-        return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-          `Method '${method}' is not allowed on this route`);
-      }
-      const space   = spaceResult.space;
-      const binding = store.folio && store.folio.binding;
-      const wd      = space.workingDirectory;
-      if (!binding) {
-        return sendError(res, 400, 'NO_FOLIO_BACKEND', 'Folio backend is not available.');
-      }
-      if (binding.hasFolio(spaceId)) {
-        return sendError(res, 409, 'FOLIO_EXISTS', 'This space already has a folio.');
-      }
-      if (!wd || !folioBootstrap.detectRepo(wd)) {
-        return sendError(res, 400, 'NO_REPO', 'This space has no repository working directory to bootstrap from.');
-      }
-      folioBootstrap.triggerBackgroundBootstrap({
-        spaceId, workingDir: wd, binding, dataDir, spaceName: space.name,
-        runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
-        spaceModels: space.stageModels ?? null,
-        force: true, // explicit button press → re-run even if a stale one-shot mark exists
-      });
-      return sendJSON(res, 202, { started: true });
-    }
-
-    // Folio index route (GET) — must be last among folio routes to avoid
-    // shadowing the more-specific routes registered above.
-    const folioIndexMatch = FOLIO_INDEX_ROUTE.exec(urlPath);
-    if (folioIndexMatch) {
-      const spaceId = folioIndexMatch[1];
-
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-
-      if (method === 'GET') {
-        return handleGetFolioIndex(req, res, spaceId, store);
-      }
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-        `Method '${method}' is not allowed on this route`);
-    }
-
-    // -------------------------------------------------------------------------
-    // Folio reference autocomplete routes — BEFORE SPACES_TASKS_ROUTE.
-    // GET /api/v1/spaces/:spaceId/folio/refs/search?q=&limit=
-    // GET /api/v1/spaces/:spaceId/folio/refs/sections?slug=chapter/page
-    // -------------------------------------------------------------------------
-    const folioRefsSearchMatch = FOLIO_REFS_SEARCH_ROUTE.exec(urlPath);
-    if (folioRefsSearchMatch) {
-      const spaceId = folioRefsSearchMatch[1];
-
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-
-      if (method === 'GET') {
-        return handleFolioSearchRefs(req, res, spaceId, store);
-      }
-
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-        `Method '${method}' is not allowed on this route`);
-    }
-
-    const folioRefsSectionsMatch = FOLIO_REFS_SECTIONS_ROUTE.exec(urlPath);
-    if (folioRefsSectionsMatch) {
-      const spaceId = folioRefsSectionsMatch[1];
-
-      const spaceResult = spaceManager.getSpace(spaceId);
-      if (!spaceResult.ok) {
-        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
-      }
-
-      if (method === 'GET') {
-        return handleFolioSections(req, res, spaceId, store);
-      }
-
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED',
-        `Method '${method}' is not allowed on this route`);
-    }
-
-    // -------------------------------------------------------------------------
     // Comment routes — BEFORE SPACES_TASKS_ROUTE to avoid regex swallowing.
     // POST  /api/v1/spaces/:spaceId/tasks/:taskId/comments
     // PATCH /api/v1/spaces/:spaceId/tasks/:taskId/comments/:commentId
@@ -479,7 +91,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       }
 
       if (method === 'PATCH') {
-        return handleUpdateComment(req, res, store, spaceId, taskId, commentId, dataDir);
+        return handleUpdateComment(req, res, store, spaceId, taskId, commentId);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
@@ -500,18 +112,15 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
       }
       if (action === 'run') {
-        return handleStartTaskRun(req, res, store, spaceId, taskId, spaceResult.space.workingDirectory, dataDir);
+        return handleStartTaskRun(req, res, store, spaceId, taskId, spaceResult.space.workingDirectory);
       }
       if (action === 'request-changes') {
-        return handleRequestChanges(req, res, store, spaceId, taskId, dataDir);
-      }
-      if (action === 'approve') {
-        return handleApproveHook(res, spaceId, taskId, dataDir);
+        return handleRequestChanges(req, res, store, spaceId, taskId);
       }
       if (action === 'pr') {
-        return handleCreatePullRequest(res, spaceId, taskId, dataDir);
+        return handleCreatePullRequest(res, spaceId, taskId);
       }
-      return handleCloseTaskRun(res, spaceId, taskId, dataDir);
+      return handleCloseTaskRun(res, spaceId, taskId);
     }
 
     const spaceTaskRunsMatch = SPACE_TASK_RUNS_ROUTE.exec(urlPath);
@@ -545,7 +154,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       }
 
       if (method === 'POST') {
-        return handleCreateComment(req, res, store, spaceId, taskId, dataDir);
+        return handleCreateComment(req, res, store, spaceId, taskId);
       }
 
       return sendError(res, 405, 'METHOD_NOT_ALLOWED',
@@ -592,9 +201,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
 
         const name             = body && body.name;
         const workingDirectory = body && body.workingDirectory;
-        const pipeline         = body && body.pipeline;
-        const folioBackend     = body && body.folioBackend;
-        const result = spaceManager.createSpace(name, workingDirectory, pipeline, undefined, undefined, folioBackend);
+        const result = spaceManager.createSpace(name, workingDirectory);
 
         if (!result.ok) {
           const status = result.code === 'DUPLICATE_NAME' ? 409 : 400;
@@ -630,60 +237,17 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
 
         const name             = body && body.name;
         const workingDirectory = body && body.workingDirectory;
-        const pipeline         = body && body.pipeline;
-        const agentNicknames   = body && body.agentNicknames;
-        const folioBackend     = body && body.folioBackend;
         // pin/rank fields (optional; name is also optional for pin-only updates).
         const pinned      = body && body.pinned      !== undefined ? body.pinned      : undefined;
         const pinnedRank  = body && body.pinnedRank  !== undefined ? body.pinnedRank  : undefined;
-        // MODEL-1: per-stage model routing overrides.
-        const stageModels = body && body.stageModels !== undefined ? body.stageModels : undefined;
 
-        // Capture the prior working dir so we can detect a fresh repo activation.
-        const prevSpace = spaceManager.getSpace(spaceId);
-        const prevWd    = prevSpace.ok ? prevSpace.space.workingDirectory : undefined;
-
-        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pipeline, undefined, agentNicknames, folioBackend, pinned, pinnedRank, stageModels);
+        const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pinned, pinnedRank);
 
         if (!result.ok) {
           const status = result.code === 'SPACE_NOT_FOUND' ? 404
                        : result.code === 'DUPLICATE_NAME'  ? 409
                        : 400;
           return sendError(res, status, result.code, result.message);
-        }
-
-        // Activation: a working directory was just added. Invariant — a space with
-        // a repo keeps its folio in the repo's .folio/. Two symmetric cases, both
-        // fire on wd-add and never break the space-edit response (guarded):
-        //   • no folio yet  → background bootstrap from the repo (surfaces in Runs).
-        //   • sqlite folio  → migrate it into .folio/ (export → flip → delete; the
-        //                     content is copied before the DB rows drop, so it's safe).
-        try {
-          const newWd   = result.space.workingDirectory;
-          const binding = store.folio && store.folio.binding;
-          if (newWd && !prevWd && binding) {
-            if (!binding.hasFolio(spaceId)) {
-              if (folioBootstrap.detectRepo(newWd)) {
-                folioBootstrap.triggerBackgroundBootstrap({
-                  spaceId, workingDir: newWd, binding, dataDir, spaceName: result.space.name,
-                  runStore: { upsert: (r) => store.upsertRun(r), remove: (id) => store.deleteRun(id) },
-                  spaceModels: result.space.stageModels ?? null,
-                });
-              }
-            } else if (result.space.folioBackend !== 'file' && typeof binding.migrateSpaceToFile === 'function') {
-              const mig = binding.migrateSpaceToFile(spaceId);
-              if (mig && mig.ok) {
-                // Reflect the flipped backend in the response so the client updates.
-                const reread = spaceManager.getSpace(spaceId);
-                if (reread.ok) result.space = reread.space;
-                console.log(`[routes] op=auto-migrate spaceId=${spaceId} outcome=ok pages=${mig.pages}`);
-              } else {
-                console.warn(`[routes] op=auto-migrate spaceId=${spaceId} outcome=skip code=${mig && mig.code}`);
-              }
-            }
-          }
-        } catch (err) {
-          console.warn('[routes] WARN: folio auto-bootstrap/migrate on space edit failed:', err.message);
         }
 
         return sendJSON(res, 200, result.space);
@@ -708,34 +272,6 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     }
 
     // -------------------------------------------------------------------------
-    // Agent launcher routes
-    // -------------------------------------------------------------------------
-    if (AGENTS_LIST_ROUTE.test(urlPath)) {
-      if (method === 'GET') return handleListAgents(req, res);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const agentSingleMatch = AGENTS_SINGLE_ROUTE.exec(urlPath);
-    if (agentSingleMatch) {
-      if (method === 'GET') return handleGetAgent(req, res, agentSingleMatch[1]);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    if (AGENT_PROMPT_ROUTE.test(urlPath)) {
-      if (method === 'POST') return handleGeneratePrompt(req, res, dataDir, spaceManager, store);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    // -------------------------------------------------------------------------
-    // Settings routes
-    // -------------------------------------------------------------------------
-    if (SETTINGS_ROUTE.test(urlPath)) {
-      if (method === 'GET') return handleGetSettings(req, res, dataDir);
-      if (method === 'PUT') return handlePutSettings(req, res, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    // -------------------------------------------------------------------------
     // Harness discovery routes
     // -------------------------------------------------------------------------
     if (HARNESSES_ROUTE.test(urlPath)) {
@@ -744,182 +280,24 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     }
 
     // -------------------------------------------------------------------------
-    // Config file routes
+    // Run routes: /api/v1/runs/:runId/(diff|log|stop|resume)
     // -------------------------------------------------------------------------
-    if (CONFIG_FILES_LIST_ROUTE.test(urlPath)) {
-      if (method === 'GET') return handleConfigListFiles(req, res, spaceManager);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const configFileSingleMatch = CONFIG_FILES_SINGLE_ROUTE.exec(urlPath);
-    if (configFileSingleMatch) {
-      const fileId = configFileSingleMatch[1];
-      if (method === 'GET') return handleConfigReadFile(req, res, fileId, spaceManager);
-      if (method === 'PUT') return handleConfigSaveFile(req, res, fileId, spaceManager);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    // -------------------------------------------------------------------------
-    // Agent run history routes
-    // List route MUST be tested before single-run route to avoid regex match.
-    // -------------------------------------------------------------------------
-    if (AGENT_RUNS_LIST_ROUTE.test(urlPath)) {
-      if (method === 'GET')  return handleListAgentRuns(req, res, dataDir, store);
-      if (method === 'POST') return handleCreateAgentRun(req, res, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const agentRunSingleMatch = AGENT_RUNS_SINGLE_ROUTE.exec(urlPath);
-    if (agentRunSingleMatch) {
-      const runId = agentRunSingleMatch[1];
-      if (method === 'PATCH') return handleUpdateAgentRun(req, res, dataDir, runId);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    const runActionMatch = RUN_ACTION_ROUTE.exec(urlPath);
+    if (runActionMatch) {
+      const [, runId, action] = runActionMatch;
+      const expected = action === 'diff' || action === 'log' ? 'GET' : 'POST';
+      if (method !== expected) {
+        return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+      }
+      if (action === 'diff') return handleGetRunDiff(req, res, runId);
+      if (action === 'log') return handleGetRunLog(res, runId);
+      if (action === 'stop') return handleStopRun(res, runId);
+      return handleResumeRun(res, runId);
     }
 
     // -------------------------------------------------------------------------
-    // Pipeline run routes
-    // Order matters:
-    //   1. PREVIEW_ROUTE  (/runs/preview-prompts)          — before LIST_ROUTE
-    //   2. RESUME_ROUTE   (/runs/:id/resume)               — before SINGLE_ROUTE
-    //   3. STOP_ROUTE     (/runs/:id/stop)                 — before SINGLE_ROUTE
-    //   4. BLOCK_ROUTE    (/runs/:id/block)                — before SINGLE_ROUTE
-    //   5. UNBLOCK_ROUTE  (/runs/:id/unblock)              — before SINGLE_ROUTE
-    //   6. LOG_ROUTE      (/runs/:id/stages/:n/log)        — before SINGLE_ROUTE
-    //   7. METRICS_ROUTE  (/runs/:id/stages/:n/metrics)    — before SINGLE_ROUTE
-    //   8. EVENTS_ROUTE   (/runs/:id/stages/:n/events)     — before SINGLE_ROUTE
-    //   9. PROMPT_ROUTE   (/runs/:id/stages/:n/prompt)     — before SINGLE_ROUTE
-    //   9. LIST_ROUTE     (/runs)
-    //  10. SINGLE_ROUTE   (/runs/:id)
+    // Working directory check, for the space form.
     // -------------------------------------------------------------------------
-    if (PIPELINE_RUNS_PREVIEW_ROUTE.test(urlPath)) {
-      if (method === 'POST') return handlePreviewPrompts(req, res, dataDir, spaceManager);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const runDiffMatch = RUN_DIFF_ROUTE.exec(urlPath);
-    if (runDiffMatch) {
-      if (method === 'GET') return handleGetRunDiff(req, res, runDiffMatch[1], dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const pipelineResumeMatch = PIPELINE_RUNS_RESUME_ROUTE.exec(urlPath);
-    if (pipelineResumeMatch) {
-      const runId = pipelineResumeMatch[1];
-      if (method === 'POST') return handleResumeRun(req, res, runId, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const pipelineStopMatch = PIPELINE_RUNS_STOP_ROUTE.exec(urlPath);
-    if (pipelineStopMatch) {
-      const runId = pipelineStopMatch[1];
-      if (method === 'POST') return handleStopRun(req, res, runId, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const pipelineBlockMatch = PIPELINE_RUNS_BLOCK_ROUTE.exec(urlPath);
-    if (pipelineBlockMatch) {
-      const runId = pipelineBlockMatch[1];
-      if (method === 'POST') return handleBlockRun(req, res, runId, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const pipelineUnblockMatch = PIPELINE_RUNS_UNBLOCK_ROUTE.exec(urlPath);
-    if (pipelineUnblockMatch) {
-      const runId = pipelineUnblockMatch[1];
-      if (method === 'POST') return handleUnblockRun(req, res, runId, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const pipelineLogMatch = PIPELINE_RUNS_LOG_ROUTE.exec(urlPath);
-    if (pipelineLogMatch) {
-      const runId      = pipelineLogMatch[1];
-      const stageIndex = parseInt(pipelineLogMatch[2], 10);
-      if (method === 'GET') return handleGetStageLog(req, res, runId, stageIndex, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const pipelineMetricsMatch = PIPELINE_RUNS_METRICS_ROUTE.exec(urlPath);
-    if (pipelineMetricsMatch) {
-      const runId      = pipelineMetricsMatch[1];
-      const stageIndex = parseInt(pipelineMetricsMatch[2], 10);
-      if (method === 'GET') return handleGetStageMetrics(req, res, runId, stageIndex, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const pipelineEventsMatch = PIPELINE_RUNS_EVENTS_ROUTE.exec(urlPath);
-    if (pipelineEventsMatch) {
-      const runId      = pipelineEventsMatch[1];
-      const stageIndex = parseInt(pipelineEventsMatch[2], 10);
-      if (method === 'GET') return handleGetStageEvents(req, res, runId, stageIndex, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    // MCP get-run-logs: /runs/:id/logs — MUST be before SINGLE_ROUTE.
-    const pipelineLogsMatch = PIPELINE_RUNS_LOGS_ROUTE.exec(urlPath);
-    if (pipelineLogsMatch) {
-      const runId = pipelineLogsMatch[1];
-      if (method === 'GET') return handleGetRunLogs(req, res, runId, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const pipelinePromptMatch = PIPELINE_RUNS_PROMPT_ROUTE.exec(urlPath);
-    if (pipelinePromptMatch) {
-      const runId      = pipelinePromptMatch[1];
-      const stageIndex = parseInt(pipelinePromptMatch[2], 10);
-      if (method === 'GET') return handleGetStagePrompt(req, res, runId, stageIndex, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    if (PIPELINE_RUNS_LIST_ROUTE.test(urlPath)) {
-      if (method === 'POST') return handleCreateRun(req, res, dataDir, spaceManager);
-      if (method === 'GET')  return handleListRuns(req, res, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const pipelineSingleMatch = PIPELINE_RUNS_SINGLE_ROUTE.exec(urlPath);
-    if (pipelineSingleMatch) {
-      const runId = pipelineSingleMatch[1];
-      if (method === 'GET')    return handleGetRun(req, res, runId, dataDir);
-      if (method === 'DELETE') return handleDeleteRun(req, res, runId, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    // -------------------------------------------------------------------------
-    // Pipeline template routes
-    // List route MUST be tested before single-template route to avoid regex match.
-    // -------------------------------------------------------------------------
-    if (TEMPLATES_LIST_ROUTE.test(urlPath)) {
-      if (method === 'GET')  return handleListTemplates(req, res, dataDir);
-      if (method === 'POST') return handleCreateTemplate(req, res, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    const templateSingleMatch = TEMPLATES_SINGLE_ROUTE.exec(urlPath);
-    if (templateSingleMatch) {
-      const templateId = templateSingleMatch[1];
-      if (method === 'GET')    return handleGetTemplate(req, res, templateId, dataDir);
-      if (method === 'PUT')    return handleUpdateTemplate(req, res, templateId, dataDir);
-      if (method === 'DELETE') return handleDeleteTemplate(req, res, templateId, dataDir);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    // -------------------------------------------------------------------------
-    // Filesystem browser routes — directory picker (space-settings-file-browser)
-    //   GET  /api/v1/fs/home
-    //   POST /api/v1/fs/browse
-    //   POST /api/v1/fs/validate
-    // MUST be before LEGACY_TASKS_ROUTE to avoid being swallowed by the shim.
-    // -------------------------------------------------------------------------
-    if (FS_HOME_ROUTE.test(urlPath)) {
-      if (method === 'GET') return handleGetHome(req, res);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
-    if (FS_BROWSE_ROUTE.test(urlPath)) {
-      if (method === 'POST') return handleBrowse(req, res);
-      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
-    }
-
     if (FS_VALIDATE_ROUTE.test(urlPath)) {
       if (method === 'POST') return handleValidate(req, res);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);

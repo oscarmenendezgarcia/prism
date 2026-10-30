@@ -1,41 +1,33 @@
 'use strict';
 
 /**
- * Direct task runs: a task goes to an agent, its result stays on the card.
+ * Task runs: a task goes to an agent, its result stays on the card.
  *
  * Endpoints:
  *   GET  /api/v1/spaces/:spaceId/task-runs                 → latest run per task
- *   PUT  /api/v1/spaces/:spaceId/hooks                     → set the space's hooks
+ *   PUT  /api/v1/spaces/:spaceId/hooks                     → what follows the agent
  *   POST /api/v1/spaces/:spaceId/tasks/:taskId/run         → start the agent
  *   POST /api/v1/spaces/:spaceId/tasks/:taskId/request-changes
  *   POST /api/v1/spaces/:spaceId/tasks/:taskId/close       → remove the worktree
- *   POST /api/v1/spaces/:spaceId/tasks/:taskId/approve     → OK the hook the run waits on
  *   POST /api/v1/spaces/:spaceId/tasks/:taskId/pr          → create or update the PR
  *   GET  /api/v1/runs/:runId/diff[?path=<file>]            → changed files, or one patch
- *
- * Stopping and retrying use the existing /runs/:runId/stop and /resume.
+ *   GET  /api/v1/runs/:runId/log                           → the agent's output
+ *   POST /api/v1/runs/:runId/stop
+ *   POST /api/v1/runs/:runId/resume
  */
 
-const crypto = require('crypto');
-
 const { sendJSON, sendError, parseBody } = require('../utils/http');
-const pipelineManager = require('../services/pipelineManager');
+const taskRunner      = require('../services/taskRunner');
 const worktreeManager = require('../services/worktreeManager');
-const { validateStageModelConfig, SLASH_MODEL_CLI_TOOLS } = require('../services/modelConfigResolver');
 
 const DIRECT_CLI_TOOLS = ['claude', 'opencode', 'pi', 'hermes'];
 // The model reaches a shell command line through the harness adapters.
 const MODEL_RE         = /^[\w./:@-]+$/;
 
-const MAX_HOOKS             = 10;
-const HOOK_TYPES            = ['command', 'agent', 'pr'];
-const HOOK_ON_FAIL          = ['stop', 'retry'];
-const HOOK_MAX_RETRIES      = 3;
-const HOOK_MAX_MINUTES      = 240;
-const HOOK_ID_RE            = /^[\w-]{1,64}$/;
-const HOOK_NAME_MAX_LEN     = 60;
-const HOOK_COMMAND_MAX_LEN  = 2000;
-const HOOK_PROMPT_MAX_LEN   = 5000;
+// These take the model as <provider>/<model>.
+const SLASH_MODEL_CLI_TOOLS = ['opencode', 'pi', 'hermes'];
+
+const CHECK_COMMAND_MAX_LEN = 2000;
 const CHANGE_TEXT_MAX_LEN   = 5000;
 const COMMENT_MAX_COUNT     = 200;
 
@@ -50,7 +42,7 @@ const ERROR_STATUS = {
   MAX_CONCURRENT_REACHED:    409,
   WORKTREE_KEPT:             409,
   WORKTREE_UNAVAILABLE:      409,
-  RUN_NOT_WAITING:           409,
+  OPEN_QUESTION:             409,
   PR_FAILED:                 422,
   WORKTREE_PROVISION_FAILED: 500,
 };
@@ -88,7 +80,7 @@ function sendRunError(res, err, op) {
 
 /**
  * Validate the harness and model chosen for a run. Without a harness the run uses
- * the space's default.
+ * the default agent.
  *
  * @param {object} body
  * @returns {{ config: object|null, error: string|null }}
@@ -110,16 +102,21 @@ function readAgentConfig({ cliTool, model }) {
     return { config: null, error: `${cliTool} needs a model in <provider>/<model> format` };
   }
 
-  const config = {
-    cliTool,
-    ...(model !== undefined && { model }),
-    ...(needsSlashModel && { provider: model.split('/')[0] }),
+  if (needsSlashModel && !model.includes('/')) {
+    return { config: null, error: `${cliTool} model must be in <provider>/<model> format` };
+  }
+
+  return {
+    config: {
+      cliTool,
+      ...(model !== undefined && { model }),
+      ...(needsSlashModel && { provider: model.split('/')[0] }),
+    },
+    error: null,
   };
-  const { valid, errors } = validateStageModelConfig(config);
-  return valid ? { config, error: null } : { config: null, error: errors[0] };
 }
 
-async function handleStartTaskRun(req, res, store, spaceId, taskId, workingDirectory, dataDir) {
+async function handleStartTaskRun(req, res, store, spaceId, taskId, workingDirectory) {
   const body = await readObjectBody(req, res);
   if (!body) return undefined;
 
@@ -134,9 +131,7 @@ async function handleStartTaskRun(req, res, store, spaceId, taskId, workingDirec
   }
 
   try {
-    const run = await pipelineManager.createRun({
-      spaceId, taskId, dataDir, workingDirectory, direct: true, agentConfig: config,
-    });
+    const run = await taskRunner.createRun({ spaceId, taskId, workingDirectory, agentConfig: config });
     return sendJSON(res, 201, run);
   } catch (err) {
     return sendRunError(res, err, 'starting task run');
@@ -144,7 +139,7 @@ async function handleStartTaskRun(req, res, store, spaceId, taskId, workingDirec
 }
 
 function handleListTaskRuns(res, spaceId) {
-  return sendJSON(res, 200, pipelineManager.listDirectRunViews(spaceId));
+  return sendJSON(res, 200, taskRunner.listRunViews(spaceId));
 }
 
 /**
@@ -153,10 +148,10 @@ function handleListTaskRuns(res, spaceId) {
  * @returns {object|null}
  */
 function latestRunView(spaceId, taskId) {
-  return pipelineManager.listDirectRunViews(spaceId)[taskId] ?? null;
+  return taskRunner.listRunViews(spaceId)[taskId] ?? null;
 }
 
-async function handleRequestChanges(req, res, store, spaceId, taskId, dataDir) {
+async function handleRequestChanges(req, res, store, spaceId, taskId) {
   const body = await readObjectBody(req, res);
   if (!body) return undefined;
 
@@ -182,45 +177,35 @@ async function handleRequestChanges(req, res, store, spaceId, taskId, dataDir) {
   }
 
   try {
-    return sendJSON(res, 200, await pipelineManager.requestChanges(view.runId, dataDir, text));
+    return sendJSON(res, 200, await taskRunner.requestChanges(view.runId, text));
   } catch (err) {
     return sendRunError(res, err, 'requesting changes');
   }
 }
 
-async function handleCloseTaskRun(res, spaceId, taskId, dataDir) {
+async function handleCloseTaskRun(res, spaceId, taskId) {
   const view = latestRunView(spaceId, taskId);
   if (!view) return sendError(res, 409, 'NO_RUN', 'This task has not been run yet.');
   try {
-    return sendJSON(res, 200, await pipelineManager.closeDirectRun(view.runId, dataDir));
+    return sendJSON(res, 200, await taskRunner.closeRun(view.runId));
   } catch (err) {
     return sendRunError(res, err, 'closing task run');
   }
 }
 
-async function handleApproveHook(res, spaceId, taskId, dataDir) {
+async function handleCreatePullRequest(res, spaceId, taskId) {
   const view = latestRunView(spaceId, taskId);
   if (!view) return sendError(res, 409, 'NO_RUN', 'This task has not been run yet.');
   try {
-    return sendJSON(res, 200, await pipelineManager.approveHook(view.runId, dataDir));
-  } catch (err) {
-    return sendRunError(res, err, 'approving hook');
-  }
-}
-
-async function handleCreatePullRequest(res, spaceId, taskId, dataDir) {
-  const view = latestRunView(spaceId, taskId);
-  if (!view) return sendError(res, 409, 'NO_RUN', 'This task has not been run yet.');
-  try {
-    return sendJSON(res, 200, await pipelineManager.createPullRequest(view.runId, dataDir));
+    return sendJSON(res, 200, await taskRunner.createPullRequest(view.runId));
   } catch (err) {
     return sendRunError(res, err, 'creating pull request');
   }
 }
 
-async function handleGetRunDiff(req, res, runId, dataDir) {
-  const run = await pipelineManager.getRun(runId, dataDir);
-  if (!run || !run.direct) return sendError(res, 404, 'RUN_NOT_FOUND', `Direct run '${runId}' not found.`);
+async function handleGetRunDiff(req, res, runId) {
+  const run = taskRunner.getRun(runId);
+  if (!run) return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
 
   const range = { baseRef: run.worktree.baseRef, ref: run.result?.ref || run.worktree.branch };
   const filePath = new URL(req.url, 'http://x').searchParams.get('path');
@@ -239,82 +224,56 @@ async function handleGetRunDiff(req, res, runId, dataDir) {
   }
 }
 
-/**
- * Validate a hook from the settings form. It keeps its id across edits, which is how a
- * run finds the hook it stopped at; a new one gets its id here.
- *
- * @param {object} hook
- * @returns {{ value: object|null, error: string|null }}
- */
-function readHook(hook) {
-  const fail = (error) => ({ value: null, error });
-  const name = typeof hook?.name === 'string' ? hook.name.trim() : '';
-  if (!name || name.length > HOOK_NAME_MAX_LEN) return fail(`hook name is required, up to ${HOOK_NAME_MAX_LEN} characters`);
-
-  const type = hook.type ?? 'command';
-  if (!HOOK_TYPES.includes(type)) return fail(`hook type must be one of: ${HOOK_TYPES.join(', ')}`);
-  const onFail = hook.onFail ?? 'stop';
-  if (!HOOK_ON_FAIL.includes(onFail)) return fail(`hook onFail must be one of: ${HOOK_ON_FAIL.join(', ')}`);
-  if (type === 'pr' && onFail === 'retry') return fail('an agent cannot fix a pull request that fails to open, so onFail must be stop');
-  const maxRetries = hook.maxRetries ?? 2;
-  if (!Number.isInteger(maxRetries) || maxRetries < 1 || maxRetries > HOOK_MAX_RETRIES) return fail(`hook maxRetries must be from 1 to ${HOOK_MAX_RETRIES}`);
-  const minutes = hook.timeoutMinutes;
-  if (minutes !== undefined && (!Number.isInteger(minutes) || minutes < 1 || minutes > HOOK_MAX_MINUTES)) return fail(`hook timeoutMinutes must be from 1 to ${HOOK_MAX_MINUTES}`);
-  if (hook.id !== undefined && (typeof hook.id !== 'string' || !HOOK_ID_RE.test(hook.id))) return fail('hook id is not valid');
-
-  const value = {
-    id: hook.id ?? crypto.randomUUID(),
-    name,
-    type,
-    onFail,
-    approval: hook.approval === true,
-    maxRetries,
-    ...(minutes !== undefined && { timeoutMinutes: minutes }),
-  };
-
-  if (type === 'command') {
-    const command = typeof hook.command === 'string' ? hook.command.trim() : '';
-    if (!command || command.length > HOOK_COMMAND_MAX_LEN) return fail(`hook command is required, up to ${HOOK_COMMAND_MAX_LEN} characters`);
-    value.command = command;
-  }
-  if (type === 'agent') {
-    const prompt = typeof hook.prompt === 'string' ? hook.prompt.trim() : '';
-    if (!prompt || prompt.length > HOOK_PROMPT_MAX_LEN) return fail(`what the agent must check is required, up to ${HOOK_PROMPT_MAX_LEN} characters`);
-    const { config, error } = readAgentConfig(hook.agent ?? {});
-    if (error) return fail(error);
-    if (!config) return fail('hook agent needs a cliTool');
-    value.prompt = prompt;
-    value.agent  = config;
-  }
-  return { value, error: null };
+function handleGetRunLog(res, runId) {
+  if (!taskRunner.getRun(runId)) return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
+  return sendJSON(res, 200, { log: taskRunner.readAgentLog(runId) ?? '' });
 }
 
+async function handleStopRun(res, runId) {
+  try {
+    const run = await taskRunner.stopRun(runId);
+    if (!run) return sendError(res, 404, 'RUN_NOT_FOUND', `Run '${runId}' not found.`);
+    return sendJSON(res, 200, run);
+  } catch (err) {
+    return sendRunError(res, err, 'stopping run');
+  }
+}
+
+async function handleResumeRun(res, runId) {
+  try {
+    return sendJSON(res, 200, await taskRunner.resumeRun(runId));
+  } catch (err) {
+    return sendRunError(res, err, 'resuming run');
+  }
+}
+
+/**
+ * Set what follows the agent in a space: a command that must pass, and whether the
+ * pull request opens by itself.
+ */
 async function handleUpdateHooks(req, res, store, spaceId) {
   const body = await readObjectBody(req, res);
   if (!body) return undefined;
 
-  const { hooks } = body;
-  if (!Array.isArray(hooks) || hooks.length > MAX_HOOKS) {
-    return sendError(res, 400, 'VALIDATION_ERROR', `hooks must be an array of at most ${MAX_HOOKS}`);
+  const { checkCommand = null, autoPr = false } = body;
+  if (checkCommand !== null && typeof checkCommand !== 'string') {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'checkCommand must be a string or null');
+  }
+  const command = checkCommand?.trim() || null;
+  if (command && command.length > CHECK_COMMAND_MAX_LEN) {
+    return sendError(res, 400, 'VALIDATION_ERROR', `checkCommand must not exceed ${CHECK_COMMAND_MAX_LEN} characters`);
+  }
+  if (typeof autoPr !== 'boolean') {
+    return sendError(res, 400, 'VALIDATION_ERROR', 'autoPr must be a boolean');
   }
 
-  const clean = [];
-  for (const hook of hooks) {
-    const { value, error } = readHook(hook);
-    if (error) return sendError(res, 400, 'VALIDATION_ERROR', error);
-    clean.push(value);
-  }
-  if (new Set(clean.map((h) => h.id)).size !== clean.length) {
-    return sendError(res, 400, 'VALIDATION_ERROR', 'hook ids must be unique');
-  }
-
-  // An agent running in this space must not be able to change the checks it will face.
-  if (pipelineManager.spaceHasActiveDirectRun(spaceId)) {
-    return sendError(res, 409, 'SPACE_RUN_ACTIVE', 'Wait for the running tasks to finish before changing hooks.');
+  // An agent running in this space must not be able to change the check it will face.
+  if (taskRunner.spaceHasActiveRun(spaceId)) {
+    return sendError(res, 409, 'SPACE_RUN_ACTIVE', 'Wait for the running tasks to finish before changing this.');
   }
 
   const space = store.getSpace(spaceId);
-  const updated = { ...space, hooks: clean, updatedAt: new Date().toISOString() };
+  const updated = { ...space, hooks: { checkCommand: command, autoPr }, updatedAt: new Date().toISOString() };
   store.upsertSpace(updated);
   return sendJSON(res, 200, updated);
 }
@@ -325,7 +284,9 @@ module.exports = {
   handleRequestChanges,
   handleCloseTaskRun,
   handleGetRunDiff,
-  handleApproveHook,
+  handleGetRunLog,
+  handleStopRun,
+  handleResumeRun,
   handleCreatePullRequest,
   handleUpdateHooks,
 };

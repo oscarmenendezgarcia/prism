@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * streamJsonNormalizer.js — Pure normalizer for pipeline stage logs.
+ * streamJsonNormalizer.js — Pure normalizer for agent logs.
  *
- * Pipeline stages produce logs in two formats:
+ * Agents produce logs in two formats:
  *
  *   • `stream-json` — one JSON object per line, emitted by Anthropic's
  *     `claude` CLI (`--output-format stream-json`). Contains `system.init`,
