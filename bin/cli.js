@@ -7,7 +7,7 @@
  * Subcommands:
  *   prism start   [--port <n>] [--data-dir <path>] [--silent]
  *   prism stop    [--data-dir <path>] [--force]
- *   prism init    [--data-dir <path>] [--force]
+ *   prism init    [--data-dir <path>] [--force] [--no-start]
  *   prism update  [--no-update-check]
  *   prism doctor  [--data-dir <path>] [--json]
  *   prism --version
@@ -32,7 +32,7 @@ prism — local-first kanban + agent pipeline runner
 Usage:
   prism start   [--port <n>] [--data-dir <path>] [--silent]
   prism stop    [--data-dir <path>] [--force]
-  prism init    [--data-dir <path>] [--force]
+  prism init    [--data-dir <path>] [--force] [--no-start]
   prism update
   prism doctor  [--data-dir <path>] [--json]
   prism --version
@@ -43,6 +43,9 @@ Options shared across subcommands:
   --silent              Suppress informational output
   --force               (stop) Send SIGKILL immediately; (init) overwrite existing settings.json
   --no-update-check     Skip the startup version check (env: PRISM_NO_UPDATE_CHECK)
+
+prism init options:
+  --no-start            Set everything up without starting the server
 
 prism start options:
   --port <n>            Port to listen on (default 3000, env: PORT)
@@ -92,6 +95,8 @@ function parseArgv(argv) {
       flags.noUpdateCheck = true;
     } else if (arg === '--force') {
       flags.force = true;
+    } else if (arg === '--no-start') {
+      flags.noStart = true;
     } else if (arg.startsWith('--port=')) {
       flags.port = arg.slice('--port='.length);
     } else if (arg === '--port') {

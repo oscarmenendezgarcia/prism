@@ -12,18 +12,28 @@
  * Run with: node --test tests/cli.test.js
  */
 
-const { describe, it } = require('node:test');
+const { describe, it, after } = require('node:test');
 const assert           = require('node:assert/strict');
+const fs               = require('fs');
+const net              = require('net');
+const os               = require('os');
 const path             = require('path');
 const { spawnSync }    = require('child_process');
 
 const CLI = path.join(__dirname, '..', 'bin', 'cli.js');
 const PKG = require('../package.json');
 
+// `prism init` registers MCP and installs agents under $HOME, so init tests get
+// a throwaway one. Without --no-start they would also leave a detached server.
+const INIT_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-cli-home-'));
+after(() => fs.rmSync(INIT_HOME, { recursive: true, force: true }));
+
 function runCli(args, opts = {}) {
-  return spawnSync(process.execPath, [CLI, ...args], {
+  const isInit = args[0] === 'init';
+  return spawnSync(process.execPath, [CLI, ...args, ...(isInit ? ['--no-start', '--no-update-check'] : [])], {
     encoding: 'utf8',
     timeout:  5000,
+    ...(isInit ? { env: { ...process.env, HOME: INIT_HOME } } : {}),
     ...opts,
   });
 }
@@ -91,8 +101,6 @@ describe('bin/cli.js', () => {
   // init subcommand (smoke — no server required)
   // -------------------------------------------------------------------------
   it('init with --data-dir pointing to a temp dir exits 0', () => {
-    const os   = require('os');
-    const fs   = require('fs');
     const tmp  = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-cli-init-'));
     try {
       const result = runCli(['init', '--data-dir', tmp, '--silent']);
@@ -108,9 +116,46 @@ describe('bin/cli.js', () => {
     }
   });
 
+  it('init without --no-start starts the server on the data dir it was given', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-cli-start-'));
+    const port = await new Promise((resolve) => {
+      const probe = net.createServer().listen(0, '127.0.0.1', () => {
+        const { port: free } = probe.address();
+        probe.close(() => resolve(free));
+      });
+    });
+    let pid;
+    try {
+      const result = spawnSync(process.execPath, [CLI, 'init', '--data-dir', tmp, '--port', String(port), '--no-update-check'], {
+        encoding: 'utf8',
+        timeout:  20000,
+        env:      { ...process.env, HOME: INIT_HOME, PIPELINE_AGENTS_DIR: path.join(INIT_HOME, 'agents') },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      pid = parseInt(fs.readFileSync(path.join(tmp, 'prism.pid'), 'utf8'), 10);
+      assert.match(result.stdout, new RegExp(`ready on port ${port}`));
+      assert.ok(fs.existsSync(path.join(tmp, 'prism.db')), 'the server must open its database in --data-dir');
+    } finally {
+      if (pid) {
+        try { process.kill(pid); } catch { /* already gone */ }
+      }
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('init --no-start does not start a server', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-cli-nostart-'));
+    try {
+      const result = runCli(['init', '--data-dir', tmp]);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /not started/);
+      assert.ok(!fs.existsSync(path.join(tmp, 'prism.pid')), 'prism.pid must not be written');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it('init is idempotent (running twice does not overwrite settings.json)', () => {
-    const os   = require('os');
-    const fs   = require('fs');
     const tmp  = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-cli-idempotent-'));
     try {
       runCli(['init', '--data-dir', tmp, '--silent']);
@@ -132,8 +177,6 @@ describe('bin/cli.js', () => {
   });
 
   it('init --force overwrites existing settings.json', () => {
-    const os   = require('os');
-    const fs   = require('fs');
     const tmp  = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-cli-force-'));
     try {
       runCli(['init', '--data-dir', tmp, '--silent']);

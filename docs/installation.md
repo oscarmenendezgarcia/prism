@@ -44,6 +44,8 @@ curl -fsSL https://raw.githubusercontent.com/oscarmenendezgarcia/prism/main/inst
 curl -fsSL https://raw.githubusercontent.com/oscarmenendezgarcia/prism/main/install.sh | sh -s -- --force
 ```
 
+`prism init --no-start` sets everything up without starting the server.
+
 ---
 
 ## What `prism init` creates

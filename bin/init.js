@@ -6,7 +6,7 @@
  *
  * Idempotently provisions Prism end-to-end after `npm i -g prism-kanban`:
  *   1. ensureDataDir   — create <dataDir> tree + write default settings.json
- *   2. startServer     — spawn server.js detached + write <dataDir>/prism.pid
+ *   2. startServer     — spawn server.js detached + write <dataDir>/prism.pid (skipped with --no-start)
  *   3. waitForServer   — poll /api/v1/spaces until 200 (6 s budget)
  *   4. registerMcp     — merge mcpServers.prism into ~/.claude/settings.json (atomic)
  *   5. installAgents   — copy agents/*.md → ~/.claude/agents/ (skip-existing)
@@ -116,7 +116,7 @@ function startServer(dataDir, port) {
     detached: true,
     stdio:    'ignore',
     cwd:      PACKAGE_ROOT,
-    env:      Object.assign({}, process.env, { PORT: String(port) }),
+    env:      Object.assign({}, process.env, { PORT: String(port), DATA_DIR: dataDir }),
   });
   child.unref();
 
@@ -372,6 +372,7 @@ function ensureDataDir(flags = {}) {
  * @param {boolean} [flags.force]      - overwrite existing data-dir settings.json
  * @param {boolean} [flags.silent]     - suppress output
  * @param {number}  [flags.port]       - HTTP port (default PORT env / 3000)
+ * @param {boolean} [flags.noStart]    - skip starting the server
  * @param {string}  [flags.homedir]    - injectable home dir (for tests)
  * @param {string}  [flags.packageRoot] - injectable package root (for tests)
  */
@@ -398,17 +399,21 @@ async function run(flags = {}) {
 
   // ── Step 2: startServer ─────────────────────────────────────────────────
   let serverStarted = false;
-  try {
-    const result = startServer(dataDirPath, port);
-    serverStarted = result.started;
-    if (result.started) {
-      log(`[init] server     : started (pid=${result.pid}, port=${port})`);
-    } else {
-      log(`[init] server     : already running (pid=${result.pid})`);
+  if (flags.noStart) {
+    log('[init] server     : not started (--no-start)');
+  } else {
+    try {
+      const result = startServer(dataDirPath, port);
+      serverStarted = result.started;
+      if (result.started) {
+        log(`[init] server     : started (pid=${result.pid}, port=${port})`);
+      } else {
+        log(`[init] server     : already running (pid=${result.pid})`);
+      }
+    } catch (err) {
+      warnings.push(`server start: ${err.message}`);
+      log(`[init] server     : WARNING — ${err.message}`);
     }
-  } catch (err) {
-    warnings.push(`server start: ${err.message}`);
-    log(`[init] server     : WARNING — ${err.message}`);
   }
 
   // ── Step 3: waitForServer ───────────────────────────────────────────────

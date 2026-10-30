@@ -31,10 +31,16 @@ function sh(script) {
   return spawnSync('sh', ['-c', script], { encoding: 'utf8' });
 }
 
+// `prism init` writes under $HOME and starts a detached server unless told not to.
+const INIT_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-qa-home-'));
+process.on('exit', () => fs.rmSync(INIT_HOME, { recursive: true, force: true }));
+
 function prism(...args) {
-  return spawnSync(process.execPath, [CLI, ...args], {
+  const isInit = args[0] === 'init';
+  return spawnSync(process.execPath, [CLI, ...args, ...(isInit ? ['--no-start', '--no-update-check'] : [])], {
     encoding: 'utf8',
     cwd: REPO_ROOT,
+    ...(isInit ? { env: { ...process.env, HOME: INIT_HOME } } : {}),
   });
 }
 
@@ -332,7 +338,7 @@ describe('prism init — correctness', () => {
     try {
       prism('init', '--data-dir', dir, '--silent');
       const settings = JSON.parse(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8'));
-      const expected = path.join(os.homedir(), '.claude', 'agents');
+      const expected = path.join(INIT_HOME, '.claude', 'agents');
       assert.equal(settings.pipeline.agentsDir, expected);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
