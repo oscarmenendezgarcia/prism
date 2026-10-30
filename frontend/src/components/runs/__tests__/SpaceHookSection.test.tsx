@@ -83,6 +83,14 @@ describe('SpaceHookSection', () => {
     expect(onChange).toHaveBeenCalledWith([expect.objectContaining({ id: 'a', command: 'npm run ci' })]);
   });
 
+  it('locks the other hooks while one is open, so its draft cannot be lost', () => {
+    setup([tests, deploy]);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Tests' }));
+    expect(screen.getByRole('button', { name: 'Edit Deploy' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove Deploy' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Move Deploy up' })).toBeDisabled();
+  });
+
   it('moves and removes hooks, and shows which ask for approval', () => {
     const { onChange } = setup([tests, deploy]);
     expect(screen.getByText('Asks for approval')).toBeInTheDocument();

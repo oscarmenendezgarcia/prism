@@ -53,7 +53,7 @@ export function ResultLine({ view }: { view: TaskRunView }) {
 }
 
 /** A link to the run's pull request, or the button that creates it or pushes what is new. */
-export function PullRequestAction({ view, busy, onCreate }: { view: TaskRunView; busy: boolean; onCreate: () => void }) {
+export function PullRequestAction({ view, busy, readOnly, onCreate }: { view: TaskRunView; busy: boolean; readOnly?: boolean; onCreate: () => void }) {
   const { result } = view;
   if (!result || result.fileCount === null || result.fileCount === 0 && !result.pr) return null;
   const pr = result.pr;
@@ -72,7 +72,7 @@ export function PullRequestAction({ view, busy, onCreate }: { view: TaskRunView;
           PR #{pr.number}
         </a>
       )}
-      {(!pr || behind) && (
+      {!readOnly && (!pr || behind) && (
         <Button
           variant="ghost"
           size="sm"
@@ -146,6 +146,7 @@ export function failureMessage(view: TaskRunView): string | null {
     const retries = failure.retries ? ` The agent tried to fix it ${failure.retries === 1 ? 'once' : `${failure.retries} times`}.` : '';
     if (failure.timedOut) return `"${hook?.name}" took too long and was stopped.${retries}`;
     if (failure.verdict === 'fail') return `"${hook?.name}" found problems.${retries}`;
+    if (failure.verdict === 'changed') return `"${hook?.name}" changed files, which a review must not do.`;
     if (failure.verdict === 'none') return `"${hook?.name}" finished without a clear verdict, so it does not count as approved.${retries}`;
     if (failure.exitCode === null) return `"${hook?.name}" could not run.${retries}`;
     return `"${hook?.name}" failed with exit code ${failure.exitCode}.${retries}`;

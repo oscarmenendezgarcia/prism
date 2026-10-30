@@ -23,6 +23,7 @@ case " $* " in
   *" --system-prompt "*)
     cat > "$W/review-prompt"
     pwd > "$W/review-cwd"
+    test -f "$W/review-edits" && echo tampered >> README.md
     cat "$W/verdict"
     exit 0 ;;
 esac
@@ -59,6 +60,7 @@ case "$mode" in
     echo "work $n" >> agent-work.txt
     test "$n" -gt 0 && grep -q 'FAILED CHECK' "$W/prompts/$n" && echo "work $n" > agent-fixed.txt
     exit 0 ;;
+  noop) exit 0 ;;
   nested)
     git init -q nested && cd nested && git config user.email a@a && git config user.name a \\
       && echo x > x && git add . && git commit -qm x && echo y > x
@@ -946,6 +948,73 @@ describe('direct task runs', () => {
     await waitFor(taskId, 'done');
   });
 
+  test('a review that changes files fails, and what it changed is dropped', async () => {
+    verdict(true);
+    fs.writeFileSync(path.join(agentDir, 'review-edits'), '');
+    await setHooks([reviewHook()]);
+    const { taskId, run } = await runTask();
+    const failed = await waitFor(taskId, 'failed');
+    fs.rmSync(path.join(agentDir, 'review-edits'));
+    assert.equal(failed.failure.verdict, 'changed');
+    assert.equal(git(repo, 'show', `${run.worktree.branch}:README.md`), '# r');
+    assert.equal(fs.readFileSync(path.join(run.worktree.path, 'README.md'), 'utf8'), '# r\n');
+  });
+
+  test('an agent review leaves no temporary directory behind', async () => {
+    verdict(true);
+    await setHooks([reviewHook()]);
+    const { taskId, run } = await runTask();
+    await waitFor(taskId, 'done');
+    assert.equal(fs.existsSync(path.join(work, 'data', 'runs', run.runId, 'hook-0-tmp')), false);
+  });
+
+  test('a hook that passed runs again on retry if its settings changed', async () => {
+    const count = path.join(work, 'edit-count');
+    const flag = path.join(work, 'edit-flag');
+    for (const f of [count, flag]) fs.rmSync(f, { force: true });
+    const { json } = await setHooks([
+      { name: 'One', command: `echo a >> ${count}` },
+      { name: 'Two', command: `test -f ${flag}` },
+    ]);
+    const { taskId, run } = await runTask();
+    await waitFor(taskId, 'failed');
+    fs.writeFileSync(flag, '');
+    await setHooks([{ ...json.hooks[0], command: `echo b >> ${count}` }, json.hooks[1]]);
+    await call('POST', `/runs/${run.runId}/resume`, {});
+    await waitFor(taskId, 'done');
+    assert.equal(fs.readFileSync(count, 'utf8'), 'a\nb\n');
+  });
+
+  test('an approval does not cover a command changed after it', async () => {
+    const marker = path.join(work, 'new-command-ran');
+    fs.rmSync(marker, { force: true });
+    const { json } = await setHooks([{ name: 'Deploy', command: 'exit 1', approval: true }]);
+    const { taskId, run } = await runTask();
+    await waitFor(taskId, 'approval');
+    await call('POST', `/spaces/${space}/tasks/${taskId}/approve`, {});
+    await waitFor(taskId, 'failed');
+    await setHooks([{ ...json.hooks[0], command: `touch ${marker}` }]);
+    await call('POST', `/runs/${run.runId}/resume`, {});
+    await waitFor(taskId, 'approval');
+    assert.equal(fs.existsSync(marker), false, 'it asks again before running');
+    await call('POST', `/spaces/${space}/tasks/${taskId}/approve`, {});
+    await waitFor(taskId, 'done');
+    assert.equal(fs.existsSync(marker), true);
+  });
+
+  test('a removed check does not reach the agent as a failure', async () => {
+    await setHooks([{ name: 'Broken', command: 'echo the old check; exit 1' }]);
+    const { taskId, run } = await runTask();
+    await waitFor(taskId, 'failed');
+    await setHooks([]);
+    await call('POST', `/runs/${run.runId}/resume`, {});
+    await waitFor(taskId, 'done');
+    await call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'One more thing' });
+    for (let i = 0; i < 100 && !lastPrompt().includes('One more thing'); i++) await new Promise((r) => setTimeout(r, 100));
+    assert.doesNotMatch(lastPrompt(), /FAILED CHECK/);
+    await waitFor(taskId, 'done');
+  });
+
   describe('pull requests', () => {
     let remote;
     const ghLog = () => fs.readFileSync(path.join(agentDir, 'gh-log'), 'utf8');
@@ -957,6 +1026,7 @@ describe('direct task runs', () => {
       fs.writeFileSync(path.join(work, 'bin', 'gh'), `#!/bin/sh
 W="$FAKE_AGENT_DIR"
 printf '%s\\n' "$*" >> "$W/gh-log"
+test -f "$W/gh-slow" && sleep 5
 case "$1 $2" in
   "pr view") test -f "$W/gh-pr" || { echo "no pull requests found" >&2; exit 1; }; cat "$W/gh-pr" ;;
   "pr create")
@@ -970,7 +1040,7 @@ esac
     after(() => { git(repo, 'remote', 'remove', 'origin'); });
 
     beforeEach(() => {
-      for (const f of ['gh-pr', 'gh-log', 'gh-fail']) fs.rmSync(path.join(agentDir, f), { force: true });
+      for (const f of ['gh-pr', 'gh-log', 'gh-fail', 'gh-slow']) fs.rmSync(path.join(agentDir, f), { force: true });
     });
 
     test('the button pushes the branch and records the PR, and pushes what comes later', async () => {
@@ -1017,6 +1087,49 @@ esac
       const second = await runTask();
       const failed = await waitFor(second.taskId, 'failed');
       assert.match(failed.hook.outputTail, /no permission/);
+    });
+
+    test('a PR hook does not publish a branch missing work that could not be saved', async () => {
+      await setHooks([{ name: 'Open PR', type: 'pr' }]);
+      setMode('nested');
+      const { taskId } = await runTask();
+      const failed = await waitFor(taskId, 'failed');
+      assert.ok(failed.result.saveError);
+      assert.match(failed.hook.outputTail, /could not be saved/);
+      assert.equal(fs.existsSync(path.join(agentDir, 'gh-log')), false, 'gh never ran');
+    });
+
+    test('a PR hook with nothing to propose passes, without pushing', async () => {
+      await setHooks([{ name: 'Open PR', type: 'pr' }]);
+      setMode('noop');
+      const { taskId, run } = await runTask();
+      const done = await waitFor(taskId, 'done');
+      assert.match(done.hook.outputTail, /changed nothing/);
+      assert.equal(fs.existsSync(path.join(agentDir, 'gh-log')), false);
+      assert.throws(() => execFileSync('git', ['-C', remote, 'rev-parse', '--verify', run.worktree.branch], { stdio: 'ignore' }));
+    });
+
+    test('stopping a PR hook stops it, and no PR appears later', async () => {
+      fs.writeFileSync(path.join(agentDir, 'gh-slow'), '');
+      await setHooks([{ name: 'Open PR', type: 'pr' }]);
+      const { taskId, run } = await runTask();
+      for (let i = 0; i < 100 && !fs.existsSync(path.join(agentDir, 'gh-log')); i++) await new Promise((r) => setTimeout(r, 100));
+      assert.equal((await call('POST', `/runs/${run.runId}/stop`, {})).status, 200);
+      const stopped = await waitFor(taskId, 'stopped');
+      fs.rmSync(path.join(agentDir, 'gh-slow'));
+      assert.equal(stopped.hook.status, 'interrupted');
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal((await view(taskId)).result.pr, null);
+      assert.equal(await columnOf(taskId), 'in-progress');
+    });
+
+    test('a run waiting for approval cannot open its PR around it', async () => {
+      await setHooks([{ name: 'Open PR', type: 'pr', approval: true }]);
+      const { taskId, run } = await runTask();
+      await waitFor(taskId, 'approval');
+      assert.equal((await call('POST', `/spaces/${space}/tasks/${taskId}/pr`, {})).status, 409);
+      await call('POST', `/runs/${run.runId}/stop`, {});
+      await waitFor(taskId, 'stopped');
     });
 
     test('a PR cannot be created while the agent works', async () => {

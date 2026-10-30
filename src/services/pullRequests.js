@@ -10,16 +10,23 @@
 const { execFile } = require('child_process');
 
 const COMMAND_TIMEOUT_MS = 60_000;
+// A repository's pre-push hook can run its whole test suite.
+const PUSH_TIMEOUT_MS    = 15 * 60 * 1000;
+const MAX_OUTPUT_BYTES   = 10 * 1024 * 1024;
 
-function run(binary, args, cwd) {
+function run(binary, args, cwd, { signal, timeout = COMMAND_TIMEOUT_MS } = {}) {
   return new Promise((resolve, reject) => {
     execFile(binary, args, {
       cwd,
-      timeout: COMMAND_TIMEOUT_MS,
+      signal,
+      timeout,
+      maxBuffer: MAX_OUTPUT_BYTES,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GH_PROMPT_DISABLED: '1' },
     }, (err, stdout, stderr) => {
       if (err) {
-        err.detail = (stderr || err.message).trim();
+        err.detail = err.killed
+          ? `"${binary} ${args[0]}" took too long and was stopped.`
+          : (stderr || err.message).trim();
         return reject(err);
       }
       return resolve(stdout.trim());
@@ -64,13 +71,14 @@ async function findOpenPullRequest(cwd, branch) {
  * @param {string|null} opts.baseBranch
  * @param {string} opts.title
  * @param {string} opts.body
+ * @param {AbortSignal} [opts.signal]     - Stops whatever is running.
  * @returns {Promise<{ url: string, number: number }>}
  * @throws PR_FAILED, with a message the user can act on.
  */
-async function pushAndOpenPullRequest({ cwd, branch, sourceRef, baseBranch, title, body }) {
+async function pushAndOpenPullRequest({ cwd, branch, sourceRef, baseBranch, title, body, signal }) {
   try {
     const remote = await findRemote(cwd);
-    await run('git', ['push', '-u', remote, `refs/heads/${sourceRef ?? branch}:refs/heads/${branch}`], cwd);
+    await run('git', ['push', '-u', remote, `refs/heads/${sourceRef ?? branch}:refs/heads/${branch}`], cwd, { signal, timeout: PUSH_TIMEOUT_MS });
 
     const existing = await findOpenPullRequest(cwd, branch);
     if (existing) return existing;
@@ -78,12 +86,13 @@ async function pushAndOpenPullRequest({ cwd, branch, sourceRef, baseBranch, titl
     await run('gh', [
       'pr', 'create', '--head', branch, '--title', title, '--body', body,
       ...(baseBranch ? ['--base', baseBranch] : []),
-    ], cwd);
+    ], cwd, { signal });
     const created = await findOpenPullRequest(cwd, branch);
     if (!created) throw prError('The pull request was created but could not be found.');
     return created;
   } catch (err) {
     if (err.code === 'PR_FAILED') throw err;
+    if (err.name === 'AbortError') throw prError('Stopped.');
     if (err.code === 'ENOENT') throw prError('The GitHub CLI (gh) is not installed on this machine.');
     throw prError(err.detail || err.message);
   }

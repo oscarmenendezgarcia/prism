@@ -116,7 +116,7 @@ export interface TaskRunView {
     exitCode?: number | null;
     timedOut?: boolean;
     outputTail?: string;
-    verdict?: 'pass' | 'fail' | 'none';
+    verdict?: 'pass' | 'fail' | 'none' | 'changed';
   } | null;
   /** The space's hooks for this run, in order. */
   steps?: Array<{ id: string; name: string; type: string; status: string }>;
@@ -125,7 +125,7 @@ export interface TaskRunView {
     exitCode: number | null;
     timedOut?: boolean;
     reason?: string | null;
-    verdict?: 'fail' | 'none';
+    verdict?: 'fail' | 'none' | 'changed';
     retries?: number;
   } | null;
 }

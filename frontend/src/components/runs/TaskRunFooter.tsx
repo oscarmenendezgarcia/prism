@@ -74,6 +74,7 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
       <div className="flex flex-col gap-2 mt-3" data-testid="run-footer">
         <StepBar view={view} />
         <ResultLine view={view} />
+        <SaveErrorNote view={view} />
         <p className="text-xs text-warning leading-snug">Needs your approval: {view.hook?.name}</p>
         <div className="flex items-center gap-2">
           <Button

@@ -181,10 +181,12 @@ function hookSubtitle(hook: SpaceHook): string {
   return hook.command ?? '';
 }
 
-function HookRow({ hook, index, count, onEdit, onRemove, onMoveUp }: {
+function HookRow({ hook, index, count, locked, onEdit, onRemove, onMoveUp }: {
   hook: SpaceHook;
   index: number;
   count: number;
+  /** Another hook is open in the form, and acting here would lose what it holds. */
+  locked: boolean;
   onEdit: () => void;
   onRemove: () => void;
   onMoveUp: () => void;
@@ -204,13 +206,13 @@ function HookRow({ hook, index, count, onEdit, onRemove, onMoveUp }: {
         <p className={`text-xs text-text-secondary truncate ${type === 'command' ? 'font-mono' : ''}`} title={hookSubtitle(hook)}>{hookSubtitle(hook)}</p>
         {type !== 'pr' && <p className="text-xs text-text-disabled">If it fails: {ON_FAIL_LABELS[hook.onFail ?? 'stop'].toLowerCase()}</p>}
       </div>
-      <Button type="button" variant="icon" aria-label={`Move ${hook.name} up`} disabled={index === 0 || count < 2} onClick={onMoveUp}>
+      <Button type="button" variant="icon" aria-label={`Move ${hook.name} up`} disabled={locked || index === 0 || count < 2} onClick={onMoveUp}>
         <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">arrow_upward</span>
       </Button>
-      <Button type="button" variant="icon" aria-label={`Edit ${hook.name}`} onClick={onEdit}>
+      <Button type="button" variant="icon" aria-label={`Edit ${hook.name}`} disabled={locked} onClick={onEdit}>
         <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">edit</span>
       </Button>
-      <Button type="button" variant="icon" aria-label={`Remove ${hook.name}`} onClick={onRemove}>
+      <Button type="button" variant="icon" aria-label={`Remove ${hook.name}`} disabled={locked} onClick={onRemove}>
         <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">delete</span>
       </Button>
     </div>
@@ -264,9 +266,10 @@ export function SpaceHookSection({ value, onChange, onEditingChange, error }: Sp
             hook={hook}
             index={index}
             count={value.length}
+            locked={editing !== null}
             onEdit={() => setEditing(index)}
-            onRemove={() => { onChange(value.filter((_, i) => i !== index)); setEditing(null); }}
-            onMoveUp={() => { moveUp(index); setEditing(null); }}
+            onRemove={() => onChange(value.filter((_, i) => i !== index))}
+            onMoveUp={() => moveUp(index)}
           />
         )))}
 
