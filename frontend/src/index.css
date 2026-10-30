@@ -268,6 +268,9 @@ html.dark {
     -moz-osx-font-smoothing: grayscale;
   }
 
+  /* Native controls (date icon, select lists) follow the theme. */
+  html.dark { color-scheme: dark; }
+
   /* Material Symbols Outlined — use font-variation-settings for filled icons */
   .material-symbols-outlined {
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;

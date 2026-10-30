@@ -24,7 +24,7 @@ export function choiceLabel(choice: AgentChoice): string {
   return choice.model ? choice.model.split('/').pop() as string : name;
 }
 
-export function AgentPicker() {
+export function AgentPicker({ compact = false }: { compact?: boolean }) {
   const choice    = useTaskRunStore((s) => s.choice);
   const setChoice = useTaskRunStore((s) => s.setChoice);
 
@@ -98,7 +98,7 @@ export function AgentPicker() {
         className="inline-flex items-center gap-1.5 h-8 px-2 min-w-0 rounded-lg text-xs text-text-secondary hover:bg-surface-variant focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary transition-colors duration-fast"
       >
         <HarnessIcon cliTool={choice.cliTool} />
-        <span className="truncate">{choiceLabel(choice)}</span>
+        <span className={compact ? 'hidden [@media(pointer:coarse)]:inline truncate' : 'truncate'}>{choiceLabel(choice)}</span>
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">expand_more</span>
       </button>
 

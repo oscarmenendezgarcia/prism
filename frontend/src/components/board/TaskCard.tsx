@@ -338,10 +338,12 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
           )}
         </div>
 
+        {/* With touch there is no hover: the actions and the agent share a row at the end of the card. */}
+        <div className="[@media(pointer:coarse)]:flex [@media(pointer:coarse)]:flex-wrap [@media(pointer:coarse)]:items-center [@media(pointer:coarse)]:justify-end [@media(pointer:coarse)]:gap-2 [@media(pointer:coarse)]:mt-2">
         {/* Action menu — absolute top-right, hover/focus-within only */}
         <div
           data-testid="hover-overlay"
-          className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:static [@media(pointer:coarse)]:flex [@media(pointer:coarse)]:justify-end [@media(pointer:coarse)]:mt-2 transition-opacity duration-fast"
+          className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:static transition-opacity duration-fast"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="bg-surface-elevated border border-border rounded-md shadow-sm">
@@ -361,6 +363,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         </div>
 
         {!isEpic && <TaskRunFooter task={task} column={task.category ?? 'todo'} spaceId={activeSpaceId} />}
+        </div>
       </div>
     </article>
   );

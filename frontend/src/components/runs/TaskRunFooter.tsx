@@ -14,7 +14,7 @@ import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLin
 
 const REVEALED_FOOTER = 'absolute right-0 bottom-0 flex items-center gap-1 pl-2 bg-surface rounded-lg opacity-0 '
   + 'group-hover:opacity-100 group-focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100 transition-opacity duration-fast '
-  + '[@media(pointer:coarse)]:static [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:pl-0 [@media(pointer:coarse)]:mt-2 [@media(pointer:coarse)]:justify-end';
+  + '[@media(pointer:coarse)]:static [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:pl-0';
 
 interface TaskRunFooterProps {
   task: Task;
@@ -45,7 +45,7 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   if (canStart) {
     if (space && !space.workingDirectory) {
       return (
-        <div className="flex items-center mt-3 -ml-2" data-testid="run-footer">
+        <div className="flex items-center mt-3 -ml-2 [@media(pointer:coarse)]:mt-0" data-testid="run-footer">
           <Button
             variant="ghost"
             size="sm"
@@ -61,9 +61,9 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
     // hover, over the end of the last row so that the cards around do not move.
     const inView = missingHarness || isAgentName(task.assigned);
     return (
-      <div className={inView ? 'flex flex-wrap items-center gap-1 mt-2 -ml-2' : REVEALED_FOOTER} data-testid="run-footer">
+      <div className={inView ? 'flex flex-wrap items-center gap-1 mt-2 -ml-2 [@media(pointer:coarse)]:mt-0 [@media(pointer:coarse)]:ml-0' : REVEALED_FOOTER} data-testid="run-footer">
         {missingHarness && <p className="w-full ml-2 text-xs text-error leading-snug">This agent is not installed on this machine.</p>}
-        <AgentPicker />
+        <AgentPicker compact={!inView} />
         {inView && <span className="flex-1" />}
         <Button
           variant="primary"
@@ -84,7 +84,7 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   if (view.status === 'question') {
     const question = task.comments?.find((c) => c.type === 'question' && !c.resolved);
     return (
-      <div className="flex flex-col gap-2 mt-3" data-testid="run-footer">
+      <div className="flex flex-col gap-2 mt-3 w-full" data-testid="run-footer">
         {question && <p className="text-xs text-warning leading-snug line-clamp-3">{question.text}</p>}
         <div className="flex items-center gap-2">
           <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); openDetailPanel(task); }}>Answer</Button>
@@ -99,7 +99,7 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   const message = failureMessage(view);
 
   return (
-    <div className="flex flex-col gap-2 mt-3" data-testid="run-footer">
+    <div className="flex flex-col gap-2 mt-3 w-full" data-testid="run-footer">
       {view.status !== 'working' && view.status !== 'checking' && <ResultLine view={view} />}
       <SaveErrorNote view={view} />
       {message && <p className="text-xs text-error leading-snug line-clamp-2">{message}</p>}
