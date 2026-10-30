@@ -1291,7 +1291,7 @@ async function closeSpaceRuns(spaceId) {
  * @returns {Promise<object>} Updated run.
  * @throws RUN_NOT_FOUND, RUN_ACTIVE, WORKTREE_UNAVAILABLE.
  */
-async function requestChanges(runId, text, author = 'user') {
+async function requestChanges(runId, text, { author = 'user', authorId } = {}) {
   const { taskId } = requireRun(runId);
   const stops = stopCounts.get(runId);
   return withTaskLock(taskId, async () => {
@@ -1320,7 +1320,7 @@ async function requestChanges(runId, text, author = 'user') {
     // The agent reads the task's comments in its prompt, so this goes first.
     const now  = new Date().toISOString();
     _store.addComment(run.spaceId, run.taskId, {
-      id: crypto.randomUUID(), author, text, type: 'note', changeRequest: true,
+      id: crypto.randomUUID(), author, authorId, text, type: 'note', changeRequest: true,
       resolved: false, createdAt: now,
     });
 

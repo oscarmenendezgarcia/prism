@@ -1702,6 +1702,7 @@ function createStore(dataDir) {
     deleteRun: deleteRun,
     // People
     accounts,
+    dataDir,
     // Lifecycle
     close,
   };

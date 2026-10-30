@@ -197,10 +197,10 @@ export function SpaceTabs() {
             space={space}
             active={space.id === activeSpaceId}
             onSelect={handleTabClick}
-            onKebab={handleKebabClick}
+            onKebab={isAdmin ? handleKebabClick : undefined}
             refCb={setItemRef(space.id)}
             // Only pinned tabs are draggable, and they reorder within the pinned block.
-            draggable={!!space.pinned}
+            draggable={isAdmin && !!space.pinned}
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
@@ -217,7 +217,7 @@ export function SpaceTabs() {
           spaces={overflow}
           activeSpaceId={activeSpaceId ?? ''}
           onSelect={handleOverflowSelect}
-          onUnpin={unpinSpace}
+          onUnpin={isAdmin ? unpinSpace : undefined}
           filterThreshold={6}
         />
       )}

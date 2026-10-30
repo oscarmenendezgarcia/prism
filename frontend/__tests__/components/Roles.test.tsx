@@ -6,6 +6,7 @@ import { TeamModal } from '../../src/components/modals/TeamModal';
 import { UserMenu } from '../../src/components/layout/UserMenu';
 import { CommentsSection } from '../../src/components/board/CommentsSection';
 import { BoardEmptyState } from '../../src/components/board/BoardEmptyState';
+import { SpaceTabs } from '../../src/components/layout/SpaceTabs';
 import { useAuthStore } from '../../src/stores/useAuthStore';
 import { useAppStore } from '../../src/stores/useAppStore';
 import * as api from '../../src/api/client';
@@ -74,6 +75,22 @@ describe('what each role sees', () => {
   });
 });
 
+describe('the tabs of spaces', () => {
+  const SPACE = { id: 's', name: 'Web', pinned: true, createdAt: '', updatedAt: '' };
+  beforeEach(() => useAppStore.setState({ spaces: [SPACE], activeSpaceId: 's' } as never));
+
+  it('offer options to an admin only', () => {
+    signIn('member');
+    const { unmount } = render(<SpaceTabs />);
+    expect(screen.queryByRole('button', { name: 'Space options' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /create new space/i })).not.toBeInTheDocument();
+    unmount();
+    signIn('admin');
+    render(<SpaceTabs />);
+    expect(screen.queryAllByRole('button', { name: /create new space/i }).length).toBeGreaterThan(0);
+  });
+});
+
 describe('TeamModal', () => {
   const mockTeam = (users: User[] = [person('admin'), { ...person('member', 'b'), name: 'Bea Ruiz', email: 'bea@example.com' }]) => {
     vi.spyOn(api, 'getUsers').mockResolvedValue(users);
@@ -116,10 +133,11 @@ describe('TeamModal', () => {
     const showToast = vi.fn();
     useAppStore.setState({ showToast } as never);
     render(<TeamModal onClose={() => {}} />);
-    fireEvent.change(await screen.findByLabelText('Role of Ana López'), { target: { value: 'viewer' } });
-    await waitFor(() => expect(update).toHaveBeenCalledWith('me', { role: 'viewer' }));
+    expect(await screen.findByLabelText('Role of Ana López')).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Role of Bea Ruiz'), { target: { value: 'viewer' } });
+    await waitFor(() => expect(update).toHaveBeenCalledWith('b', { role: 'viewer' }));
     await waitFor(() => expect(showToast).toHaveBeenCalledWith('This is the last admin.', 'error'));
-    await waitFor(() => expect(screen.getByLabelText('Role of Ana López')).toHaveValue('admin'));
+    await waitFor(() => expect(screen.getByLabelText('Role of Bea Ruiz')).toHaveValue('member'));
   });
 
   it('a deactivated account can come back', async () => {

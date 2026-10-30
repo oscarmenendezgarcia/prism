@@ -165,7 +165,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       if (!spaceResult.ok) {
         return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
       }
-      if (method === 'GET') return handleListTaskRuns(res, spaceTaskRunsMatch[1]);
+      if (method === 'GET') return handleListTaskRuns(req, res, spaceTaskRunsMatch[1]);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

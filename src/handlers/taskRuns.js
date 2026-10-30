@@ -143,8 +143,15 @@ async function handleStartTaskRun(req, res, store, spaceId, taskId, workingDirec
   }
 }
 
-function handleListTaskRuns(res, spaceId) {
-  return sendJSON(res, 200, taskRunner.listRunViews(spaceId));
+function handleListTaskRuns(req, res, spaceId) {
+  const views = taskRunner.listRunViews(spaceId);
+  if (req.user?.role !== 'viewer') return sendJSON(res, 200, views);
+  // The output of a check can show code, as the diff and the log do, and viewers see neither.
+  const withoutOutput = Object.fromEntries(Object.entries(views).map(([taskId, view]) => [
+    taskId,
+    view.hook ? { ...view, hook: { type: view.hook.type, status: view.hook.status } } : view,
+  ]));
+  return sendJSON(res, 200, withoutOutput);
 }
 
 /**
@@ -182,7 +189,7 @@ async function handleRequestChanges(req, res, store, spaceId, taskId) {
   }
 
   try {
-    return sendJSON(res, 200, await taskRunner.requestChanges(view.runId, text, readActor(req, 'user')));
+    return sendJSON(res, 200, await taskRunner.requestChanges(view.runId, text, { author: readActor(req, 'user'), authorId: req.user?.unverified ? undefined : req.user?.id }));
   } catch (err) {
     return sendRunError(res, err, 'requesting changes');
   }

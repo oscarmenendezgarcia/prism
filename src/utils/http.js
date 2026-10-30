@@ -74,6 +74,10 @@ function parseBodyWithLimit(req, maxBytes) {
     });
 
     req.on('end', () => {
+      if (req.stillAllowed && !req.stillAllowed()) {
+        reject(new Error('ACCESS_CHANGED'));
+        return;
+      }
       try {
         const raw = Buffer.concat(chunks).toString('utf8');
         resolve(raw.length > 0 ? JSON.parse(raw) : null);

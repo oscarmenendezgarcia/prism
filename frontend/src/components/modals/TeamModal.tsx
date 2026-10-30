@@ -141,7 +141,8 @@ export function TeamModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <select
                   value={user.role}
-                  disabled={!user.active}
+                  disabled={!user.active || user.id === me?.id}
+                  title={user.id === me?.id ? 'Another admin can change your role.' : undefined}
                   aria-label={`Role of ${user.name}`}
                   onChange={(e) => { void change(() => api.updateUser(user.id, { role: e.target.value as Role })); }}
                   className={FIELD}

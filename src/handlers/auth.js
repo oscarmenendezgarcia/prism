@@ -165,11 +165,20 @@ function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, 
       req.user = { id: 'system', name: 'System', email: '', role: 'admin', active: true, unverified: true };
       return true;
     }
+    const urlPath = req.url.split('?')[0];
     const token = sessionToken(req);
     const session = token ? accounts.sessionFor(token) : null;
     req.user = session?.user ?? null;
     if (session?.renewed) setSessionCookie(req, res, token);
-    const urlPath = req.url.split('?')[0];
+    // A body can take minutes to arrive. What it asks for is judged by who they are by then.
+    if (session) {
+      req.stillAllowed = () => {
+        const now = accounts.sessionFor(token)?.user;
+        if (!now || !mayRequest(now, req.method, urlPath)) return false;
+        req.user = now;
+        return true;
+      };
+    }
     if (!urlPath.startsWith('/api/')) return true;
     if (PUBLIC_ROUTES.some((route) => route.test(`${req.method} ${urlPath}`))) return true;
     if (!req.user) {
@@ -189,6 +198,7 @@ function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, 
       return body && typeof body === 'object' ? body : {};
     } catch (err) {
       if (err.message === 'PAYLOAD_TOO_LARGE') sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'The request is too large.');
+      else if (err.message === 'ACCESS_CHANGED') sendError(res, 403, 'FORBIDDEN', 'Your access changed while this was on its way.');
       else sendError(res, 400, 'INVALID_JSON', 'The request is not valid JSON.');
       return null;
     }
@@ -269,6 +279,7 @@ function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, 
     const result = await accounts.useLink(token, { name: link.kind === 'invite' ? body.name.trim() : undefined, password: body.password });
     if (result.error === 'LINK_INVALID') return sendError(res, 404, 'LINK_INVALID', 'This link is not valid any more.');
     if (result.error === 'EMAIL_TAKEN') return sendError(res, 409, 'EMAIL_TAKEN', 'There is already an account with this email.');
+    if (result.error === 'NAME_TAKEN') return sendError(res, 409, 'NAME_TAKEN', 'Someone here already has that name. Add a surname or an initial.');
     signIn(req, res, 200, result);
   }
 
@@ -280,7 +291,7 @@ function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, 
     if (invalid) return sendError(res, 400, 'VALIDATION_ERROR', invalid);
     if (!ROLES.includes(body.role)) return sendError(res, 400, 'VALIDATION_ERROR', `The role must be one of: ${ROLES.join(', ')}.`);
     if (accounts.getUserByEmail(body.email)) return sendError(res, 409, 'EMAIL_TAKEN', 'There is already an account with this email.');
-    const { token, ...invite } = accounts.createInvite({ email: body.email, role: body.role, createdBy: req.user.name });
+    const { token, ...invite } = accounts.createInvite({ email: body.email, role: body.role, createdBy: req.user.name, createdById: req.user.id });
     sendJSON(res, 201, { ...invite, path: `/invite/${token}` });
   }
 
@@ -356,7 +367,7 @@ function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, 
     const resetLink = RESET_LINK_ROUTE.exec(urlPath);
     if (resetLink && method === 'POST') {
       if (!requireAdmin(req, res)) return true;
-      const created = accounts.createResetLink({ userId: resetLink[1], createdBy: req.user.name });
+      const created = accounts.createResetLink({ userId: resetLink[1], createdBy: req.user.name, createdById: req.user.id });
       if (!created) return sendError(res, 404, 'NOT_FOUND', 'There is no such active user.'), true;
       sendJSON(res, 201, { expiresAt: created.expiresAt, path: `/reset/${created.token}` });
       return true;

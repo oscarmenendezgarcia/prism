@@ -7,6 +7,7 @@
 
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const { execFileSync } = require('child_process');
 const fs   = require('fs');
 const http = require('http');
 const os   = require('os');
@@ -199,6 +200,17 @@ describe('who signs what', () => {
     assert.ok(entries.every((e) => e.actor === 'Bea'), JSON.stringify(entries));
   });
 
+  test('a move and a new issue are signed the same way, and createdBy is not the client\'s to set', async () => {
+    const other = await t.api('POST', url, { cookie: t.member.cookie, headers: { 'X-Prism-Actor': 'Ana López' }, body: { title: 'z', type: 'chore', createdBy: t.admin.id, comments: [{ author: 'Ana López', text: 'x', type: 'note' }] } });
+    assert.equal(other.json.createdBy, t.member.id);
+    await t.api('PUT', `${url}/${other.json.id}/move`, { cookie: t.member.cookie, headers: { 'X-Prism-Actor': 'Ana López' }, body: { to: 'in-progress' } });
+    const { history } = (await t.api('GET', `${url}/${other.json.id}/history`, { cookie: t.admin.cookie })).json;
+    assert.ok(history.length >= 2);
+    assert.ok(history.every((e) => e.actor === 'Bea'), JSON.stringify(history));
+    const seen = (await t.api('GET', `${url}/${other.json.id}`, { cookie: t.admin.cookie })).json;
+    assert.equal(seen.comments?.length ?? 0, 0);
+  });
+
   test('a comment has the real author, whatever the body says', async () => {
     const res = await t.api('POST', `${url}/${issue.id}/comments`, { cookie: t.member.cookie, body: { author: 'Ana López', text: 'Approved', type: 'note' } });
     assert.equal(res.status, 201);
@@ -277,9 +289,48 @@ describe('attachments cannot read the server', () => {
     }
   });
 
+  test('what is private in the folder stays private', async () => {
+    fs.mkdirSync(path.join(t.repo, '.git'));
+    fs.writeFileSync(path.join(t.repo, '.git', 'config'), 'token=secret');
+    fs.writeFileSync(path.join(t.repo, '.env.local'), 'KEY=secret');
+    assert.equal((await read(path.join(t.repo, '.git', 'config'))).status, 403);
+    assert.equal((await read(path.join(t.repo, '.env.local'))).status, 403);
+    assert.equal((await read(path.join(t.repo, 'notes.md'))).status, 200);
+  });
+
+  test('a pipe does not freeze the server', async () => {
+    const fifo = path.join(t.repo, 'pipe');
+    execFileSync('mkfifo', [fifo]);
+    const res = await Promise.race([read(fifo), new Promise((r) => setTimeout(() => r({ status: 'frozen' }), 3000))]);
+    assert.equal(res.status, 403);
+  });
+
   test('a space with no folder reads no files', async () => {
     const res = await t.api('POST', '/api/v1/tasks', { cookie: t.admin.cookie, body: { title: 'x', type: 'chore', attachments: [{ name: 'f', type: 'file', content: '/etc/hostname' }] } });
     assert.equal((await t.api('GET', `/api/v1/tasks/${res.json.id}/attachments/0`, { cookie: t.admin.cookie })).status, 403);
+  });
+});
+
+describe('a space whose folder holds the data of Prism', () => {
+  test('still cannot read it', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-checkout-'));
+    const server = startServer({ port: 0, dataDir: path.join(root, 'data'), silent: true });
+    await new Promise((resolve) => server.once('listening', resolve));
+    const { port } = server.address();
+    try {
+      const setupCode = fs.readFileSync(path.join(root, 'data', 'setup-code'), 'utf8').trim();
+      const { cookie } = await call(port, 'POST', '/api/v1/auth/setup', { body: { name: 'Ana', email: 'a@b.c', password: PASSWORD, setupCode } });
+      const space = (await call(port, 'POST', '/api/v1/spaces', { cookie, body: { name: 'Self', key: 'SLF', workingDirectory: root } })).json;
+      for (const file of ['prism.db', 'prism.db-wal']) {
+        const issue = (await call(port, 'POST', `/api/v1/spaces/${space.id}/tasks`, { cookie, body: { title: 'x', type: 'chore', attachments: [{ name: 'f', type: 'file', content: path.join(root, 'data', file) }] } })).json;
+        assert.equal((await call(port, 'GET', `/api/v1/spaces/${space.id}/tasks/${issue.id}/attachments/0`, { cookie })).status, 403);
+      }
+    } finally {
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+      server._store.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -338,5 +389,80 @@ describe('managing the team', () => {
     const results = await Promise.all(logins);
     assert.equal(results.filter(Boolean).filter((r) => t.server._store.accounts.sessionFor(r.token)).length, 0);
     await patch(t.member.id, { active: true });
+  });
+
+  test('whoever stops being an admin loses the links they made', async () => {
+    const eve = await (async () => {
+      const invite = await t.api('POST', '/api/v1/invites', { cookie: t.admin.cookie, body: { email: 'eve@example.com', role: 'admin' } });
+      const res = await t.api('POST', `/api/v1/auth/links/${invite.json.path.split('/').pop()}`, { body: { name: 'Eve', password: PASSWORD } });
+      return { cookie: res.cookie, id: res.json.user.id };
+    })();
+    const made = async () => ({
+      invite: (await t.api('POST', '/api/v1/invites', { cookie: eve.cookie, body: { email: 'eve2@example.com', role: 'admin' } })).json.path.split('/').pop(),
+      reset: (await t.api('POST', `/api/v1/users/${t.admin.id}/reset-link`, { cookie: eve.cookie })).json.path.split('/').pop(),
+    });
+    let links = await made();
+    assert.equal((await patch(eve.id, { role: 'member' })).status, 200);
+    assert.equal((await t.api('GET', `/api/v1/auth/links/${links.invite}`)).status, 404);
+    assert.equal((await t.api('GET', `/api/v1/auth/links/${links.reset}`)).status, 404);
+
+    await patch(eve.id, { role: 'admin' });
+    links = await made();
+    assert.equal((await patch(eve.id, { active: false })).status, 200);
+    assert.equal((await t.api('POST', `/api/v1/auth/links/${links.invite}`, { body: { name: 'Eve Back', password: PASSWORD } })).status, 404);
+    assert.equal((await t.api('POST', `/api/v1/auth/links/${links.reset}`, { body: { password: PASSWORD } })).status, 404);
+  });
+
+  test('a request on its way when access ends does nothing', async () => {
+    const invite = await t.api('POST', '/api/v1/invites', { cookie: t.admin.cookie, body: { email: 'slow@example.com', role: 'admin' } });
+    const slow = await t.api('POST', `/api/v1/auth/links/${invite.json.path.split('/').pop()}`, { body: { name: 'Slow', password: PASSWORD } });
+    const port = t.server.address().port;
+    const payload = JSON.stringify({ email: 'slow2@example.com', role: 'admin' });
+    const answer = new Promise((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/api/v1/invites', headers: { Cookie: slow.cookie, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } }, (res) => {
+        res.resume();
+        res.on('end', () => resolve(res.statusCode));
+      });
+      req.on('error', reject);
+      req.write(payload.slice(0, -1));
+      t.pending = () => req.end(payload.slice(-1));
+    });
+    await new Promise((r) => setTimeout(r, 100));
+    assert.equal((await patch(slow.json.user.id, { active: false })).status, 200);
+    t.pending();
+    assert.equal(await answer, 403);
+    const pending = (await t.api('GET', '/api/v1/invites', { cookie: t.admin.cookie })).json;
+    assert.ok(!pending.some((i) => i.email === 'slow2@example.com'));
+  });
+
+  test('two people cannot have one name, since names sign everything', async () => {
+    const invite = await t.api('POST', '/api/v1/invites', { cookie: t.admin.cookie, body: { email: 'other@example.com', role: 'member' } });
+    const token = invite.json.path.split('/').pop();
+    const res = await t.api('POST', `/api/v1/auth/links/${token}`, { body: { name: 'ANA LÓPEZ', password: PASSWORD } });
+    assert.equal(res.status, 409);
+    // The link still works, with another name.
+    assert.equal((await t.api('POST', `/api/v1/auth/links/${token}`, { body: { name: 'Ana López 2', password: PASSWORD } })).status, 200);
+  });
+});
+
+describe('what a viewer sees of a run', () => {
+  test('not the output of its check', () => {
+    const { handleListTaskRuns } = require('../src/handlers/taskRuns');
+    const taskRunner = require('../src/services/taskRunner');
+    const view = { taskId: 't', status: 'failed', hook: { type: 'check', status: 'failed', command: 'npm test', outputTail: '+secret code' } };
+    const original = taskRunner.listRunViews;
+    taskRunner.listRunViews = () => ({ t: view });
+    const answer = (role) => {
+      let body;
+      const res = { writeHead() {}, end(payload) { body = JSON.parse(payload); } };
+      handleListTaskRuns({ user: { role } }, res, 's');
+      return body.t;
+    };
+    try {
+      assert.deepEqual(answer('viewer').hook, { type: 'check', status: 'failed' });
+      assert.equal(answer('member').hook.outputTail, '+secret code');
+    } finally {
+      taskRunner.listRunViews = original;
+    }
   });
 });

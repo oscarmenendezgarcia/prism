@@ -18,7 +18,7 @@ export interface SpaceTabProps {
   space: Space;
   active: boolean;
   onSelect: (space: Space) => void;
-  onKebab: (e: React.MouseEvent, spaceId: string) => void;
+  onKebab?: (e: React.MouseEvent, spaceId: string) => void;
   /** ref callback forwarded from useOverflowItems for width measurement */
   refCb?: (el: HTMLElement | null) => void;
   /** pinned tabs are draggable to reorder within the pinned block. */
@@ -58,7 +58,7 @@ export function SpaceTab({
 
   function handleKebabClick(e: React.MouseEvent) {
     e.stopPropagation();
-    onKebab(e, space.id);
+    onKebab?.(e, space.id);
   }
 
   // The tab is a <div role="tab"> (not a <button>) because it nests an
@@ -154,7 +154,7 @@ export function SpaceTab({
       )}
 
       {/* Kebab affordance — real button for native keyboard focus (WCAG 2.1 SC 2.1.1) */}
-      <button
+      {onKebab && <button
         type="button"
         aria-label="Space options"
         title="Space options"
@@ -166,7 +166,7 @@ export function SpaceTab({
         ].join(' ')}
       >
         more_vert
-      </button>
+      </button>}
     </div>
   );
 }

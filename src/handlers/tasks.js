@@ -193,25 +193,34 @@ function validateDependsOnField(value) {
  * @param {import('../services/store').Store} store   - The open Store instance.
  * @returns {{ router: Function, ensureDataFiles: Function }}
  */
+/** What a repository holds that is not for everyone who can read its issues. */
+const PRIVATE_IN_REPO = (relative) => relative.split(path.sep).some((part) => part === '.git' || part.startsWith('.env'));
+
 /**
- * Whether a file really is in a folder, once links are followed. So an attachment cannot read
- * anything else on the server.
+ * Whether a file attachment may be read: it really is in the folder of the space, once links
+ * are followed, so that it cannot read anything else on the server. Prism's own data stays
+ * out even if it lives in there, as it does when Prism runs from a checkout.
  *
  * @param {string} file
  * @param {string|undefined|null} folder
+ * @param {string} [dataDir]
  * @returns {boolean}
  */
-function isInsideFolder(file, folder) {
+function isReadableAttachment(file, folder, dataDir) {
   if (!folder) return false;
   try {
     const root = fs.realpathSync(folder);
-    const inRoot = (candidate) => candidate.startsWith(root + path.sep);
+    const data = dataDir && dataDir !== ':memory:' ? fs.realpathSync(dataDir) : null;
+    let real;
     try {
-      return inRoot(fs.realpathSync(file));
+      real = fs.realpathSync(file);
     } catch {
       // Not there. Say so only for a path inside, or this would tell what exists elsewhere.
-      return inRoot(path.resolve(file));
+      real = path.resolve(file);
     }
+    if (!real.startsWith(root + path.sep)) return false;
+    if (data && (real === data || real.startsWith(data + path.sep))) return false;
+    return !PRIVATE_IN_REPO(path.relative(root, real));
   } catch {
     return false;
   }
@@ -1071,8 +1080,8 @@ function createApp(spaceId, store) {
       const normalizedPath = path.normalize(attachment.content);
 
       // Checked on reading, where it counts: this covers links and attachments from before.
-      if (!isInsideFolder(normalizedPath, store.getSpace(spaceId)?.workingDirectory)) {
-        return sendError(res, 403, 'FORBIDDEN', "This file is outside the space's repository folder.");
+      if (!isReadableAttachment(normalizedPath, store.getSpace(spaceId)?.workingDirectory, store.dataDir)) {
+        return sendError(res, 403, 'FORBIDDEN', "This file can't be read: it is private, or outside the space's repository folder.");
       }
 
       if (!fs.existsSync(normalizedPath)) {
@@ -1080,13 +1089,23 @@ function createApp(spaceId, store) {
         return sendError(res, 422, 'FILE_NOT_FOUND', 'The referenced file does not exist on disk');
       }
 
-      const stat = fs.statSync(normalizedPath);
-      if (stat.size > ATTACHMENT_FILE_MAX_BYTES) {
-        console.warn(`[attachment] File exceeds size limit: ${normalizedPath}`);
-        return sendError(res, 413, 'FILE_TOO_LARGE', 'The referenced file exceeds the 5 MB size limit');
+      // Without blocking: reading a named pipe would otherwise freeze the whole server.
+      const fd = fs.openSync(normalizedPath, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+      let fileContent;
+      try {
+        const stat = fs.fstatSync(fd);
+        if (!stat.isFile()) {
+          return sendError(res, 403, 'FORBIDDEN', 'Only regular files can be attached.');
+        }
+        if (stat.size > ATTACHMENT_FILE_MAX_BYTES) {
+          console.warn(`[attachment] File exceeds size limit: ${normalizedPath}`);
+          return sendError(res, 413, 'FILE_TOO_LARGE', 'The referenced file exceeds the 5 MB size limit');
+        }
+        fileContent = fs.readFileSync(fd, 'utf8');
+      } finally {
+        fs.closeSync(fd);
       }
 
-      const fileContent = fs.readFileSync(normalizedPath, 'utf8');
       return sendJSON(res, 200, {
         name:    attachment.name,
         type:    attachment.type,

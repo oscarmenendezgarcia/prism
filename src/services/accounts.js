@@ -52,6 +52,7 @@ const ACCOUNTS_SQL = `
     role       TEXT,
     user_id    TEXT REFERENCES users(id) ON DELETE CASCADE,
     created_by TEXT NOT NULL,
+    created_by_id TEXT,
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL
   );
@@ -113,6 +114,8 @@ function createAccounts(db) {
     setActive:    db.prepare('UPDATE users SET active = ? WHERE id = ?'),
     countAdmins:  db.prepare(`SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1`),
     dropUserLinks: db.prepare('DELETE FROM account_links WHERE user_id = ?'),
+    dropLinksMadeBy: db.prepare('DELETE FROM account_links WHERE created_by_id = ?'),
+    listNames:    db.prepare('SELECT name FROM users'),
     insertSession: db.prepare('INSERT INTO sessions (token_hash, user_id, created_at, used_at, expires_at) VALUES (?, ?, ?, ?, ?)'),
     findSession:  db.prepare(`
       SELECT s.used_at, s.expires_at, u.*
@@ -124,8 +127,8 @@ function createAccounts(db) {
     dropSessions: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
     dropExpired:  db.prepare('DELETE FROM sessions WHERE expires_at <= ?'),
     insertLink:   db.prepare(`
-      INSERT INTO account_links (id, token_hash, kind, email, role, user_id, created_by, created_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+      INSERT INTO account_links (id, token_hash, kind, email, role, user_id, created_by, created_by_id, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
     findLink:     db.prepare('SELECT * FROM account_links WHERE token_hash = ?'),
     listInvites:  db.prepare(`SELECT * FROM account_links WHERE kind = 'invite' AND expires_at > ? ORDER BY created_at DESC`),
     dropLink:     db.prepare('DELETE FROM account_links WHERE id = ?'),
@@ -198,25 +201,25 @@ function createAccounts(db) {
 
   const endSession = (token) => stmts.dropSession.run(hashToken(token));
 
-  function createLink(kind, { email, role = null, userId = null, createdBy, days }) {
+  function createLink(kind, { email, role = null, userId = null, createdBy, createdById = null, days }) {
     const token = newToken();
     const id = crypto.randomUUID();
     const expiresAt = inDays(days);
     stmts.dropLinksFor.run(kind, email);
-    stmts.insertLink.run(id, hashToken(token), kind, email, role, userId, createdBy, new Date().toISOString(), expiresAt);
+    stmts.insertLink.run(id, hashToken(token), kind, email, role, userId, createdBy, createdById, new Date().toISOString(), expiresAt);
     return { id, token, email, role, expiresAt };
   }
 
   /** A new invite takes the place of an earlier one for the same email. */
-  function createInvite({ email, role, createdBy }) {
-    return createLink('invite', { email: normalizeEmail(email), role, createdBy, days: INVITE_DAYS });
+  function createInvite({ email, role, createdBy, createdById }) {
+    return createLink('invite', { email: normalizeEmail(email), role, createdBy, createdById, days: INVITE_DAYS });
   }
 
   /** @returns {object|null} The link, or null if there is no such active user. */
-  function createResetLink({ userId, createdBy }) {
+  function createResetLink({ userId, createdBy, createdById }) {
     const user = stmts.getUser.get(userId);
     if (!user || user.active !== 1) return null;
-    return createLink('reset', { email: user.email, userId, createdBy, days: RESET_DAYS });
+    return createLink('reset', { email: user.email, userId, createdBy, createdById, days: RESET_DAYS });
   }
 
   function validLink(token) {
@@ -243,20 +246,24 @@ function createAccounts(db) {
     return db.transaction(() => {
       const link = validLink(token);
       if (!link) return { error: 'LINK_INVALID' };
-      stmts.dropLink.run(link.id);
       if (link.kind === 'reset') {
+        stmts.dropLink.run(link.id);
         stmts.setPassword.run(passwordHash, link.user_id);
         stmts.dropSessions.run(link.user_id);
         return publicUser(stmts.getUser.get(link.user_id));
       }
       if (stmts.getByEmail.get(link.email)) return { error: 'EMAIL_TAKEN' };
+      // Everything is signed by name, so two people cannot share one.
+      if (stmts.listNames.all().some((u) => u.name.toLocaleLowerCase() === name.toLocaleLowerCase())) return { error: 'NAME_TAKEN' };
+      stmts.dropLink.run(link.id);
       return publicUser(insertUser({ email: link.email, name, passwordHash, role: link.role }));
     })();
   }
 
   /**
    * Change a role or turn an account off. Turning it off ends its sessions and links, so that
-   * turning it back on does not revive them. There is always an active admin left.
+   * turning it back on does not revive them. Whoever stops being an active admin also loses the
+   * links they made, or they could use one to come back. There is always an active admin left.
    *
    * @returns {object|{ error: string }} The user.
    */
@@ -273,6 +280,7 @@ function createAccounts(db) {
         stmts.dropSessions.run(id);
         stmts.dropUserLinks.run(id);
       }
+      if (wasActiveAdmin && !staysActiveAdmin) stmts.dropLinksMadeBy.run(id);
       return publicUser(stmts.getUser.get(id));
     })();
   }
