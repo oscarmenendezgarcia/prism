@@ -25,6 +25,20 @@ function sendError(res, status, code, message, extra = {}) {
   sendJSON(res, status, { error: { code, message, ...extra } });
 }
 
+const ACTOR_MAX_LEN = 100;
+
+/**
+ * Who is making a request, for the history. Until there are accounts it is what the client
+ * says it is, so it records who did what but proves nothing.
+ *
+ * @param {import('http').IncomingMessage} req
+ * @returns {string}
+ */
+function readActor(req) {
+  const actor = String(req.headers?.['x-prism-actor'] ?? '').trim().slice(0, ACTOR_MAX_LEN);
+  return actor || 'API';
+}
+
 /**
  * Parse an incoming request body as JSON.
  * Hard limit: 512 KB.
@@ -69,4 +83,5 @@ function parseBodyWithLimit(req, maxBytes) {
   });
 }
 
-module.exports = { sendJSON, sendError, parseBody, parseBodyWithLimit };
+module.exports = {
+  readActor, sendJSON, sendError, parseBody, parseBodyWithLimit };

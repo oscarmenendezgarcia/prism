@@ -21,7 +21,7 @@ function buildDirectCardBlock(spaceId, taskId, agentId) {
   return [
     '## YOUR CARD IN PRISM',
     'Space ID: ' + spaceId + '  |  Task ID: ' + taskId,
-    'Prism runs this task. It commits anything you leave uncommitted, runs the check the user configured, and closes the card. Do NOT move this card, and do NOT start, stop or restart Prism.',
+    'Prism runs this task. It commits anything you leave uncommitted, runs the check the user configured, and moves the card when you are done. Do NOT move this card, and do NOT start, stop or restart Prism.',
     '',
     'Leave a note on the card when you finish, or to record a decision the user should know about:',
     `  mcp__prism__kanban_add_comment({ spaceId, taskId, author: "${agentId}", type: "note", text: "..." })`,

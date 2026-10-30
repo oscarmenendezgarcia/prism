@@ -15,8 +15,18 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const Database = require('better-sqlite3');
 
+const DEFAULT_PRIORITY = 'medium';
+
+/** A new space's statuses. Their ids stay when renamed: the API and agents use them. */
+const DEFAULT_STATUSES = [
+  { id: 'todo',        name: 'To do',       category: 'todo' },
+  { id: 'in-progress', name: 'In progress', category: 'in-progress' },
+  { id: 'in-review',   name: 'In review',   category: 'in-progress' },
+  { id: 'done',        name: 'Done',        category: 'done' },
+];
 
 // ---------------------------------------------------------------------------
 // DDL
@@ -105,6 +115,52 @@ CREATE TRIGGER IF NOT EXISTS tasks_fts_update AFTER UPDATE ON tasks BEGIN
 END;
 `;
 
+const ISSUE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS statuses (
+  space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  id       TEXT NOT NULL,
+  name     TEXT NOT NULL,
+  category TEXT NOT NULL CHECK(category IN ('todo','in-progress','done')),
+  position INTEGER NOT NULL,
+  PRIMARY KEY (space_id, id)
+);
+
+-- Every key a space has had: old links keep working, and nobody else can take them.
+CREATE TABLE IF NOT EXISTS space_keys (
+  key      TEXT PRIMARY KEY,
+  space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS comments (
+  id             TEXT PRIMARY KEY,
+  task_id        TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  author         TEXT NOT NULL,
+  text           TEXT NOT NULL,
+  type           TEXT NOT NULL,
+  parent_id      TEXT,
+  resolved       INTEGER NOT NULL DEFAULT 0,
+  change_request INTEGER NOT NULL DEFAULT 0,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS task_history (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  actor      TEXT NOT NULL,
+  field      TEXT NOT NULL,
+  old_value  TEXT,
+  new_value  TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_history_task  ON task_history(task_id, id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(space_id, status_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_parent  ON tasks(parent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_number ON tasks(space_id, number);
+`;
+
 // ---------------------------------------------------------------------------
 // JSON column helpers
 // ---------------------------------------------------------------------------
@@ -181,8 +237,12 @@ function rowToTask(row) {
   if (!row) return null;
   const task = {
     id:        row.id,
+    ...(row.space_key && row.number != null && { key: `${row.space_key}-${row.number}`, number: row.number }),
+    statusId:  row.status_id ?? row.column,
+    category:  row.column,
     title:     row.title,
     type:      row.type,
+    priority:  row.priority ?? DEFAULT_PRIORITY,
     rank:      row.rank ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -195,9 +255,11 @@ function rowToTask(row) {
   if (pl !== undefined) task.pipeline = pl;
   const att = fromJson(row.attachments);
   if (att !== undefined) task.attachments = att;
-  const cmt = fromJson(row.comments);
-  if (cmt !== undefined) task.comments = cmt;
-  if (row.arc != null) task.arc = row.arc;  // plain TEXT, no JSON.parse
+  const labels = fromJson(row.labels);
+  if (labels !== undefined) task.labels = labels;
+  if (row.parent_id != null) task.parentId = row.parent_id;
+  if (row.due_date != null) task.dueDate = row.due_date;
+  if (row.estimate != null) task.estimate = row.estimate;
   // MODEL-1: per-stage model routing overrides.
   const sm = fromJson(row.stage_models);
   if (sm !== undefined) task.stageModels = sm;
@@ -206,33 +268,192 @@ function rowToTask(row) {
   return task;
 }
 
+function rowToComment(row) {
+  return {
+    id:       row.id,
+    author:   row.author,
+    text:     row.text,
+    type:     row.type,
+    ...(row.parent_id != null && { parentId: row.parent_id }),
+    resolved: row.resolved === 1,
+    ...(row.change_request === 1 && { changeRequest: true }),
+    createdAt: row.created_at,
+    ...(row.updated_at != null && { updatedAt: row.updated_at }),
+  };
+}
+
+function rowToStatus(row) {
+  return { id: row.id, name: row.name, category: row.category };
+}
+
+// ---------------------------------------------------------------------------
+// Spaces: keys and statuses
+// ---------------------------------------------------------------------------
+
+/**
+ * A key for a space's issues, from its name: "General" gives GEN, "Web app" gives WA.
+ *
+ * @param {string} name
+ * @param {(key: string) => boolean} isTaken
+ * @returns {string}
+ */
+function suggestKey(name, isTaken) {
+  const words = String(name).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+    .split(/[^A-Z0-9]+/).filter(Boolean);
+  let base = words.length > 1 ? words.map((w) => w[0]).join('').slice(0, 4) : (words[0] ?? '').slice(0, 3);
+  if (!/^[A-Z]/.test(base)) base = `S${base}`.slice(0, 4);
+  base = base.padEnd(2, 'P');
+  if (!isTaken(base)) return base;
+  for (let i = 2; ; i++) {
+    if (!isTaken(`${base}${i}`)) return `${base}${i}`;
+  }
+}
+
+/** An id for a new status. The list response keys tasks by it, next to these two. */
+function statusSlug(name, isTaken) {
+  const slug = String(name).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'status';
+  const base = ['total', 'nextcursor'].includes(slug) ? `${slug}-status` : slug;
+  if (!isTaken(base)) return base;
+  for (let i = 2; ; i++) {
+    if (!isTaken(`${base}-${i}`)) return `${base}-${i}`;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Upgrades
 // ---------------------------------------------------------------------------
 
-/** Bumped when a version changes what the data means. */
-const SCHEMA_VERSION = 2;
+/**
+ * Bumped when a version changes what the data means.
+ * 2: pipelines and Folio retired. 3: tasks became issues.
+ */
+const SCHEMA_VERSION = 3;
 
 /**
- * Keep a copy of a database from before v2, once. v2 no longer runs pipelines or reads
- * Folio, so someone going back to v1 needs their data as it was. A new database has
- * nothing to keep, and a backup that fails stops the upgrade rather than risk the data.
+ * Keep a copy of a database from before an upgrade, once, so someone going back has their
+ * data as it was. A new database has nothing to keep, and a backup that fails stops the
+ * upgrade rather than risk the data.
  *
  * @param {import('better-sqlite3').Database} db
  * @param {string} dbPath
  */
-function backUpBeforeV2(db, dbPath) {
-  if (dbPath === ':memory:' || db.pragma('user_version', { simple: true }) >= SCHEMA_VERSION) return;
+function backUpBeforeUpgrade(db, dbPath) {
+  const version = db.pragma('user_version', { simple: true });
+  if (dbPath === ':memory:' || version >= SCHEMA_VERSION) return;
 
   const hasData = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'spaces'").get();
   if (hasData) {
-    const backupPath = `${dbPath}.before-v2`;
+    const backupPath = `${dbPath}.before-v${Math.max(version + 1, 2)}`;
     if (!fs.existsSync(backupPath)) {
       db.prepare('VACUUM INTO ?').run(backupPath);
       console.log(`[store] upgrade: kept a copy of the database in ${backupPath}`);
     }
   }
-  db.pragma(`user_version = ${SCHEMA_VERSION}`);
+}
+
+/**
+ * Add what an issue needs: columns, then the tables that hang from them.
+ * Safe to run on every start.
+ *
+ * @param {import('better-sqlite3').Database} db
+ */
+function addIssueSchema(db) {
+  const addColumns = (table, columns) => {
+    const existing = new Set(db.pragma(`table_info(${table})`).map((c) => c.name));
+    for (const [name, definition] of Object.entries(columns)) {
+      if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+    }
+  };
+  addColumns('spaces', { key: 'TEXT', next_number: 'INTEGER NOT NULL DEFAULT 1' });
+  addColumns('tasks', {
+    number:    'INTEGER',
+    status_id: 'TEXT',
+    priority:  `TEXT NOT NULL DEFAULT '${DEFAULT_PRIORITY}'`,
+    labels:    'TEXT',
+    parent_id: 'TEXT',
+    due_date:  'TEXT',
+    estimate:  'REAL',
+  });
+  db.exec(ISSUE_SCHEMA_SQL);
+}
+
+/**
+ * Turn tasks into issues: number them by creation order, give each space its statuses,
+ * make every arc an epic holding its tasks, and move comments to their own table.
+ * All of it commits together, along with the version, so a crash leaves the old data whole.
+ *
+ * @param {import('better-sqlite3').Database} db
+ */
+function migrateToIssues(db) {
+  const insertStatus  = db.prepare('INSERT OR IGNORE INTO statuses (space_id, id, name, category, position) VALUES (?, ?, ?, ?, ?)');
+  const insertKey     = db.prepare('INSERT INTO space_keys (key, space_id) VALUES (?, ?)');
+  const setSpace      = db.prepare('UPDATE spaces SET key = ?, next_number = ? WHERE id = ?');
+  const setNumber     = db.prepare('UPDATE tasks SET number = ?, status_id = column WHERE id = ?');
+  const insertComment = db.prepare(`
+    INSERT INTO comments (id, task_id, author, text, type, parent_id, resolved, change_request, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const isKeyTaken = (key) => !!db.prepare('SELECT 1 FROM space_keys WHERE key = ?').get(key);
+  const seenComments = new Set();
+
+  db.transaction(() => {
+    // These updates go through the search index's triggers, which fail if it is out of step.
+    db.exec("INSERT INTO tasks_fts(tasks_fts) VALUES ('rebuild')");
+
+    for (const space of db.prepare('SELECT id, name, key FROM spaces ORDER BY created_at, rowid').all()) {
+      const key = space.key ?? suggestKey(space.name, isKeyTaken);
+      if (!space.key) insertKey.run(key, space.id);
+      DEFAULT_STATUSES.forEach((status, i) => insertStatus.run(space.id, status.id, status.name, status.category, i));
+
+      const tasks = db.prepare('SELECT * FROM tasks WHERE space_id = ? ORDER BY created_at, rowid').all(space.id);
+      let number = 0;
+      for (const task of tasks) {
+        setNumber.run(++number, task.id);
+
+        let comments = [];
+        try {
+          comments = task.comments ? JSON.parse(task.comments) : [];
+        } catch {
+          console.warn(`[store] upgrade: task ${task.id} has unreadable comments, left as they were`);
+          continue;
+        }
+        for (const comment of Array.isArray(comments) ? comments : []) {
+          const id = comment.id && !seenComments.has(comment.id) ? comment.id : crypto.randomUUID();
+          seenComments.add(id);
+          insertComment.run(
+            id, task.id, comment.author ?? 'unknown', comment.text ?? '', comment.type ?? 'note',
+            comment.parentId ?? null, comment.resolved ? 1 : 0, comment.changeRequest ? 1 : 0,
+            comment.createdAt ?? task.created_at, comment.updatedAt ?? null,
+          );
+        }
+        db.prepare('UPDATE tasks SET comments = NULL WHERE id = ?').run(task.id);
+      }
+
+      // Each arc becomes an epic, after the tasks so that their numbers follow creation order.
+      const arcs = new Map();
+      for (const task of tasks) {
+        const arc = task.arc?.trim();
+        if (arc) arcs.set(arc, [...(arcs.get(arc) ?? []), task]);
+      }
+      for (const [arc, members] of arcs) {
+        const columns = members.map((t) => t.column);
+        const column = columns.every((c) => c === 'done') ? 'done'
+          : columns.every((c) => c === 'todo') ? 'todo' : 'in-progress';
+        const { rank } = db.prepare('SELECT COALESCE(MAX(rank), 0) AS rank FROM tasks WHERE space_id = ? AND column = ?').get(space.id, column);
+        const id = crypto.randomUUID();
+        const createdAt = members[0].created_at;
+        db.prepare(`
+          INSERT INTO tasks (id, space_id, column, status_id, number, title, type, rank, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'epic', ?, ?, ?)
+        `).run(id, space.id, column, column, ++number, arc, rank + 1000, createdAt, createdAt);
+        const setParent = db.prepare('UPDATE tasks SET parent_id = ?, arc = NULL WHERE id = ?');
+        for (const task of members) setParent.run(id, task.id);
+      }
+
+      setSpace.run(key, number + 1, space.id);
+    }
+    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  })();
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +473,7 @@ function createStore(dataDir) {
 
   const db = new Database(dbPath);
 
-  backUpBeforeV2(db, dbPath);
+  backUpBeforeUpgrade(db, dbPath);
 
   // Apply schema (idempotent — uses IF NOT EXISTS).
   // exec() runs multi-statement SQL; also applies the PRAGMAs.
@@ -346,11 +567,16 @@ function createStore(dataDir) {
     }
   }
 
+  addIssueSchema(db);
+  if (db.pragma('user_version', { simple: true }) < SCHEMA_VERSION) migrateToIssues(db);
+
   console.log(`[store] open — WAL mode confirmed, schema ready (${dbPath})`);
 
   // ---------------------------------------------------------------------------
   // Prepared statements (compiled once, reused for every call)
   // ---------------------------------------------------------------------------
+
+  const TASK_SELECT = 'SELECT t.*, s.key AS space_key FROM tasks t JOIN spaces s ON s.id = t.space_id';
 
   const stmts = {
     listSpaces:    db.prepare('SELECT * FROM spaces ORDER BY pinned DESC, pinned_rank ASC, created_at ASC'),
@@ -375,34 +601,38 @@ function createStore(dataDir) {
     `),
     deleteSpace:   db.prepare('DELETE FROM spaces WHERE id = ?'),
 
-    getTasksByColumn: db.prepare(
-      'SELECT * FROM tasks WHERE space_id = ? AND column = ? ORDER BY rank ASC, created_at ASC'
+    getTasksByStatus: db.prepare(
+      `${TASK_SELECT} WHERE t.space_id = ? AND t.status_id = ? ORDER BY t.rank ASC, t.created_at ASC`
     ),
     getAllTasksForSpace: db.prepare(
-      'SELECT * FROM tasks WHERE space_id = ? ORDER BY rank ASC, created_at ASC'
+      `${TASK_SELECT} WHERE t.space_id = ? ORDER BY t.rank ASC, t.created_at ASC`
     ),
     getTask: db.prepare(
-      'SELECT * FROM tasks WHERE space_id = ? AND id = ?'
+      `${TASK_SELECT} WHERE t.space_id = ? AND t.id = ?`
     ),
     getTaskById: db.prepare(
-      'SELECT *, space_id AS _space_id, column AS _column FROM tasks WHERE id = ? LIMIT 1'
+      `${TASK_SELECT.replace('t.*,', 't.*, t.space_id AS _space_id, t.column AS _column,')} WHERE t.id = ? LIMIT 1`
+    ),
+    getTaskByNumber: db.prepare(
+      `${TASK_SELECT.replace('t.*,', 't.*, t.space_id AS _space_id, t.column AS _column,')} WHERE t.space_id = ? AND t.number = ?`
+    ),
+    getChildren: db.prepare(
+      `${TASK_SELECT} WHERE t.parent_id = ? ORDER BY t.number ASC`
+    ),
+    takeNumber: db.prepare(
+      'UPDATE spaces SET next_number = next_number + 1 WHERE id = ? RETURNING next_number - 1 AS number'
     ),
     insertTask: db.prepare(`
       INSERT INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, rank, created_at, updated_at, depends_on)
+        (id, space_id, column, status_id, number, title, type, priority, labels, parent_id, due_date, estimate,
+         description, assigned, attachments, stage_models, rank, created_at, updated_at, depends_on)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `),
-    upsertTask: db.prepare(`
-      INSERT OR IGNORE INTO tasks
-        (id, space_id, column, title, type, description, assigned, pipeline, attachments, comments, arc, stage_models, rank, created_at, updated_at, depends_on)
-      VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     updateTask: db.prepare(`
       UPDATE tasks
-         SET title = ?, type = ?, description = ?, assigned = ?,
-             pipeline = ?, attachments = ?, comments = ?, arc = ?, stage_models = ?, depends_on = ?, updated_at = ?
+         SET title = ?, type = ?, priority = ?, labels = ?, parent_id = ?, due_date = ?, estimate = ?,
+             description = ?, assigned = ?, attachments = ?, stage_models = ?, depends_on = ?, updated_at = ?
        WHERE space_id = ? AND id = ?
     `),
     updateTaskDependsOn: db.prepare(`
@@ -411,39 +641,68 @@ function createStore(dataDir) {
     getTasksWithDepsInSpace: db.prepare(
       `SELECT id, depends_on FROM tasks WHERE space_id = ? AND depends_on IS NOT NULL`
     ),
-    moveTask: db.prepare(`
-      UPDATE tasks
-         SET column = ?, updated_at = ?
-       WHERE space_id = ? AND id = ?
-    `),
     moveTaskWithRank: db.prepare(
-      'UPDATE tasks SET column = ?, rank = ?, updated_at = ? WHERE space_id = ? AND id = ?'
+      'UPDATE tasks SET status_id = ?, column = ?, rank = ?, updated_at = ? WHERE space_id = ? AND id = ?'
     ),
     reorderTask: db.prepare(
       'UPDATE tasks SET rank = ?, updated_at = ? WHERE space_id = ? AND id = ?'
     ),
-    maxRankInColumn: db.prepare(
-      "SELECT COALESCE(MAX(rank), 0) AS max_rank FROM tasks WHERE space_id = ? AND column = ?"
+    maxRankInStatus: db.prepare(
+      'SELECT COALESCE(MAX(rank), 0) AS max_rank FROM tasks WHERE space_id = ? AND status_id = ?'
     ),
     deleteTask:  db.prepare('DELETE FROM tasks WHERE space_id = ? AND id = ?'),
     clearSpace:  db.prepare('DELETE FROM tasks WHERE space_id = ?'),
     searchTasks: db.prepare(`
-      SELECT t.*
+      SELECT t.*, s.key AS space_key
         FROM tasks_fts
         JOIN tasks t ON t.rowid = tasks_fts.rowid
+        JOIN spaces s ON s.id = t.space_id
        WHERE tasks_fts MATCH ?
          AND t.space_id = ?
        ORDER BY rank
        LIMIT ?
     `),
     searchAllTasks: db.prepare(`
-      SELECT t.*, t.space_id AS _space_id, t.column AS _column
+      SELECT t.*, s.key AS space_key, t.space_id AS _space_id, t.column AS _column
         FROM tasks_fts
         JOIN tasks t ON t.rowid = tasks_fts.rowid
+        JOIN spaces s ON s.id = t.space_id
        WHERE tasks_fts MATCH ?
        ORDER BY rank
        LIMIT ?
     `),
+
+    // ── keys and statuses ────────────────────────────────────────────────────
+    getStatuses: db.prepare('SELECT * FROM statuses WHERE space_id = ? ORDER BY position ASC'),
+    upsertStatus: db.prepare(`
+      INSERT INTO statuses (space_id, id, name, category, position) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(space_id, id) DO UPDATE SET
+        name = excluded.name, category = excluded.category, position = excluded.position
+    `),
+    deleteStatus: db.prepare('DELETE FROM statuses WHERE space_id = ? AND id = ?'),
+    setCategoryOfStatus: db.prepare('UPDATE tasks SET column = ? WHERE space_id = ? AND status_id = ?'),
+    countInStatus: db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE space_id = ? AND status_id = ?'),
+    getKeyOwner: db.prepare('SELECT space_id FROM space_keys WHERE key = ?'),
+    addKey: db.prepare('INSERT OR IGNORE INTO space_keys (key, space_id) VALUES (?, ?)'),
+    setKey: db.prepare('UPDATE spaces SET key = ? WHERE id = ?'),
+
+    // ── comments and history ─────────────────────────────────────────────────
+    getComments: db.prepare('SELECT * FROM comments WHERE task_id = ? ORDER BY created_at ASC, rowid ASC'),
+    getSpaceComments: db.prepare(`
+      SELECT c.* FROM comments c JOIN tasks t ON t.id = c.task_id
+       WHERE t.space_id = ? ORDER BY c.created_at ASC, c.rowid ASC
+    `),
+    insertComment: db.prepare(`
+      INSERT INTO comments (id, task_id, author, text, type, parent_id, resolved, change_request, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `),
+    updateComment: db.prepare('UPDATE comments SET text = ?, type = ?, resolved = ?, updated_at = ? WHERE id = ? AND task_id = ?'),
+    touchTask: db.prepare('UPDATE tasks SET updated_at = ? WHERE space_id = ? AND id = ?'),
+    insertHistory: db.prepare(`
+      INSERT INTO task_history (task_id, actor, field, old_value, new_value, created_at) VALUES (?, ?, ?, ?, ?, ?)
+    `),
+    getHistory: db.prepare('SELECT * FROM task_history WHERE task_id = ? ORDER BY id DESC'),
+    setParent: db.prepare('UPDATE tasks SET parent_id = ?, updated_at = ? WHERE space_id = ? AND id = ?'),
 
     // ── pipeline_runs ────────────────────────────────────────────────────────
     getRun: db.prepare(
@@ -483,12 +742,102 @@ function createStore(dataDir) {
   // Space operations
   // ---------------------------------------------------------------------------
 
+  /** A space with its key, its statuses and where an agent's finished work lands. */
+  function hydrateSpace(row) {
+    const space = rowToSpace(row);
+    if (!space) return null;
+    if (row.key) space.key = row.key;
+    space.statuses = stmts.getStatuses.all(space.id).map(rowToStatus);
+    space.finishStatusId = finishStatusOf(space);
+    return space;
+  }
+
+  /**
+   * Where an agent's finished work goes: what the space chose, else In review if it still
+   * has it, because a person reviews it. A space without it ends in its first done status.
+   */
+  function finishStatusOf(space) {
+    const { statuses, hooks } = space;
+    const known = (id) => statuses.some((s) => s.id === id);
+    if (known(hooks?.finishStatus)) return hooks.finishStatus;
+    if (known('in-review')) return 'in-review';
+    return statuses.find((s) => s.category === 'done')?.id ?? null;
+  }
+
   function listSpaces() {
-    return stmts.listSpaces.all().map(rowToSpace);
+    return stmts.listSpaces.all().map(hydrateSpace);
   }
 
   function getSpace(id) {
-    return rowToSpace(stmts.getSpace.get(id));
+    return hydrateSpace(stmts.getSpace.get(id));
+  }
+
+  function getStatuses(spaceId) {
+    return stmts.getStatuses.all(spaceId).map(rowToStatus);
+  }
+
+  /** The first status of a category, in the space's order. Every category has one. */
+  function firstStatusOf(spaceId, category) {
+    return getStatuses(spaceId).find((s) => s.category === category) ?? null;
+  }
+
+  /** The space a key belongs to, old keys included. */
+  function getKeyOwner(key) {
+    return stmts.getKeyOwner.get(key)?.space_id ?? null;
+  }
+
+  /**
+   * Change a space's key. Its old key keeps pointing to it.
+   *
+   * @returns {boolean} false when another space has or had the key.
+   */
+  function setSpaceKey(spaceId, key) {
+    const owner = getKeyOwner(key);
+    if (owner && owner !== spaceId) return false;
+    db.transaction(() => {
+      stmts.addKey.run(key, spaceId);
+      stmts.setKey.run(key, spaceId);
+    })();
+    return true;
+  }
+
+  /**
+   * Replace a space's statuses, in the order given. Issues in a removed status go where
+   * `moves` says, and issues in a status whose category changed follow it.
+   *
+   * @param {string} spaceId
+   * @param {Array<{ id?: string, name: string, category: string }>} statuses
+   * @param {Record<string, string>} [moves] - Removed status id → status id that stays.
+   * @param {{ actor?: string }} [opts]
+   * @returns {Array<{ id: string, name: string, category: string }>}
+   */
+  function setStatuses(spaceId, statuses, moves = {}, { actor } = {}) {
+    return db.transaction(() => {
+      const before = getStatuses(spaceId);
+      const used = new Set([...before.map((s) => s.id), ...statuses.map((s) => s.id).filter(Boolean)]);
+      statuses.forEach((status, position) => {
+        let { id } = status;
+        if (!id) {
+          id = statusSlug(status.name, (candidate) => used.has(candidate));
+          used.add(id);
+        }
+        stmts.upsertStatus.run(spaceId, id, status.name, status.category, position);
+        stmts.setCategoryOfStatus.run(status.category, spaceId, id);
+      });
+
+      const kept = new Set(statuses.map((s) => s.id).filter(Boolean));
+      for (const removed of before.filter((s) => !kept.has(s.id))) {
+        for (const row of stmts.getTasksByStatus.all(spaceId, removed.id)) {
+          moveTask(spaceId, row.id, moves[removed.id], { actor });
+        }
+        stmts.deleteStatus.run(spaceId, removed.id);
+      }
+      return getStatuses(spaceId);
+    })();
+  }
+
+  function countTasksInStatus(spaceId, statusId) {
+    return stmts.countInStatus.get(spaceId, statusId).n;
   }
 
   /**
@@ -496,6 +845,7 @@ function createStore(dataDir) {
    * Used by SpaceManager and tests.
    */
   function upsertSpace(space) {
+    db.transaction(() => {
     stmts.upsertSpace.run(
       space.id,
       space.name,
@@ -515,6 +865,18 @@ function createStore(dataDir) {
       space.createdAt,
       space.updatedAt,
     );
+    // A new space gets its key and statuses here, so no space can be without them.
+    if (!stmts.getSpace.get(space.id).key) {
+      const key = suggestKey(space.name, (candidate) => !!getKeyOwner(candidate));
+      stmts.addKey.run(key, space.id);
+      stmts.setKey.run(key, space.id);
+    }
+    if (stmts.getStatuses.all(space.id).length === 0) {
+      DEFAULT_STATUSES.forEach((status, i) => {
+        stmts.upsertStatus.run(space.id, status.id, status.name, status.category, i);
+      });
+    }
+    })();
   }
 
   function deleteSpace(id) {
@@ -525,22 +887,45 @@ function createStore(dataDir) {
   // Task operations
   // ---------------------------------------------------------------------------
 
-  function getTasksByColumn(spaceId, column) {
-    return stmts.getTasksByColumn.all(spaceId, column).map(rowToTask);
+  /** Attach comments to one task. A task without comments has no such field. */
+  function withComments(task) {
+    if (!task) return task;
+    const comments = stmts.getComments.all(task.id).map(rowToComment);
+    if (comments.length > 0) task.comments = comments;
+    return task;
+  }
+
+  /** Attach comments to a space's tasks in one query, for the board. */
+  function withSpaceComments(spaceId, tasks) {
+    const byTask = new Map();
+    for (const row of stmts.getSpaceComments.all(spaceId)) {
+      if (!byTask.has(row.task_id)) byTask.set(row.task_id, []);
+      byTask.get(row.task_id).push(rowToComment(row));
+    }
+    for (const task of tasks) {
+      const comments = byTask.get(task.id);
+      if (comments) task.comments = comments;
+    }
+    return tasks;
+  }
+
+  function getTasksByStatus(spaceId, statusId) {
+    return withSpaceComments(spaceId, stmts.getTasksByStatus.all(spaceId, statusId).map(rowToTask));
   }
 
   function getAllTasksForSpace(spaceId) {
-    return stmts.getAllTasksForSpace.all(spaceId).map(rowToTask);
+    return withSpaceComments(spaceId, stmts.getAllTasksForSpace.all(spaceId).map(rowToTask));
   }
 
   function getTask(spaceId, taskId) {
-    return rowToTask(stmts.getTask.get(spaceId, taskId));
+    return withComments(rowToTask(stmts.getTask.get(spaceId, taskId)));
   }
 
+  /** The task and its status category, which is what "done" and "in progress" mean. */
   function getTaskWithColumn(spaceId, taskId) {
     const row = stmts.getTask.get(spaceId, taskId);
     if (!row) return null;
-    return { task: rowToTask(row), column: row.column };
+    return { task: withComments(rowToTask(row)), column: row.column };
   }
 
   /**
@@ -555,118 +940,243 @@ function createStore(dataDir) {
     const row = stmts.getTaskById.get(taskId);
     if (!row) return null;
     return {
-      task:    rowToTask(row),
+      task:    withComments(rowToTask(row)),
       spaceId: row._space_id,
       column:  row._column,
     };
   }
 
-  function insertTask(task, spaceId, column) {
-    const effectiveRank = task.rank != null
-      ? task.rank
-      : (() => {
-          const { max_rank } = stmts.maxRankInColumn.get(spaceId, column);
-          return max_rank + 1000.0;
-        })();
-    withFtsRecovery(() => stmts.insertTask.run(
-      task.id,
-      spaceId,
-      column,
-      task.title,
-      task.type,
-      task.description !== undefined ? JSON.stringify(task.description) : null,
-      task.assigned    !== undefined ? JSON.stringify(task.assigned)    : null,
-      task.pipeline    !== undefined ? JSON.stringify(task.pipeline)    : null,
-      task.attachments !== undefined ? JSON.stringify(task.attachments) : null,
-      task.comments    !== undefined ? JSON.stringify(task.comments)    : null,
-      task.arc ?? null,
-      // MODEL-1: per-stage model routing overrides.
-      toJson(task.stageModels ?? null),
-      effectiveRank,
-      task.createdAt,
-      task.updatedAt,
-      task.dependsOn   !== undefined ? JSON.stringify(task.dependsOn)  : null,
-    ));
-    // BUG-001 (QOL-1): expose the computed rank on the caller's task object
-    // so POST /tasks 201 responses (and any other insertTask caller) can see
-    // where the new task landed without re-fetching it.
-    task.rank = effectiveRank;
+  /**
+   * Look up a task by key, such as WEB-142. Keys a space used to have still work.
+   *
+   * @param {string} key
+   * @returns {{ task: object, spaceId: string, column: string } | null}
+   */
+  function getTaskByKey(key) {
+    const match = /^([A-Za-z][A-Za-z0-9]{1,9})-(\d+)$/.exec(String(key).trim());
+    if (!match) return null;
+    const spaceId = getKeyOwner(match[1].toUpperCase());
+    if (!spaceId) return null;
+    const row = stmts.getTaskByNumber.get(spaceId, Number(match[2]));
+    if (!row) return null;
+    return {
+      task:    withComments(rowToTask(row)),
+      spaceId: row._space_id,
+      column:  row._column,
+    };
+  }
+
+  /** The issues directly under this one: an epic's issues, or an issue's sub-tasks. */
+  function getChildren(taskId) {
+    return stmts.getChildren.all(taskId).map(rowToTask);
   }
 
   /**
-   * Insert a task row if it does not already exist (idempotent, for migration).
+   * Check where an issue may sit: epic → issue → sub-task, and no deeper.
+   *
+   * @param {string} spaceId
+   * @param {string|null} taskId - null for an issue not created yet.
+   * @param {{ type: string, parentId?: string }} issue - The issue as it would become.
+   * @returns {string|null} What is wrong, or null.
    */
-  function upsertTask(task, spaceId, column) {
-    const info = stmts.upsertTask.run(
-      task.id,
-      spaceId,
-      column,
-      task.title,
-      task.type,
-      task.description !== undefined ? JSON.stringify(task.description) : null,
-      task.assigned    !== undefined ? JSON.stringify(task.assigned)    : null,
-      task.pipeline    !== undefined ? JSON.stringify(task.pipeline)    : null,
-      task.attachments !== undefined ? JSON.stringify(task.attachments) : null,
-      task.comments    !== undefined ? JSON.stringify(task.comments)    : null,
-      task.arc ?? null,
-      // MODEL-1: per-stage model routing overrides.
-      toJson(task.stageModels ?? null),
-      task.rank ?? 0,
-      task.createdAt,
-      task.updatedAt,
-      task.dependsOn   !== undefined ? JSON.stringify(task.dependsOn)  : null,
-    );
-    if (info.changes === 0) {
-      console.warn(`[store] WARN: upsertTask INSERT OR IGNORE skipped existing id=${task.id}`);
+  function checkHierarchy(spaceId, taskId, { type, parentId }) {
+    const children = taskId ? stmts.getChildren.all(taskId) : [];
+    if (type === 'epic' && parentId) return 'An epic cannot sit under another issue';
+    if (taskId && type !== 'epic' && children.length > 0 && stmts.getTask.get(spaceId, taskId)?.type === 'epic') {
+      return 'This epic still has issues. Move them out before changing its type';
     }
-    return info;
+    if (!parentId) return null;
+    if (parentId === taskId) return 'An issue cannot be its own parent';
+
+    const parent = stmts.getTask.get(spaceId, parentId);
+    if (!parent) return `Parent issue not found: ${parentId}`;
+    if (parent.type === 'epic') return null;
+
+    // The parent is an ordinary issue, so this one becomes its sub-task.
+    if (children.length > 0) return 'An issue with sub-tasks cannot become a sub-task';
+    const grandparent = parent.parent_id ? stmts.getTask.get(spaceId, parent.parent_id) : null;
+    if (grandparent && grandparent.type !== 'epic') return 'A sub-task cannot have sub-tasks';
+    return null;
   }
+
+  /** How a field's value reads in the history. */
+  function historyValue(spaceId, field, value) {
+    if (value === undefined || value === null) return null;
+    const keyOf = (id) => {
+      const row = stmts.getTask.get(spaceId, id);
+      return row ? rowToTask(row).key ?? id : id;
+    };
+    if (field === 'parentId') return keyOf(value);
+    if (field === 'dependsOn') return value.length > 0 ? value.map(keyOf).join(', ') : null;
+    if (field === 'labels') return value.length > 0 ? value.join(', ') : null;
+    return String(value);
+  }
+
+  function recordHistory(taskId, actor, field, oldValue, newValue) {
+    stmts.insertHistory.run(taskId, actor ?? 'Prism', field, oldValue, newValue, new Date().toISOString());
+  }
+
+  function getHistory(taskId) {
+    return stmts.getHistory.all(taskId).map((row) => ({
+      id:        row.id,
+      actor:     row.actor,
+      field:     row.field,
+      oldValue:  row.old_value,
+      newValue:  row.new_value,
+      createdAt: row.created_at,
+    }));
+  }
+
+  /**
+   * Create an issue with the next number of its space.
+   *
+   * @param {object} task
+   * @param {string} spaceId
+   * @param {string} statusId
+   * @param {{ actor?: string }} [opts]
+   */
+  function insertTask(task, spaceId, statusId, { actor } = {}) {
+    db.transaction(() => {
+      const status = getStatuses(spaceId).find((s) => s.id === statusId);
+      if (!status) {
+        const err = new Error(`Status '${statusId}' not found in space '${spaceId}'`);
+        err.code = 'STATUS_NOT_FOUND';
+        throw err;
+      }
+      const effectiveRank = task.rank != null
+        ? task.rank
+        : stmts.maxRankInStatus.get(spaceId, statusId).max_rank + 1000.0;
+      const { number } = stmts.takeNumber.get(spaceId);
+      withFtsRecovery(() => stmts.insertTask.run(
+        task.id,
+        spaceId,
+        status.category,
+        statusId,
+        number,
+        task.title,
+        task.type,
+        task.priority ?? DEFAULT_PRIORITY,
+        toJson(task.labels),
+        task.parentId ?? null,
+        task.dueDate ?? null,
+        task.estimate ?? null,
+        task.description !== undefined ? JSON.stringify(task.description) : null,
+        task.assigned    !== undefined ? JSON.stringify(task.assigned)    : null,
+        task.attachments !== undefined ? JSON.stringify(task.attachments) : null,
+        // MODEL-1: per-stage model routing overrides.
+        toJson(task.stageModels ?? null),
+        effectiveRank,
+        task.createdAt,
+        task.updatedAt,
+        task.dependsOn   !== undefined ? JSON.stringify(task.dependsOn)  : null,
+      ));
+      recordHistory(task.id, actor, 'created', null, null);
+      // BUG-001 (QOL-1): expose what the database decided on the caller's task object
+      // so POST /tasks 201 responses can see it without re-fetching.
+      task.rank     = effectiveRank;
+      task.number   = number;
+      task.key      = `${stmts.getSpace.get(spaceId).key}-${number}`;
+      task.statusId = statusId;
+      task.category = status.category;
+      task.priority = task.priority ?? DEFAULT_PRIORITY;
+    })();
+  }
+
+  /** Fields whose changes the history keeps. */
+  const HISTORY_FIELDS = ['title', 'type', 'priority', 'description', 'assigned', 'labels', 'parentId', 'dueDate', 'estimate'];
 
   /**
    * Apply a patch object to an existing task row and return the updated task.
-   * Patch keys mirror the task's JS shape (camelCase).
+   * Patch keys mirror the task's JS shape (camelCase). Comments have their own calls.
    * Returns null when the task is not found.
    */
-  function updateTask(spaceId, taskId, patch) {
-    const existing = getTask(spaceId, taskId);
-    if (!existing) return null;
+  function updateTask(spaceId, taskId, patch, { actor } = {}) {
+    return db.transaction(() => {
+      const existing = getTask(spaceId, taskId);
+      if (!existing) return null;
 
-    const merged = { ...existing, ...patch };
+      const merged = { ...existing, ...patch };
 
-    withFtsRecovery(() => stmts.updateTask.run(
-      merged.title,
-      merged.type,
-      merged.description !== undefined ? JSON.stringify(merged.description) : null,
-      merged.assigned    !== undefined ? JSON.stringify(merged.assigned)    : null,
-      merged.pipeline    !== undefined ? JSON.stringify(merged.pipeline)    : null,
-      merged.attachments !== undefined ? JSON.stringify(merged.attachments) : null,
-      merged.comments    !== undefined ? JSON.stringify(merged.comments)    : null,
-      merged.arc ?? null,
-      // MODEL-1: per-stage model routing overrides.
-      toJson(merged.stageModels ?? null),
-      merged.dependsOn   !== undefined ? JSON.stringify(merged.dependsOn)  : null,
-      merged.updatedAt,
-      spaceId,
-      taskId,
-    ));
+      withFtsRecovery(() => stmts.updateTask.run(
+        merged.title,
+        merged.type,
+        merged.priority ?? DEFAULT_PRIORITY,
+        toJson(merged.labels),
+        merged.parentId ?? null,
+        merged.dueDate ?? null,
+        merged.estimate ?? null,
+        merged.description !== undefined ? JSON.stringify(merged.description) : null,
+        merged.assigned    !== undefined ? JSON.stringify(merged.assigned)    : null,
+        merged.attachments !== undefined ? JSON.stringify(merged.attachments) : null,
+        // MODEL-1: per-stage model routing overrides.
+        toJson(merged.stageModels ?? null),
+        merged.dependsOn   !== undefined ? JSON.stringify(merged.dependsOn)  : null,
+        merged.updatedAt,
+        spaceId,
+        taskId,
+      ));
 
-    return merged;
+      for (const field of HISTORY_FIELDS) {
+        if (!(field in patch)) continue;
+        const before = historyValue(spaceId, field, existing[field]);
+        const after  = historyValue(spaceId, field, merged[field]);
+        if (before !== after) recordHistory(taskId, actor, field, before, after);
+      }
+
+      return merged;
+    })();
   }
 
   /**
-   * Move a task to a different column atomically (single UPDATE, no read-modify-write).
+   * Move a task to another status, last in it. Moving it where it already is does nothing.
    * Returns the updated task object, or null if not found.
    */
-  function moveTask(spaceId, taskId, toColumn) {
+  function moveTask(spaceId, taskId, statusId, { actor } = {}) {
     const move = db.transaction(() => {
-      const { max_rank } = stmts.maxRankInColumn.get(spaceId, toColumn);
-      const tailRank = max_rank + 1000.0;
+      const row = stmts.getTask.get(spaceId, taskId);
+      if (!row) return null;
+      if (row.status_id === statusId) return getTask(spaceId, taskId);
+
+      const statuses = getStatuses(spaceId);
+      const target = statuses.find((s) => s.id === statusId);
+      if (!target) {
+        const err = new Error(`Status '${statusId}' not found in space '${spaceId}'`);
+        err.code = 'STATUS_NOT_FOUND';
+        throw err;
+      }
+      const { max_rank } = stmts.maxRankInStatus.get(spaceId, statusId);
       const now = new Date().toISOString();
-      const info = stmts.moveTaskWithRank.run(toColumn, tailRank, now, spaceId, taskId);
-      if (info.changes === 0) return null;
+      stmts.moveTaskWithRank.run(statusId, target.category, max_rank + 1000.0, now, spaceId, taskId);
+      const from = statuses.find((s) => s.id === row.status_id);
+      recordHistory(taskId, actor, 'status', from?.name ?? row.status_id, target.name);
       return getTask(spaceId, taskId);
     });
     return move();
+  }
+
+  /**
+   * Add a comment and mark the task as changed.
+   *
+   * @param {string} spaceId
+   * @param {string} taskId
+   * @param {object} comment
+   */
+  function addComment(spaceId, taskId, comment) {
+    db.transaction(() => {
+      stmts.insertComment.run(
+        comment.id, taskId, comment.author, comment.text, comment.type, comment.parentId ?? null,
+        comment.resolved ? 1 : 0, comment.changeRequest ? 1 : 0, comment.createdAt, comment.updatedAt ?? null,
+      );
+      stmts.touchTask.run(comment.createdAt, spaceId, taskId);
+    })();
+  }
+
+  /** Save a changed comment and mark the task as changed. */
+  function updateComment(spaceId, taskId, comment) {
+    db.transaction(() => {
+      stmts.updateComment.run(comment.text, comment.type, comment.resolved ? 1 : 0, comment.updatedAt, comment.id, taskId);
+      stmts.touchTask.run(comment.updatedAt, spaceId, taskId);
+    })();
   }
 
   function reorderTask(spaceId, taskId, rank) {
@@ -778,14 +1288,14 @@ function createStore(dataDir) {
    *   `depIds === undefined` leaves dependencies untouched; `[]` clears them.
    * @returns {{ task: object } | { error: string, code: string }}
    */
-  function updateTaskWithDependencies(spaceId, taskId, { patch, depIds } = {}) {
+  function updateTaskWithDependencies(spaceId, taskId, { patch, depIds, actor } = {}) {
     const apply = db.transaction(() => {
       if (depIds !== undefined) {
-        const depResult = setTaskDependencies(spaceId, taskId, depIds);
+        const depResult = setTaskDependencies(spaceId, taskId, depIds, { actor });
         if (depResult.error) throw new TaskWriteError(depResult.code, depResult.error);
       }
       if (patch && Object.keys(patch).length > 0) {
-        const updated = updateTask(spaceId, taskId, patch);
+        const updated = updateTask(spaceId, taskId, patch, { actor });
         if (!updated) throw new TaskWriteError('TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
       return getTask(spaceId, taskId);
@@ -806,7 +1316,7 @@ function createStore(dataDir) {
    * @param {string[]} depIds
    * @returns {{ task: object } | { error: string, code: string }}
    */
-  function setTaskDependencies(spaceId, taskId, depIds) {
+  function setTaskDependencies(spaceId, taskId, depIds, { actor } = {}) {
     // Validate taskId exists
     const taskRow = stmts.getTask.get(spaceId, taskId);
     if (!taskRow) return { error: 'Task not found', code: 'TASK_NOT_FOUND' };
@@ -832,7 +1342,10 @@ function createStore(dataDir) {
     // Persist
     const now = new Date().toISOString();
     const depsJson = depIds.length > 0 ? JSON.stringify(depIds) : null;
+    const before = historyValue(spaceId, 'dependsOn', fromJson(taskRow.depends_on) ?? []);
+    const after  = historyValue(spaceId, 'dependsOn', depIds);
     stmts.updateTaskDependsOn.run(depsJson, now, spaceId, taskId);
+    if (before !== after) recordHistory(taskId, actor, 'dependsOn', before, after);
 
     const updated = getTask(spaceId, taskId);
     return { task: updated };
@@ -870,12 +1383,19 @@ function createStore(dataDir) {
    */
   function getAllTasksForSpaceWithStatus(spaceId) {
     const rows = stmts.getAllTasksForSpace.all(spaceId);
-    const tasks = rows.map(row => ({ ...rowToTask(row), _col: row.column }));
+    const tasks = withSpaceComments(spaceId, rows.map(row => ({ ...rowToTask(row), _col: row.column })));
     return deriveBlockedStatus(tasks);
   }
 
-  function deleteTask(spaceId, taskId) {
+  function deleteTask(spaceId, taskId, { actor } = {}) {
     const doDelete = db.transaction(() => {
+      // Its epic's issues and its sub-tasks stay, without a parent.
+      const removedKey = historyValue(spaceId, 'parentId', taskId);
+      for (const child of stmts.getChildren.all(taskId)) {
+        stmts.setParent.run(null, new Date().toISOString(), spaceId, child.id);
+        recordHistory(child.id, actor, 'parentId', removedKey, null);
+      }
+
       const info = withFtsRecovery(() => stmts.deleteTask.run(spaceId, taskId));
       if (info.changes === 0) return false;
 
@@ -931,7 +1451,7 @@ function createStore(dataDir) {
     // Uses the pre-compiled stmts.searchTasks statement (compiled once at startup).
     try {
       const rows = withFtsRecovery(() => stmts.searchTasks.all(trimmedQuery, spaceId, limit));
-      return rows.map(rowToTask);
+      return rows.map(rowToTask).map(withComments);
     } catch (err) {
       // FTS5 MATCH throws on malformed query strings (e.g. unmatched quotes).
       // Return an empty result rather than crashing the handler.
@@ -959,7 +1479,7 @@ function createStore(dataDir) {
     try {
       const rows = withFtsRecovery(() => stmts.searchAllTasks.all(trimmedQuery, limit));
       return rows.map((row) => ({
-        task:    rowToTask(row),
+        task:    withComments(rowToTask(row)),
         spaceId: row._space_id,
         column:  row._column,
       }));
@@ -1085,16 +1605,27 @@ function createStore(dataDir) {
     getSpace,
     upsertSpace,
     deleteSpace,
+    getStatuses,
+    firstStatusOf,
+    setStatuses,
+    countTasksInStatus,
+    getKeyOwner,
+    setSpaceKey,
     // Task
-    getTasksByColumn,
+    getTasksByStatus,
     getAllTasksForSpace,
     getAllTasksForSpaceWithStatus,
     getTask,
     getTaskWithColumn,
     getTaskById,
+    getTaskByKey,
+    getChildren,
+    checkHierarchy,
+    getHistory,
     insertTask,
-    upsertTask,
     updateTask,
+    addComment,
+    updateComment,
     moveTask,
     reorderTask,
     reorderTasks,
@@ -1118,4 +1649,4 @@ function createStore(dataDir) {
   };
 }
 
-module.exports = { createStore };
+module.exports = { createStore, DEFAULT_PRIORITY };

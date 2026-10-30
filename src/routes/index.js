@@ -12,6 +12,7 @@
 
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { createApp }                      = require('../handlers/tasks');
+const { handleUpdateStatuses }           = require('../handlers/statuses');
 const taskRunner                         = require('../services/taskRunner');
 const { handleStatic }                   = require('../handlers/static');
 const { handleGetHarnesses }             = require('../handlers/harnesses');
@@ -42,6 +43,9 @@ const RUN_ACTION_ROUTE      = /^\/api\/v1\/runs\/([^/]+)\/(diff|log|stop|resume)
 const COMMENTS_LIST_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments$/;
 const COMMENTS_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments\/([^/]+)$/;
 const FS_VALIDATE_ROUTE     = /^\/api\/v1\/fs\/validate$/;
+const ISSUE_KEY_IN_PATH     = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([A-Za-z][A-Za-z0-9]{1,9}-\d+)(?=\/|$)/;
+const ISSUE_ROUTE           = /^\/api\/v1\/issues\/([^/]+)$/;
+const SPACE_STATUSES_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/statuses$/;
 const SPACES_LIST_ROUTE     = /^\/api\/v1\/spaces$/;
 const SPACES_SINGLE_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)$/;
 // Matches /api/v1/spaces/:spaceId/tasks and everything under it.
@@ -73,7 +77,37 @@ const HARNESSES_ROUTE       = /^\/api\/v1\/harnesses$/;
 function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
   return async function mainRouter(req, res) {
     const { method } = req;
-    const urlPath    = req.url.split('?')[0];
+    let urlPath      = req.url.split('?')[0];
+
+    // Any route of an issue also takes its key, such as WEB-142, in place of its id.
+    const issueKeyMatch = ISSUE_KEY_IN_PATH.exec(urlPath);
+    if (issueKeyMatch) {
+      const found = store.getTaskByKey(issueKeyMatch[2]);
+      if (found && found.spaceId === issueKeyMatch[1]) {
+        urlPath = urlPath.replace(issueKeyMatch[0], `/api/v1/spaces/${issueKeyMatch[1]}/tasks/${found.task.id}`);
+      }
+    }
+
+    // GET /api/v1/issues/:key, for what only knows the key. Old keys keep working.
+    const issueMatch = ISSUE_ROUTE.exec(urlPath);
+    if (issueMatch) {
+      if (method !== 'GET') {
+        return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+      }
+      const found = store.getTaskByKey(issueMatch[1]);
+      if (!found) return sendError(res, 404, 'TASK_NOT_FOUND', `Issue '${issueMatch[1]}' not found`);
+      return sendJSON(res, 200, { ...found.task, spaceId: found.spaceId });
+    }
+
+    const spaceStatusesMatch = SPACE_STATUSES_ROUTE.exec(urlPath);
+    if (spaceStatusesMatch) {
+      const spaceResult = spaceManager.getSpace(spaceStatusesMatch[1]);
+      if (!spaceResult.ok) return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      if (method !== 'PUT') {
+        return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+      }
+      return handleUpdateStatuses(req, res, store, spaceStatusesMatch[1]);
+    }
 
     // -------------------------------------------------------------------------
     // Comment routes — BEFORE SPACES_TASKS_ROUTE to avoid regex swallowing.
@@ -202,7 +236,16 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
 
         const name             = body && body.name;
         const workingDirectory = body && body.workingDirectory;
+        const key    = body && body.key;
+        if (key !== undefined) {
+          const keyCheck = spaceManager.checkKey(key);
+          if (!keyCheck.ok) return sendError(res, keyCheck.code === 'DUPLICATE_KEY' ? 409 : 400, keyCheck.code, keyCheck.message);
+        }
         const result = spaceManager.createSpace(name, workingDirectory);
+        if (result.ok && key !== undefined) {
+          spaceManager.setKey(result.space.id, key);
+          result.space = spaceManager.getSpace(result.space.id).space;
+        }
 
         if (!result.ok) {
           const status = result.code === 'DUPLICATE_NAME' ? 409 : 400;
@@ -242,7 +285,17 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         const pinned      = body && body.pinned      !== undefined ? body.pinned      : undefined;
         const pinnedRank  = body && body.pinnedRank  !== undefined ? body.pinnedRank  : undefined;
 
+        const key         = body && body.key;
+        if (key !== undefined) {
+          const keyCheck = spaceManager.checkKey(key, spaceId);
+          if (!keyCheck.ok) return sendError(res, keyCheck.code === 'DUPLICATE_KEY' ? 409 : 400, keyCheck.code, keyCheck.message);
+        }
+
         const result = spaceManager.renameSpace(spaceId, name, workingDirectory, pinned, pinnedRank);
+        if (result.ok && key !== undefined) {
+          spaceManager.setKey(spaceId, key);
+          result.space = spaceManager.getSpace(spaceId).space;
+        }
 
         if (!result.ok) {
           const status = result.code === 'SPACE_NOT_FOUND' ? 404

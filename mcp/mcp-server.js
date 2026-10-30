@@ -146,11 +146,11 @@ const requiredSpaceIdSchema = z
 const listTasksFiltersSchema = z
   .union([
     z.object({
-      column:   z.enum(['todo', 'in-progress', 'done']).describe('Column to filter to.'),
+      column:   z.string().describe('Status id to filter to, such as "todo" or "in-review".'),
       assigned: z.string().describe('Agent name to filter by.'),
     }).describe('Filter by both column and assigned agent.'),
     z.object({
-      column: z.enum(['todo', 'in-progress', 'done']).describe('Column to filter to.'),
+      column: z.string().describe('Status id to filter to, such as "todo" or "in-review".'),
     }).describe('Filter by column only.'),
     z.object({
       assigned: z.string().describe('Agent name to filter by.'),
@@ -220,9 +220,9 @@ server.tool(
 
 server.tool(
   'kanban_get_task',
-  'Get a single task by its ID. Searches all columns within the specified space. Returns the task with a column field indicating where it was found.',
+  'Get a single issue by its ID or its key, such as WEB-142. Searches all statuses within the specified space. Returns the issue with a column field giving its status id.',
   {
-    id: z.string().describe('The task ID (UUID).'),
+    id: z.string().describe('The task ID (UUID) or key (WEB-142).'),
     spaceId: spaceIdSchema,
   },
   withTiming('kanban_get_task', async ({ id, spaceId }) => {
@@ -236,14 +236,14 @@ server.tool(
 
 server.tool(
   'kanban_create_task',
-  "Create a new task in the 'todo' column. Returns the created task with its generated ID. Pass spaceId to create in a specific space.",
+  "Create a new issue in the first to-do status of its space. Returns the created task with its generated ID. Pass spaceId to create in a specific space.",
   {
     title: z.string().describe('Task title (max 200 chars).'),
-    type:  z.enum(['feature', 'bug', 'tech-debt', 'chore']).describe('Task type.'),
+    type:  z.enum(['feature', 'bug', 'tech-debt', 'chore', 'epic']).describe('Issue type. An epic groups other issues.'),
     description: z
       .string()
       .optional()
-      .describe('Optional task description (max 1000 chars).'),
+      .describe('Optional task description (max 20000 chars).'),
     assigned: z
       .string()
       .optional()
@@ -253,14 +253,21 @@ server.tool(
       .max(20)
       .optional()
       .describe('Optional task IDs this task depends on. A task with unfinished dependencies is blocked and cannot start a run. Cycles are rejected.'),
-    arc: z.string().max(60).optional()
-      .describe('Narrative grouping label (e.g. "QOL", "AUTH"). Omit to leave unset.'),
+    priority: z.enum(['urgent', 'high', 'medium', 'low']).optional().describe('Priority. New issues are medium.'),
+    labels: z.array(z.string()).max(20).optional().describe('Labels. Replaces the ones it had.'),
+    parentId: z.string().nullable().optional().describe('ID of the epic this issue belongs to, or of the issue this is a sub-task of. null removes it.'),
+    dueDate: z.string().nullable().optional().describe('Due date as YYYY-MM-DD. null clears it.'),
+    estimate: z.number().nullable().optional().describe('Estimate in points. null clears it.'),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_create_task', async ({ title, type, description, assigned, arc, dependsOn, spaceId }) => {
+  withTiming('kanban_create_task', async ({ title, type, description, assigned, priority, labels, parentId, dueDate, estimate, dependsOn, spaceId }) => {
     return createTask({
       title, type, description, assigned,
-      ...(arc !== undefined && { arc }),
+      ...(priority !== undefined && { priority }),
+      ...(labels !== undefined && { labels }),
+      ...(parentId !== undefined && { parentId }),
+      ...(dueDate !== undefined && { dueDate }),
+      ...(estimate !== undefined && { estimate }),
       ...(dependsOn !== undefined && { dependsOn }),
     }, spaceId);
   })
@@ -272,13 +279,13 @@ server.tool(
 
 server.tool(
   'kanban_update_task',
-  'Updates fields of an existing task (title, description, assigned, type) and/or attachments. Only provided fields are changed. ' +
+  'Updates fields of an existing issue (title, description, assigned, type, priority, labels, parentId, dueDate, estimate) and/or attachments. Only provided fields are changed. ' +
   'For attachments, `mode` defaults to `merge` (upserts incoming items by `name` and keeps the rest). ' +
   'Pass `mode:"replace"` to overwrite the entire array; an empty array under `replace` clears all attachments.',
   {
     id:    z.string().describe('The task ID to update.'),
     title: z.string().optional().describe('New title.'),
-    type:  z.enum(['feature', 'bug', 'tech-debt', 'chore']).optional().describe('New type.'),
+    type:  z.enum(['feature', 'bug', 'tech-debt', 'chore', 'epic']).optional().describe('New type.'),
     description: z.string().optional().describe('New description.'),
     assigned:    z.string().optional().describe('New assigned agent.'),
     attachments: z
@@ -311,8 +318,11 @@ server.tool(
       .max(20)
       .optional()
       .describe('Replace the task IDs this task depends on. Pass an empty array to clear them. A task with unfinished dependencies is blocked and cannot start a run. Cycles are rejected.'),
-    arc: z.string().max(60).optional()
-      .describe('Set or clear the arc. Pass "" (empty string) to clear the arc.'),
+    priority: z.enum(['urgent', 'high', 'medium', 'low']).optional().describe('Priority. New issues are medium.'),
+    labels: z.array(z.string()).max(20).optional().describe('Labels. Replaces the ones it had.'),
+    parentId: z.string().nullable().optional().describe('ID of the epic this issue belongs to, or of the issue this is a sub-task of. null removes it.'),
+    dueDate: z.string().nullable().optional().describe('Due date as YYYY-MM-DD. null clears it.'),
+    estimate: z.number().nullable().optional().describe('Estimate in points. null clears it.'),
     mode: z
       .enum(['merge', 'replace'])
       .optional()
@@ -322,13 +332,17 @@ server.tool(
       ),
     spaceId: spaceIdSchema,
   },
-  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, arc, dependsOn, attachments, mode, spaceId }) => {
+  withTiming('kanban_update_task', async ({ id, title, type, description, assigned, priority, labels, parentId, dueDate, estimate, dependsOn, attachments, mode, spaceId }) => {
     const fields = {};
     if (title       !== undefined) fields.title       = title;
     if (type        !== undefined) fields.type        = type;
     if (description !== undefined) fields.description = description;
     if (assigned    !== undefined) fields.assigned    = assigned;
-    if (arc         !== undefined) fields.arc         = arc;
+    if (priority    !== undefined) fields.priority    = priority;
+    if (labels      !== undefined) fields.labels      = labels;
+    if (parentId    !== undefined) fields.parentId    = parentId;
+    if (dueDate     !== undefined) fields.dueDate     = dueDate;
+    if (estimate    !== undefined) fields.estimate    = estimate;
     if (dependsOn  !== undefined) fields.dependsOn  = dependsOn;
 
     let result;
@@ -355,10 +369,10 @@ server.tool(
 
 server.tool(
   'kanban_move_task',
-  'Move a task to a different column (todo, in-progress, or done). Pass spaceId to target a specific space.',
+  'Move a task to another status of its space. The defaults are todo, in-progress, in-review and done; a space can have its own. Pass spaceId to target a specific space.',
   {
     id: z.string().describe('The task ID to move.'),
-    to: z.enum(['todo', 'in-progress', 'done']).describe('Target column.'),
+    to: z.string().describe('Status id to move it to.'),
     spaceId: spaceIdSchema,
   },
   withTiming('kanban_move_task', async ({ id, to, spaceId }) => {

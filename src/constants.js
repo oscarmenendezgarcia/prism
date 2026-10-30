@@ -4,7 +4,7 @@
  * Shared constants used across multiple server modules.
  */
 
-/** Canonical column identifiers for the Kanban board. */
-const COLUMNS = ['todo', 'in-progress', 'done'];
+/** What a status can mean. Dependencies, reports and agents read this, not its name. */
+const CATEGORIES = ['todo', 'in-progress', 'done'];
 
-module.exports = { COLUMNS };
+module.exports = { CATEGORIES };

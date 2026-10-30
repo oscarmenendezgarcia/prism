@@ -193,7 +193,7 @@ describe('task runs', () => {
 
     const done = await waitFor(taskId, 'done');
     assert.equal(fs.readFileSync(path.join(agentDir, 'last-cwd'), 'utf8').trim(), fs.realpathSync(run.worktree.path));
-    assert.equal(await columnOf(taskId), 'done');
+    assert.equal(await columnOf(taskId), 'in-review');
 
     // Worktree kept, work committed on the run branch, checkout untouched.
     assert.ok(fs.existsSync(path.join(run.worktree.path, 'agent-work.txt')));
@@ -235,7 +235,7 @@ describe('task runs', () => {
     assert.equal((await started).status, 201);
     assert.equal(moved.status, 409);
     await waitFor(taskId, 'done');
-    assert.equal(await columnOf(taskId), 'done');
+    assert.equal(await columnOf(taskId), 'in-review');
   });
 
   test('refuses a second run, a bad harness and an unsafe model', async () => {
@@ -303,7 +303,7 @@ describe('task runs', () => {
     const { json: run } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
     const done = await waitFor(taskId, 'done');
     assert.equal(done.hook.status, 'passed');
-    assert.equal(await columnOf(taskId), 'done');
+    assert.equal(await columnOf(taskId), 'in-review');
     // What the hook changed is saved too.
     assert.equal(git(repo, 'show', `${run.worktree.branch}:hook-saw.txt`), taskId);
     assert.equal(done.result.fileCount, 2);
@@ -326,7 +326,7 @@ describe('task runs', () => {
     const done = await waitFor(taskId, 'done');
     assert.equal(done.hook.status, 'passed');
     assert.equal(prompts(), agentTurns, 'the agent did not run again');
-    assert.equal(await columnOf(taskId), 'done');
+    assert.equal(await columnOf(taskId), 'in-review');
     fs.rmSync(flag);
   });
 
@@ -409,7 +409,7 @@ describe('task runs', () => {
     assert.equal(done.iteration, 2);
     assert.equal(fs.readFileSync(path.join(agentDir, 'last-cwd'), 'utf8').trim(), fs.realpathSync(run.worktree.path));
     assert.equal(done.result.additions, 2, 'the second turn added to the first');
-    assert.equal(await columnOf(taskId), 'done');
+    assert.equal(await columnOf(taskId), 'in-review');
 
     const prompt = lastPrompt();
     assert.match(prompt, /CHANGES REQUESTED/);
@@ -993,7 +993,7 @@ esac
       const { status, json } = await call('POST', `/spaces/${space}/tasks/${taskId}/pr`, {});
       assert.equal(status, 200);
       assert.equal(json.result.pr.number, 7);
-      assert.match(ghLog(), /pr create --head \S+ --title task \d+/);
+      assert.match(ghLog(), /pr create --head \S+ --title \S+-\d+: task \d+/);
       const branch = run.worktree.branch;
       assert.equal(execFileSync('git', ['-C', remote, 'rev-parse', branch], { encoding: 'utf8' }).trim(), json.result.head);
       assert.equal((await view(taskId)).result.pr.pushedHead, json.result.head);

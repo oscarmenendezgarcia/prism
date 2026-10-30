@@ -162,6 +162,25 @@ function spaceHooks(spaceId) {
   };
 }
 
+/** Who the history says did what a run did. */
+function agentName(run) {
+  return run.agentConfig?.cliTool ?? 'claude';
+}
+
+/**
+ * Put a task the agent is working on in an in-progress status: the first one, unless it
+ * was already in one that is not where finished work lands.
+ *
+ * @param {object} run
+ */
+function moveToInProgress(run) {
+  const { spaceId, taskId } = run;
+  const task = _store.getTask(spaceId, taskId);
+  const { finishStatusId } = _store.getSpace(spaceId);
+  if (task?.category === 'in-progress' && task.statusId !== finishStatusId) return;
+  _store.moveTask(spaceId, taskId, _store.firstStatusOf(spaceId, 'in-progress').id, { actor: agentName(run) });
+}
+
 // ---------------------------------------------------------------------------
 // Processes
 // ---------------------------------------------------------------------------
@@ -379,7 +398,7 @@ async function openPullRequest(run, { signal } = {}) {
     branch:     run.worktree.branch,
     sourceRef:  run.result?.ref ?? undefined,
     baseBranch: run.worktree.baseBranch,
-    title:      task?.title ?? run.worktree.branch,
+    title:      task ? `${task.key}: ${task.title}` : run.worktree.branch,
     body:       task?.description || 'Created from Prism.',
   });
 
@@ -557,7 +576,9 @@ async function finishRun(runId, signalledPid) {
   writeRun(run);
   log('run.completed', { runId, totalDurationMs: Date.now() - new Date(run.createdAt).getTime() });
   // Directly: the HTTP route refuses moves while a queued action holds the task's lock.
-  _store.moveTask(run.spaceId, run.taskId, 'done');
+  // A person reviews it from here, unless the space says otherwise.
+  const { finishStatusId } = _store.getSpace(run.spaceId);
+  _store.moveTask(run.spaceId, run.taskId, finishStatusId, { actor: agentName(run) });
 }
 
 // ---------------------------------------------------------------------------
@@ -584,7 +605,7 @@ function buildPrompt(run) {
   const task = _store.getTask(spaceId, taskId);
   const cwd  = run.worktree.path;
 
-  let prompt = `Task: ${task.title}\n`;
+  let prompt = `Task: ${task.key}: ${task.title}\n`;
   if (task.description) prompt += `Description: ${task.description}\n`;
   prompt += `TaskId: ${task.id}\nSpaceId: ${spaceId}\nRunId: ${runId}\n`;
   prompt += `\nWorking Directory: ${cwd}\n`;
@@ -1046,7 +1067,10 @@ async function createRun({ spaceId, taskId, workingDirectory, agentConfig = null
     if (!found) throw runnerError('TASK_NOT_FOUND', `Task '${taskId}' not found in space '${spaceId}'.`);
     // A task left in progress can start again, e.g. after it was stopped.
     if (found.column === 'done') {
-      throw runnerError('TASK_NOT_IN_TODO', `Task '${taskId}' is in column '${found.column}', not 'todo'.`);
+      throw runnerError('TASK_NOT_IN_TODO', `Task '${taskId}' is already done.`);
+    }
+    if (found.task.type === 'epic') {
+      throw runnerError('TASK_IS_EPIC', 'An epic groups issues. Run the issues in it instead.');
     }
 
     assertRoomForRun();
@@ -1084,7 +1108,7 @@ async function createRun({ spaceId, taskId, workingDirectory, agentConfig = null
     creatingRuns--;
     log('run.created', { runId, spaceId, taskId });
 
-    _store.moveTask(spaceId, taskId, 'in-progress');
+    moveToInProgress(run);
     setImmediate(() => {
       startAgent(runId).catch((err) => {
         log('agent.start_error', { runId, message: err.message });
@@ -1276,18 +1300,14 @@ async function requestChanges(runId, text) {
 
     // The agent reads the task's comments in its prompt, so this goes first.
     const now  = new Date().toISOString();
-    const task = _store.getTask(run.spaceId, run.taskId);
-    _store.updateTask(run.spaceId, run.taskId, {
-      comments: [...(task?.comments ?? []), {
-        id: crypto.randomUUID(), author: 'user', text, type: 'note', changeRequest: true,
-        resolved: false, createdAt: now,
-      }],
-      updatedAt: now,
+    _store.addComment(run.spaceId, run.taskId, {
+      id: crypto.randomUUID(), author: 'user', text, type: 'note', changeRequest: true,
+      resolved: false, createdAt: now,
     });
 
     run.changeRequest = { text, at: now };
     launchTurn(run);
-    _store.moveTask(run.spaceId, run.taskId, 'in-progress');
+    moveToInProgress(run);
     return run;
   });
 }
@@ -1329,9 +1349,7 @@ async function resumeRun(runId) {
     }
 
     // It may have been moved by hand since it stopped.
-    if (_store.getTaskWithColumn(run.spaceId, run.taskId)?.column !== 'in-progress') {
-      _store.moveTask(run.spaceId, run.taskId, 'in-progress');
-    }
+    moveToInProgress(run);
 
     if (run.agent.status === 'completed' && !run.blockedReason) {
       run.status = 'running';

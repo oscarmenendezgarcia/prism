@@ -65,6 +65,7 @@ function request(method, path, body = null) {
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
         ...(payload !== null && { 'Content-Length': Buffer.byteLength(payload) }),
+        'X-Prism-Actor': process.env.PRISM_ACTOR ?? 'agent',
         ...(process.env.PRISM_TOKEN && { Authorization: `Bearer ${process.env.PRISM_TOKEN}` }),
       },
     };
@@ -170,7 +171,7 @@ export async function listTasks(filters = {}) {
 }
 
 /**
- * Get a single task by ID, searching all columns.
+ * Get a single task by ID or key, such as WEB-142, searching all statuses.
  *
  * When spaceId is provided the search is limited to that space.
  * When omitted, all spaces are iterated in order and the first match is
@@ -182,12 +183,13 @@ export async function listTasks(filters = {}) {
  * @returns {Promise<object>}
  */
 export async function getTask(id, spaceId) {
-  const COLUMNS = ['todo', 'in-progress', 'done'];
+  const wantedKey = String(id).toUpperCase();
 
-  /** Search a single space's task-list response for `id`. */
+  /** Search a single space's task-list response, keyed by status, for `id` or a key. */
   function findInResult(result, sid) {
-    for (const column of COLUMNS) {
-      const task = (result[column] ?? []).find((t) => t.id === id);
+    for (const [column, tasks] of Object.entries(result)) {
+      if (!Array.isArray(tasks)) continue;
+      const task = tasks.find((t) => t.id === id || t.key === wantedKey);
       if (task) return { ...task, column, spaceId: sid };
     }
     return null;
@@ -223,7 +225,7 @@ export async function getTask(id, spaceId) {
 }
 
 /**
- * Create a new task in the 'todo' column.
+ * Create a new issue in the first to-do status of its space.
  *
  * @param {{ title: string, type: string, description?: string, assigned?: string }} data
  * @param {string} [spaceId]
@@ -246,10 +248,10 @@ export async function updateTask(id, data, spaceId) {
 }
 
 /**
- * Move a task to a different column.
+ * Move a task to another status of its space.
  *
  * @param {string} id
- * @param {'todo'|'in-progress'|'done'} to
+ * @param {string} to - Status id, such as 'in-review'.
  * @param {string} [spaceId]
  * @returns {Promise<object>}
  */

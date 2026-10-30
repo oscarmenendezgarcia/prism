@@ -20,6 +20,7 @@ const { createStore } = require('./store');
 
 const SPACE_NAME_MAX      = 100;
 const NICKNAME_VALUE_MAX  = 50;
+const KEY_PATTERN         = /^[A-Z][A-Z0-9]{1,9}$/;
 
 // ---------------------------------------------------------------------------
 // Module factory — binds to a Store instance so tests can use in-memory DBs.
@@ -120,7 +121,7 @@ function createSpaceManager(storeOrDataDir) {
     store.upsertSpace(space);
 
     console.log(`[spaceManager] Created space "${space.name}" (${space.id})`);
-    return { ok: true, space };
+    return { ok: true, space: store.getSpace(space.id) };
   }
 
   /**
@@ -190,6 +191,31 @@ function createSpaceManager(storeOrDataDir) {
   }
 
   /**
+   * Check a key a space could use.
+   *
+   * @param {unknown} key
+   * @param {string} [spaceId] - The space that would use it; its own old keys are fine.
+   */
+  function checkKey(key, spaceId) {
+    if (typeof key !== 'string' || !KEY_PATTERN.test(key)) {
+      return {
+        ok:      false,
+        code:    'VALIDATION_ERROR',
+        message: 'A key has 2 to 10 capital letters or digits and starts with a letter.',
+      };
+    }
+    const owner = store.getKeyOwner(key);
+    if (owner && owner !== spaceId) {
+      return { ok: false, code: 'DUPLICATE_KEY', message: `The key "${key}" is or was used by another space.` };
+    }
+    return { ok: true };
+  }
+
+  function setKey(spaceId, key) {
+    return store.setSpaceKey(spaceId, key);
+  }
+
+  /**
    * Delete a space. Refuses to delete the last remaining space.
    * Task cascade is handled by the DB (ON DELETE CASCADE).
    */
@@ -237,6 +263,8 @@ function createSpaceManager(storeOrDataDir) {
     createSpace,
     renameSpace,
     deleteSpace,
+    checkKey,
+    setKey,
     ensureAllSpaces,
     // Retain these properties so existing tests that read them don't break.
     // They are intentionally no-op/dummy values since we no longer use the FS.

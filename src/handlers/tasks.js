@@ -11,19 +11,22 @@
 
 const path = require('path');
 
-const { COLUMNS }                          = require('../constants');
-const { sendJSON, sendError, parseBody }   = require('../utils/http');
+const { CATEGORIES }                       = require('../constants');
+const { sendJSON, sendError, parseBody, readActor } = require('../utils/http');
 const taskRunner                           = require('../services/taskRunner');
 
 // ---------------------------------------------------------------------------
 // Validation constraints
 // ---------------------------------------------------------------------------
 
-const VALID_TYPES          = ['feature', 'bug', 'tech-debt', 'chore'];
+const VALID_TYPES          = ['feature', 'bug', 'tech-debt', 'chore', 'epic'];
+const VALID_PRIORITIES     = ['urgent', 'high', 'medium', 'low'];
 const TITLE_MAX_LEN        = 200;
-const DESCRIPTION_MAX_LEN  = 1000;
+const DESCRIPTION_MAX_LEN  = 20000;
 const ASSIGNED_MAX_LEN     = 50;
-const ARC_MAX_LEN          = 60;
+const LABEL_MAX_LEN        = 40;
+const LABELS_MAX_COUNT     = 20;
+const ESTIMATE_MAX         = 9999;
 
 const ATTACHMENT_MAX_COUNT         = 20;
 const DEPENDS_ON_MAX_COUNT         = 20;
@@ -42,6 +45,7 @@ const TASK_MOVE_ROUTE               = /^\/tasks\/([^/]+)\/move$/;
 const TASK_RANK_ROUTE               = /^\/tasks\/([^/]+)\/rank$/;
 const TASK_ATTACHMENTS_ROUTE        = /^\/tasks\/([^/]+)\/attachments$/;
 const TASK_ATTACHMENT_CONTENT_ROUTE = /^\/tasks\/([^/]+)\/attachments\/(\d+)$/;
+const TASK_HISTORY_ROUTE            = /^\/tasks\/([^/]+)\/history$/;
 const TASK_SINGLE_ROUTE             = /^\/tasks\/([^/]+)$/;
 
 // ---------------------------------------------------------------------------
@@ -91,8 +95,55 @@ function validateOptionalStringField(name, value, max) {
 const OPTIONAL_STRING_FIELDS = [
   { name: 'description', max: DESCRIPTION_MAX_LEN },
   { name: 'assigned',    max: ASSIGNED_MAX_LEN },
-  { name: 'arc',         max: ARC_MAX_LEN },
 ];
+
+/**
+ * Validate the fields that are the same when creating and when updating.
+ * Only checks the ones the client sent; null clears an optional one.
+ *
+ * @param {object} body
+ * @returns {string[]} Error messages.
+ */
+function validateIssueFields(body) {
+  const errors = [];
+  if ('priority' in body && !VALID_PRIORITIES.includes(body.priority)) {
+    errors.push(`priority must be one of: ${VALID_PRIORITIES.join(', ')}`);
+  }
+  if ('labels' in body) {
+    const { labels } = body;
+    if (!Array.isArray(labels) || labels.some((l) => typeof l !== 'string' || l.trim().length === 0)) {
+      errors.push('labels must be an array of non-empty strings');
+    } else if (labels.length > LABELS_MAX_COUNT) {
+      errors.push(`labels must not exceed ${LABELS_MAX_COUNT} items`);
+    } else if (labels.some((l) => l.trim().length > LABEL_MAX_LEN)) {
+      errors.push(`each label must not exceed ${LABEL_MAX_LEN} characters`);
+    } else if (labels.some((l) => l.includes(','))) {
+      errors.push('labels must not contain commas');
+    }
+  }
+  if ('parentId' in body && body.parentId !== null && (typeof body.parentId !== 'string' || body.parentId.length === 0)) {
+    errors.push('parentId must be a task ID or null');
+  }
+  if ('dueDate' in body && body.dueDate !== null && !isRealDate(body.dueDate)) {
+    errors.push('dueDate must be a date as YYYY-MM-DD, or null');
+  }
+  if ('estimate' in body && body.estimate !== null
+    && (typeof body.estimate !== 'number' || !isFinite(body.estimate) || body.estimate < 0 || body.estimate > ESTIMATE_MAX)) {
+    errors.push(`estimate must be a number from 0 to ${ESTIMATE_MAX}, or null`);
+  }
+  return errors;
+}
+
+function isRealDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !isNaN(date) && date.toISOString().slice(0, 10) === value;
+}
+
+/** Labels without surrounding spaces or repeats. */
+function cleanLabels(labels) {
+  return [...new Set(labels.map((l) => l.trim()))];
+}
 
 /**
  * Validate the `dependsOn` field from an incoming request body.
@@ -252,12 +303,11 @@ function createApp(spaceId, store) {
       if (err) errors.push(err);
     }
 
+    errors.push(...validateIssueFields(body));
 
     if (errors.length > 0) {
       return { valid: false, errors, data: null };
     }
-
-    const arcTrimmed = typeof body.arc === 'string' ? body.arc.trim() : undefined;
 
     return {
       valid:  true,
@@ -269,7 +319,11 @@ function createApp(spaceId, store) {
         assigned:    typeof assigned === 'string' && assigned.trim().length > 0
                        ? assigned.trim()
                        : undefined,
-        arc:         arcTrimmed && arcTrimmed.length > 0 ? arcTrimmed : undefined,
+        priority:    body.priority,
+        labels:      Array.isArray(body.labels) && body.labels.length > 0 ? cleanLabels(body.labels) : undefined,
+        parentId:    body.parentId ?? undefined,
+        dueDate:     body.dueDate ?? undefined,
+        estimate:    body.estimate ?? undefined,
       },
     };
   }
@@ -303,7 +357,8 @@ function createApp(spaceId, store) {
   function handleGetTasks(req, res) {
     try {
       const qs        = new URL(req.url, 'http://x').searchParams;
-      const colFilter  = qs.get('column')   || null;
+      const colFilter  = qs.get('status') || qs.get('column') || null;
+      const category   = qs.get('category') || null;
       const assigned   = qs.get('assigned') || null;
       const limitRaw   = qs.get('limit');
       const cursor     = qs.get('cursor')   || null;
@@ -312,16 +367,22 @@ function createApp(spaceId, store) {
         ? Math.min(200, Math.max(1, parseInt(limitRaw, 10) || 50))
         : Infinity;
 
-      if (colFilter && !COLUMNS.includes(colFilter)) {
+      const statusIds = store.getStatuses(spaceId).map((s) => s.id);
+      if (colFilter && !statusIds.includes(colFilter)) {
         return sendError(res, 400, 'VALIDATION_ERROR',
-          `Invalid column '${colFilter}'. Must be one of: ${COLUMNS.join(', ')}`);
+          `Invalid status '${colFilter}'. Must be one of: ${statusIds.join(', ')}`);
+      }
+      if (category && !CATEGORIES.includes(category)) {
+        return sendError(res, 400, 'VALIDATION_ERROR',
+          `Invalid category '${category}'. Must be one of: ${CATEGORIES.join(', ')}`);
       }
 
-      const columns = colFilter ? [colFilter] : COLUMNS;
+      const columns = colFilter ? [colFilter] : statusIds;
       const allWithStatus = store.getAllTasksForSpaceWithStatus(spaceId);
       const flat = [];
       for (const task of allWithStatus) {
-        if (!columns.includes(task._col)) continue;
+        if (!columns.includes(task.statusId)) continue;
+        if (category && task.category !== category) continue;
         if (assigned && task.assigned !== assigned) continue;
         flat.push(task);
       }
@@ -332,7 +393,7 @@ function createApp(spaceId, store) {
       if (cursor) {
         try {
           const { col, id } = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
-          const idx = flat.findIndex((t) => t._col === col && t.id === id);
+          const idx = flat.findIndex((t) => t.statusId === col && t.id === id);
           startIdx = idx === -1 ? 0 : idx + 1;
         } catch {
           return sendError(res, 400, 'VALIDATION_ERROR', 'Invalid cursor value');
@@ -344,7 +405,7 @@ function createApp(spaceId, store) {
       let nextCursor = null;
       if (startIdx + limit < total) {
         const last = page[page.length - 1];
-        nextCursor = Buffer.from(JSON.stringify({ col: last._col, id: last.id })).toString('base64url');
+        nextCursor = Buffer.from(JSON.stringify({ col: last.statusId, id: last.id })).toString('base64url');
       }
 
       const result = {};
@@ -353,7 +414,7 @@ function createApp(spaceId, store) {
       }
       for (const task of page) {
         const { _col, ...rest } = task;
-        result[_col].push(stripAttachmentContent(rest));
+        result[rest.statusId].push(stripAttachmentContent(rest));
       }
 
       sendJSON(res, 200, { ...result, total, nextCursor });
@@ -389,14 +450,30 @@ function createApp(spaceId, store) {
       return sendError(res, 400, 'VALIDATION_ERROR', dependsOnResult.error);
     }
 
+    const hierarchyError = store.checkHierarchy(spaceId, null, { type: data.type, parentId: data.parentId });
+    if (hierarchyError) {
+      return sendError(res, 422, 'INVALID_PARENT', hierarchyError);
+    }
+
+    const statuses = store.getStatuses(spaceId);
+    const statusId = body.statusId ?? statuses.find((s) => s.category === 'todo').id;
+    if (!statuses.some((s) => s.id === statusId)) {
+      return sendError(res, 400, 'VALIDATION_ERROR',
+        `statusId must be one of: ${statuses.map((s) => s.id).join(', ')}`);
+    }
+
     const now  = new Date().toISOString();
     const task = {
       id:    crypto.randomUUID(),
       title: data.title,
       type:  data.type,
+      ...(data.priority    !== undefined && { priority:    data.priority }),
+      ...(data.labels      !== undefined && { labels:      data.labels }),
+      ...(data.parentId    !== undefined && { parentId:    data.parentId }),
+      ...(data.dueDate     !== undefined && { dueDate:     data.dueDate }),
+      ...(data.estimate    !== undefined && { estimate:    data.estimate }),
       ...(data.description !== undefined && { description: data.description }),
       ...(data.assigned    !== undefined && { assigned:    data.assigned }),
-      ...(data.arc         !== undefined && { arc:         data.arc }),
       ...(attachmentResult.data.length > 0 && { attachments: attachmentResult.data }),
       ...(dependsOnResult.data && dependsOnResult.data.length > 0
         && { dependsOn: dependsOnResult.data }),
@@ -417,7 +494,7 @@ function createApp(spaceId, store) {
     }
 
     try {
-      store.insertTask(task, spaceId, 'todo');
+      store.insertTask(task, spaceId, statusId, { actor: readActor(req) });
 
       sendJSON(res, 201, stripAttachmentContent(task));
     } catch (err) {
@@ -442,40 +519,33 @@ function createApp(spaceId, store) {
     }
 
     const { to } = body;
-    if (!to || !COLUMNS.includes(to)) {
+    const statuses = store.getStatuses(spaceId);
+    const target = statuses.find((s) => s.id === to);
+    if (!target) {
       return sendError(res, 400, 'VALIDATION_ERROR',
-        `to is required and must be one of: ${COLUMNS.join(', ')}`);
+        `to is required and must be one of: ${statuses.map((s) => s.id).join(', ')}`);
     }
 
     try {
-      // Find current column first (needed for same-column short-circuit).
-      let sourceColumn = null;
-      for (const col of COLUMNS) {
-        const tasks = store.getTasksByColumn(spaceId, col);
-        if (tasks.find((t) => t.id === taskId)) {
-          sourceColumn = col;
-          break;
-        }
-      }
-
-      if (!sourceColumn) {
+      const current = store.getTask(spaceId, taskId);
+      if (!current) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
+      const sourceColumn = current.statusId;
 
       if (sourceColumn === to) {
-        const task = store.getTask(spaceId, taskId);
-        return sendJSON(res, 200, { task, from: sourceColumn, to });
+        return sendJSON(res, 200, { task: current, from: sourceColumn, to });
       }
 
-      // Prism closes the card when the agent and the hooks are done, so neither
+      // Prism moves the card when the agent and the hooks are done, so neither
       // the agent nor anyone else can skip them by moving the card.
-      if (to !== 'in-progress' && taskRunner.hasActiveRun(taskId)) {
+      if (target.category !== 'in-progress' && taskRunner.hasActiveRun(taskId)) {
         return sendError(res, 409, 'TASK_RUN_ACTIVE',
           'An agent is running this task. Stop it before moving the card.');
       }
 
       // Atomic single-UPDATE move.
-      const updatedTask = store.moveTask(spaceId, taskId, to);
+      const updatedTask = store.moveTask(spaceId, taskId, to, { actor: readActor(req) });
       if (!updatedTask) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
@@ -597,7 +667,7 @@ function createApp(spaceId, store) {
       return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
     }
 
-    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'arc', 'dependsOn'];
+    const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'priority', 'labels', 'parentId', 'dueDate', 'estimate', 'dependsOn'];
     const provided         = UPDATABLE_FIELDS.filter((f) => f in body);
 
     if (provided.length === 0) {
@@ -628,6 +698,7 @@ function createApp(spaceId, store) {
       if (err) errors.push(err);
     }
 
+    errors.push(...validateIssueFields(body));
 
     let dependsOnUpdateResult;
     if ('dependsOn' in body) {
@@ -653,14 +724,27 @@ function createApp(spaceId, store) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
 
-      const OTHER_FIELDS = ['title', 'type', 'description', 'assigned', 'arc'];
+      if ('type' in body || 'parentId' in body) {
+        const hierarchyError = store.checkHierarchy(spaceId, taskId, {
+          type:     body.type ?? existing.type,
+          parentId: 'parentId' in body ? body.parentId : existing.parentId,
+        });
+        if (hierarchyError) {
+          return sendError(res, 422, 'INVALID_PARENT', hierarchyError);
+        }
+        if (body.type === 'epic' && taskRunner.hasActiveRun(taskId)) {
+          return sendError(res, 409, 'TASK_RUN_ACTIVE', 'An agent is running this task. Stop it before making it an epic.');
+        }
+      }
+
+      const OTHER_FIELDS = UPDATABLE_FIELDS.filter((f) => f !== 'dependsOn');
       const hasOtherFields = OTHER_FIELDS.some(f => f in body);
 
       if (!hasOtherFields) {
         if (depIds === undefined) {
           return sendJSON(res, 200, stripAttachmentContent(existing));
         }
-        const onlyDeps = store.updateTaskWithDependencies(spaceId, taskId, { depIds });
+        const onlyDeps = store.updateTaskWithDependencies(spaceId, taskId, { depIds, actor: readActor(req) });
         if (onlyDeps.error) return sendDependencyError(res, taskId, onlyDeps);
         return sendJSON(res, 200, stripAttachmentContent(onlyDeps.task));
       }
@@ -680,12 +764,15 @@ function createApp(spaceId, store) {
         patch.assigned = trimmed.length > 0 ? trimmed : undefined;
       }
 
-      if ('arc' in body) {
-        const trimmed = body.arc.trim();
-        patch.arc = trimmed.length > 0 ? trimmed : undefined;
+      if ('priority' in body) patch.priority = body.priority;
+      if ('labels' in body) {
+        patch.labels = body.labels.length > 0 ? cleanLabels(body.labels) : undefined;
       }
+      if ('parentId' in body) patch.parentId = body.parentId ?? undefined;
+      if ('dueDate' in body) patch.dueDate = body.dueDate ?? undefined;
+      if ('estimate' in body) patch.estimate = body.estimate ?? undefined;
 
-      const written = store.updateTaskWithDependencies(spaceId, taskId, { patch, depIds });
+      const written = store.updateTaskWithDependencies(spaceId, taskId, { patch, depIds, actor: readActor(req) });
       if (written.error) return sendDependencyError(res, taskId, written);
       sendJSON(res, 200, stripAttachmentContent(written.task));
     } catch (err) {
@@ -714,10 +801,26 @@ function createApp(spaceId, store) {
       if (!task) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
-      sendJSON(res, 200, task);
+      const children = store.getChildren(taskId).map((child) => ({
+        id: child.id, key: child.key, title: child.title, type: child.type,
+        statusId: child.statusId, category: child.category,
+      }));
+      sendJSON(res, 200, { ...task, ...(children.length > 0 && { children }) });
     } catch (err) {
       console.error(`GET tasks/${taskId} error:`, err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to get task');
+    }
+  }
+
+  function handleGetHistory(res, taskId) {
+    try {
+      if (!store.getTask(spaceId, taskId)) {
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+      }
+      sendJSON(res, 200, { history: store.getHistory(taskId) });
+    } catch (err) {
+      console.error(`GET tasks/${taskId}/history error:`, err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to read the history');
     }
   }
 
@@ -744,7 +847,7 @@ function createApp(spaceId, store) {
         return sendError(res, 409, 'TASK_RUN_ACTIVE',
           'An agent is running this task. Stop it before deleting the card.');
       }
-      const deleted = store.deleteTask(spaceId, taskId);
+      const deleted = store.deleteTask(spaceId, taskId, { actor: readActor(req) });
       if (!deleted) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
@@ -978,6 +1081,12 @@ function createApp(spaceId, store) {
       : 20;
 
     try {
+      // A key, such as WEB-142, finds that issue if it is in this space.
+      const byKey = store.getTaskByKey(trimmedQ);
+      if (byKey?.spaceId === spaceId) {
+        return sendJSON(res, 200, { results: [stripAttachmentContent(byKey.task)], total: 1 });
+      }
+
       // UUID shortcut: FTS5 does not tokenise hyphenated hex runs, so a UUID
       // query would always return 0 results. Do a direct ID lookup instead.
       if (UUID_PATTERN.test(trimmedQ)) {
@@ -1045,6 +1154,11 @@ function createApp(spaceId, store) {
     const moveMatch = TASK_MOVE_ROUTE.exec(taskPath);
     if (method === 'PUT' && moveMatch) {
       return handleMoveTask(req, res, moveMatch[1]);
+    }
+
+    const historyMatch = TASK_HISTORY_ROUTE.exec(taskPath);
+    if (method === 'GET' && historyMatch) {
+      return handleGetHistory(res, historyMatch[1]);
     }
 
     const singleMatch = TASK_SINGLE_ROUTE.exec(taskPath);

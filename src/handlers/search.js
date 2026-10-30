@@ -80,11 +80,13 @@ function handleSearchTasks(req, res, store, spaceManager) {
     limit = parsed;
   }
 
-  // 4a. UUID shortcut: if q is a full UUID, skip FTS5 and do a direct ID lookup.
+  // 4a. Key or UUID shortcut. A key, such as WEB-142, is not a word FTS5 can look for.
+  //     If q is a full UUID, skip FTS5 and do a direct ID lookup.
   //     FTS5 tokenises on word boundaries and does not index hyphenated hex runs,
   //     so a UUID query against the FTS index always returns 0 results.
-  if (UUID_PATTERN.test(trimmedQ)) {
-    const found = store.getTaskById(trimmedQ);
+  const foundByKey = store.getTaskByKey(trimmedQ);
+  if (foundByKey || UUID_PATTERN.test(trimmedQ)) {
+    const found = foundByKey ?? store.getTaskById(trimmedQ);
     const results = [];
     if (found) {
       const space = spaceManager.getSpace(found.spaceId);

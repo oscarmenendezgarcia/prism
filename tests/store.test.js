@@ -144,13 +144,13 @@ describe('Store — Task CRUD', () => {
   });
 
   it('should_return_empty_array_when_no_tasks_in_column', () => {
-    assert.deepEqual(store.getTasksByColumn('default', 'todo'), []);
+    assert.deepEqual(store.getTasksByStatus('default', 'todo'), []);
   });
 
   it('should_insert_and_retrieve_task_by_column', () => {
     const task = makeTask({ id: 'task-c1' });
     store.insertTask(task, 'default', 'todo');
-    const result = store.getTasksByColumn('default', 'todo');
+    const result = store.getTasksByStatus('default', 'todo');
     assert.equal(result.length, 1);
     assert.equal(result[0].id,    task.id);
     assert.equal(result[0].title, task.title);
@@ -189,15 +189,13 @@ describe('Store — Task CRUD', () => {
       id:          'task-opt',
       description: 'desc here',
       assigned:    'alice',
-      pipeline:    ['stage-1'],
       attachments: [{ name: 'f.txt', type: 'text', content: 'hello' }],
-      comments:    [{ id: 'c1', author: 'alice', text: 'hi', type: 'note', needsHuman: false, resolved: false, createdAt: '2026-01-01T00:00:00.000Z' }],
     });
     store.insertTask(task, 'default', 'todo');
+    store.addComment('default', 'task-opt', { id: 'c1', author: 'alice', text: 'hi', type: 'note', resolved: false, createdAt: '2026-01-01T00:00:00.000Z' });
     const result = store.getTask('default', 'task-opt');
     assert.equal(result.description, 'desc here');
     assert.equal(result.assigned, 'alice');
-    assert.deepEqual(result.pipeline, ['stage-1']);
     assert.equal(result.attachments[0].name, 'f.txt');
     assert.equal(result.comments[0].id, 'c1');
   });
@@ -266,11 +264,11 @@ describe('Store — moveTask (atomic)', () => {
     assert.equal(moved.id, 'mv-1');
 
     // Verify no longer in todo
-    const todo = store.getTasksByColumn('mv-space', 'todo');
+    const todo = store.getTasksByStatus('mv-space', 'todo');
     assert.equal(todo.find((t) => t.id === 'mv-1'), undefined);
 
     // Verify present in in-progress
-    const inProg = store.getTasksByColumn('mv-space', 'in-progress');
+    const inProg = store.getTasksByStatus('mv-space', 'in-progress');
     assert.equal(inProg.length, 1);
     assert.equal(inProg[0].id, 'mv-1');
   });
@@ -285,34 +283,6 @@ describe('Store — moveTask (atomic)', () => {
     store.insertTask(task, 'mv-space', 'todo');
     const moved = store.moveTask('mv-space', 'mv-2', 'done');
     assert.notEqual(moved.updatedAt, '2026-01-01T00:00:00.000Z');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// upsertTask — idempotency (for migration)
-// ---------------------------------------------------------------------------
-
-describe('Store — upsertTask (idempotent migration)', () => {
-  let store;
-
-  before(() => {
-    store = createStore(':memory:');
-    store.upsertSpace(makeSpace({ id: 'ug-space' }));
-  });
-
-  it('should_insert_task_on_first_upsert', () => {
-    const task = makeTask({ id: 'ug-1' });
-    store.upsertTask(task, 'ug-space', 'todo');
-    assert.equal(store.getTask('ug-space', 'ug-1').title, task.title);
-  });
-
-  it('should_not_overwrite_on_second_upsert_with_same_id', () => {
-    const task1 = makeTask({ id: 'ug-2', title: 'First' });
-    store.upsertTask(task1, 'ug-space', 'todo');
-    const task2 = makeTask({ id: 'ug-2', title: 'Second' });
-    store.upsertTask(task2, 'ug-space', 'todo');
-    // Still "First" — INSERT OR IGNORE
-    assert.equal(store.getTask('ug-space', 'ug-2').title, 'First');
   });
 });
 

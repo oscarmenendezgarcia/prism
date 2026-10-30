@@ -124,6 +124,9 @@ async function handleStartTaskRun(req, res, store, spaceId, taskId, workingDirec
   if (error) return sendError(res, 400, 'VALIDATION_ERROR', error);
 
   const target = store.getAllTasksForSpaceWithStatus(spaceId).find((t) => t.id === taskId);
+  if (target?.type === 'epic') {
+    return sendError(res, 409, 'TASK_IS_EPIC', 'An epic groups issues. Run the issues in it instead.');
+  }
   if (target?.isBlocked) {
     return sendError(res, 409, 'TASK_BLOCKED',
       `Task is blocked by ${target.blockedByCount} unfinished ` +
@@ -273,9 +276,16 @@ async function handleUpdateHooks(req, res, store, spaceId) {
   }
 
   const space = store.getSpace(spaceId);
-  const updated = { ...space, hooks: { checkCommand: command, autoPr }, updatedAt: new Date().toISOString() };
-  store.upsertSpace(updated);
-  return sendJSON(res, 200, updated);
+  const finishStatus = body.finishStatus ?? space.hooks?.finishStatus;
+  if (body.finishStatus !== undefined && !space.statuses.some((s) => s.id === body.finishStatus)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', `finishStatus must be one of: ${space.statuses.map((s) => s.id).join(', ')}`);
+  }
+  store.upsertSpace({
+    ...space,
+    hooks: { checkCommand: command, autoPr, ...(finishStatus && { finishStatus }) },
+    updatedAt: new Date().toISOString(),
+  });
+  return sendJSON(res, 200, store.getSpace(spaceId));
 }
 
 module.exports = {

@@ -7,8 +7,7 @@
  *   POST  /api/v1/spaces/:spaceId/tasks/:taskId/comments
  *   PATCH /api/v1/spaces/:spaceId/tasks/:taskId/comments/:commentId
  *
- * Comments are stored as a JSON array embedded in the task row's `comments`
- * column. Persistence delegates to the Store (no direct file I/O).
+ * Comments live in their own table. Persistence delegates to the Store (no direct file I/O).
  *
  * Schema of a Comment:
  *   { id, author, text, type: 'note'|'question'|'answer',
@@ -123,8 +122,7 @@ async function handleCreateComment(req, res, store, spaceId, taskId) {
       createdAt:  now,
     };
 
-    const updatedComments = [...comments, comment];
-    store.updateTask(spaceId, taskId, { comments: updatedComments, updatedAt: now });
+    store.addComment(spaceId, taskId, comment);
 
     return sendJSON(res, 201, comment);
   } catch (err) {
@@ -219,10 +217,7 @@ async function handleUpdateComment(req, res, store, spaceId, taskId, commentId) 
       updatedAt: now,
     };
 
-    const updatedComments = [...comments];
-    updatedComments[commentIndex] = updatedComment;
-
-    store.updateTask(spaceId, taskId, { comments: updatedComments, updatedAt: now });
+    store.updateComment(spaceId, taskId, updatedComment);
 
     if (body.resolved === true && existingComment.type === 'question') {
       taskRunner.questionAnswered(taskId);

@@ -4,7 +4,7 @@
  * Tests for the QOL-1 rank + drag-to-reorder feature.
  *
  * Covers:
- *   - Store: reorderTask, getTasksByColumn ordering, insertTask tail rank,
+ *   - Store: reorderTask, getTasksByStatus ordering, insertTask tail rank,
  *     moveTask tail rank in destination, null on missing task, migration seeding.
  *   - HTTP: PATCH /spaces/:spaceId/tasks/:taskId/rank (200, 400s, 404).
  *
@@ -140,10 +140,10 @@ async function runTests() {
   });
 
   // =========================================================================
-  // Store: getTasksByColumn returns tasks in rank order
+  // Store: getTasksByStatus returns tasks in rank order
   // =========================================================================
 
-  suite('Store — getTasksByColumn returns tasks in rank order');
+  suite('Store — getTasksByStatus returns tasks in rank order');
 
   await test('tasks are returned in rank ASC order after reordering', async () => {
     const store = createStore(':memory:');
@@ -160,7 +160,7 @@ async function runTests() {
     // Move task-1 to the end (rank 4000)
     store.reorderTask('space-1', 'task-1', 4000);
 
-    const tasks = store.getTasksByColumn('space-1', 'todo');
+    const tasks = store.getTasksByStatus('space-1', 'todo');
     assert(tasks.length === 3, `Expected 3 tasks, got ${tasks.length}`);
     assert(tasks[0].id === 'task-2', `Expected task-2 first, got ${tasks[0].id}`);
     assert(tasks[1].id === 'task-3', `Expected task-3 second, got ${tasks[1].id}`);
@@ -186,7 +186,7 @@ async function runTests() {
     store.insertTask(t2, 'space-1', 'todo');
     // t2 rank should be 2000 (1000 + 1000)
 
-    const tasks = store.getTasksByColumn('space-1', 'todo');
+    const tasks = store.getTasksByStatus('space-1', 'todo');
     assert(tasks.length === 2, `Expected 2 tasks, got ${tasks.length}`);
     assert(tasks[0].rank === 1000, `Expected rank 1000, got ${tasks[0].rank}`);
     assert(tasks[1].rank === 2000, `Expected rank 2000, got ${tasks[1].rank}`);
@@ -280,7 +280,7 @@ async function runTests() {
     assert(moved.rank === 3000, `Expected rank 3000, got ${moved.rank}`);
 
     // Verify ordering in in-progress
-    const tasks = store.getTasksByColumn('space-1', 'in-progress');
+    const tasks = store.getTasksByStatus('space-1', 'in-progress');
     assert(tasks.length === 3, `Expected 3 tasks, got ${tasks.length}`);
     assert(tasks[2].id === 'todo-1', `Expected todo-1 last, got ${tasks[2].id}`);
     store.close();
@@ -319,7 +319,7 @@ async function runTests() {
     store.insertTask(tB, 'space-m', 'todo');
     store.insertTask(tC, 'space-m', 'todo');
 
-    const tasks = store.getTasksByColumn('space-m', 'todo');
+    const tasks = store.getTasksByStatus('space-m', 'todo');
     assert(tasks[0].id === 'mk-a' && tasks[0].rank === 1000, `Expected mk-a rank 1000, got ${tasks[0].id} ${tasks[0].rank}`);
     assert(tasks[1].id === 'mk-b' && tasks[1].rank === 2000, `Expected mk-b rank 2000, got ${tasks[1].id} ${tasks[1].rank}`);
     assert(tasks[2].id === 'mk-c' && tasks[2].rank === 3000, `Expected mk-c rank 3000, got ${tasks[2].id} ${tasks[2].rank}`);
@@ -435,7 +435,7 @@ async function runTests() {
       { id: 'c', rank: 2000 },
     ]);
     assert(Array.isArray(updated) && updated.length === 3, 'reorderTasks should return updated tasks');
-    const tasks = store.getTasksByColumn('space-1', 'todo');
+    const tasks = store.getTasksByStatus('space-1', 'todo');
     assert(tasks[0].id === 'b' && tasks[0].rank === 1000, 'b first at 1000');
     assert(tasks[1].id === 'c' && tasks[1].rank === 2000, 'c second at 2000');
     assert(tasks[2].id === 'a' && tasks[2].rank === 3000, 'a last at 3000');
@@ -460,7 +460,7 @@ async function runTests() {
       threw = err;
     }
     assert(threw && threw.code === 'TASK_NOT_FOUND', 'should throw TASK_NOT_FOUND');
-    const tasks = store.getTasksByColumn('space-1', 'todo');
+    const tasks = store.getTasksByStatus('space-1', 'todo');
     assert(tasks[0].id === 'a' && tasks[0].rank === 1000, `a rank rolled back, got ${tasks[0].rank}`);
     assert(tasks[1].id === 'b' && tasks[1].rank === 2000, `b rank rolled back, got ${tasks[1].rank}`);
     store.close();

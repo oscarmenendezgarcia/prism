@@ -6,7 +6,7 @@
  *
  *   1. Unit tests for the exported helpers (validateFieldLength +
  *      validateOptionalStringField) — no HTTP, no Store.
- *   2. Create/update parity — for each of title/description/assigned/arc, an
+ *   2. Create/update parity — for each of title/description/assigned, an
  *      over-limit value must return 400 on BOTH POST and PUT with byte-identical
  *      error.message. This is the regression net: if a future edit touches only
  *      one path, this test fails.
@@ -85,8 +85,8 @@ describe('validateFieldLength', () => {
 
   it('embeds the field name and max in the message template', () => {
     assert.equal(
-      validateFieldLength('arc', 'x'.repeat(61), 60),
-      'arc must not exceed 60 characters',
+      validateFieldLength('label', 'x'.repeat(61), 60),
+      'label must not exceed 60 characters',
     );
   });
 });
@@ -107,23 +107,23 @@ describe('validateOptionalStringField', () => {
   for (const [label, value] of CASES) {
     it(`returns type-guard message for ${label}`, () => {
       assert.equal(
-        validateOptionalStringField('arc', value, 60),
-        'arc must be a string when provided',
+        validateOptionalStringField('label', value, 60),
+        'label must be a string when provided',
       );
     });
   }
 
   it('delegates length to validateFieldLength for strings', () => {
-    assert.equal(validateOptionalStringField('arc', 'x'.repeat(60), 60), null);
+    assert.equal(validateOptionalStringField('label', 'x'.repeat(60), 60), null);
     assert.equal(
-      validateOptionalStringField('arc', 'x'.repeat(61), 60),
-      'arc must not exceed 60 characters',
+      validateOptionalStringField('label', 'x'.repeat(61), 60),
+      'label must not exceed 60 characters',
     );
   });
 
   it('trims before measuring', () => {
     assert.equal(
-      validateOptionalStringField('arc', 'x'.repeat(60) + '   ', 60),
+      validateOptionalStringField('label', 'x'.repeat(60) + '   ', 60),
       null,
     );
   });
@@ -134,14 +134,13 @@ describe('validateOptionalStringField', () => {
 // ---------------------------------------------------------------------------
 
 // Field name → (max length, over-limit builder).
-// title/description/assigned/arc are the four fields covered by the shared
+// title/description/assigned are the three fields covered by the shared
 // helpers. Presence semantics for title differ between POST and PUT, but the
 // LENGTH message must be identical — that is the invariant under test.
 const FIELDS = [
   { name: 'title',       max: 200 },
-  { name: 'description', max: 1000 },
+  { name: 'description', max: 20000 },
   { name: 'assigned',    max: 50 },
-  { name: 'arc',         max: 60 },
 ];
 
 describe('Field-length validation — create/update parity', () => {
@@ -211,7 +210,7 @@ describe('Field-length validation — create/update parity', () => {
     });
     const taskId = seed.body.id;
 
-    for (const name of ['description', 'assigned', 'arc']) {
+    for (const name of ['description', 'assigned']) {
       const postRes = await post(port, `/api/v1/spaces/${spaceId}/tasks`, {
         title: 'Ok', type: 'feature', [name]: 123,
       });
