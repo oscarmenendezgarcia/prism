@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
 import { LabelsInput } from '@/components/shared/LabelsInput';
+import { AssigneeSelect } from '@/components/shared/AssigneeSelect';
 import { useAppStore, useTasks } from '@/stores/useAppStore';
 import { allTasks, PRIORITIES, TYPES } from '@/utils/issues';
 import type { CreateTaskPayload, Priority, TaskType } from '@/types';
@@ -237,15 +238,7 @@ export function CreateTaskModal() {
               <label htmlFor="input-assigned" className={labelClass}>
                 Assignee
               </label>
-              <input
-                id="input-assigned"
-                className={baseInputClass}
-                type="text"
-                placeholder="Unassigned"
-                value={assigned}
-                onChange={(e) => setAssigned(e.target.value)}
-                autoComplete="off"
-              />
+              <AssigneeSelect id="input-assigned" className={baseInputClass} value={assigned} onChange={setAssigned} />
             </div>
             <div>
               <label htmlFor="input-labels" className={labelClass}>Labels</label>

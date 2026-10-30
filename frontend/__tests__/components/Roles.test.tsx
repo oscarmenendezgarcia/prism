@@ -95,6 +95,7 @@ describe('TeamModal', () => {
   const mockTeam = (users: User[] = [person('admin'), { ...person('member', 'b'), name: 'Bea Ruiz', email: 'bea@example.com' }]) => {
     vi.spyOn(api, 'getUsers').mockResolvedValue(users);
     vi.spyOn(api, 'getInvites').mockResolvedValue([{ id: 'i', email: 'dani@example.com', role: 'viewer', expiresAt: '2030-01-01T00:00:00Z' }]);
+    vi.spyOn(api, 'getUnlinkedAssignees').mockResolvedValue([]);
   };
 
   beforeEach(() => signIn('admin'));
@@ -138,6 +139,15 @@ describe('TeamModal', () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith('b', { role: 'viewer' }));
     await waitFor(() => expect(showToast).toHaveBeenCalledWith('This is the last admin.', 'error'));
     await waitFor(() => expect(screen.getByLabelText('Role of Bea Ruiz')).toHaveValue('member'));
+  });
+
+  it('gives the issues of an old name to the person it was', async () => {
+    mockTeam();
+    vi.spyOn(api, 'getUnlinkedAssignees').mockResolvedValue(['Beatriz']);
+    const claim = vi.spyOn(api, 'claimAssignee').mockResolvedValue({ moved: 3 });
+    render(<TeamModal onClose={() => {}} />);
+    fireEvent.change(await screen.findByLabelText('Who Beatriz is'), { target: { value: 'b' } });
+    await waitFor(() => expect(claim).toHaveBeenCalledWith('b', 'Beatriz'));
   });
 
   it('a deactivated account can come back', async () => {

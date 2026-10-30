@@ -9,6 +9,7 @@
 
 const crypto = require('crypto');
 const { promisify } = require('util');
+const { isAgentId } = require('../utils/agents');
 
 const scrypt = promisify(crypto.scrypt);
 
@@ -254,7 +255,7 @@ function createAccounts(db) {
       }
       if (stmts.getByEmail.get(link.email)) return { error: 'EMAIL_TAKEN' };
       // Everything is signed by name, so two people cannot share one.
-      if (stmts.listNames.all().some((u) => u.name.toLocaleLowerCase() === name.toLocaleLowerCase())) return { error: 'NAME_TAKEN' };
+      if (isAgentId(name.toLocaleLowerCase()) || stmts.listNames.all().some((u) => u.name.toLocaleLowerCase() === name.toLocaleLowerCase())) return { error: 'NAME_TAKEN' };
       stmts.dropLink.run(link.id);
       return publicUser(insertUser({ email: link.email, name, passwordHash, role: link.role }));
     })();

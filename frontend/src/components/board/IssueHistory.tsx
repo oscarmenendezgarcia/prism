@@ -7,6 +7,8 @@ import { getTaskHistory } from '@/api/client';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import { formatDueDate, priorityOf } from '@/utils/issues';
+import { assigneeLabel } from '@/utils/agents';
+import { useAuthStore } from '@/stores/useAuthStore';
 import type { HistoryEntry, Priority } from '@/types';
 
 /** The name for a field in "changed the …". */
@@ -35,7 +37,7 @@ function HistoryLine({ entry }: { entry: HistoryEntry }) {
   const { field, oldValue, newValue } = entry;
   if (field === 'created') return <>created it</>;
   if (field === 'description') return <>changed the description</>;
-  if (field === 'assigned') return <>{newValue ? <>assigned it to <b className="font-medium text-text-primary">{newValue}</b></> : 'unassigned it'}</>;
+  if (field === 'assigned') return <>{newValue ? <>assigned it to <b className="font-medium text-text-primary">{assigneeLabel(newValue)}</b></> : 'unassigned it'}</>;
 
   const before = readable(field, oldValue);
   const after = readable(field, newValue);
@@ -57,6 +59,7 @@ interface IssueHistoryProps {
 }
 
 export function IssueHistory({ spaceId, taskId, version }: IssueHistoryProps) {
+  const me = useAuthStore((a) => a.status?.user?.name);
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -79,7 +82,7 @@ export function IssueHistory({ spaceId, taskId, version }: IssueHistoryProps) {
       {history.map((entry) => (
         <li key={entry.id} className="flex items-baseline gap-2 py-2 border-b border-border/30 last:border-b-0 text-sm text-text-secondary" data-testid="history-entry">
           <span className="min-w-0">
-            <b className="font-medium text-text-primary">{entry.actor === 'user' ? 'You' : entry.actor}</b>{' '}
+            <b className="font-medium text-text-primary">{entry.actor === me ? 'You' : entry.actor}</b>{' '}
             <HistoryLine entry={entry} />
           </span>
           <time dateTime={entry.createdAt} title={formatTimestamp(entry.createdAt)} className="ml-auto flex-shrink-0 text-xs text-text-tertiary">

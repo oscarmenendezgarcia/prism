@@ -8,10 +8,10 @@ import * as api from '@/api/client';
 import { Button } from '@/components/shared/Button';
 import { useAppStore } from '@/stores/useAppStore';
 import { useCanEdit, useIsAdmin } from '@/stores/useAuthStore';
-import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
+import { runProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
+import { agentOf } from '@/utils/agents';
 import type { ChangedFile, StatusCategory, Task, TaskRunView } from '@/types';
 import { isAwaitingReview } from '@/utils/issues';
-import { AgentPicker } from './AgentPicker';
 import { HarnessIcon, HARNESS_NAMES, type DirectCliTool } from './HarnessIcon';
 import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
 
@@ -143,7 +143,6 @@ interface TaskRunPanelProps {
 export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
   const view   = useTaskRunStore((s) => s.views[task.id]);
   const busy   = useTaskRunStore((s) => s.busyTaskIds.has(task.id));
-  const choice = useTaskRunStore((s) => s.choice);
   const harnesses = useTaskRunStore((s) => s.harnesses);
   const { start, stop, retry, close, createPullRequest } = useTaskRunStore.getState();
   const openSpaceModal = useAppStore((s) => s.openSpaceModal);
@@ -151,10 +150,11 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
 
   const canEdit = useCanEdit();
   const isAdmin = useIsAdmin();
-  const problem = choiceProblem(choice, harnesses);
+  const agent = agentOf(task.assigned);
+  const problem = agent && runProblem(agent, space, harnesses);
   const startButton = (
-    <div className="flex items-center gap-1">
-      <AgentPicker />
+    <div className="flex items-center gap-2">
+      {problem && <span className="text-xs text-text-secondary" data-testid="run-problem">{problem}</span>}
       <Button
         variant="primary"
         size="sm"
@@ -170,7 +170,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
 
   if (!canEdit) return null;
   if (!view || column === 'todo' || (column === 'in-progress' && view.status === 'done' && !isAwaitingReview(task, space))) {
-    if (column === 'done') return null;
+    if (column === 'done' || !agent) return null;
     if (space && !space.workingDirectory) {
       if (!isAdmin) return null;
       return (
@@ -204,7 +204,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
             Stop
           </Button>
         )}
-        {missingHarness && startButton}
+        {missingHarness && agent && startButton}
         {(view.status === 'failed' || view.status === 'stopped') && !missingHarness && (
           <Button variant="primary" size="sm" disabled={busy} onClick={() => { retry(spaceId, task.id).catch(() => {}); }}>
             <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">refresh</span>

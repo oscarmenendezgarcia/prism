@@ -86,7 +86,7 @@ describe('every route, with every role', () => {
   const ROUTES = [
     ['GET', '/api/v1/spaces', 'viewer'], ['POST', '/api/v1/spaces', 'admin'],
     ['GET', S, 'viewer'], ['PUT', S, 'admin'], ['DELETE', S, 'admin'],
-    ['PUT', `${S}/statuses`, 'admin'], ['PUT', `${S}/hooks`, 'admin'],
+    ['PUT', `${S}/statuses`, 'admin'], ['PUT', `${S}/hooks`, 'admin'], ['PUT', `${S}/agents`, 'admin'],
     ['GET', `${S}/task-runs`, 'viewer'],
     ['GET', `${S}/tasks`, 'viewer'], ['POST', `${S}/tasks`, 'member'], ['DELETE', `${S}/tasks`, 'admin'],
     ['PATCH', `${S}/tasks/rank`, 'member'],
@@ -102,6 +102,7 @@ describe('every route, with every role', () => {
     ['GET', '/api/v1/tasks/search?q=a', 'viewer'], ['GET', '/api/v1/issues/WEB-1', 'viewer'], ['GET', '/api/v1/harnesses', 'viewer'],
     ['POST', '/api/v1/fs/validate', 'admin'],
     ['GET', '/api/v1/users', 'viewer'], ['PATCH', '/api/v1/users/u', 'admin'], ['POST', '/api/v1/users/u/reset-link', 'admin'],
+    ['GET', '/api/v1/assignees/unlinked', 'admin'], ['POST', '/api/v1/users/u/claim-assignee', 'admin'],
     ['GET', '/api/v1/invites', 'admin'], ['POST', '/api/v1/invites', 'admin'], ['DELETE', '/api/v1/invites/i', 'admin'],
     // Not a route. A write nobody opened stays closed.
     ['POST', '/api/v1/something-new', 'admin'], ['PUT', `${T}/something-new`, 'admin'],

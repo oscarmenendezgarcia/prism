@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { IssueHistory } from '../../src/components/board/IssueHistory';
+import { useAuthStore } from '../../src/stores/useAuthStore';
 import { getTaskHistory } from '../../src/api/client';
 import type { HistoryEntry } from '../../src/types';
 
 vi.mock('../../src/api/client', () => ({ getTaskHistory: vi.fn() }));
+
+useAuthStore.setState({ status: { needsSetup: false, user: { id: 'u', name: 'user', email: '', role: 'admin', active: true } } });
 
 const entry = (field: string, oldValue: string | null, newValue: string | null, actor = 'user', id = 1): HistoryEntry => (
   { id, actor, field, oldValue, newValue, createdAt: '2026-01-01T00:00:00.000Z' }
@@ -49,7 +52,7 @@ describe('IssueHistory — lines', () => {
 });
 
 describe('IssueHistory — actor', () => {
-  it('says You for the user', async () => {
+  it('says You for whoever is signed in', async () => {
     expect(await lineFor(entry('created', null, null, 'user'))).toMatch(/^You /);
   });
 

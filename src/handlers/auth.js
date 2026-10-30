@@ -11,6 +11,7 @@ const crypto = require('crypto');
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { ROLES, normalizeEmail } = require('../services/accounts');
 const { mayRequest } = require('../utils/permissions');
+const { isAgentId } = require('../utils/agents');
 
 const COOKIE_PREFIX = 'prism_session';
 const COOKIE_MAX_AGE = 30 * 24 * 60 * 60;
@@ -35,6 +36,7 @@ const PUBLIC_ROUTES = [
   /^(GET|POST) \/api\/v1\/auth\/links\/[^/]+$/,
 ];
 
+const CLAIM_ROUTE = /^\/api\/v1\/users\/([^/]+)\/claim-assignee$/;
 const USER_ROUTE = /^\/api\/v1\/users\/([^/]+)$/;
 const INVITE_ROUTE = /^\/api\/v1\/invites\/([^/]+)$/;
 const RESET_LINK_ROUTE = /^\/api\/v1\/users\/([^/]+)\/reset-link$/;
@@ -139,13 +141,13 @@ function createLoginLimiter({ maxEntries = LOGIN_MAX_ENTRIES } = {}) {
 
 /**
  * @param {object} deps
- * @param {ReturnType<import('../services/accounts').createAccounts>} deps.accounts
+ * @param {import('../services/store').Store} deps.store
  * @param {boolean} deps.required - False only from code, for the tests of what comes after this.
  * @param {string|null} [deps.setupCode] - Asked of whoever makes the first account.
  * @param {Function} [deps.onSetUp] - Called once the first account exists.
  * @param {boolean} [deps.trustProxy] - Take the client's address from X-Forwarded-For.
  */
-function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, trustProxy = false }) {
+function createAuth({ store: { accounts, assignees, renameAssignee }, required, setupCode = null, onSetUp = () => {}, trustProxy = false }) {
   const limiter = createLoginLimiter();
   let loginsRunning = 0;
 
@@ -295,6 +297,23 @@ function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, 
     sendJSON(res, 201, { ...invite, path: `/invite/${token}` });
   }
 
+  /** Names issues are assigned to from before accounts, which nobody answers to yet. */
+  function unlinkedAssignees() {
+    const known = new Set(accounts.listUsers().map((u) => u.name));
+    return [...new Set(assignees())].filter((name) => !known.has(name) && !isAgentId(name)).sort();
+  }
+
+  async function handleClaimAssignee(req, res, userId) {
+    const body = await readBody(req, res);
+    if (!body) return;
+    const user = accounts.getUser(userId);
+    if (!user?.active) return sendError(res, 404, 'NOT_FOUND', 'There is no such active user.');
+    if (typeof body.name !== 'string' || !unlinkedAssignees().includes(body.name)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'That is not an old assignee.');
+    }
+    sendJSON(res, 200, { moved: renameAssignee(body.name, user.name) });
+  }
+
   async function handleUpdateUser(req, res, userId) {
     const body = await readBody(req, res);
     if (!body) return;
@@ -349,6 +368,16 @@ function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, 
       return true;
     }
     if (urlPath === '/api/v1/invites' && method === 'POST') { await handleCreateInvite(req, res); return true; }
+
+    if (urlPath === '/api/v1/assignees/unlinked' && method === 'GET') {
+      if (requireAdmin(req, res)) sendJSON(res, 200, unlinkedAssignees());
+      return true;
+    }
+    const claim = CLAIM_ROUTE.exec(urlPath);
+    if (claim && method === 'POST') {
+      if (requireAdmin(req, res)) await handleClaimAssignee(req, res, claim[1]);
+      return true;
+    }
 
     const user = USER_ROUTE.exec(urlPath);
     if (user && method === 'PATCH') {

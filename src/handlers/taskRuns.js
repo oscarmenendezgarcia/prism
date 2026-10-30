@@ -20,7 +20,7 @@ const { sendJSON, sendError, parseBody, readActor } = require('../utils/http');
 const taskRunner      = require('../services/taskRunner');
 const worktreeManager = require('../services/worktreeManager');
 
-const DIRECT_CLI_TOOLS = ['claude', 'opencode', 'pi', 'hermes'];
+const { AGENT_IDS: DIRECT_CLI_TOOLS, agentIsOn, isAgentId } = require('../utils/agents');
 // The model reaches a shell command line through the harness adapters.
 const MODEL_RE         = /^[\w./:@-]+$/;
 
@@ -122,10 +122,24 @@ async function handleStartTaskRun(req, res, store, spaceId, taskId, workingDirec
   const body = await readObjectBody(req, res);
   if (!body) return undefined;
 
-  const { config, error } = readAgentConfig(body);
+  const target = store.getAllTasksForSpaceWithStatus(spaceId).find((t) => t.id === taskId);
+
+  // Who runs an issue is who it is assigned to, as the space set it up: a request has no say.
+  // Only a server without accounts, which tests start, takes the choice from the request.
+  let agent = body;
+  if (!req.user?.unverified) {
+    const space = store.getSpace(spaceId);
+    if (target && !isAgentId(target.assigned)) {
+      return sendError(res, 409, 'NOT_ASSIGNED_TO_AGENT', 'Assign this issue to an agent to run it.');
+    }
+    if (target && !agentIsOn(space, target.assigned)) {
+      return sendError(res, 403, 'AGENT_OFF', `${target.assigned} is off in this space. An admin can turn it on in Space settings.`);
+    }
+    agent = target ? { cliTool: target.assigned, model: space.hooks.agents[target.assigned].model } : {};
+  }
+  const { config, error } = readAgentConfig(agent);
   if (error) return sendError(res, 400, 'VALIDATION_ERROR', error);
 
-  const target = store.getAllTasksForSpaceWithStatus(spaceId).find((t) => t.id === taskId);
   if (target?.type === 'epic') {
     return sendError(res, 409, 'TASK_IS_EPIC', 'An epic groups issues. Run the issues in it instead.');
   }
@@ -178,6 +192,9 @@ async function handleRequestChanges(req, res, store, spaceId, taskId) {
 
   const view = latestRunView(spaceId, taskId);
   if (!view) return sendError(res, 409, 'NO_RUN', 'This task has not been run yet.');
+  if (!req.user?.unverified && !agentIsOn(store.getSpace(spaceId), view.cliTool)) {
+    return sendError(res, 403, 'AGENT_OFF', 'This agent is off in this space. An admin can turn it on in Space settings.');
+  }
 
   const comments = Array.isArray(task.comments) ? task.comments : [];
   if (comments.length >= COMMENT_MAX_COUNT) {
@@ -251,12 +268,45 @@ async function handleStopRun(res, runId) {
   }
 }
 
-async function handleResumeRun(res, runId) {
+async function handleResumeRun(req, res, store, runId) {
   try {
+    const run = taskRunner.getRun?.(runId);
+    if (run && !req.user?.unverified && !agentIsOn(store.getSpace(run.spaceId), run.agentConfig?.cliTool ?? 'claude')) {
+      return sendError(res, 403, 'AGENT_OFF', 'This agent is off in this space. An admin can turn it on in Space settings.');
+    }
     return sendJSON(res, 200, await taskRunner.resumeRun(runId));
   } catch (err) {
     return sendRunError(res, err, 'resuming run');
   }
+}
+
+/**
+ * Set which agents a space has on, and with which model.
+ * Body: { claude: { enabled: true, model: 'sonnet' }, opencode: { enabled: false }, … }
+ */
+async function handleUpdateAgents(req, res, store, spaceId) {
+  const body = await readObjectBody(req, res);
+  if (!body) return undefined;
+
+  const agents = {};
+  for (const [id, setting] of Object.entries(body)) {
+    if (!isAgentId(id)) return sendError(res, 400, 'VALIDATION_ERROR', `Unknown agent: ${id}`);
+    if (!setting || typeof setting !== 'object' || typeof setting.enabled !== 'boolean') {
+      return sendError(res, 400, 'VALIDATION_ERROR', `${id} needs enabled: true or false`);
+    }
+    const model = setting.model || undefined;
+    if (setting.enabled) {
+      const { error } = readAgentConfig({ cliTool: id, model });
+      if (error) return sendError(res, 400, 'VALIDATION_ERROR', error);
+    } else if (model !== undefined && (typeof model !== 'string' || !MODEL_RE.test(model))) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'model contains characters that are not allowed');
+    }
+    agents[id] = { enabled: setting.enabled, ...(model && { model }) };
+  }
+
+  const space = store.getSpace(spaceId);
+  store.upsertSpace({ ...space, hooks: { ...space.hooks, agents }, updatedAt: new Date().toISOString() });
+  return sendJSON(res, 200, store.getSpace(spaceId));
 }
 
 /**
@@ -268,6 +318,8 @@ async function handleUpdateHooks(req, res, store, spaceId) {
   if (!body) return undefined;
 
   const { checkCommand = null, autoPr = false } = body;
+  // Which agents are on lives with the rest of what agents do here, and has its own route.
+  const agents = store.getSpace(spaceId).hooks?.agents;
   if (checkCommand !== null && typeof checkCommand !== 'string') {
     return sendError(res, 400, 'VALIDATION_ERROR', 'checkCommand must be a string or null');
   }
@@ -293,7 +345,7 @@ async function handleUpdateHooks(req, res, store, spaceId) {
   }
   store.upsertSpace({
     ...space,
-    hooks: { checkCommand: command, autoPr, ...(finishStatus && { finishStatus }) },
+    hooks: { checkCommand: command, autoPr, ...(finishStatus && { finishStatus }), ...(agents && { agents }) },
     updatedAt: new Date().toISOString(),
   });
   return sendJSON(res, 200, store.getSpace(spaceId));
@@ -310,4 +362,5 @@ module.exports = {
   handleResumeRun,
   handleCreatePullRequest,
   handleUpdateHooks,
+  handleUpdateAgents,
 };

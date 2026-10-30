@@ -21,6 +21,8 @@ import { Badge } from '@/components/shared/Badge';
 import { boardIndex, epicOf, formatDueDate, isOverdue, parentIssueOf, priorityOf, progressOf, typeOf } from '@/utils/issues';
 import { plainText } from '@/utils/plainText';
 import { getGradient, getInitials } from '@/utils/avatar';
+import { agentOf, assigneeLabel } from '@/utils/agents';
+import { HarnessIcon } from '@/components/runs/HarnessIcon';
 import { TaskRunFooter } from '@/components/runs/TaskRunFooter';
 
 // ---------------------------------------------------------------------------
@@ -97,6 +99,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const priority = priorityOf(task.priority);
   const type = typeOf(task.type);
   const overdue = isOverdue(task);
+  const agent = agentOf(task.assigned);
   const description = useMemo(() => plainText(task.description ?? ''), [task.description]);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -259,15 +262,21 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
           {/* Assigned / Unassigned */}
           {task.assigned ? (
             <>
-              <div
-                className={`w-4 h-4 rounded-full bg-gradient-to-br ${getGradient(task.assigned)} flex items-center justify-center text-[7px] font-bold text-white flex-shrink-0`}
-                aria-hidden="true"
-                data-testid="avatar"
-              >
-                {getInitials(task.assigned)}
-              </div>
+              {agent ? (
+                <span className="w-4 h-4 rounded-[5px] bg-surface-variant flex items-center justify-center flex-shrink-0" data-testid="agent-avatar" aria-hidden="true">
+                  <HarnessIcon cliTool={agent} />
+                </span>
+              ) : (
+                <div
+                  className={`w-4 h-4 rounded-full bg-gradient-to-br ${getGradient(task.assigned)} flex items-center justify-center text-[7px] font-bold text-white flex-shrink-0`}
+                  aria-hidden="true"
+                  data-testid="avatar"
+                >
+                  {getInitials(task.assigned)}
+                </div>
+              )}
               <span className="text-xs text-text-secondary truncate" data-testid="assigned-name">
-                {task.assigned}
+                {assigneeLabel(task.assigned)}
               </span>
             </>
           ) : (

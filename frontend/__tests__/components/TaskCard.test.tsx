@@ -382,12 +382,23 @@ describe('TaskCard — issue tags', () => {
   });
 
   it('offers Run according to the category of the status, not its id', () => {
-    resetStores({ spaces: [{ ...SPACE, workingDirectory: '/repo' }] });
-    const { unmount } = render(<TaskCard task={issue({ category: 'todo' })} column="backlog" />);
+    resetStores({ spaces: [{ ...SPACE, workingDirectory: '/repo', hooks: { checkCommand: null, autoPr: false, agents: { claude: { enabled: true } } } }] });
+    const { unmount } = render(<TaskCard task={issue({ category: 'todo', assigned: 'claude' })} column="backlog" />);
     expect(screen.getByRole('button', { name: /^.*run$/i })).toBeInTheDocument();
     unmount();
-    render(<TaskCard task={issue({ category: 'done' })} column="todo" />);
+    render(<TaskCard task={issue({ category: 'done', assigned: 'claude' })} column="todo" />);
     expect(screen.queryByRole('button', { name: /^.*run$/i })).not.toBeInTheDocument();
+  });
+
+  it('an issue assigned to a person cannot run, and an agent reads by its name', () => {
+    resetStores({ spaces: [{ ...SPACE, workingDirectory: '/repo', hooks: { checkCommand: null, autoPr: false, agents: { claude: { enabled: true } } } }] });
+    const { unmount } = render(<TaskCard task={issue({ category: 'todo', assigned: 'Ana López' })} column="todo" />);
+    expect(screen.queryByRole('button', { name: /^.*run$/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('avatar')).toBeInTheDocument();
+    unmount();
+    render(<TaskCard task={issue({ category: 'todo', assigned: 'claude' })} column="todo" />);
+    expect(screen.getByTestId('agent-avatar')).toBeInTheDocument();
+    expect(screen.getByTestId('assigned-name')).toHaveTextContent('Claude Code');
   });
 
   it('shows the description as plain text, in two lines at most', () => {

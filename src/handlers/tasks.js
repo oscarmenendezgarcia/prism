@@ -14,6 +14,7 @@ const path = require('path');
 
 const { CATEGORIES }                       = require('../constants');
 const { sendJSON, sendError, parseBody, readActor } = require('../utils/http');
+const { agentIsOn, isAgentId } = require('../utils/agents');
 const taskRunner                           = require('../services/taskRunner');
 
 // ---------------------------------------------------------------------------
@@ -193,6 +194,22 @@ function validateDependsOnField(value) {
  * @param {import('../services/store').Store} store   - The open Store instance.
  * @returns {{ router: Function, ensureDataFiles: Function }}
  */
+/**
+ * Whether this may be set as the assignee: an active person, an agent that is on here, or
+ * what it already is, such as a name from before accounts. Only with accounts: without them
+ * there is nobody to check against.
+ *
+ * @returns {string|null} What is wrong.
+ */
+function assigneeProblem(req, store, spaceId, assigned, current) {
+  if (req.user?.unverified || assigned === undefined || !assigned || assigned === current) return null;
+  if (isAgentId(assigned)) {
+    return agentIsOn(store.getSpace(spaceId), assigned) ? null : `${assigned} is off in this space.`;
+  }
+  const person = store.accounts.listUsers().find((u) => u.name === assigned);
+  return person?.active ? null : `'${assigned}' is not on the team.`;
+}
+
 /** What a repository holds that is not for everyone who can read its issues. */
 const PRIVATE_IN_REPO = (relative) => relative.split(path.sep).some((part) => part === '.git' || part.startsWith('.env'));
 
@@ -541,6 +558,9 @@ function createApp(spaceId, store) {
       }
     }
 
+    const assigneeError = assigneeProblem(req, store, spaceId, task.assigned);
+    if (assigneeError) return sendError(res, 400, 'VALIDATION_ERROR', assigneeError);
+
     try {
       store.insertTask(task, spaceId, statusId, { actor: readActor(req), createdBy: req.user?.id });
 
@@ -760,6 +780,11 @@ function createApp(spaceId, store) {
 
     if (errors.length > 0) {
       return sendError(res, 400, 'VALIDATION_ERROR', errors.join('; '));
+    }
+
+    if ('assigned' in body) {
+      const problem = assigneeProblem(req, store, spaceId, body.assigned, store.getTask(spaceId, taskId)?.assigned);
+      if (problem) return sendError(res, 400, 'VALIDATION_ERROR', problem);
     }
 
     try {

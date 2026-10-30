@@ -12,6 +12,9 @@ interface AuthState {
   status: AuthStatus | null;
   /** Could not reach the server. */
   failed: boolean;
+  /** Everyone on the team, to assign issues to. */
+  people: User[];
+  loadPeople: () => Promise<void>;
   load: () => Promise<void>;
   /** Check again, for a role that changed. If it fails, things stay as they are. */
   refresh: () => Promise<void>;
@@ -23,6 +26,13 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set, get) => ({
   status: null,
   failed: false,
+  people: [],
+
+  loadPeople: async () => {
+    try {
+      set({ people: await api.getUsers() });
+    } catch { /* Whoever is assigned still shows. Next time. */ }
+  },
 
   load: async () => {
     set({ failed: false });

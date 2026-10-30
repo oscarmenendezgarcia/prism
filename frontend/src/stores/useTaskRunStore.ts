@@ -1,46 +1,29 @@
 /**
- * Task runs: which agent will run each card, and how its latest run is going.
+ * Task runs: how the latest run of each card is going.
  */
 
 import { create } from 'zustand';
 import * as api from '@/api/client';
 import { useAppStore } from '@/stores/useAppStore';
-import type { AgentChoice, HarnessInfo, TaskRunView } from '@/types';
+import type { HarnessInfo, ModelCliTool, Space, TaskRunView } from '@/types';
+import { AGENT_NAMES, agentIsOn } from '@/utils/agents';
 
-const CHOICE_STORAGE_KEY = 'prism:agent-choice';
-const DIRECT_CLI_TOOLS = ['claude', 'opencode', 'pi', 'hermes'];
-
-/** Why a run cannot start with this choice, or null when it can. */
-export function choiceProblem(choice: AgentChoice, harnesses: HarnessInfo[] | null): string | null {
-  const info = harnesses?.find((h) => h.cliTool === choice.cliTool);
-  if (info && !info.available) return `${choice.cliTool} is not installed`;
-  if (choice.cliTool !== 'claude' && !/^[\w.:@-]+\/[\w./:@-]+$/.test(choice.model ?? '')) {
-    return 'Choose a model as provider/model';
-  }
+/** Why this agent cannot run here, or null when it can. */
+export function runProblem(agent: ModelCliTool, space: Space | undefined, harnesses: HarnessInfo[] | null): string | null {
+  if (!agentIsOn(space, agent)) return `${AGENT_NAMES[agent]} is off in this space`;
+  if (harnesses?.find((h) => h.cliTool === agent)?.available === false) return `${AGENT_NAMES[agent]} is not installed`;
   return null;
-}
-
-function readSavedChoice(): AgentChoice {
-  try {
-    const saved = JSON.parse(localStorage.getItem(CHOICE_STORAGE_KEY) ?? 'null');
-    if (DIRECT_CLI_TOOLS.includes(saved?.cliTool)) {
-      return saved.cliTool === 'claude' && !saved.model ? { ...saved, model: 'sonnet' } : saved;
-    }
-  } catch { /* corrupt or unavailable — use the default */ }
-  return { cliTool: 'claude', model: 'sonnet' };
 }
 
 interface TaskRunState {
   /** Latest run of each task in the active space, by task ID. */
   views: Record<string, TaskRunView>;
   /** The agent new runs use. The last one chosen, across cards and sessions. */
-  choice: AgentChoice;
   /** What is installed on this machine. Null until the first answer. */
   harnesses: HarnessInfo[] | null;
   /** Tasks with an action in flight, to disable their buttons. */
   busyTaskIds: Set<string>;
 
-  setChoice: (choice: AgentChoice) => void;
   loadHarnesses: () => Promise<void>;
   load: (spaceId: string) => Promise<void>;
   start: (spaceId: string, taskId: string) => Promise<void>;
@@ -84,16 +67,8 @@ export const useTaskRunStore = create<TaskRunState>((set, get) => {
 
   return {
     views: {},
-    choice: readSavedChoice(),
     harnesses: null,
     busyTaskIds: new Set(),
-
-    setChoice: (choice) => {
-      set({ choice });
-      try {
-        localStorage.setItem(CHOICE_STORAGE_KEY, JSON.stringify(choice));
-      } catch { /* the choice just will not survive a reload */ }
-    },
 
     loadHarnesses: async () => {
       try {
@@ -118,7 +93,7 @@ export const useTaskRunStore = create<TaskRunState>((set, get) => {
       }
     },
 
-    start: (spaceId, taskId) => act(spaceId, taskId, () => api.startTaskRun(spaceId, taskId, get().choice)),
+    start: (spaceId, taskId) => act(spaceId, taskId, () => api.startTaskRun(spaceId, taskId)),
     stop: (spaceId, taskId) => act(spaceId, taskId, () => api.stopRun(runIdOf(taskId))),
     retry: (spaceId, taskId) => act(spaceId, taskId, () => api.resumeRun(runIdOf(taskId))),
     requestChanges: (spaceId, taskId, text) => act(spaceId, taskId, () => api.requestTaskChanges(spaceId, taskId, text)),

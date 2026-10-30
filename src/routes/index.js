@@ -30,6 +30,7 @@ const {
   handleStopRun,
   handleResumeRun,
   handleUpdateHooks,
+  handleUpdateAgents,
 } = require('../handlers/taskRuns');
 
 // ---------------------------------------------------------------------------
@@ -39,6 +40,7 @@ const {
 const TASK_RUN_ACTION_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/(run|request-changes|close|pr)$/;
 const SPACE_TASK_RUNS_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/task-runs$/;
 const SPACE_HOOKS_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/hooks$/;
+const SPACE_AGENTS_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)\/agents$/;
 const RUN_ACTION_ROUTE      = /^\/api\/v1\/runs\/([^/]+)\/(diff|log|stop|resume)$/;
 const COMMENTS_LIST_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments$/;
 const COMMENTS_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments\/([^/]+)$/;
@@ -166,6 +168,16 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
       }
       if (method === 'GET') return handleListTaskRuns(req, res, spaceTaskRunsMatch[1]);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const spaceAgentsMatch = SPACE_AGENTS_ROUTE.exec(urlPath);
+    if (spaceAgentsMatch) {
+      const spaceResult = spaceManager.getSpace(spaceAgentsMatch[1]);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+      if (method === 'PUT') return handleUpdateAgents(req, res, store, spaceAgentsMatch[1]);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 
@@ -348,7 +360,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       if (action === 'diff') return handleGetRunDiff(req, res, runId);
       if (action === 'log') return handleGetRunLog(res, runId);
       if (action === 'stop') return handleStopRun(res, runId);
-      return handleResumeRun(res, runId);
+      return handleResumeRun(req, res, store, runId);
     }
 
     // -------------------------------------------------------------------------

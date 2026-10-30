@@ -7,15 +7,11 @@ import { Button } from '@/components/shared/Button';
 import { useAppStore } from '@/stores/useAppStore';
 import { useCanEdit, useIsAdmin } from '@/stores/useAuthStore';
 import { isAwaitingReview } from '@/utils/issues';
-import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
+import { runProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
+import { agentOf } from '@/utils/agents';
 import type { StatusCategory, Task } from '@/types';
-import { AgentPicker } from './AgentPicker';
-import { HarnessIcon, isAgentName } from './HarnessIcon';
+import { HarnessIcon } from './HarnessIcon';
 import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
-
-const REVEALED_FOOTER = 'absolute right-0 -bottom-1 flex items-center gap-1 pl-2 bg-surface opacity-0 '
-  + 'group-hover:opacity-100 group-focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100 transition-opacity duration-fast '
-  + '[@media(pointer:coarse)]:static [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:pl-0';
 
 interface TaskRunFooterProps {
   task: Task;
@@ -27,7 +23,6 @@ interface TaskRunFooterProps {
 export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   const view            = useTaskRunStore((s) => s.views[task.id]);
   const busy            = useTaskRunStore((s) => s.busyTaskIds.has(task.id));
-  const choice          = useTaskRunStore((s) => s.choice);
   const harnesses       = useTaskRunStore((s) => s.harnesses);
   const start           = useTaskRunStore((s) => s.start);
   const retry           = useTaskRunStore((s) => s.retry);
@@ -48,6 +43,9 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
     || (column === 'in-progress' && (!view || (view.status === 'done' && !isAwaitingReview(task, space))));
   if (!canEdit) return null;
   if (canStart) {
+    // Only an issue assigned to an agent can run.
+    const agent = agentOf(task.assigned);
+    if (!agent) return null;
     if (space && !space.workingDirectory) {
       if (!isAdmin) return null;
       return (
@@ -62,16 +60,12 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
         </div>
       );
     }
-    const problem = choiceProblem(choice, harnesses);
-    // Only an issue meant for an agent keeps these in view: on the rest they appear on
-    // hover, over the end of the last row so that the cards around do not move. A blocked
-    // issue explains its disabled Run, and attachments are a button: neither can be covered.
-    const inView = missingHarness || isAgentName(task.assigned) || !!task.isBlocked || (task.attachments?.length ?? 0) > 0;
+    const problem = runProblem(agent, space, harnesses);
     return (
-      <div className={inView ? 'flex flex-wrap items-center gap-1 mt-2 -ml-2 [@media(pointer:coarse)]:mt-0 [@media(pointer:coarse)]:ml-0' : REVEALED_FOOTER} data-testid="run-footer">
+      <div className="flex flex-wrap items-center gap-1 mt-2 -ml-2 [@media(pointer:coarse)]:mt-0 [@media(pointer:coarse)]:ml-0" data-testid="run-footer">
         {missingHarness && <p className="w-full ml-2 text-xs text-error leading-snug">This agent is not installed on this machine.</p>}
-        <AgentPicker compact={!inView} />
-        {inView && <span className="flex-1" />}
+        {problem && !missingHarness && <p className="flex-1 min-w-0 ml-2 text-xs text-text-secondary leading-snug" data-testid="run-problem">{problem}</p>}
+        <span className="flex-1" />
         <Button
           variant="primary"
           size="sm"

@@ -17,7 +17,6 @@ import type {
   SearchResponse,
   ValidationResult,
   HarnessesResponse,
-  AgentChoice,
   TaskRunView,
   ChangedFile,
   SpaceHooks,
@@ -27,6 +26,7 @@ import type {
   AccountLink,
   Invite,
   Role,
+  SpaceAgents,
   User,
 } from '@/types';
 
@@ -114,6 +114,14 @@ export const getAccountLink = (token: string): Promise<AccountLink> =>
 
 export const redeemAccountLink = (token: string, body: { name?: string; password: string }): Promise<{ user: User }> =>
   apiFetch<{ user: User }>(`/auth/links/${encodeURIComponent(token)}`, { method: 'POST', body: JSON.stringify(body) });
+
+export const updateSpaceAgents = (spaceId: string, agents: SpaceAgents): Promise<Space> =>
+  apiFetch<Space>(`/spaces/${spaceId}/agents`, { method: 'PUT', body: JSON.stringify(agents) });
+
+export const getUnlinkedAssignees = (): Promise<string[]> => apiFetch<string[]>('/assignees/unlinked');
+
+export const claimAssignee = (userId: string, name: string): Promise<{ moved: number }> =>
+  apiFetch<{ moved: number }>(`/users/${encodeURIComponent(userId)}/claim-assignee`, { method: 'POST', body: JSON.stringify({ name }) });
 
 export const getUsers = (): Promise<User[]> => apiFetch<User[]>('/users');
 
@@ -384,8 +392,8 @@ const postJson = <T>(path: string, body: unknown): Promise<T> =>
 export const getTaskRuns = (spaceId: string): Promise<Record<string, TaskRunView>> =>
   apiFetch<Record<string, TaskRunView>>(`/spaces/${spaceId}/task-runs`);
 
-export const startTaskRun = (spaceId: string, taskId: string, choice: AgentChoice): Promise<BackendRun> =>
-  postJson<BackendRun>(`/spaces/${spaceId}/tasks/${taskId}/run`, choice);
+export const startTaskRun = (spaceId: string, taskId: string): Promise<BackendRun> =>
+  postJson<BackendRun>(`/spaces/${spaceId}/tasks/${taskId}/run`, {});
 
 export const requestTaskChanges = (spaceId: string, taskId: string, text: string): Promise<BackendRun> =>
   postJson<BackendRun>(`/spaces/${spaceId}/tasks/${taskId}/request-changes`, { text });

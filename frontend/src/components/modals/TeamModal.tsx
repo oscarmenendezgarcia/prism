@@ -57,15 +57,17 @@ export function TeamModal({ onClose }: { onClose: () => void }) {
   const showToast = useAppStore((s) => s.showToast);
   const [users, setUsers] = useState<User[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
+  const [unlinked, setUnlinked] = useState<string[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role>('member');
   const [link, setLink] = useState<{ title: string; path: string; note: string } | null>(null);
 
   const refresh = useCallback(async () => {
-    const [people, pending] = await Promise.all([api.getUsers(), api.getInvites()]);
+    const [people, pending, oldNames] = await Promise.all([api.getUsers(), api.getInvites(), api.getUnlinkedAssignees()]);
     setUsers(people);
     setInvites(pending);
+    setUnlinked(oldNames);
     setLoaded(true);
   }, []);
 
@@ -175,6 +177,32 @@ export function TeamModal({ onClose }: { onClose: () => void }) {
               </li>
             ))}
           </ul>
+        )}
+
+        {unlinked.length > 0 && (
+          <section className="mt-5" data-testid="unlinked-assignees">
+            <h3 className="text-sm font-semibold text-text-primary">Names from before accounts</h3>
+            <p className="mt-0.5 mb-2 text-xs text-text-secondary">Issues are assigned to these. Choose who each one is, and their issues go to that person.</p>
+            <ul className="flex flex-col gap-2">
+              {unlinked.map((name) => (
+                <li key={name} className="flex items-center gap-2">
+                  <span className="flex-1 min-w-0 text-sm text-text-primary truncate">{name}</span>
+                  <select
+                    value=""
+                    aria-label={`Who ${name} is`}
+                    className={FIELD}
+                    onChange={(e) => {
+                      const userId = e.target.value;
+                      if (userId) void change(() => api.claimAssignee(userId, name));
+                    }}
+                  >
+                    <option value="">Choose…</option>
+                    {users.filter((u) => u.active).map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
       </div>
     </Modal>

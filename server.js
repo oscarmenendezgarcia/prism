@@ -145,7 +145,7 @@ function startServer(options = {}) {
   const usesAccounts = options.auth !== false;
   const setupCode = usesAccounts && !store.accounts.hasUsers() ? loadOrCreateSetupCode(dataDir) : null;
   const auth = createAuth({
-    accounts: store.accounts,
+    store,
     required: usesAccounts,
     setupCode,
     onSetUp: () => removeSetupCode(dataDir),

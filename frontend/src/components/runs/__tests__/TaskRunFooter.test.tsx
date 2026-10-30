@@ -16,8 +16,11 @@ vi.mock('@/api/client', async (importOriginal) => ({
 }));
 
 const task: Task = {
-  id: 't1', title: 'A task', type: 'feature', createdAt: '', updatedAt: '',
+  id: 't1', title: 'A task', type: 'feature', assigned: 'claude', createdAt: '', updatedAt: '',
 } as Task;
+
+const AGENTS_ON = { checkCommand: null, autoPr: false, agents: { claude: { enabled: true }, opencode: { enabled: false } } };
+const ON_SPACE = { id: 's1', name: 'S', workingDirectory: '/repo', hooks: AGENTS_ON, createdAt: '', updatedAt: '' };
 
 const view = (over: Partial<TaskRunView>): TaskRunView => ({
   runId: 'r1', taskId: 't1', status: 'working', cliTool: 'claude', model: 'sonnet', iteration: 1,
@@ -27,44 +30,31 @@ const view = (over: Partial<TaskRunView>): TaskRunView => ({
 const result = { branch: 'prism/run-1', baseBranch: 'main', ref: null, fileCount: 2, additions: 10, deletions: 3, saveError: null };
 
 function renderFooter(column: 'todo' | 'in-progress' | 'done', over?: Partial<TaskRunView>, t: Task = task) {
-  useTaskRunStore.setState({ views: over ? { t1: view(over) } : {}, busyTaskIds: new Set(), choice: { cliTool: 'claude' }, harnesses: null });
+  useTaskRunStore.setState({ views: over ? { t1: view(over) } : {}, busyTaskIds: new Set(), harnesses: null });
   return render(<TaskRunFooter task={t} column={column} spaceId="s1" />);
 }
 
 describe('TaskRunFooter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAppStore.setState({ activeSpaceId: 's1', loadBoard: vi.fn().mockResolvedValue(undefined), showToast: vi.fn() } as never);
+    useAppStore.setState({ activeSpaceId: 's1', spaces: [ON_SPACE], loadBoard: vi.fn().mockResolvedValue(undefined), showToast: vi.fn() } as never);
   });
 
-  it('keeps the agent and Run in view only on an issue assigned to an agent', () => {
-    const { unmount } = renderFooter('todo', undefined, { ...task, assigned: 'Claude Code' });
-    expect(screen.getByTestId('run-footer')).not.toHaveClass('opacity-0');
-    unmount();
-    const other = renderFooter('todo', undefined, { ...task, assigned: 'Ana López' });
-    expect(screen.getByTestId('run-footer')).toHaveClass('opacity-0', 'group-hover:opacity-100');
+  it('offers Run only on an issue assigned to an agent', () => {
+    const { unmount } = renderFooter('todo');
     expect(screen.getByRole('button', { name: /Run/ })).toBeInTheDocument();
-    other.unmount();
-    renderFooter('todo', undefined, { ...task, assigned: undefined });
-    expect(screen.getByTestId('run-footer')).toHaveClass('opacity-0');
-  });
-
-  it('does not cover the reason a blocked issue cannot run, nor its attachments', () => {
-    const { unmount } = renderFooter('todo', undefined, { ...task, isBlocked: true });
-    expect(screen.getByTestId('run-footer')).not.toHaveClass('opacity-0');
     unmount();
-    renderFooter('todo', undefined, { ...task, attachments: [{ name: 'a', type: 'text', content: 'x' }] } as Task);
-    expect(screen.getByTestId('run-footer')).not.toHaveClass('opacity-0');
+    const person = renderFooter('todo', undefined, { ...task, assigned: 'Ana López' });
+    expect(screen.queryByTestId('run-footer')).toBeNull();
+    person.unmount();
+    renderFooter('todo', undefined, { ...task, assigned: undefined });
+    expect(screen.queryByTestId('run-footer')).toBeNull();
   });
 
-  it.each(['Claude Code', 'claude-code', 'claude', 'developer-agent', 'Sonnet', 'opencode', 'Hermes'])('takes %s for an agent', (assigned) => {
-    renderFooter('todo', undefined, { ...task, assigned });
-    expect(screen.getByTestId('run-footer')).not.toHaveClass('opacity-0');
-  });
-
-  it.each(['Ana López', 'Piero', 'agent smith'])('takes %s for a person', (assigned) => {
-    renderFooter('todo', undefined, { ...task, assigned });
-    expect(screen.getByTestId('run-footer')).toHaveClass('opacity-0');
+  it('says so when the agent is off in this space', () => {
+    renderFooter('todo', undefined, { ...task, assigned: 'opencode' });
+    expect(screen.getByRole('button', { name: /run/i })).toBeDisabled();
+    expect(screen.getByTestId('run-problem')).toHaveTextContent('opencode is off in this space');
   });
 
   it('offers to create a PR on a finished card', async () => {
@@ -100,10 +90,10 @@ describe('TaskRunFooter', () => {
     expect(screen.getByText('Failed: Pull request')).toBeInTheDocument();
   });
 
-  it('offers Run with the chosen agent on a card in To do', async () => {
+  it('offers Run on a card in To do, with the assigned agent', async () => {
     renderFooter('todo');
     await userEvent.click(screen.getByRole('button', { name: /run/i }));
-    expect(api.startTaskRun).toHaveBeenCalledWith('s1', 't1', { cliTool: 'claude' });
+    expect(api.startTaskRun).toHaveBeenCalledWith('s1', 't1');
   });
 
   it('offers to run a card moved to In progress by hand', () => {
@@ -117,10 +107,10 @@ describe('TaskRunFooter', () => {
   });
 
   describe('with a finish status', () => {
-    const SPACE = { id: 's1', name: 'S', workingDirectory: '/repo', finishStatusId: 'in-review', createdAt: '', updatedAt: '' };
+    const SPACE = { ...ON_SPACE, finishStatusId: 'in-review' };
 
     beforeEach(() => { useAppStore.setState({ spaces: [SPACE] }); });
-    afterEach(() => { useAppStore.setState({ spaces: [] }); });
+    afterEach(() => { useAppStore.setState({ spaces: [ON_SPACE] }); });
 
     it('offers no Run on a card awaiting review, and shows its result instead', () => {
       renderFooter('in-progress', { status: 'done', result }, { ...task, statusId: 'in-review' });
@@ -132,7 +122,7 @@ describe('TaskRunFooter', () => {
       renderFooter('in-progress', { status: 'done', result }, { ...task, statusId: 'in-progress' });
       expect(screen.queryByTestId('run-result')).toBeNull();
       await userEvent.click(screen.getByRole('button', { name: /run/i }));
-      expect(api.startTaskRun).toHaveBeenCalledWith('s1', 't1', { cliTool: 'claude' });
+      expect(api.startTaskRun).toHaveBeenCalledWith('s1', 't1');
     });
 
     it('offers no Run on a card still running in the finish status', () => {
@@ -154,12 +144,6 @@ describe('TaskRunFooter', () => {
 
   it('does not run a blocked task', () => {
     renderFooter('todo', undefined, { ...task, isBlocked: true } as Task);
-    expect(screen.getByRole('button', { name: /run/i })).toBeDisabled();
-  });
-
-  it('does not run a harness without a provider/model', () => {
-    useTaskRunStore.setState({ views: {}, busyTaskIds: new Set(), choice: { cliTool: 'opencode' }, harnesses: null });
-    render(<TaskRunFooter task={task} column="todo" spaceId="s1" />);
     expect(screen.getByRole('button', { name: /run/i })).toBeDisabled();
   });
 
@@ -205,7 +189,7 @@ describe('TaskRunFooter', () => {
 
   it('does not run a harness known not to be installed', () => {
     useTaskRunStore.setState({
-      views: {}, busyTaskIds: new Set(), choice: { cliTool: 'claude' },
+      views: {}, busyTaskIds: new Set(),
       harnesses: [{ cliTool: 'claude', available: false, path: null, modelFormat: 'preset', installUrl: '' }],
     });
     render(<TaskRunFooter task={task} column="todo" spaceId="s1" />);

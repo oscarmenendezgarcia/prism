@@ -5,8 +5,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { EMPTY_SPACE_HOOKS, readSpaceHooks, SpaceHookSection } from '@/components/runs/SpaceHookSection';
-import { getTasks, updateSpaceHooks, updateSpaceStatuses, validateDirectory } from '@/api/client';
-import type { SpaceHooks, Status } from '@/types';
+import { SpaceAgentsSection } from '@/components/runs/SpaceAgentsSection';
+import { getTasks, updateSpaceAgents, updateSpaceHooks, updateSpaceStatuses, validateDirectory } from '@/api/client';
+import type { SpaceAgents, SpaceHooks, Status } from '@/types';
 import { defaultFinishStatus } from '@/utils/issues';
 import { StatusesEditor, StatusRow, toStatusRows } from './StatusesEditor';
 import type { ApiError } from '@/api/client';
@@ -33,6 +34,8 @@ export function SpaceModal() {
   const [submitting, setSubmitting] = useState(false);
   const [hooks, setHooks] = useState<SpaceHooks>(EMPTY_SPACE_HOOKS);
   const [hookError, setHookError] = useState('');
+  const [agents, setAgents] = useState<SpaceAgents>({});
+  const [agentsError, setAgentsError] = useState('');
   const [directoryError, setDirectoryError] = useState('');
   const [key, setKey] = useState('');
   const [keyError, setKeyError] = useState('');
@@ -52,6 +55,8 @@ export function SpaceModal() {
     if (isOpen) {
       setHookError('');
       setHooks(readSpaceHooks(space?.hooks));
+      setAgents(space?.hooks?.agents ?? {});
+      setAgentsError('');
       setDirectoryError('');
       setName(mode === 'rename' && space ? space.name : '');
       setWorkingDirectory(mode === 'rename' && space ? (space.workingDirectory ?? '') : '');
@@ -148,6 +153,17 @@ export function SpaceModal() {
             setMoves({});
           } catch (err) {
             setStatusError((err as Error).message);
+            return;
+          }
+          await loadSpaces();
+        }
+        const savedAgents = (useAppStore.getState().spaces.find((sp) => sp.id === space.id) ?? space).hooks?.agents ?? {};
+        if (JSON.stringify(agents) !== JSON.stringify(savedAgents)) {
+          setAgentsError('');
+          try {
+            await updateSpaceAgents(space.id, agents);
+          } catch (err) {
+            setAgentsError((err as Error).message);
             return;
           }
           await loadSpaces();
@@ -286,6 +302,8 @@ export function SpaceModal() {
               onFinishStatusChange={setFinishStatus}
             />
             {hookError && <span className="text-xs text-error block" role="alert">{hookError}</span>}
+            <SpaceAgentsSection agents={agents} onChange={setAgents} />
+            {agentsError && <span className="text-xs text-error block" role="alert">{agentsError}</span>}
           </>
         )}
       </ModalBody>

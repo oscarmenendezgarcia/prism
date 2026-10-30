@@ -59,13 +59,11 @@ export interface SpaceHooks {
   autoPr: boolean;
   /** The status an agent's finished work moves to, when the space chose one. */
   finishStatus?: string;
+  /** Which agents are on in this space. They start off. */
+  agents?: SpaceAgents;
 }
 
-/** The harness and model a run uses. */
-export interface AgentChoice {
-  cliTool: string;
-  model?: string;
-}
+export type SpaceAgents = Partial<Record<ModelCliTool, { enabled: boolean; model?: string }>>;
 
 /** A task's latest run, as GET /spaces/:id/task-runs returns it. */
 export interface TaskRunView {

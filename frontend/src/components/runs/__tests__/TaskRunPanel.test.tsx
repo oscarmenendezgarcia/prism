@@ -22,7 +22,7 @@ const view = (over: Partial<TaskRunView>): TaskRunView => ({
 });
 
 function renderPanel(over: Partial<TaskRunView>, column: 'in-progress' | 'done' = 'in-progress') {
-  useTaskRunStore.setState({ views: { t1: view(over) }, busyTaskIds: new Set(), choice: { cliTool: 'claude' }, harnesses: null });
+  useTaskRunStore.setState({ views: { t1: view(over) }, busyTaskIds: new Set(), harnesses: null });
   return render(<TaskRunPanel task={task} column={column} spaceId="s1" />);
 }
 

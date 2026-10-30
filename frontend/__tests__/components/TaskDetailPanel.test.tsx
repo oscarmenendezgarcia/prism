@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TaskDetailPanel } from '../../src/components/board/TaskDetailPanel';
 import { useAppStore } from '../../src/stores/useAppStore';
+import { useAuthStore } from '../../src/stores/useAuthStore';
 import * as api from '../../src/api/client';
 import type { Task } from '../../src/types';
 
@@ -17,6 +18,7 @@ import type { Task } from '../../src/types';
 // ---------------------------------------------------------------------------
 
 vi.mock('../../src/api/client', () => ({
+  getUsers:          vi.fn().mockResolvedValue([]),
   getSpaces:         vi.fn(),
   getTasks:          vi.fn(),
   createTask:        vi.fn(),
@@ -232,16 +234,15 @@ describe('TaskDetailPanel — auto-save on blur: title', () => {
 });
 
 describe('TaskDetailPanel — auto-save on blur: assigned', () => {
-  it('calls store.updateTask with { assigned } when assigned input is blurred with a changed value', () => {
+  it('calls store.updateTask with { assigned } as soon as another assignee is chosen', () => {
     const updateTask = vi.fn().mockResolvedValue(undefined);
     useAppStore.setState({ detailTask: TASK, updateTask } as any);
+    useAuthStore.setState({ people: [{ id: 'b', name: 'Bea Ruiz', email: '', role: 'member', active: true }], loadPeople: vi.fn() } as any);
     render(<TaskDetailPanel />);
 
-    const assignedInput = screen.getByLabelText(/assignee/i);
-    fireEvent.change(assignedInput, { target: { value: 'senior-architect' } });
-    fireEvent.blur(assignedInput);
+    fireEvent.change(screen.getByLabelText(/assignee/i), { target: { value: 'Bea Ruiz' } });
 
-    expect(updateTask).toHaveBeenCalledWith(TASK.id, { assigned: 'senior-architect' });
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { assigned: 'Bea Ruiz' });
   });
 
   it('sends empty string for assigned when user clears the field', () => {
@@ -378,11 +379,11 @@ describe('TaskDetailPanel — issue fields', () => {
 
   it('Escape saves the field being edited as it closes', () => {
     const { updateTask } = open(TASK, { todo: [TASK] });
-    const input = screen.getByLabelText(/assignee/i) as HTMLInputElement;
+    const input = screen.getByLabelText(/issue title/i) as HTMLTextAreaElement;
     input.focus();
     fireEvent.change(input, { target: { value: 'Someone new' } });
     fireEvent.keyDown(input, { key: 'Escape' });
-    expect(updateTask).toHaveBeenCalledWith(TASK.id, { assigned: 'Someone new' });
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { title: 'Someone new' });
   });
 
   it('Escape leaves the panel alone when another dialog is on top', () => {
@@ -467,7 +468,7 @@ describe('TaskDetailPanel — comments and history', () => {
 
     fireEvent.click(screen.getByTestId('activity-tab-history'));
 
-    expect(await screen.findByTestId('history-entry')).toHaveTextContent('You created it');
+    expect(await screen.findByTestId('history-entry')).toHaveTextContent('user created it');
     expect(api.getTaskHistory).toHaveBeenCalledWith('space-1', TASK.id);
     expect(screen.queryByTestId('comments-panel')).not.toBeInTheDocument();
   });

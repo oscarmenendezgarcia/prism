@@ -23,6 +23,7 @@ import React, {
 import { useAppStore } from '@/stores/useAppStore';
 import { useCanEdit } from '@/stores/useAuthStore';
 import { LabelsInput } from '@/components/shared/LabelsInput';
+import { AssigneeSelect } from '@/components/shared/AssigneeSelect';
 import { ChildIssues } from '@/components/board/ChildIssues';
 import { IssueHistory } from '@/components/board/IssueHistory';
 import { allTasks, boardIndex, isOverdue, parentIssueOf, PRIORITIES, TYPES } from '@/utils/issues';
@@ -337,13 +338,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
     updateTask(detailTask.id, { title: trimmed });
   }, [detailTask, localTitle, updateTask]);
 
-  const handleAssignedBlur = useCallback(() => {
+  const handleAssignedChange = useCallback((assigned: string) => {
     if (!detailTask) return;
-    const trimmed = localAssigned.trim();
-    if (trimmed === savedAssigned.current) return;
-    savedAssigned.current = trimmed;
-    updateTask(detailTask.id, { assigned: trimmed });
-  }, [detailTask, localAssigned, updateTask]);
+    setLocalAssigned(assigned);
+    if (assigned === savedAssigned.current) return;
+    savedAssigned.current = assigned;
+    updateTask(detailTask.id, { assigned });
+  }, [detailTask, updateTask]);
 
   const handleEstimateBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
     if (!detailTask) return;
@@ -701,14 +702,11 @@ export function TaskDetailPanel(): React.ReactElement | null {
               {/* Assignee */}
               <div className={SIDE_FIELD}>
                 <label htmlFor="detail-assigned" className={SIDE_LABEL}>Assignee</label>
-                <input
+                <AssigneeSelect
                   id="detail-assigned"
-                  type="text"
                   value={localAssigned}
-                  onChange={(e) => setLocalAssigned(e.target.value)}
-                  onBlur={handleAssignedBlur}
-                  className={DETAIL_INPUT_CLASS}
-                  placeholder="Unassigned"
+                  onChange={handleAssignedChange}
+                  className={DETAIL_FIELD_CLASS}
                 />
               </div>
 

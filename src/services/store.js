@@ -18,6 +18,7 @@ const path = require('path');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const { ACCOUNTS_SQL, createAccounts } = require('./accounts');
+const { agentFromOldName } = require('../utils/agents');
 
 const DEFAULT_PRIORITY = 'medium';
 
@@ -395,6 +396,15 @@ function addAccountColumns(db) {
   if (!has('comments', 'author_id')) db.exec('ALTER TABLE comments ADD COLUMN author_id TEXT');
 }
 
+/** Assignees were free text. Those that meant an agent now say which one, the same way. */
+function nameAgentsByTheirId(db) {
+  const setAssigned = db.prepare('UPDATE tasks SET assigned = ? WHERE assigned = ?');
+  for (const { assigned } of db.prepare('SELECT DISTINCT assigned FROM tasks WHERE assigned IS NOT NULL').all()) {
+    const agent = agentFromOldName(fromJson(assigned) ?? '');
+    if (agent) setAssigned.run(JSON.stringify(agent), assigned);
+  }
+}
+
 /**
  * Turn tasks into issues: number them by creation order, give each space its statuses,
  * make every arc an epic holding its tasks, and move comments to their own table.
@@ -602,7 +612,12 @@ function createStore(dataDir) {
 
   db.exec(ACCOUNTS_SQL);
   addAccountColumns(db);
-  if (db.pragma('user_version', { simple: true }) < SCHEMA_VERSION) db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  if (db.pragma('user_version', { simple: true }) < SCHEMA_VERSION) {
+    db.transaction(() => {
+      nameAgentsByTheirId(db);
+      db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    })();
+  }
   const accounts = createAccounts(db);
 
   console.log(`[store] open — WAL mode confirmed, schema ready (${dbPath})`);
@@ -1651,6 +1666,19 @@ function createStore(dataDir) {
   // Lifecycle
   // ---------------------------------------------------------------------------
 
+  /** Everyone issues are assigned to, as written in them. */
+  function assignees() {
+    return db.prepare('SELECT DISTINCT assigned FROM tasks WHERE assigned IS NOT NULL').all()
+      .map((row) => fromJson(row.assigned))
+      .filter(Boolean);
+  }
+
+  /** Give the issues of an old assignee to someone else. */
+  function renameAssignee(from, to) {
+    return db.prepare('UPDATE tasks SET assigned = ?, updated_at = ? WHERE assigned = ?')
+      .run(JSON.stringify(to), new Date().toISOString(), JSON.stringify(from)).changes;
+  }
+
   function close() {
     db.close();
   }
@@ -1702,6 +1730,8 @@ function createStore(dataDir) {
     deleteRun: deleteRun,
     // People
     accounts,
+    assignees,
+    renameAssignee,
     dataDir,
     // Lifecycle
     close,

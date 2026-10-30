@@ -4,6 +4,7 @@
 
 import React from 'react';
 import type { ModelCliTool } from '@/types';
+import { AGENT_NAMES } from '@/utils/agents';
 import claudeLogo from '@/assets/harness/claude.svg';
 import opencodeLogo from '@/assets/harness/opencode.svg';
 import piLogo from '@/assets/harness/pi.svg';
@@ -11,22 +12,7 @@ import hermesLogo from '@/assets/harness/hermes.png';
 
 export type DirectCliTool = ModelCliTool;
 
-export const HARNESS_NAMES: Record<DirectCliTool, string> = {
-  claude:   'Claude Code',
-  opencode: 'opencode',
-  pi:       'pi',
-  hermes:   'Hermes',
-};
-
-const AGENT_MODELS = ['sonnet', 'opus', 'haiku'];
-
-/** Whether an assignee is an agent, as people and agents write it: "Claude Code", "claude-code", "developer-agent". */
-export function isAgentName(assigned: string | undefined): boolean {
-  const name = assigned?.trim().toLowerCase().replace(/[-_]+/g, ' ');
-  if (!name) return false;
-  return name.endsWith(' agent') || AGENT_MODELS.includes(name)
-    || Object.entries(HARNESS_NAMES).some(([id, label]) => name === id || name === label.toLowerCase());
-}
+export const HARNESS_NAMES = AGENT_NAMES;
 
 const LOGOS: Record<DirectCliTool, string> = {
   claude:   claudeLogo,
