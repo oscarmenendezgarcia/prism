@@ -21,9 +21,10 @@ import React, {
   useState,
 } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
-import { distinctArcs } from '@/utils/arcs';
-import { Button } from '@/components/shared/Button';
-import { ArcAutocomplete } from '@/components/shared/ArcAutocomplete';
+import { LabelsInput } from '@/components/shared/LabelsInput';
+import { ChildIssues } from '@/components/board/ChildIssues';
+import { IssueHistory } from '@/components/board/IssueHistory';
+import { allTasks, boardIndex, isOverdue, parentIssueOf, PRIORITIES, TYPES, typeOf } from '@/utils/issues';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { TaskRunPanel } from '@/components/runs/TaskRunPanel';
 import { useTaskRunStore } from '@/stores/useTaskRunStore';
@@ -31,14 +32,16 @@ import { DependsOnSection } from '@/components/board/DependsOnSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import * as api from '@/api/client';
-import type { Column, Comment, Task } from '@/types';
-import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
+import type { Comment, Priority, Task, TaskType } from '@/types';
 
 // ---------------------------------------------------------------------------
-// Shared input style for the details column's editable fields (Assigned, Arc)
+// Shared input style for the details column's editable fields
 // so they read as a set. The read-only ID box reuses the same surface tokens
 // (bg/border/radius/inset) inline since it's a <span>, not an <input>.
 // ---------------------------------------------------------------------------
+
+const SIDE_FIELD = 'flex flex-col gap-1.5 py-3 first:pt-0';
+const SIDE_LABEL = 'text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]';
 
 const DETAIL_FIELD_CLASS =
   'w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary ' +
@@ -70,7 +73,6 @@ async function copyToClipboard(text: string): Promise<void> {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Find which column a task lives in from the board tasks. */
 /**
  * The panel's copy has what the user just did, the board's what the agent did. Either
  * can be a moment behind, so a comment shows once, in its most recent version.
@@ -83,15 +85,6 @@ function mergeComments(board: Comment[] | undefined, panel: Comment[] | undefine
     if (!seen || stamp(c) > stamp(seen)) byId.set(c.id, c);
   }
   return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-}
-
-function findTaskColumn(
-  tasks: Record<Column, { id: string }[]>,
-  taskId: string,
-): Column | undefined {
-  return COLUMNS.find((col) =>
-    tasks[col].some((t) => t.id === taskId),
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +159,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
     s.detailTask ? s.mutatingTaskIds.has(s.detailTask.id) : false
   );
   const tasks                = useAppStore((s) => s.tasks);
-  const arcs                 = distinctArcs(tasks);
+  const moveTask             = useAppStore((s) => s.moveTask);
+  const statuses             = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId)?.statuses) ?? [];
+  const openDetailPanel      = useAppStore((s) => s.openDetailPanel);
   const showToast            = useAppStore((s) => s.showToast);
   const openAttachmentModal  = useAppStore((s) => s.openAttachmentModal);
   const openMarkdownModal    = useAppStore((s) => s.openMarkdownModal);
@@ -176,9 +171,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const [localTitle, setLocalTitle]             = useState('');
   const [localAssigned, setLocalAssigned]       = useState('');
-  const [localArc, setLocalArc]                 = useState('');
   const [localDescription, setLocalDescription] = useState('');
-  const [localType, setLocalType]               = useState<'feature' | 'bug' | 'tech-debt' | 'chore'>('chore');
+  const [localEstimate, setLocalEstimate]       = useState('');
+  const [activityTab, setActivityTab]           = useState<'comments' | 'history'>('comments');
   const [localDependsOn, setLocalDependsOn]     = useState<string[]>([]);
   /** Mobile tab — shown only when viewport is <768px (two-column doesn't fit). */
   const [mobileTab, setMobileTab]               = useState<'content' | 'details'>('content');
@@ -189,7 +184,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
   // Track initial values to detect actual changes on blur.
   const savedTitle       = useRef('');
   const savedAssigned    = useRef('');
-  const savedArc         = useRef('');
 
   // ── Refs for focus management ────────────────────────────────────────────
 
@@ -206,14 +200,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
     setLocalTitle(detailTask.title);
     setLocalAssigned(detailTask.assigned ?? '');
-    setLocalArc(detailTask.arc ?? '');
     setLocalDescription(detailTask.description ?? '');
-    setLocalType(detailTask.type);
+    setLocalEstimate(detailTask.estimate != null ? String(detailTask.estimate) : '');
+    setActivityTab('comments');
     setLocalDependsOn(detailTask.dependsOn ?? []);
 
     savedTitle.current    = detailTask.title;
     savedAssigned.current = detailTask.assigned ?? '';
-    savedArc.current      = detailTask.arc ?? '';
 
     // Capture the currently focused element as the trigger before the panel
     // steals focus.
@@ -310,23 +303,17 @@ export function TaskDetailPanel(): React.ReactElement | null {
     updateTask(detailTask.id, { assigned: trimmed });
   }, [detailTask, localAssigned, updateTask]);
 
-  const handleArcBlur = useCallback(() => {
+  const handleEstimateBlur = useCallback(() => {
     if (!detailTask) return;
-    const trimmed = localArc.trim();
-    if (trimmed === savedArc.current) return;
-    savedArc.current = trimmed;
-    // Empty string clears the arc on the server
-    updateTask(detailTask.id, { arc: trimmed });
-  }, [detailTask, localArc, updateTask]);
-
-  const handleTypeChange = useCallback(
-    (newType: 'feature' | 'bug' | 'tech-debt' | 'chore') => {
-      if (!detailTask || newType === localType) return;
-      setLocalType(newType);
-      updateTask(detailTask.id, { type: newType });
-    },
-    [detailTask, localType, updateTask],
-  );
+    const text = localEstimate.trim();
+    const estimate = text === '' ? null : Number(text);
+    if (estimate !== null && (!isFinite(estimate) || estimate < 0)) {
+      setLocalEstimate(detailTask.estimate != null ? String(detailTask.estimate) : '');
+      return;
+    }
+    const saved = useAppStore.getState().detailTask?.estimate ?? null;
+    if (estimate !== saved) updateTask(detailTask.id, { estimate });
+  }, [detailTask, localEstimate, updateTask]);
 
   const handleSaveDescription = useCallback(() => {
     if (!detailTask) return;
@@ -366,17 +353,25 @@ export function TaskDetailPanel(): React.ReactElement | null {
     [detailTask, answerQuestion],
   );
 
-  const handleCopyId = useCallback(async () => {
-    if (!detailTask) return;
+  const handleCopyKey = useCallback(async (key: string) => {
     try {
-      await copyToClipboard(detailTask.id);
+      await copyToClipboard(key);
       setIsCopied(true);
-      showToast('Task ID copied to clipboard', 'success');
+      showToast(`${key} copied to clipboard`, 'success');
       setTimeout(() => setIsCopied(false), 2000);
     } catch {
-      showToast('Failed to copy ID', 'error');
+      showToast('Failed to copy', 'error');
     }
-  }, [detailTask, showToast]);
+  }, [showToast]);
+
+  const handleCopyLink = useCallback(async (key: string) => {
+    try {
+      await copyToClipboard(`${window.location.origin}${window.location.pathname}?issue=${key}`);
+      showToast('Link copied to clipboard', 'success');
+    } catch {
+      showToast('Failed to copy', 'error');
+    }
+  }, [showToast]);
 
   /**
    * Attachment click handler.
@@ -411,10 +406,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   if (!detailTask) return null;
 
-  const column = findTaskColumn(tasks, detailTask.id);
   // Comments can arrive from the agent while the panel is open, through board polling.
   // The board has the fresh copy: this one is from when the panel opened, or last saved.
-  const boardTask = column ? (tasks[column] as Task[]).find((t) => t.id === detailTask.id) : undefined;
+  const index = boardIndex(tasks);
+  const boardTask = index.byId.get(detailTask.id);
+  const issue: Task = boardTask ?? detailTask;
+  const column = issue.category;
+  const isEpic = issue.type === 'epic';
+  const parentIssue = parentIssueOf(issue, index);
+  const epics = allTasks(tasks).filter((t) => t.type === 'epic' && t.id !== issue.id);
   const boardComments = boardTask?.comments;
   const comments = mergeComments(boardComments, detailTask.comments);
   const hasOpenQuestion = comments.some((c) => c.type === 'question' && !c.resolved);
@@ -422,33 +422,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
     && column !== 'todo'
     && ['failed', 'stopped', 'done'].includes(taskRunView.status)
     && !hasOpenQuestion;
-  const columnLabel = column ? COLUMN_LABELS[column] : '';
-
-  /** Short ID chip — last 7 chars for display. */
-  const shortId = `#${detailTask.id.slice(-7)}`;
-
   const fieldDisabled = isReadOnly;
 
   // ── Shared sub-elements ──────────────────────────────────────────────────
 
-  const columnBadge = column && (
-    <span
-      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium leading-none uppercase tracking-wide flex-shrink-0 ${
-        column === 'done'
-          ? 'bg-col-done-pill text-badge-done-text'
-          : column === 'in-progress'
-          ? 'bg-col-in-progress-pill text-primary'
-          : 'bg-surface-variant text-text-secondary'
-      }`}
-    >
-      {columnLabel}
-    </span>
-  );
-
   const closeButton = (
     <button
       onClick={closeDetailPanel}
-      aria-label="Close task detail"
+      aria-label="Close issue detail"
       className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.90] transition-all duration-[150ms] ease-spring flex-shrink-0"
     >
       <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
@@ -475,16 +456,37 @@ export function TaskDetailPanel(): React.ReactElement | null {
             ref={panelRef}
             role="dialog"
             aria-modal="true"
-            aria-label="Task detail"
+            aria-label="Issue detail"
             tabIndex={-1}
             className="outline-none flex-1 min-h-0 flex flex-col bg-surface rounded-modal overflow-hidden shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
           >
           {/* ── Header ────────────────────────────────────────────────── */}
           <div className="flex items-center gap-2.5 h-13 px-6 border-b border-border/40 flex-shrink-0 bg-surface-elevated/10">
-            <span className="font-mono text-[11px] text-text-secondary bg-surface-variant/80 px-2 py-1 rounded-md flex-shrink-0 tracking-[0.1em] border border-border/40">
-              {shortId}
-            </span>
-            {columnBadge}
+            {issue.key && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleCopyKey(issue.key!)}
+                  aria-label={`Copy key ${issue.key}`}
+                  title="Copy key"
+                  data-testid="detail-key"
+                  className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-text-secondary bg-surface-variant/80 px-2 py-1 rounded-md flex-shrink-0 border border-border/40 hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+                >
+                  {issue.key}
+                  <span className="material-symbols-outlined text-[13px] leading-none" aria-hidden="true">{isCopied ? 'check' : 'content_copy'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCopyLink(issue.key!)}
+                  aria-label="Copy link to this issue"
+                  title="Copy link"
+                  className="w-7 h-7 flex items-center justify-center rounded-md text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast flex-shrink-0"
+                >
+                  <span className="material-symbols-outlined text-[15px] leading-none" aria-hidden="true">link</span>
+                </button>
+              </>
+            )}
+            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${typeOf(issue.type).className}`}>{typeOf(issue.type).label}</span>
             <div className="flex-1" />
             {detailTask.createdAt && (
               <time
@@ -537,13 +539,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 }}
                 disabled={fieldDisabled}
                 aria-disabled={fieldDisabled}
-                aria-label="Task title"
+                aria-label="Issue title"
                 className="w-full bg-transparent border-b border-transparent hover:border-border/40 focus:border-primary/50 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled/50 focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-40 disabled:cursor-not-allowed transition-[border-color] duration-[220ms] ease-spring"
-                placeholder="Task title"
+                placeholder="Issue title"
               />
               </div>
 
-              {column && <TaskRunPanel task={boardTask ?? detailTask} column={column} spaceId={activeSpaceId} />}
+              {column && !isEpic && <TaskRunPanel task={issue} column={column} spaceId={activeSpaceId} />}
 
               {/* Description */}
               <div className="flex flex-col gap-1.5 animate-fade-in-up [animation-delay:110ms]">
@@ -564,8 +566,33 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 />
               </div>
 
-              {/* Comments */}
-              <div className="border-t border-border/30 pt-6 animate-fade-in-up [animation-delay:170ms]" data-testid="comments-panel">
+              <ChildIssues task={issue} spaceId={activeSpaceId} />
+
+              {/* Comments and history */}
+              <div className="border-t border-border/30 pt-4 animate-fade-in-up [animation-delay:170ms]">
+                <div role="tablist" aria-label="Issue activity" className="flex gap-4 border-b border-border/40 mb-4">
+                  {(['comments', 'history'] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={activityTab === tab}
+                      onClick={() => setActivityTab(tab)}
+                      data-testid={`activity-tab-${tab}`}
+                      className={`py-1.5 text-sm capitalize border-b-2 -mb-px transition-colors duration-fast focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                        activityTab === tab
+                          ? 'border-primary text-primary font-semibold'
+                          : 'border-transparent text-text-secondary hover:text-text-primary'
+                      }`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+                {activityTab === 'history' ? (
+                  <IssueHistory spaceId={activeSpaceId} taskId={detailTask.id} version={issue.updatedAt} />
+                ) : (
+              <div data-testid="comments-panel">
                 <CommentsSection
                   spaceId={activeSpaceId}
                   taskId={detailTask.id}
@@ -577,60 +604,58 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   disabled={fieldDisabled}
                 />
               </div>
+                )}
+              </div>
             </div>
 
             {/* ── RIGHT: metadata sidebar ────────────────────────────── */}
-            <div className={`flex-shrink-0 border-border/40 bg-surface-elevated/25 overflow-y-auto px-6 pt-6 pb-6 flex flex-col divide-y divide-border/20 md:w-[340px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
+            <div className={`flex-shrink-0 border-border/40 bg-surface-elevated/25 overflow-y-auto px-6 pt-5 pb-6 flex flex-col divide-y divide-border/20 md:w-[300px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
 
-              {/* ID */}
-              <div className="flex flex-col gap-2 pb-5 animate-fade-in-up [animation-delay:80ms]">
-                <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">ID</span>
-                <div className="flex items-center gap-2">
-                  <span className="flex-1 font-mono text-xs text-text-secondary bg-surface/60 border border-border/40 rounded-lg px-3 py-2 select-all overflow-x-auto whitespace-nowrap min-w-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-                    {detailTask.id}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleCopyId}
-                    aria-label="Copy task ID"
-                    title="Copy task ID"
-                    className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.90] transition-all duration-[150ms] ease-spring"
-                  >
-                    <span className="material-symbols-outlined text-[17px] leading-none" aria-hidden="true">
-                      {isCopied ? 'check' : 'content_copy'}
-                    </span>
-                  </button>
-                </div>
+              {/* Status */}
+              <div className={SIDE_FIELD}>
+                <label htmlFor="detail-status" className={SIDE_LABEL}>Status</label>
+                <select
+                  id="detail-status"
+                  value={issue.statusId ?? ''}
+                  disabled={fieldDisabled}
+                  onChange={(e) => moveTask(issue.id, e.target.value)}
+                  className={DETAIL_FIELD_CLASS}
+                >
+                  {statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+
+              {/* Priority */}
+              <div className={SIDE_FIELD}>
+                <label htmlFor="detail-priority" className={SIDE_LABEL}>Priority</label>
+                <select
+                  id="detail-priority"
+                  value={issue.priority ?? 'medium'}
+                  disabled={fieldDisabled}
+                  onChange={(e) => updateTask(issue.id, { priority: e.target.value as Priority })}
+                  className={DETAIL_FIELD_CLASS}
+                >
+                  {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                </select>
               </div>
 
               {/* Type */}
-              <div className="flex flex-col gap-2 py-5 animate-fade-in-up [animation-delay:130ms]">
-                <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">Task Type</span>
-                <div role="group" aria-label="Task type" className="flex flex-wrap gap-2">
-                  {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      role="radio"
-                      aria-checked={localType === t}
-                      onClick={() => handleTypeChange(t)}
-                      disabled={fieldDisabled}
-                      aria-disabled={fieldDisabled}
-                      className={`px-3 py-1.5 text-xs font-medium capitalize rounded-full border transition-all duration-[180ms] ease-spring focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed ${
-                        localType === t
-                          ? 'bg-primary/15 border-primary/35 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
-                          : 'bg-surface/50 border-border/40 text-text-secondary hover:bg-surface-variant hover:border-border/70 hover:text-text-primary'
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
+              <div className={SIDE_FIELD}>
+                <label htmlFor="detail-type" className={SIDE_LABEL}>Type</label>
+                <select
+                  id="detail-type"
+                  value={issue.type}
+                  disabled={fieldDisabled}
+                  onChange={(e) => updateTask(issue.id, { type: e.target.value as TaskType })}
+                  className={DETAIL_FIELD_CLASS}
+                >
+                  {TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
               </div>
 
-              {/* Assigned */}
-              <div className="flex flex-col gap-2 py-5 animate-fade-in-up [animation-delay:180ms]">
-                <label htmlFor="detail-assigned" className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">Assigned To</label>
+              {/* Assignee */}
+              <div className={SIDE_FIELD}>
+                <label htmlFor="detail-assigned" className={SIDE_LABEL}>Assignee</label>
                 <input
                   id="detail-assigned"
                   type="text"
@@ -640,39 +665,103 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   disabled={fieldDisabled}
                   aria-disabled={fieldDisabled}
                   className={DETAIL_FIELD_CLASS}
-                  placeholder="Assign to someone..."
+                  placeholder="Unassigned"
                 />
               </div>
 
-              {/* Arc */}
-              <div
-                className="flex flex-col gap-2 py-5 animate-fade-in-up [animation-delay:205ms]"
-                onBlur={(e) => {
-                  // Save when focus leaves the entire arc section (container + dropdown)
-                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                    handleArcBlur();
-                  }
-                }}
-              >
-                <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">Arc</span>
-                <ArcAutocomplete
-                  value={localArc}
-                  onChange={setLocalArc}
-                  arcs={arcs}
-                  placeholder="Search or create an arc…"
-                  className="w-full"
+              {/* Epic, or the issue this is a sub-task of */}
+              {!isEpic && (parentIssue ? (
+                <div className={SIDE_FIELD}>
+                  <span className={SIDE_LABEL}>Sub-task of</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openDetailPanel(parentIssue)}
+                      data-testid="parent-link"
+                      className="flex-1 min-w-0 text-left text-sm text-text-primary truncate hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
+                    >
+                      <span className="font-mono text-xs text-text-secondary mr-1">{parentIssue.key}</span>
+                      {parentIssue.title}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={fieldDisabled}
+                      aria-label="Make it an issue of its own"
+                      title="Make it an issue of its own"
+                      onClick={() => updateTask(issue.id, { parentId: null })}
+                      className="flex-shrink-0 text-text-disabled hover:text-error disabled:opacity-40 transition-colors duration-fast"
+                    >
+                      <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">close</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className={SIDE_FIELD}>
+                  <label htmlFor="detail-epic" className={SIDE_LABEL}>Epic</label>
+                  <select
+                    id="detail-epic"
+                    value={issue.parentId ?? ''}
+                    disabled={fieldDisabled}
+                    onChange={(e) => updateTask(issue.id, { parentId: e.target.value || null })}
+                    className={DETAIL_FIELD_CLASS}
+                  >
+                    <option value="">None</option>
+                    {epics.map((epic) => <option key={epic.id} value={epic.id}>{epic.title}</option>)}
+                  </select>
+                </div>
+              ))}
+
+              {/* Labels */}
+              <div className={SIDE_FIELD}>
+                <label htmlFor="detail-labels" className={SIDE_LABEL}>Labels</label>
+                <LabelsInput
+                  id="detail-labels"
+                  labels={issue.labels ?? []}
+                  disabled={fieldDisabled}
                   inputClassName={DETAIL_FIELD_CLASS}
+                  onChange={(labels) => updateTask(issue.id, { labels })}
                 />
               </div>
+
+              {/* Due date */}
+              <div className={SIDE_FIELD}>
+                <label htmlFor="detail-due" className={`${SIDE_LABEL} ${isOverdue(issue) ? 'text-error' : ''}`}>
+                  Due date{isOverdue(issue) ? ' · overdue' : ''}
+                </label>
+                <input
+                  id="detail-due"
+                  type="date"
+                  value={issue.dueDate ?? ''}
+                  disabled={fieldDisabled}
+                  onChange={(e) => updateTask(issue.id, { dueDate: e.target.value || null })}
+                  className={DETAIL_FIELD_CLASS}
+                />
+              </div>
+
+              {/* Estimate */}
+              {!isEpic && (
+                <div className={SIDE_FIELD}>
+                  <label htmlFor="detail-estimate" className={SIDE_LABEL}>Estimate (points)</label>
+                  <input
+                    id="detail-estimate"
+                    type="number"
+                    min={0}
+                    step="any"
+                    value={localEstimate}
+                    disabled={fieldDisabled}
+                    onChange={(e) => setLocalEstimate(e.target.value)}
+                    onBlur={handleEstimateBlur}
+                    className={DETAIL_FIELD_CLASS}
+                    placeholder="None"
+                  />
+                </div>
+              )}
 
               {/* Depends on — QOL-3.
-                  Always rendered, like Arc above: the field has its
-                  own "No dependencies" empty state, so hiding it in `done` made
-                  it inconsistent with itself as well as with its neighbours. In
-                  `done` it is read-only — a finished task is not waiting on
-                  anyone, so the editor and the blocked badge would be noise, but
-                  the record of what it waited for is worth reading. */}
-              <div className="py-5 animate-fade-in-up [animation-delay:270ms]">
+                  Always rendered: the field has its own "No dependencies" empty state.
+                  When the issue is done it is read-only — a finished issue is not
+                  waiting on anyone, but the record of what it waited for is worth reading. */}
+              <div className="py-3">
                 <DependsOnSection
                   spaceId={activeSpaceId}
                   taskId={detailTask.id}
@@ -688,7 +777,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
               {/* Attachments */}
               {detailTask.attachments && detailTask.attachments.length > 0 && (
-                <div className="flex flex-col gap-2 py-5" data-testid="attachments-section">
+                <div className="flex flex-col gap-2 py-3" data-testid="attachments-section">
                   <span className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">Attachments</span>
                   <div className="flex flex-col gap-1.5" aria-label="Task attachments">
                     {detailTask.attachments.map((att, index) => (

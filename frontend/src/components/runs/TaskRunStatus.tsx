@@ -19,7 +19,7 @@ export function StatusLine({ view }: { view: TaskRunView }) {
     case 'stopped':
       return <Line icon="stop_circle" className="text-text-secondary">Stopped</Line>;
     case 'done':
-      return <Line icon="check_circle" className="text-success">Done</Line>;
+      return <Line icon="check_circle" className="text-success">Finished</Line>;
     default:
       return null;
   }

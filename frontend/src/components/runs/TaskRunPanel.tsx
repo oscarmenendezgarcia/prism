@@ -8,7 +8,8 @@ import * as api from '@/api/client';
 import { Button } from '@/components/shared/Button';
 import { useAppStore } from '@/stores/useAppStore';
 import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
-import type { ChangedFile, Column, Task, TaskRunView } from '@/types';
+import type { ChangedFile, StatusCategory, Task, TaskRunView } from '@/types';
+import { isAwaitingReview } from '@/utils/issues';
 import { AgentPicker } from './AgentPicker';
 import { HarnessIcon, HARNESS_NAMES, type DirectCliTool } from './HarnessIcon';
 import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
@@ -133,7 +134,8 @@ function RunLog({ runId, live }: { runId: string; live: boolean }) {
 
 interface TaskRunPanelProps {
   task: Task;
-  column: Column;
+  /** The category of the task's status. */
+  column: StatusCategory;
   spaceId: string;
 }
 
@@ -163,7 +165,7 @@ export function TaskRunPanel({ task, column, spaceId }: TaskRunPanelProps) {
     </div>
   );
 
-  if (!view || column === 'todo' || (column === 'in-progress' && view.status === 'done')) {
+  if (!view || column === 'todo' || (column === 'in-progress' && view.status === 'done' && !isAwaitingReview(task, space))) {
     if (column === 'done') return null;
     if (space && !space.workingDirectory) {
       return (

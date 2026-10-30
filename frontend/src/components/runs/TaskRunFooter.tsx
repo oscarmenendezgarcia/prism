@@ -5,15 +5,17 @@
 
 import { Button } from '@/components/shared/Button';
 import { useAppStore } from '@/stores/useAppStore';
+import { isAwaitingReview } from '@/utils/issues';
 import { choiceProblem, useTaskRunStore } from '@/stores/useTaskRunStore';
-import type { Column, Task } from '@/types';
+import type { StatusCategory, Task } from '@/types';
 import { AgentPicker } from './AgentPicker';
 import { HarnessIcon } from './HarnessIcon';
 import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
 
 interface TaskRunFooterProps {
   task: Task;
-  column: Column;
+  /** The category of the task's status. */
+  column: StatusCategory;
   spaceId: string;
 }
 
@@ -33,9 +35,9 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
 
   // A card back in To do starts over, whatever its last run did. So does one whose
   // harness is not installed, since retrying could only fail the same way, and one
-  // moved to In progress by hand.
+  // moved back to In progress by hand. One waiting for review has its result to look at.
   const canStart = column === 'todo' || missingHarness
-    || (column === 'in-progress' && (!view || view.status === 'done'));
+    || (column === 'in-progress' && (!view || (view.status === 'done' && !isAwaitingReview(task, space))));
   if (canStart) {
     if (space && !space.workingDirectory) {
       return (

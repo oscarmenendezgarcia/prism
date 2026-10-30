@@ -26,16 +26,12 @@ import type {
   Comment,
 } from '@/types';
 import { safeStorage } from '@/utils/safeStorage';
-import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
+import { mapBoard } from '@/utils/issues';
 
 /** Key used to persist the active space across page reloads. */
 const ACTIVE_SPACE_KEY = 'prism-active-space';
 
-const emptyBoard = (): BoardTasks => ({
-  'todo': [],
-  'in-progress': [],
-  'done': [],
-});
+const emptyBoard = (): BoardTasks => ({});
 
 /**
  * Immutable helpers for `mutatingTaskIds`. Always return a fresh Set so
@@ -76,8 +72,8 @@ interface AppState {
   activeSpaceId: string;
   setActiveSpace: (id: string) => void;
   loadSpaces: () => Promise<void>;
-  createSpace: (name: string, workingDirectory?: string) => Promise<void>;
-  renameSpace: (id: string, name: string, workingDirectory?: string) => Promise<void>;
+  createSpace: (name: string, workingDirectory?: string, key?: string) => Promise<void>;
+  renameSpace: (id: string, name: string, workingDirectory?: string, key?: string) => Promise<void>;
   deleteSpace: (id: string) => Promise<void>;
   /** Pin a space — appends it to the pinned zone with the next available rank. */
   pinSpace: (id: string) => Promise<void>;
@@ -104,7 +100,8 @@ interface AppState {
   mutatingTaskIds: Set<string>;
   loadBoard: () => Promise<void>;
   createTask: (payload: CreateTaskPayload) => Promise<void>;
-  moveTask: (taskId: string, direction: 'left' | 'right', currentColumn: Column) => Promise<void>;
+  /** Move a task to a status of the active space. */
+  moveTask: (taskId: string, statusId: Column) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
   reorderTask: (taskId: string, column: Column, newRank: number) => Promise<void>;
   /**
@@ -200,14 +197,11 @@ interface AppState {
    */
   answerQuestion: (taskId: string, questionCommentId: string, text: string) => Promise<void>;
 
-  // ── Arc filter / grouping (arc field feature) ─────────────────────────────
+  // ── Epic filter ───────────────────────────────────────────────────────────
 
-  /** Active arc filter (null = show all). */
-  arcFilter: string | null;
-  /** Whether to group tasks by arc in columns. */
-  arcGrouping: boolean;
-  setArcFilter: (arc: string | null) => void;
-  toggleArcGrouping: () => void;
+  /** Id of the epic the board shows (null = show all). */
+  epicFilter: string | null;
+  setEpicFilter: (epicId: string | null) => void;
 
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 
@@ -233,10 +227,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setActiveSpace: (id: string) => {
     safeStorage.setItem(ACTIVE_SPACE_KEY, id);
-    // Arc filter/grouping are per-space: a label from the old space would hide
-    // every card in the new one. Reset them on switch.
+    // An epic of the old space would hide every card in the new one.
     set({
-      activeSpaceId: id, arcFilter: null, arcGrouping: false,
+      activeSpaceId: id, epicFilter: null,
       ...(id !== get().activeSpaceId && { tasks: emptyBoard() }),
     });
   },
@@ -260,15 +253,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  createSpace: async (name: string, workingDirectory?: string) => {
-    const newSpace = await api.createSpace(name, workingDirectory);
+  createSpace: async (name: string, workingDirectory?: string, key?: string) => {
+    const newSpace = await api.createSpace(name, workingDirectory, key);
     get().setActiveSpace(newSpace.id);
     await get().loadSpaces();
     get().showToast('Space created.');
   },
 
-  renameSpace: async (id: string, name: string, workingDirectory?: string) => {
-    await api.renameSpace(id, name, workingDirectory);
+  renameSpace: async (id: string, name: string, workingDirectory?: string, key?: string) => {
+    await api.renameSpace(id, name, workingDirectory, key);
     await get().loadSpaces();
     get().showToast('Space updated.');
   },
@@ -360,7 +353,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const data = await api.getTasks(activeSpaceId);
       // The user may have moved to another space while this was on its way.
-      if (get().activeSpaceId === activeSpaceId) set({ tasks: data });
+      if (get().activeSpaceId !== activeSpaceId) return;
+      set({ tasks: data });
+      // Someone changed the statuses: without the new list, its issues would have no column.
+      const known = get().spaces.find((s) => s.id === activeSpaceId)?.statuses;
+      if (known && Object.keys(data).some((id) => !known.some((s) => s.id === id))) {
+        set({ spaces: await api.getSpaces() });
+      }
     } catch (err) {
       showToast(`Failed to load tasks: ${(err as Error).message}`, 'error');
     }
@@ -370,11 +369,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activeSpaceId, closeCreateModal, loadBoard, showToast } = get();
     set({ isMutating: true });
     try {
-      // arc is already included in the payload when provided by the caller
       await api.createTask(activeSpaceId, payload);
       closeCreateModal();
       await loadBoard();
-      showToast('Task created');
+      showToast('Issue created');
     } catch (err) {
       showToast((err as Error).message, 'error');
       throw err; // Re-throw so the modal can re-enable the submit button
@@ -383,15 +381,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  moveTask: async (taskId: string, direction: 'left' | 'right', currentColumn: Column) => {
-    const { activeSpaceId, loadBoard, showToast } = get();
-    const idx = COLUMNS.indexOf(currentColumn);
-    const targetColumn: Column = direction === 'left' ? COLUMNS[idx - 1] : COLUMNS[idx + 1];
+  moveTask: async (taskId: string, statusId: Column) => {
+    const { activeSpaceId, spaces, loadBoard, showToast } = get();
+    const target = spaces.find((s) => s.id === activeSpaceId)?.statuses?.find((s) => s.id === statusId);
 
     set({ isMutating: true, mutatingTaskIds: addMutatingId(get().mutatingTaskIds, taskId) });
     try {
-      await api.moveTask(activeSpaceId, taskId, targetColumn);
-      showToast(`Moved to ${COLUMN_LABELS[targetColumn]}`);
+      await api.moveTask(activeSpaceId, taskId, statusId);
+      showToast(`Moved to ${target?.name ?? statusId}`);
       await loadBoard();
     } catch (err) {
       showToast((err as Error).message, 'error');
@@ -405,7 +402,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ isMutating: true, mutatingTaskIds: addMutatingId(get().mutatingTaskIds, taskId) });
     try {
       await api.deleteTask(activeSpaceId, taskId);
-      showToast('Task deleted');
+      showToast('Issue deleted');
       await loadBoard();
     } catch (err) {
       showToast((err as Error).message, 'error');
@@ -420,10 +417,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activeSpaceId, tasks, showToast } = get();
     const taskIds = updates.map((u) => u.id);
     // Snapshot the entire column for all-or-nothing rollback.
-    const prevColumnTasks = [...tasks[column]];
+    const prevColumnTasks = [...(tasks[column] ?? [])];
     const rankById = new Map(updates.map((u) => [u.id, u.rank]));
     // Optimistic update: apply all new ranks locally in one commit and re-sort.
-    const updated = tasks[column].map((t) =>
+    const updated = (tasks[column] ?? []).map((t) =>
       rankById.has(t.id) ? { ...t, rank: rankById.get(t.id)! } : t
     );
     updated.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt));
@@ -449,9 +446,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   reorderTask: async (taskId: string, column: Column, newRank: number) => {
     const { activeSpaceId, tasks, showToast } = get();
     // Snapshot for rollback
-    const prevColumnTasks = [...tasks[column]];
+    const prevColumnTasks = [...(tasks[column] ?? [])];
     // Optimistic update: set new rank and re-sort
-    const updated = tasks[column].map((t) =>
+    const updated = (tasks[column] ?? []).map((t) =>
       t.id === taskId ? { ...t, rank: newRank } : t
     );
     updated.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt));
@@ -540,17 +537,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateTask: async (taskId: string, patch: UpdateTaskPayload) => {
     const { activeSpaceId, tasks, detailTask, showToast } = get();
 
-    // Optimistic update: apply patch immediately in-place across all columns.
-    const applyOptimistic = (columnTasks: Task[]): Task[] =>
-      columnTasks.map((t) =>
-        t.id === taskId ? { ...t, ...patch } : t
-      );
-
-    const optimisticTasks: BoardTasks = {
-      'todo':        applyOptimistic(tasks['todo']),
-      'in-progress': applyOptimistic(tasks['in-progress']),
-      'done':        applyOptimistic(tasks['done']),
-    };
+    // Optimistic update: apply patch immediately in-place across all statuses.
+    const optimisticTasks = mapBoard(tasks, (t) => (t.id === taskId ? { ...t, ...patch } : t));
 
     // Also optimistically update detailTask if it's the same task.
     const optimisticDetail =
@@ -567,15 +555,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const updated = await api.updateTask(activeSpaceId, taskId, patch);
 
       // Reconcile with server response (authoritative timestamps, etc.).
-      const reconciled = (columnTasks: Task[]): Task[] =>
-        columnTasks.map((t) => (t.id === taskId ? updated : t));
-
       set({
-        tasks: {
-          'todo':        reconciled(get().tasks['todo']),
-          'in-progress': reconciled(get().tasks['in-progress']),
-          'done':        reconciled(get().tasks['done']),
-        },
+        tasks: mapBoard(get().tasks, (t) => (t.id === taskId ? updated : t)),
         detailTask: get().detailTask?.id === taskId ? updated : get().detailTask,
       });
 
@@ -603,11 +584,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const currentTasks = get().tasks;
       set({
-        tasks: {
-          'todo':        currentTasks['todo'].map(applyAdd),
-          'in-progress': currentTasks['in-progress'].map(applyAdd),
-          'done':        currentTasks['done'].map(applyAdd),
-        },
+        tasks: mapBoard(currentTasks, applyAdd),
         ...(get().detailTask?.id === taskId ? { detailTask: applyAdd(get().detailTask as Task) } : {}),
       });
     } catch (err) {
@@ -631,11 +608,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const currentTasks = get().tasks;
       set({
-        tasks: {
-          'todo':        currentTasks['todo'].map(applyPatch),
-          'in-progress': currentTasks['in-progress'].map(applyPatch),
-          'done':        currentTasks['done'].map(applyPatch),
-        },
+        tasks: mapBoard(currentTasks, applyPatch),
         ...(get().detailTask?.id === taskId ? { detailTask: applyPatch(get().detailTask as Task) } : {}),
       });
       if (patch.resolved) void useTaskRunStore.getState().load(activeSpaceId); // The agent may be starting again.
@@ -661,11 +634,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const currentTasks = get().tasks;
       set({
-        tasks: {
-          'todo':        currentTasks['todo'].map(applyAnswer),
-          'in-progress': currentTasks['in-progress'].map(applyAnswer),
-          'done':        currentTasks['done'].map(applyAnswer),
-        },
+        tasks: mapBoard(currentTasks, applyAnswer),
         ...(get().detailTask?.id === taskId ? { detailTask: applyAnswer(get().detailTask as Task) } : {}),
       });
       void useTaskRunStore.getState().load(activeSpaceId); // The agent may be starting again.
@@ -675,14 +644,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  // ── Arc filter / grouping (arc field feature) ─────────────────────────────
+  // ── Epic filter ───────────────────────────────────────────────────────────
 
-  arcFilter:   null,
-  arcGrouping: false,
-  // Filtering to one arc and grouping by arc are mutually exclusive (a filter
-  // leaves a single group), so turning on one clears the other.
-  setArcFilter:      (arc) => set(arc ? { arcFilter: arc, arcGrouping: false } : { arcFilter: null }),
-  toggleArcGrouping: () => set((s) => (s.arcGrouping ? { arcGrouping: false } : { arcGrouping: true, arcFilter: null })),
+  epicFilter:    null,
+  setEpicFilter: (epicId) => set({ epicFilter: epicId }),
 
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 

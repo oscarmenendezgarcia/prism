@@ -21,6 +21,8 @@ import type {
   TaskRunView,
   ChangedFile,
   SpaceHooks,
+  HistoryEntry,
+  Status,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -48,6 +50,8 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
+    // For the history. There are no accounts yet, so everyone here is the same person.
+    'X-Prism-Actor': 'user',
   };
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -78,22 +82,24 @@ export const getSpaces = (): Promise<Space[]> =>
   apiFetch<Space[]>('/spaces');
 
 /** Create a new space. */
-export const createSpace = (name: string, workingDirectory?: string): Promise<Space> =>
+export const createSpace = (name: string, workingDirectory?: string, key?: string): Promise<Space> =>
   apiFetch<Space>('/spaces', {
     method: 'POST',
     body: JSON.stringify({
       name,
       ...(workingDirectory ? { workingDirectory } : {}),
+      ...(key ? { key } : {}),
     }),
   });
 
 /** Update a space's name and working directory. */
-export const renameSpace = (id: string, name: string, workingDirectory?: string): Promise<Space> =>
+export const renameSpace = (id: string, name: string, workingDirectory?: string, key?: string): Promise<Space> =>
   apiFetch<Space>(`/spaces/${id}`, {
     method: 'PUT',
     body: JSON.stringify({
       name,
       ...(workingDirectory !== undefined ? { workingDirectory } : {}),
+      ...(key ? { key } : {}),
     }),
   });
 
@@ -120,9 +126,34 @@ export const updateSpace = (
 // Task operations (space-scoped)
 // ---------------------------------------------------------------------------
 
-/** Fetch all tasks in a space grouped by column. */
-export const getTasks = (spaceId: string): Promise<BoardTasks> =>
-  apiFetch<BoardTasks>(`/spaces/${spaceId}/tasks`);
+/** Fetch all tasks in a space grouped by status. */
+export const getTasks = async (spaceId: string): Promise<BoardTasks> => {
+  const data = await apiFetch<Record<string, unknown>>(`/spaces/${spaceId}/tasks`);
+  // The response also has total and nextCursor, next to the statuses.
+  return Object.fromEntries(Object.entries(data).filter(([, value]) => Array.isArray(value))) as BoardTasks;
+};
+
+/** Find an issue by its key, in any space. */
+export const getIssue = (key: string): Promise<Task & { spaceId: string }> =>
+  apiFetch<Task & { spaceId: string }>(`/issues/${encodeURIComponent(key)}`);
+
+/** What has changed in an issue, newest first. */
+export const getTaskHistory = (spaceId: string, taskId: string): Promise<{ history: HistoryEntry[] }> =>
+  apiFetch<{ history: HistoryEntry[] }>(`/spaces/${spaceId}/tasks/${taskId}/history`);
+
+/**
+ * Replace a space's statuses. A status without id is new. Issues in a removed status go
+ * where `moves` says.
+ */
+export const updateSpaceStatuses = (
+  spaceId: string,
+  statuses: Array<Omit<Status, 'id'> & { id?: string }>,
+  moves: Record<string, string>,
+): Promise<Space> =>
+  apiFetch<Space>(`/spaces/${spaceId}/statuses`, {
+    method: 'PUT',
+    body: JSON.stringify({ statuses, moves }),
+  });
 
 /** Create a new task in the todo column of a space. */
 export const createTask = (spaceId: string, payload: CreateTaskPayload): Promise<Task> =>

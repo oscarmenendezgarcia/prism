@@ -1,11 +1,11 @@
 import React from 'react';
-import type { Column } from '@/types';
+import type { StatusCategory } from '@/types';
 
 interface EmptyStateProps {
-  column: Column;
+  column: StatusCategory;
 }
 
-const COLUMN_EMPTY: Record<Column, {
+const COLUMN_EMPTY: Record<StatusCategory, {
   icon: string;
   iconColor: string;
   title: string;
@@ -14,20 +14,20 @@ const COLUMN_EMPTY: Record<Column, {
   'todo': {
     icon: 'inbox',
     iconColor: 'text-text-disabled',
-    title: 'No tasks yet',
-    subtitle: 'Create a task to get started',
+    title: 'No issues here',
+    subtitle: 'New issues start in the first to-do status',
   },
   'in-progress': {
     icon: 'hourglass_empty',
     iconColor: 'text-text-disabled',
-    title: 'Nothing in progress',
-    subtitle: 'Tasks move here when someone starts them',
+    title: 'Nothing here',
+    subtitle: 'Issues move here as work goes on',
   },
   'done': {
     icon: 'check_circle',
     iconColor: 'text-text-disabled',
-    title: 'No completed tasks',
-    subtitle: 'Completed tasks will appear here',
+    title: 'Nothing done yet',
+    subtitle: 'Finished issues appear here',
   },
 };
 

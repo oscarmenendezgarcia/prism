@@ -12,13 +12,11 @@
 
 import React, { memo } from 'react';
 import type { Task, Column } from '@/types';
-import { Badge } from '@/components/shared/Badge';
-import { arcColor } from '@/utils/arcs';
 import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore } from '@/stores/useAppStore';
 import { useTaskRunStore } from '@/stores/useTaskRunStore';
 import { useDragStore } from '@/stores/useDragStore';
-import { COLUMNS } from '@/constants/columns';
+import { boardIndex, epicOf, formatDueDate, isOverdue, parentIssueOf, priorityOf, progressOf, typeOf } from '@/utils/issues';
 import { TaskRunFooter } from '@/components/runs/TaskRunFooter';
 
 // ---------------------------------------------------------------------------
@@ -93,35 +91,30 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
     return status === 'working' || status === 'checking';
   });
   const openDetailPanel   = useAppStore((s) => s.openDetailPanel);
-  const arcGrouping       = useAppStore((s) => s.arcGrouping);
+  const statuses          = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId)?.statuses);
+  // Only what this card shows, so that polling does not re-render every card.
+  const epicTitle         = useAppStore((s) => epicOf(task, boardIndex(s.tasks))?.title);
+  const parentKey         = useAppStore((s) => parentIssueOf(task, boardIndex(s.tasks))?.key);
+  const doneChildren      = useAppStore((s) => progressOf(task.id, boardIndex(s.tasks)).done);
+  const totalChildren     = useAppStore((s) => progressOf(task.id, boardIndex(s.tasks)).total);
 
   const isDragging = useDragStore((s) => s.draggedTaskId === task.id);
   const isDragOverThis = useDragStore((s) => s.dragOverTaskId === task.id);
   const insertBeforeThis = useDragStore((s) => s.insertBefore);
 
-  const isDone = column === 'done';
+  const isDone = task.category === 'done';
+  const isEpic = task.type === 'epic';
 
-  const idx = COLUMNS.indexOf(column);
-  const showLeft = idx > 0;
-  const showRight = idx < COLUMNS.length - 1;
+  const idx = statuses?.findIndex((s) => s.id === column) ?? -1;
+  const leftStatus = idx > 0 ? statuses![idx - 1] : undefined;
+  const rightStatus = idx >= 0 && idx < statuses!.length - 1 ? statuses![idx + 1] : undefined;
 
   const pendingQuestions =
     task.comments?.filter((c) => c.type === 'question' && !c.resolved).length ?? 0;
 
-  const hasMetadata =
-    !!task.arc ||
-    !!task.assigned ||
-    (task.attachments && task.attachments.length > 0) ||
-    !!task.description ||
-    pendingQuestions > 0 ||
-    (task.isBlocked && column !== 'done');
-
-  // Badge style per type (wireframe S-02, S-03)
-  const badgeClass = task.type === 'feature'
-    ? 'bg-primary/10 text-primary'
-    : task.type === 'bug'
-    ? 'bg-error/10 text-error'
-    : 'bg-info/10 text-info';
+  const priority = priorityOf(task.priority);
+  const type = typeOf(task.type);
+  const overdue = isOverdue(task);
 
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -178,7 +171,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         // 2.4.7 Focus Visible — card had no focus indicator before; :focus-visible
         // so mouse clicks don't show a ring, only real keyboard focus does.
         'focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
-        isDone ? 'opacity-50 grayscale-[25%]' : '',
+        isDone ? 'opacity-60 grayscale-[25%]' : '',
         isDragging ? 'rotate-1 scale-[0.97] shadow-xl ring-1 ring-primary/40 opacity-80' : '',
         isActiveTask ? 'border-primary/30 animate-glow-pulse' : '',
         isDragOverThis && insertBeforeThis  ? 'border-t-2 border-t-primary ring-0' : '',
@@ -192,30 +185,9 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       onDragEnd={onDragEnd}
       onDragOver={handleDragOver}
     >
-      {/* ── Arc strip (storyline banner) ──
-          Full-width tinted band titling the card with its arc, coloured per-arc
-          so same-arc cards read as a group at a glance. Hidden while grouping is
-          on, since the column's group header already carries the arc. Negative
-          margins bleed it to the card edges (article is overflow-hidden so it
-          respects the rounded top corners) — asymmetric (-ml-7/-mr-4) to match
-          the article's own asymmetric p-4 pl-7 (the extra left padding clears
-          the drag handle below), then padded back in (pl-7/pr-4) so the arc
-          text lines up with the title instead of hugging the bled edge.
-          Rides the card's fade-in entrance. Rendered outside the body wrapper
-          below so the drag handle centers on the body only, not the strip. */}
-      {task.arc && !arcGrouping && (
-        <div
-          data-testid="arc-strip"
-          className={`-ml-7 -mr-4 -mt-4 mb-3 pl-7 pr-4 py-1.5 text-[11px] font-mono font-semibold uppercase tracking-wider truncate ${arcColor(task.arc)}`}
-          title={task.arc}
-        >
-          {task.arc}
-        </div>
-      )}
-
       <div className="relative">
         {/* Drag handle — visible on hover only, centered in the pl-7 gutter
-            and on the body's own height (excludes the arc strip above).
+            and on the body's own height.
             ADR-1 (touch-reorder): coarse-pointer affordance removed — the
             HTML5 drag it hints at does not fire on touch, so showing a grab
             handle there is misleading. Touch/keyboard users get the ↑ / ↓
@@ -228,21 +200,59 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
           <span className="material-symbols-outlined text-base leading-none select-none">drag_indicator</span>
         </div>
 
+        {/* ── Priority, key and type ── */}
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`material-symbols-outlined text-base leading-none flex-shrink-0 ${priority.className}`}
+            title={`${priority.label} priority`}
+            aria-label={`${priority.label} priority`}
+            data-testid="priority-icon"
+          >
+            {priority.icon}
+          </span>
+          <span className="font-mono text-[11px] font-semibold text-text-secondary" data-testid="issue-key">{task.key}</span>
+          <span className={`ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${type.className}`} data-testid="type-badge">
+            {type.label}
+          </span>
+        </div>
+
         {/* ── Title ── */}
-        <p className="text-sm font-medium text-text-primary leading-snug line-clamp-2">
+        <p className="mt-1.5 text-sm font-semibold text-text-primary leading-snug line-clamp-2">
           {task.title}
         </p>
 
-        {/* ── Meta row: badge + assigned + attachments + questions + action menu ── */}
-        <div className="flex items-center gap-2 mt-3 flex-wrap" data-testid="zone-b">
-          {/* Badge */}
-          <span className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded-md flex-shrink-0 ${badgeClass}`}>
-            <span className="material-symbols-outlined text-[10px] leading-none" aria-hidden="true">
-              {task.type === 'feature' ? 'diamond' : task.type === 'bug' ? 'bug_report' : 'science'}
-            </span>
-            {task.type}
-          </span>
+        {/* ── Epic, parent, labels ── */}
+        {(epicTitle || parentKey || (task.labels?.length ?? 0) > 0) && (
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap" data-testid="issue-tags">
+            {epicTitle && (
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary truncate max-w-full" data-testid="epic-tag">{epicTitle}</span>
+            )}
+            {parentKey && (
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-surface-variant text-text-secondary" data-testid="parent-tag">↳ {parentKey}</span>
+            )}
+            {task.labels?.map((label) => (
+              <span key={label} className="text-[11px] px-2 py-0.5 rounded-full bg-surface-variant text-text-secondary truncate max-w-full">{label}</span>
+            ))}
+          </div>
+        )}
 
+        {/* ── Epic progress ── */}
+        {isEpic && totalChildren > 0 && (
+          <div className="mt-2.5" data-testid="epic-progress">
+            <div className="h-1 rounded-full bg-surface-variant overflow-hidden">
+              <progress
+                className="block w-full h-1 appearance-none [&::-webkit-progress-bar]:bg-transparent [&::-webkit-progress-value]:bg-primary [&::-moz-progress-bar]:bg-primary"
+                max={totalChildren}
+                value={doneChildren}
+                aria-label="Issues done"
+              />
+            </div>
+            <p className="mt-1 text-xs text-text-secondary">{Math.round((doneChildren / totalChildren) * 100)}% · {doneChildren} of {totalChildren} done</p>
+          </div>
+        )}
+
+        {/* ── Meta row: assigned + sub-tasks + attachments + questions + due date ── */}
+        <div className="flex items-center gap-2 mt-3 flex-wrap" data-testid="zone-b">
           {/* Assigned / Unassigned */}
           {task.assigned ? (
             <>
@@ -290,8 +300,16 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
             </span>
           )}
 
+          {/* Sub-tasks */}
+          {!isEpic && totalChildren > 0 && (
+            <span className="inline-flex items-center gap-0.5 text-xs text-text-secondary" data-testid="subtask-count" title="Sub-tasks done">
+              <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">checklist</span>
+              {doneChildren}/{totalChildren}
+            </span>
+          )}
+
           {/* Blocked badge — QOL-3 dependsOn */}
-          {task.isBlocked && column !== 'done' && (
+          {task.isBlocked && !isDone && (
             <span
               className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-error/[0.12] text-error leading-none"
               data-testid="blocked-badge"
@@ -302,6 +320,16 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
             </span>
           )}
 
+          {/* Due date */}
+          {task.dueDate && (
+            <span
+              className={`ml-auto text-xs ${overdue ? 'text-error font-semibold' : 'text-text-secondary'}`}
+              title={overdue ? 'Overdue' : 'Due date'}
+              data-testid="due-date"
+            >
+              {formatDueDate(task.dueDate)}
+            </span>
+          )}
         </div>
 
         {/* Action menu — absolute top-right, hover/focus-within only */}
@@ -312,27 +340,21 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         >
           <div className="bg-surface-elevated border border-border rounded-md shadow-sm">
             <CardActionMenu
-              column={column}
+              leftLabel={leftStatus?.name}
+              rightLabel={rightStatus?.name}
               isMutating={isMutating}
               onMoveUp={handleMoveUp}
               onMoveDown={handleMoveDown}
               canMoveUp={canMoveUp}
               canMoveDown={canMoveDown}
-              onMoveLeft={showLeft ? () => moveTask(task.id, 'left', column) : undefined}
-              onMoveRight={showRight ? () => moveTask(task.id, 'right', column) : undefined}
+              onMoveLeft={leftStatus ? () => moveTask(task.id, leftStatus.id) : undefined}
+              onMoveRight={rightStatus ? () => moveTask(task.id, rightStatus.id) : undefined}
               onDelete={() => deleteTask(task.id)}
             />
           </div>
         </div>
 
-        {/* ── Description preview ── */}
-        {task.description && (
-          <p className="mt-2 text-[11px] text-text-disabled line-clamp-2 leading-relaxed" data-testid="desc-preview">
-            {task.description}
-          </p>
-        )}
-
-        <TaskRunFooter task={task} column={column} spaceId={activeSpaceId} />
+        {!isEpic && <TaskRunFooter task={task} column={task.category ?? 'todo'} spaceId={activeSpaceId} />}
       </div>
     </article>
   );

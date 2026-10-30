@@ -3,8 +3,19 @@
  * ADR-002: migrate frontend to React + TypeScript.
  */
 
-/** The three canonical Kanban columns. */
-export type Column = 'todo' | 'in-progress' | 'done';
+/** The id of a status, which is a column of the board. Each space has its own. */
+export type Column = string;
+
+/** What a status means, whatever it is called. */
+export type StatusCategory = 'todo' | 'in-progress' | 'done';
+
+export interface Status {
+  id: string;
+  name: string;
+  category: StatusCategory;
+}
+
+export type Priority = 'urgent' | 'high' | 'medium' | 'low';
 
 export type ModelCliTool = 'claude' | 'opencode' | 'pi' | 'hermes';
 
@@ -25,6 +36,12 @@ export interface HarnessesResponse {
 export interface Space {
   id: string;
   name: string;
+  /** Prefix of its issues' keys, such as WEB in WEB-142. */
+  key?: string;
+  /** Its statuses, in the order of the board. */
+  statuses?: Status[];
+  /** Where an agent's finished work lands. */
+  finishStatusId?: string;
   workingDirectory?: string;
   /** true when the space is pinned in SpaceTabs (always visible, never in overflow). */
   pinned?: boolean;
@@ -40,6 +57,8 @@ export interface SpaceHooks {
   /** Must pass in the worktree before the task is done. */
   checkCommand: string | null;
   autoPr: boolean;
+  /** The status an agent's finished work moves to, when the space chose one. */
+  finishStatus?: string;
 }
 
 /** The harness and model a run uses. */
@@ -116,7 +135,7 @@ export interface AttachmentContent {
  * Semantic task type — v1.2.0.
  * Replaces the legacy 'task' | 'research' enum (see scripts/migrate-card-types.js).
  */
-export type TaskType = 'feature' | 'bug' | 'tech-debt' | 'chore';
+export type TaskType = 'feature' | 'bug' | 'tech-debt' | 'chore' | 'epic';
 
 /**
  * A comment on a task (note, question, or answer).
@@ -137,13 +156,24 @@ export interface Comment {
 /** A Kanban task. */
 export interface Task {
   id: string;
+  /** Such as WEB-142. */
+  key?: string;
+  number?: number;
+  statusId?: string;
+  category?: StatusCategory;
   title: string;
   type: TaskType;
+  priority?: Priority;
+  labels?: string[];
+  /** The epic it belongs to, or the issue it is a sub-task of. */
+  parentId?: string | null;
+  /** As YYYY-MM-DD. */
+  dueDate?: string | null;
+  /** In points. */
+  estimate?: number | null;
   rank?: number;           // positional order within column (QOL-1)
   description?: string;
   assigned?: string;
-  /** Optional narrative grouping label (e.g. "QOL", "AUTH", "LOOP"). */
-  arc?: string;
   attachments?: Attachment[];
   /** Thread of comments (notes, questions, answers). Aditively returned by GET task. */
   comments?: Comment[];
@@ -157,8 +187,18 @@ export interface Task {
   updatedAt: string;
 }
 
-/** Board response — tasks grouped by column. */
+/** Board response — tasks grouped by status. */
 export type BoardTasks = Record<Column, Task[]>;
+
+/** One change in an issue's history. */
+export interface HistoryEntry {
+  id: number;
+  actor: string;
+  field: string;
+  oldValue: string | null;
+  newValue: string | null;
+  createdAt: string;
+}
 
 /** Payload for POST /spaces/:spaceId/tasks */
 export interface CreateTaskPayload {
@@ -167,8 +207,11 @@ export interface CreateTaskPayload {
   /** Omit from body when empty — never send null. */
   assigned?: string;
   description?: string;
-  /** Optional narrative grouping label (e.g. "QOL", "AUTH"). */
-  arc?: string;
+  priority?: Priority;
+  labels?: string[];
+  parentId?: string;
+  dueDate?: string;
+  estimate?: number;
   /** Optional dependency task IDs. Server validates existence + no cycles. */
   dependsOn?: string[];
 }
@@ -186,8 +229,13 @@ export interface UpdateTaskPayload {
   description?: string;
   /** Empty string deletes the field on the server. */
   assigned?: string;
-  /** Empty string deletes the arc field on the server. */
-  arc?: string;
+  priority?: Priority;
+  /** [] clears them. */
+  labels?: string[];
+  /** null removes it from its epic or parent. */
+  parentId?: string | null;
+  dueDate?: string | null;
+  estimate?: number | null;
   /**
    * Dependency task IDs. [] clears all deps; omit to leave unchanged.
    * Server validates existence (422) and no cycles (409).

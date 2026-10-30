@@ -1,47 +1,39 @@
 /**
- * Three-column kanban board.
+ * Kanban board with a column per status of the space.
  * Reads tasks from the Zustand store and renders Column components.
  * ADR-002: replaces renderBoard() + static .board section in legacy app.js.
  */
 
 import React, { useState, useCallback } from 'react';
-import type { Column as ColumnType, Task } from '@/types';
+import type { BoardTasks, Column as ColumnType, Status, Task } from '@/types';
 import { useTasks, useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { useAnnouncer } from '@/stores/useAnnouncer';
 import { Column } from './Column';
-import { ArcBar } from './ArcBar';
+import { EpicBar } from './EpicBar';
 import { ColumnTabBar } from './ColumnTabBar';
 import { BoardEmptyState } from './BoardEmptyState';
 import { Announcer } from '@/components/shared/Announcer';
-import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
+import { boardIndex, isInEpic } from '@/utils/issues';
 
-/**
- * Given the sorted column, produce the visible list respecting the arc
- * filter (matches Column.tsx). Rank math still runs against the full column.
- */
+/** The sorted column as the epic filter shows it. Rank math still runs against the full column. */
 function getVisibleColumnTasks(
   columnTasks: Task[],
-  arcFilter: string | null,
+  epicFilter: string | null,
+  board: BoardTasks,
 ): Task[] {
-  if (arcFilter === null) return columnTasks;
-  return columnTasks.filter((t) => t.arc === arcFilter);
+  if (epicFilter === null) return columnTasks;
+  const index = boardIndex(board);
+  return columnTasks.filter((t) => isInEpic(t, epicFilter, index));
 }
 
 /**
- * Resolve the keyboard-reorder neighbor for a card, honouring arc filter
- * and arc grouping (T-005). Returns either the neighbor id or a boundary
- * reason:
- *   - `column` — first/last in the visible column (or card missing)
- *   - `group`  — first/last within the arc group when grouping is on;
- *                moving further would cross into another arc, which would
- *                implicitly reassign `task.arc` (out of scope).
+ * Resolve the keyboard-reorder neighbor for a card, honouring the epic filter.
+ * At the first or last visible card of the column there is none.
  */
 export function resolveKeyboardNeighbor(
-  columnTasks: Task[],
+  visible: Task[],
   taskId: string,
-  arcFilter: string | null,
-  arcGrouping: boolean,
   direction: 'up' | 'down',
 ): {
   ok: true;
@@ -50,35 +42,20 @@ export function resolveKeyboardNeighbor(
   visibleCount: number;
 } | {
   ok: false;
-  reason: 'column' | 'group';
-  arcLabel: string | null;
   visibleIndex: number;
   visibleCount: number;
 } {
-  const visible = getVisibleColumnTasks(columnTasks, arcFilter);
   const idx = visible.findIndex((t) => t.id === taskId);
   const visibleCount = visible.length;
 
   if (idx === -1) {
-    return { ok: false, reason: 'column', arcLabel: null, visibleIndex: -1, visibleCount };
+    return { ok: false, visibleIndex: -1, visibleCount };
   }
-  const step = direction === 'up' ? -1 : 1;
-  const neighborIdx = idx + step;
+  const neighborIdx = idx + (direction === 'up' ? -1 : 1);
   if (neighborIdx < 0 || neighborIdx >= visible.length) {
-    return { ok: false, reason: 'column', arcLabel: null, visibleIndex: idx, visibleCount };
+    return { ok: false, visibleIndex: idx, visibleCount };
   }
-  const current  = visible[idx];
-  const neighbor = visible[neighborIdx];
-
-  if (arcGrouping) {
-    const currentArc  = current.arc ?? null;
-    const neighborArc = neighbor.arc ?? null;
-    if (currentArc !== neighborArc) {
-      return { ok: false, reason: 'group', arcLabel: currentArc, visibleIndex: idx, visibleCount };
-    }
-  }
-
-  return { ok: true, neighborId: neighbor.id, visibleIndex: idx, visibleCount };
+  return { ok: true, neighborId: visible[neighborIdx].id, visibleIndex: idx, visibleCount };
 }
 
 function computeDropRank(
@@ -135,14 +112,18 @@ function computeDropRank(
   return { newRank, needsRebalance: false };
 }
 
+const NO_STATUSES: Status[] = [];
+
 export function Board() {
   const tasks = useTasks();
   const moveTask = useAppStore((s) => s.moveTask);
   const reorderTask = useAppStore((s) => s.reorderTask);
   const reorderTasks = useAppStore((s) => s.reorderTasks);
   const openCreateModal = useAppStore((s) => s.openCreateModal);
-  // MB-1: active column for mobile single-column view
-  const [activeColumn, setActiveColumn] = useState<ColumnType>('todo');
+  const statuses = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId)?.statuses) ?? NO_STATUSES;
+  // MB-1: active column for mobile single-column view. A removed status falls back to the first.
+  const [chosenColumn, setActiveColumn] = useState<ColumnType | null>(null);
+  const activeColumn = statuses.some((s) => s.id === chosenColumn) ? chosenColumn! : statuses[0]?.id;
 
   // PERF: All drag handlers read/write via useDragStore.getState() — no
   // subscription, so Board never re-renders from drag events. Only the two
@@ -213,8 +194,7 @@ export function Board() {
       return;
     }
 
-    const direction = COLUMNS.indexOf(targetColumn) > COLUMNS.indexOf(dragSourceColumn) ? 'right' : 'left';
-    moveTask(taskId, direction, dragSourceColumn);
+    moveTask(taskId, targetColumn);
   }, [moveTask, reorderTask, reorderTasks]); // stable — Zustand actions never change
 
   // Safety: if the drag is cancelled (dropped outside any valid target), the
@@ -243,23 +223,17 @@ export function Board() {
     const task = columnTasks.find((t) => t.id === taskId);
     if (!task) return;
 
-    const columnLabel = COLUMN_LABELS[targetColumn];
+    const columnLabel = state.spaces.find((s) => s.id === state.activeSpaceId)?.statuses?.find((s) => s.id === targetColumn)?.name ?? targetColumn;
     const title = task.title;
     const announce = useAnnouncer.getState().announce;
 
     const resolved = resolveKeyboardNeighbor(
-      columnTasks, taskId, state.arcFilter, state.arcGrouping, direction,
+      getVisibleColumnTasks(columnTasks, state.epicFilter, state.tasks), taskId, direction,
     );
 
     if (!resolved.ok) {
       const edge = direction === 'up' ? 'top' : 'bottom';
-      if (resolved.reason === 'group' && resolved.arcLabel) {
-        announce(
-          `Task "${title}" is already at the ${edge} of the "${resolved.arcLabel}" group in ${columnLabel}.`
-        );
-      } else {
-        announce(`Task "${title}" is already at the ${edge} of ${columnLabel}.`);
-      }
+      announce(`Task "${title}" is already at the ${edge} of ${columnLabel}.`);
       return;
     }
 
@@ -287,18 +261,11 @@ export function Board() {
     );
   }, [reorderTask, reorderTasks]); // stable — Zustand actions never change
 
-  const taskCounts = {
-    todo: (tasks.todo || []).length,
-    'in-progress': (tasks['in-progress'] || []).length,
-    done: (tasks.done || []).length,
-  };
+  const taskCounts = Object.fromEntries(statuses.map((s) => [s.id, (tasks[s.id] ?? []).length]));
 
   // F1/ADR-1: show the onboarding guide when the active space has zero tasks.
   // No persistence — visibility is derived purely from store state.
-  const isBoardEmpty =
-    (tasks.todo?.length ?? 0) === 0 &&
-    (tasks['in-progress']?.length ?? 0) === 0 &&
-    (tasks.done?.length ?? 0) === 0;
+  const isBoardEmpty = Object.values(tasks).every((list) => list.length === 0);
 
   if (isBoardEmpty) {
     return (
@@ -313,14 +280,14 @@ export function Board() {
       {/* MB-1: Tab bar — only visible on mobile (< 640px) */}
       <div className="sm:hidden">
         <ColumnTabBar
+          statuses={statuses}
           activeColumn={activeColumn}
           taskCounts={taskCounts}
           onSelect={setActiveColumn}
         />
       </div>
 
-      {/* Arc filter / grouping bar */}
-      <ArcBar />
+      <EpicBar />
 
       {/* Shared SR-only aria-live region for keyboard reorder announcements. */}
       <Announcer />
@@ -330,17 +297,19 @@ export function Board() {
         className="flex h-full overflow-x-auto overflow-y-hidden"
       >
         <div className="flex gap-4 p-6 mx-auto min-w-fit h-full">
-        {COLUMNS.map((col) => (
+        {statuses.map(({ id: col }) => (
           <div
             key={col}
             id={`column-panel-${col}`}
             role="tabpanel"
             aria-labelledby={col}
             // MB-1: on mobile only show the active column; on sm+ all are shown
-            className={`flex-1 min-w-64 max-w-96 h-full ${col !== activeColumn ? 'hidden sm:flex' : 'flex'} flex-col`}
+            className={`flex-1 min-w-64 max-w-96 w-72 h-full ${col !== activeColumn ? 'hidden sm:flex' : 'flex'} flex-col`}
           >
             <Column
               column={col}
+              status={statuses.find((s) => s.id === col)}
+              statuses={statuses}
               tasks={tasks[col] || []}
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
@@ -359,7 +328,7 @@ export function Board() {
       <button
         type="button"
         onClick={openCreateModal}
-        aria-label="Create new task"
+        aria-label="Create new issue"
         className="sm:hidden fixed bottom-safe-6 left-6 z-40 w-14 h-14 rounded-full bg-primary text-white shadow-lg hover:bg-primary-hover active:scale-95 transition-all duration-200 ease-spring flex items-center justify-center"
       >
         <span className="material-symbols-outlined text-2xl" aria-hidden="true">add</span>

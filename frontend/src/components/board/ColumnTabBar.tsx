@@ -5,28 +5,23 @@
  */
 
 import React from 'react';
-import type { Column } from '@/types';
-import { COLUMNS, COLUMN_LABELS } from '@/constants/columns';
-
-const TABS: { column: Column; label: string }[] = COLUMNS.map((column) => ({
-  column,
-  label: COLUMN_LABELS[column],
-}));
+import type { Column, Status } from '@/types';
 
 interface ColumnTabBarProps {
-  activeColumn: Column;
+  statuses: Status[];
+  activeColumn: Column | undefined;
   taskCounts: Record<Column, number>;
   onSelect: (col: Column) => void;
 }
 
-export function ColumnTabBar({ activeColumn, taskCounts, onSelect }: ColumnTabBarProps) {
+export function ColumnTabBar({ statuses, activeColumn, taskCounts, onSelect }: ColumnTabBarProps) {
   return (
     <div
       role="tablist"
       aria-label="Kanban columns"
-      className="flex justify-center overflow-x-auto snap-x snap-mandatory gap-1 px-4 py-2 bg-surface border-b border-border"
+      className="flex overflow-x-auto snap-x snap-mandatory gap-1 px-4 py-2 bg-surface border-b border-border"
     >
-      {TABS.map(({ column, label }) => {
+      {statuses.map(({ id: column, name: label }) => {
         const isActive = column === activeColumn;
         return (
           <button

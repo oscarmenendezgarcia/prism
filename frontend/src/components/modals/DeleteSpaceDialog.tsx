@@ -32,11 +32,7 @@ export function DeleteSpaceDialog() {
     setSubmitting(false);
 
     api.getTasks(spaceId).then((data) => {
-      const count =
-        (data['todo']?.length ?? 0) +
-        (data['in-progress']?.length ?? 0) +
-        (data['done']?.length ?? 0);
-      setTaskCount(count);
+      setTaskCount(Object.values(data).flat().length);
     }).catch(() => setTaskCount(null));
   }, [isOpen, spaceId]);
 

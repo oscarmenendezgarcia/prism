@@ -5,23 +5,18 @@
  */
 
 import React, { memo } from 'react';
-import type { Task, Column as ColumnType } from '@/types';
+import type { Task, Column as ColumnType, Status } from '@/types';
 import { useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { TaskCard } from './TaskCard';
 import { EmptyState } from './EmptyState';
-import { COLUMN_LABELS } from '@/constants/columns';
-
-// Wireframe S-01/S-02: Todo = neutral, In-Progress = violet left accent, Done = green left accent
-// accentClass and colIndex are presentation-only and stay local; label comes from the shared map.
-export const COLUMN_META: Record<ColumnType, { label: string; accentClass: string; colIndex: number }> = {
-  'todo':        { label: COLUMN_LABELS['todo'],        accentClass: '',                            colIndex: 0 },
-  'in-progress': { label: COLUMN_LABELS['in-progress'], accentClass: 'border-l-2 border-l-primary', colIndex: 1 },
-  'done':        { label: COLUMN_LABELS['done'],        accentClass: 'border-l-2 border-l-success', colIndex: 2 },
-};
+import { boardIndex, isInEpic, statusDotClass } from '@/utils/issues';
 
 interface ColumnProps {
   column: ColumnType;
+  status?: Status;
+  /** All the statuses of the space, in order. */
+  statuses?: Status[];
   tasks: Task[];
   onDragStart?: (e: React.DragEvent, taskId: string, sourceColumn: ColumnType) => void;
   onDragOver?: (e: React.DragEvent, targetColumn: ColumnType) => void;
@@ -33,54 +28,23 @@ interface ColumnProps {
    * Keyboard/button reorder within a column (Alt+Arrow shortcut, and the
    * CardActionMenu move-up/move-down buttons — shared by the keyboard and
    * touch-reorder features; see ADR-1 keyboard-card-reorder + ADR-1 touch-reorder).
-   * CONSOLIDATION NOTE: both features independently implemented the same
-   * one-step reorder. Kept keyboard-card-reorder's group-scoped semantics
-   * (does not cross arc-group boundaries) over touch-reorder's rank-absolute
-   * semantics, since the group-scoped behavior was formally reviewed/approved
-   * with that exact rule and avoids implicit arc reassignment as a side effect
-   * of a reorder step.
    */
   onKeyboardReorder?: (taskId: string, column: ColumnType, direction: 'up' | 'down') => void;
 }
 
-export const Column = memo(function Column({ column, tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, onDragOverTask, onKeyboardReorder }: ColumnProps) {
-  const { label, accentClass } = COLUMN_META[column];
+export const Column = memo(function Column({ column, status, statuses = [], tasks, onDragStart, onDragOver, onDragLeave, onDragEnd, onDrop, onDragOverTask, onKeyboardReorder }: ColumnProps) {
+  const label = status?.name ?? column;
 
   // Subscribe to column-level drag-over — re-renders only when this column's
   // active state changes (2 re-renders max per drag move: prev col + next col).
   const isDragOver    = useDragStore((s) => s.dragOverColumn === column && s.draggedTaskId !== null);
-  const arcFilter     = useAppStore((s) => s.arcFilter);
-  const arcGrouping   = useAppStore((s) => s.arcGrouping);
+  const epicFilter    = useAppStore((s) => s.epicFilter);
+  const board         = useAppStore((s) => s.tasks);
 
-  // Filter tasks by arc if a filter is active
-  const visibleTasks = arcFilter !== null
-    ? tasks.filter((t) => t.arc === arcFilter)
+  // Filter tasks to the epic, if one is chosen.
+  const visibleTasks = epicFilter !== null
+    ? tasks.filter((t) => isInEpic(t, epicFilter, boardIndex(board)))
     : tasks;
-
-  // Build groups when grouping is on: tasks with an arc, grouped by arc, then ungrouped tasks last
-  const groups: { arc: string | null; tasks: Task[] }[] = arcGrouping
-    ? (() => {
-        const grouped = new Map<string, Task[]>();
-        const ungrouped: Task[] = [];
-        for (const t of visibleTasks) {
-          if (t.arc) {
-            if (!grouped.has(t.arc)) grouped.set(t.arc, []);
-            grouped.get(t.arc)!.push(t);
-          } else {
-            ungrouped.push(t);
-          }
-        }
-        const result: { arc: string | null; tasks: Task[] }[] = [];
-        for (const [arc, ts] of grouped) result.push({ arc, tasks: ts });
-        if (ungrouped.length > 0) result.push({ arc: null, tasks: ungrouped });
-        return result;
-      })()
-    : [{ arc: null, tasks: visibleTasks }];
-
-  // Stagger index is global across groups — precompute each group's start offset
-  // once instead of re-reducing all prior groups for every card.
-  const groupOffsets: number[] = [];
-  groups.reduce((acc, g, i) => { groupOffsets[i] = acc; return acc + g.tasks.length; }, 0);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -105,7 +69,7 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
 
   return (
     <section
-      className={`flex flex-col bg-surface rounded-xl border overflow-hidden min-h-[200px] h-full transition-all duration-fast ${accentClass} ${
+      className={`flex flex-col bg-surface rounded-xl border overflow-hidden min-h-[200px] h-full transition-all duration-fast ${
         isDragOver
           ? 'border-primary/60 ring-2 ring-primary/20 bg-primary/[0.03]'
           : 'border-border'
@@ -118,7 +82,10 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
     >
       {/* Column header — wireframe S-01/S-02 */}
       <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-shrink-0">
-        <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-widest">{label}</h2>
+        <h2 className="flex items-center gap-2 text-xs font-semibold text-text-secondary uppercase tracking-widest">
+          {status && <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDotClass(status, statuses)}`} aria-hidden="true" />}
+          {label}
+        </h2>
         <span
           className="ml-2 px-2 py-0.5 text-xs font-mono bg-surface-elevated rounded-full text-text-secondary tabular-nums"
           aria-live="polite"
@@ -133,48 +100,21 @@ export const Column = memo(function Column({ column, tasks, onDragStart, onDragO
         className="flex-1 p-3 flex flex-col gap-2 overflow-y-auto pb-20 sm:pb-3"
       >
         {visibleTasks.length === 0 ? (
-          <EmptyState column={column} />
+          <EmptyState column={status?.category ?? 'todo'} />
         ) : (
-          groups.map((group, groupIdx) => (
-            <React.Fragment key={group.arc ?? '__ungrouped'}>
-              {/* Arc group header — only rendered when grouping is on and there's an arc label */}
-              {arcGrouping && group.arc && (
-                <div
-                  className="flex items-center gap-2 mt-2 mb-1 first:mt-0"
-                  aria-label={`Arc group: ${group.arc}`}
-                >
-                  <span className="text-[10px] font-mono font-semibold text-text-tertiary uppercase tracking-widest">
-                    {group.arc}
-                  </span>
-                  <div className="flex-1 h-px bg-border/50" />
-                </div>
-              )}
-              {group.tasks.map((task, cardIndex) => {
-                const globalIndex = groupOffsets[groupIdx] + cardIndex;
-                const staggerMs = tasks.length > 30
-                  ? 0
-                  : Math.min(COLUMN_META[column].colIndex * 100 + globalIndex * 35, 500);
-                // Boundary flags are local to the visible group when grouping
-                // is on, and to the whole visible column otherwise — matching
-                // resolveKeyboardNeighbor's arc-group constraint (T-005).
-                const isFirstInList = cardIndex === 0;
-                const isLastInList  = cardIndex === group.tasks.length - 1;
-                return (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    column={column}
-                    onDragStart={onDragStart}
-                    onDragEnd={onDragEnd}
-                    staggerDelayMs={staggerMs}
-                    onDragOverTask={onDragOverTask}
-                    onKeyboardReorder={onKeyboardReorder}
-                    isFirstInList={isFirstInList}
-                    isLastInList={isLastInList}
-                  />
-                );
-              })}
-            </React.Fragment>
+          visibleTasks.map((task, cardIndex) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              column={column}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              staggerDelayMs={tasks.length > 30 ? 0 : Math.min(cardIndex * 35, 500)}
+              onDragOverTask={onDragOverTask}
+              onKeyboardReorder={onKeyboardReorder}
+              isFirstInList={cardIndex === 0}
+              isLastInList={cardIndex === visibleTasks.length - 1}
+            />
           ))
         )}
       </div>

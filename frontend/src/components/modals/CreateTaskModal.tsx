@@ -6,10 +6,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
 import { Button } from '@/components/shared/Button';
-import { ArcAutocomplete } from '@/components/shared/ArcAutocomplete';
+import { LabelsInput } from '@/components/shared/LabelsInput';
 import { useAppStore, useTasks } from '@/stores/useAppStore';
-import { distinctArcs } from '@/utils/arcs';
-import type { CreateTaskPayload } from '@/types';
+import { allTasks, PRIORITIES, TYPES } from '@/utils/issues';
+import type { CreateTaskPayload, Priority, TaskType } from '@/types';
 
 const TITLE_MAX = 200;
 
@@ -23,12 +23,15 @@ export function CreateTaskModal() {
   const open = useAppStore((s) => s.createModalOpen);
   const closeModal = useAppStore((s) => s.closeCreateModal);
   const createTask = useAppStore((s) => s.createTask);
-  const arcs = distinctArcs(useTasks());
+  const epics = allTasks(useTasks()).filter((t) => t.type === 'epic');
 
   const [title, setTitle] = useState('');
-  const [type, setType] = useState<'feature' | 'bug' | 'tech-debt' | 'chore' | ''>('');
+  const [type, setType] = useState<TaskType | ''>('');
   const [assigned, setAssigned] = useState('');
-  const [arc, setArc] = useState('');
+  const [priority, setPriority] = useState<Priority>('medium');
+  const [epicId, setEpicId] = useState('');
+  const [labels, setLabels] = useState<string[]>([]);
+  const [dueDate, setDueDate] = useState('');
   const [description, setDescription] = useState('');
   const [titleError, setTitleError] = useState('');
   const [typeError, setTypeError] = useState('');
@@ -42,7 +45,10 @@ export function CreateTaskModal() {
       setTitle('');
       setType('');
       setAssigned('');
-      setArc('');
+      setPriority('medium');
+      setEpicId('');
+      setLabels([]);
+      setDueDate('');
       setDescription('');
       setTitleError('');
       setTypeError('');
@@ -81,13 +87,16 @@ export function CreateTaskModal() {
 
     const payload: CreateTaskPayload = {
       title: title.trim(),
-      type: type as 'feature' | 'bug' | 'tech-debt' | 'chore',
+      type: type as TaskType,
+      priority,
     };
     // Only include optional fields when non-empty (never send null)
     if (assigned.trim()) payload.assigned = assigned.trim();
     const desc = description.trim();
     if (desc) payload.description = desc;
-    if (arc.trim()) payload.arc = arc.trim();
+    if (epicId && type !== 'epic') payload.parentId = epicId;
+    if (labels.length > 0) payload.labels = labels;
+    if (dueDate) payload.dueDate = dueDate;
 
     setSubmitting(true);
     try {
@@ -106,7 +115,7 @@ export function CreateTaskModal() {
     <Modal open={open} onClose={closeModal} labelId={TITLE_ID}>
       <form onSubmit={handleSubmit} noValidate>
         <ModalHeader onClose={closeModal}>
-          <ModalTitle id={TITLE_ID}>New Task</ModalTitle>
+          <ModalTitle id={TITLE_ID}>New issue</ModalTitle>
         </ModalHeader>
 
         <ModalBody className="flex flex-col gap-5">
@@ -142,10 +151,10 @@ export function CreateTaskModal() {
             </span>
             <div
               role="group"
-              aria-label="Task type"
+              aria-label="Issue type"
               className="flex gap-2 flex-wrap mt-1.5"
             >
-              {(['feature', 'bug', 'tech-debt', 'chore'] as const).map((t) => (
+              {TYPES.map(({ id: t, label }) => (
                 <button
                   key={t}
                   type="button"
@@ -158,7 +167,7 @@ export function CreateTaskModal() {
                       : 'border-border text-text-secondary hover:border-primary/40 hover:text-text-primary'
                   }`}
                 >
-                  {t}
+                  {label}
                 </button>
               ))}
             </div>
@@ -198,15 +207,48 @@ export function CreateTaskModal() {
             />
           </div>
 
-          {/* Arc (optional) */}
+          {/* Priority, epic and due date */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label htmlFor="input-priority" className={labelClass}>Priority</label>
+              <select
+                id="input-priority"
+                className={baseInputClass}
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as Priority)}
+              >
+                {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="input-epic" className={labelClass}>Epic</label>
+              <select
+                id="input-epic"
+                className={baseInputClass}
+                value={type === 'epic' ? '' : epicId}
+                disabled={type === 'epic'}
+                onChange={(e) => setEpicId(e.target.value)}
+              >
+                <option value="">None</option>
+                {epics.map((epic) => <option key={epic.id} value={epic.id}>{epic.title}</option>)}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="input-due" className={labelClass}>Due date</label>
+              <input
+                id="input-due"
+                className={baseInputClass}
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Labels */}
           <div>
-            <label htmlFor="input-arc" className={labelClass}>
-              Arc
-            </label>
-            <ArcAutocomplete value={arc} onChange={setArc} arcs={arcs} />
-            <p className="mt-1 text-xs text-text-secondary">
-              Optional narrative grouping label. Free-text or pick an existing arc.
-            </p>
+            <label htmlFor="input-labels" className={labelClass}>Labels</label>
+            <LabelsInput id="input-labels" labels={labels} onChange={setLabels} inputClassName={baseInputClass} />
           </div>
         </ModalBody>
 
@@ -224,7 +266,7 @@ export function CreateTaskModal() {
                 Creating...
               </span>
             ) : (
-              'Create Task'
+              'Create issue'
             )}
           </Button>
         </ModalFooter>

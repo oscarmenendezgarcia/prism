@@ -15,8 +15,7 @@ import React, { useEffect, useRef, useCallback, useId } from 'react';
 import { Modal } from '@/components/shared/Modal';
 import { useGlobalSearch } from '@/hooks/useGlobalSearch';
 import { useAppStore } from '@/stores/useAppStore';
-import type { Column, SearchResult } from '@/types';
-import { COLUMN_LABELS } from '@/constants/columns';
+import type { SearchResult } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Column display helpers
@@ -40,9 +39,10 @@ interface ResultItemProps {
 }
 
 function ResultItem({ result, selected, onSelect, id, index = 0 }: ResultItemProps & { index?: number }) {
-  const { task, spaceName, column } = result;
-  const colLabel = COLUMN_LABELS[column as Column] ?? column;
-  const colColor = COLUMN_COLORS[column] ?? 'text-text-secondary bg-surface-variant';
+  const { task, spaceId, spaceName, column } = result;
+  const colLabel = useAppStore((s) =>
+    s.spaces.find((sp) => sp.id === spaceId)?.statuses?.find((st) => st.id === task.statusId)?.name) ?? column;
+  const colColor = COLUMN_COLORS[task.category ?? column] ?? 'text-text-secondary bg-surface-variant';
   const staggerClass = `stagger-delay-${Math.min(index, 7)}`;
 
   return (
@@ -58,6 +58,7 @@ function ResultItem({ result, selected, onSelect, id, index = 0 }: ResultItemPro
       {/* Title row */}
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-medium text-text-primary truncate flex-1">
+          {task.key && <span className="font-mono text-xs text-text-secondary mr-2">{task.key}</span>}
           {task.title}
         </span>
         <div className="flex items-center gap-1.5 shrink-0">

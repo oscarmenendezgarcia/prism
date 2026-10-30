@@ -9,11 +9,12 @@
  */
 
 import React from 'react';
-import type { Column } from '@/types';
-import { adjacentColumnLabel } from '@/constants/columns';
 
 export interface CardActionMenuProps {
-  column: Column;
+  /** Name of the status to the left, if there is one. */
+  leftLabel?: string;
+  /** Name of the status to the right, if there is one. */
+  rightLabel?: string;
   isMutating: boolean;
   onMoveLeft?: () => void;
   onMoveRight?: () => void;
@@ -43,7 +44,8 @@ export interface CardActionMenuProps {
  * Each button is 28×28 px per the design spec.
  */
 export function CardActionMenu({
-  column,
+  leftLabel,
+  rightLabel,
   isMutating,
   onMoveLeft,
   onMoveRight,
@@ -53,8 +55,8 @@ export function CardActionMenu({
   canMoveDown = false,
   onDelete,
 }: CardActionMenuProps) {
-  const showLeft = column !== 'todo';
-  const showRight = column !== 'done';
+  const showLeft = leftLabel !== undefined;
+  const showRight = rightLabel !== undefined;
   // Vertical reorder buttons rendered when the parent wired the callback OR
   // it's a boundary (disabled). Absent only if the whole feature is off.
   const showVertical = onMoveUp !== undefined || onMoveDown !== undefined || canMoveUp || canMoveDown;
@@ -96,7 +98,7 @@ export function CardActionMenu({
           </button>
           {/* Thin divider — separates the vertical reorder pair from the
               horizontal column-move pair. Only rendered when a horizontal
-              group actually follows (Todo has no ← button, Done has no →). */}
+              group actually follows (the first status has no ←, the last no →). */}
           {showColumnMoveGroup && (
             <div aria-hidden="true" className="w-px h-4 bg-border mx-0.5" />
           )}
@@ -108,8 +110,8 @@ export function CardActionMenu({
           type="button"
           onClick={onMoveLeft}
           disabled={isMutating}
-          aria-label={`Move to ${adjacentColumnLabel(column, 'left')}`}
-          title={`Move to ${adjacentColumnLabel(column, 'left')}`}
+          aria-label={`Move to ${leftLabel}`}
+          title={`Move to ${leftLabel}`}
           className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
         >
           <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
@@ -123,8 +125,8 @@ export function CardActionMenu({
           type="button"
           onClick={onMoveRight}
           disabled={isMutating}
-          aria-label={`Move to ${adjacentColumnLabel(column, 'right')}`}
-          title={`Move to ${adjacentColumnLabel(column, 'right')}`}
+          aria-label={`Move to ${rightLabel}`}
+          title={`Move to ${rightLabel}`}
           className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
         >
           <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
@@ -137,8 +139,8 @@ export function CardActionMenu({
         type="button"
         onClick={onDelete}
         disabled={isMutating}
-        aria-label="Delete task"
-        title="Delete task"
+        aria-label="Delete issue"
+        title="Delete issue"
         className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-error hover:bg-error/[0.08] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
       >
         <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">

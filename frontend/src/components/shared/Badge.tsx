@@ -32,6 +32,8 @@ const badgeClasses: Record<BadgeType, string> = {
     'bg-[rgba(242,153,0,0.10)] dark:bg-[rgba(255,180,84,0.13)] text-badge-tech-debt-text',
   chore:
     'bg-[rgba(26,26,46,0.07)] dark:bg-[rgba(255,255,255,0.07)] text-badge-chore-text',
+  epic:
+    'bg-primary text-white',
   done:
     'bg-[rgba(30,142,62,0.10)] dark:bg-[rgba(59,214,113,0.13)] text-badge-done-text',
 };
@@ -42,6 +44,7 @@ const badgeLabel: Record<BadgeType, string> = {
   bug:         'bug',
   'tech-debt': 'tech-debt',
   chore:       'chore',
+  epic:        'epic',
   done:        'done',
 };
 

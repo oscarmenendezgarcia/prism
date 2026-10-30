@@ -6,31 +6,27 @@
  * [×] button removes a dep.
  * Calls PUT /tasks/:id with merged/filtered dependsOn.
  *
- * Section is hidden when column is 'done'.
+ * Read-only when the issue is done.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { apiFetch, updateTask } from '@/api/client';
-import type { Column, Task } from '@/types';
+import type { Status, StatusCategory, Task } from '@/types';
 
 // Column pill styles
-const COLUMN_PILL_CLASS: Record<Column, string> = {
+const COLUMN_PILL_CLASS: Record<StatusCategory, string> = {
   'todo':        'bg-info/[0.12] text-info',
   'in-progress': 'bg-warning/[0.12] text-warning',
   'done':        'bg-success/[0.12] text-success',
 };
 
-const COLUMN_LABELS: Record<Column, string> = {
-  'todo':        'todo',
-  'in-progress': 'in progress',
-  'done':        'done',
-};
-
 interface DepTask {
   id: string;
+  key?: string;
   title: string;
-  column: Column;
+  category: StatusCategory;
+  statusName: string;
 }
 
 interface DependsOnSectionProps {
@@ -51,6 +47,7 @@ export function DependsOnSection({
 }: DependsOnSectionProps) {
   const tasks = useAppStore((s) => s.tasks);
   const showToast = useAppStore((s) => s.showToast);
+  const statuses: Status[] = useAppStore((s) => s.spaces.find((sp) => sp.id === spaceId)?.statuses) ?? [];
 
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [query,        setQuery]        = useState('');
@@ -60,12 +57,18 @@ export function DependsOnSection({
   const searchRef = useRef<HTMLInputElement>(null);
   const abortRef  = useRef<AbortController | null>(null);
 
-  // Build a task → { title, column } lookup straight from the board's columns —
-  // the column is the loop key, so no per-task scan is needed.
+  // Build a task → { title, status } lookup straight from the board's columns —
+  // the status is the loop key, so no per-task scan is needed.
   const depTaskMap = new Map<string, DepTask>();
-  for (const col of ['todo', 'in-progress', 'done'] as const) {
-    for (const t of tasks[col]) {
-      depTaskMap.set(t.id, { id: t.id, title: t.title, column: col });
+  for (const [statusId, list] of Object.entries(tasks)) {
+    for (const t of list) {
+      depTaskMap.set(t.id, {
+        id: t.id,
+        key: t.key,
+        title: t.title,
+        category: t.category ?? 'todo',
+        statusName: statuses.find((s) => s.id === statusId)?.name ?? statusId,
+      });
     }
   }
 
@@ -184,12 +187,13 @@ export function DependsOnSection({
                 {dep ? (
                   <>
                     <span
-                      className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap ${COLUMN_PILL_CLASS[dep.column]}`}
-                      aria-label={`Status: ${COLUMN_LABELS[dep.column]}`}
+                      className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap ${COLUMN_PILL_CLASS[dep.category]}`}
+                      aria-label={`Status: ${dep.statusName}`}
                     >
-                      {COLUMN_LABELS[dep.column]}
+                      {dep.statusName}
                     </span>
                     <span className="flex-1 text-xs text-text-secondary truncate" title={dep.title}>
+                      {dep.key && <span className="font-mono mr-1">{dep.key}</span>}
                       {dep.title}
                     </span>
                   </>
@@ -238,7 +242,7 @@ export function DependsOnSection({
           {results.length > 0 && (
             <ul className="flex flex-col gap-0.5 max-h-[200px] overflow-y-auto border border-border/30 rounded-lg bg-surface-elevated shadow-md" role="listbox" aria-label="Search results">
               {results.map((t) => {
-                const col = depTaskMap.get(t.id)?.column ?? 'done';
+                const known = depTaskMap.get(t.id);
                 return (
                   <li key={t.id} role="option" aria-selected={false}>
                     <button
@@ -248,10 +252,13 @@ export function DependsOnSection({
                       className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-variant transition-colors disabled:opacity-50"
                       data-testid="search-result-item"
                     >
-                      <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap shrink-0 ${COLUMN_PILL_CLASS[col]}`}>
-                        {COLUMN_LABELS[col]}
+                      <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap shrink-0 ${COLUMN_PILL_CLASS[known?.category ?? t.category ?? 'todo']}`}>
+                        {known?.statusName ?? t.statusId}
                       </span>
-                      <span className="text-xs text-text-primary truncate">{t.title}</span>
+                      <span className="text-xs text-text-primary truncate">
+                        {t.key && <span className="font-mono mr-1">{t.key}</span>}
+                        {t.title}
+                      </span>
                     </button>
                   </li>
                 );

@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import type { SpaceHooks } from '@/types';
+import type { SpaceHooks, Status } from '@/types';
 
 export const EMPTY_SPACE_HOOKS: SpaceHooks = { checkCommand: null, autoPr: false };
 
@@ -21,9 +21,13 @@ export function readSpaceHooks(hooks: unknown): SpaceHooks {
 interface SpaceHookSectionProps {
   hooks: SpaceHooks;
   onChange: (hooks: SpaceHooks) => void;
+  /** The saved statuses an agent's finished work can move to. */
+  statuses?: Status[];
+  finishStatus?: string;
+  onFinishStatusChange?: (statusId: string) => void;
 }
 
-export function SpaceHookSection({ hooks, onChange }: SpaceHookSectionProps) {
+export function SpaceHookSection({ hooks, onChange, statuses, finishStatus, onFinishStatusChange }: SpaceHookSectionProps) {
   return (
     <fieldset className="flex flex-col gap-3 border-t border-border pt-3" data-testid="hook-section">
       <legend className="sr-only">When an agent finishes</legend>
@@ -36,7 +40,7 @@ export function SpaceHookSection({ hooks, onChange }: SpaceHookSectionProps) {
           placeholder="npm test"
           className="w-full px-3 py-2 rounded-lg bg-surface-variant border border-border text-sm font-mono text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:border-primary transition-colors duration-fast"
         />
-        <span className="text-text-disabled">Runs in the task's worktree when the agent finishes. It must pass before the task is done.</span>
+        <span className="text-text-disabled">Runs in the task's worktree when the agent finishes. It must pass before the task moves on.</span>
       </label>
       <label className="flex items-center gap-2 text-sm text-text-primary cursor-pointer">
         <input
@@ -47,6 +51,19 @@ export function SpaceHookSection({ hooks, onChange }: SpaceHookSectionProps) {
         />
         Open a pull request automatically
       </label>
+      {statuses && statuses.length > 0 && (
+        <label className="flex flex-col gap-1 text-xs text-text-secondary">
+          When an agent finishes, move to
+          <select
+            value={finishStatus ?? ''}
+            onChange={(e) => onFinishStatusChange?.(e.target.value)}
+            data-testid="finish-status"
+            className="w-full px-3 py-2 rounded-lg bg-surface-variant border border-border text-sm text-text-primary focus:outline-hidden focus:border-primary transition-colors duration-fast"
+          >
+            {statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </label>
+      )}
     </fieldset>
   );
 }

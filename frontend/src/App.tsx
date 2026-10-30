@@ -23,6 +23,7 @@ import { Toast } from '@/components/shared/Toast';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
 import { useTaskRunsPolling } from '@/hooks/useTaskRunsPolling';
+import { getIssue } from '@/api/client';
 
 /** React Error Boundary to prevent white-screen crashes. */
 class ErrorBoundary extends React.Component<
@@ -73,7 +74,24 @@ function AppContent() {
   const closeGlobalSearch      = useAppStore((s) => s.closeGlobalSearch);
 
   useEffect(() => {
-    loadSpaces();
+    void (async () => {
+      await loadSpaces();
+      // A link to an issue, such as /?issue=WEB-142. Old keys keep working.
+      const params = new URLSearchParams(window.location.search);
+      const key = params.get('issue');
+      if (!key) return;
+      params.delete('issue');
+      window.history.replaceState(null, '', `${window.location.pathname}${params.size > 0 ? `?${params}` : ''}`);
+      const { setActiveSpace, loadBoard, openDetailPanel, showToast } = useAppStore.getState();
+      try {
+        const { spaceId, ...task } = await getIssue(key);
+        setActiveSpace(spaceId);
+        await loadBoard();
+        openDetailPanel(task);
+      } catch {
+        showToast(`Issue ${key} not found`, 'error');
+      }
+    })();
   }, [loadSpaces]);
 
   // Global ⌘K / Ctrl+K keyboard shortcut — opens GlobalSearchModal.

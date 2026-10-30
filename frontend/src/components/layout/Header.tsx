@@ -1,5 +1,5 @@
 /**
- * App header — brand, search, theme, and New Task.
+ * App header — brand, search, theme, and New issue.
  */
 
 import { Button } from '@/components/shared/Button';
@@ -90,12 +90,12 @@ export function Header() {
         <Button
           variant="primary"
           onClick={openCreateModal}
-          aria-label="Add new task"
+          aria-label="Add new issue"
         >
           <span className="material-symbols-outlined text-lg leading-none" aria-hidden="true">
             add
           </span>
-          New Task
+          <span className="hidden sm:inline">New issue</span>
         </Button>
       </div>
     </header>
