@@ -26,6 +26,14 @@ mode=$(cat "$W/mode" 2>/dev/null)
 echo "output of turn $n"
 case "$mode" in
   fail) exit 3 ;;
+  slow) sleep 3; echo "work $n" >> agent-work.txt; exit 0 ;;
+  question-then-slow)
+    echo slow > "$W/mode"
+    curl -s -X POST "$KANBAN_API_URL/spaces/$PRISM_TEST_SPACE/tasks/$PRISM_TEST_TASK/comments" \\
+      -H 'Content-Type: application/json' \\
+      -d '{"author":"claude","type":"question","text":"Second question?"}' > /dev/null
+    exit 0 ;;
+  break-worktree) rm -f .git; exit 0 ;;
   block) echo $$ > "$W/agent-pid"; sleep 60 & wait ;;
   question)
     echo ok > "$W/mode"
@@ -469,6 +477,228 @@ describe('direct task runs', () => {
     const { runId } = await view(other);
     await call('POST', `/runs/${runId}/stop`);
     await waitFor(other, 'stopped');
+  });
+
+  const withTaskEnv = async (taskId, fn) => {
+    const baseEnv = env;
+    await stopServer();
+    env = { ...env, PRISM_TEST_SPACE: space, PRISM_TEST_TASK: taskId };
+    await startServer();
+    try {
+      await fn();
+    } finally {
+      await stopServer();
+      env = baseEnv;
+      await startServer();
+    }
+  };
+
+  const answerOpenQuestion = async (taskId, text) => {
+    const { json: task } = await call('GET', `/spaces/${space}/tasks/${taskId}`);
+    const question = task.comments.find((c) => c.type === 'question' && !c.resolved);
+    await call('POST', `/spaces/${space}/tasks/${taskId}/comments`, { author: 'user', type: 'answer', parentId: question.id, text });
+    await call('PATCH', `/spaces/${space}/tasks/${taskId}/comments/${question.id}`, { resolved: true });
+  };
+
+  test('a sentinel from an earlier turn does not end a later one', async () => {
+    const taskId = await makeTask();
+    await withTaskEnv(taskId, async () => {
+      setMode('question');
+      const { json: run } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+      await waitFor(taskId, 'question');
+      await answerOpenQuestion(taskId, 'First');
+      await waitFor(taskId, 'done');
+
+      setMode('question-then-slow');
+      await call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'Again' });
+      await waitFor(taskId, 'question');
+      const before = git(repo, 'log', '--format=%H', run.worktree.branch);
+      await answerOpenQuestion(taskId, 'Second');
+      await waitFor(taskId, 'working');
+      await new Promise((r) => setTimeout(r, 1000));
+      assert.equal((await view(taskId)).status, 'working', 'the slow agent is still working');
+      await waitFor(taskId, 'done');
+      assert.notEqual(git(repo, 'log', '--format=%H', run.worktree.branch), before, 'its work reached the branch');
+    });
+  });
+
+  test('actions on a task do not interleave', async () => {
+    const taskId = await makeTask();
+    const { json: run } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    await waitFor(taskId, 'done');
+
+    setMode('slow');
+    const [closed, changed] = await Promise.all([
+      call('POST', `/spaces/${space}/tasks/${taskId}/close`),
+      call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'Race' }),
+    ]);
+    // Whichever arrives first wins. Closing after the agent restarted is refused.
+    assert.ok([200, 409].includes(closed.status));
+    assert.equal(changed.status, 200);
+    await waitFor(taskId, 'working');
+    assert.ok(fs.existsSync(path.join(run.worktree.path, '.git')), 'the agent has its worktree');
+    assert.equal((await view(taskId)).closedAt, null);
+    await waitFor(taskId, 'done');
+
+    // The second of two simultaneous requests finds the first one running.
+    setMode('slow');
+    const both = await Promise.all([
+      call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'One' }),
+      call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'Two' }),
+    ]);
+    assert.deepEqual(both.map((r) => r.status).sort(), [200, 409]);
+    assert.equal((await view(taskId)).iteration, 3);
+    await waitFor(taskId, 'done');
+    const { json: task } = await call('GET', `/spaces/${space}/tasks/${taskId}`);
+    assert.equal(task.comments.filter((c) => c.changeRequest && ['One', 'Two'].includes(c.text)).length, 1);
+  });
+
+  test('a change request that cannot restore the worktree changes nothing', async () => {
+    const taskId = await makeTask();
+    const { json: run } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    await waitFor(taskId, 'done');
+    await call('POST', `/spaces/${space}/tasks/${taskId}/close`);
+
+    const elsewhere = path.join(work, `elsewhere-${taskId}`);
+    git(repo, 'worktree', 'add', '-q', elsewhere, run.worktree.branch);
+    const res = await call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'Lost?' });
+    assert.equal(res.status, 409);
+    assert.equal(res.json.error.code, 'WORKTREE_UNAVAILABLE');
+
+    const after = await view(taskId);
+    assert.equal(after.status, 'done');
+    assert.equal(after.iteration, 1);
+    const { json: task } = await call('GET', `/spaces/${space}/tasks/${taskId}`);
+    assert.ok(!(task.comments ?? []).some((c) => c.changeRequest));
+    git(repo, 'worktree', 'remove', '--force', elsewhere);
+  });
+
+  test('an agent that crashes after a failed hook reads as the agent failing', async () => {
+    await setHook({ name: 'Tests', command: 'exit 1' });
+    const taskId = await makeTask();
+    await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    await waitFor(taskId, 'failed');
+    setMode('fail');
+    await call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'Fix' });
+    await waitFor(taskId, 'working').catch(() => {});
+    const failed = await waitFor(taskId, 'failed');
+    assert.equal(failed.failure.kind, 'agent');
+    assert.equal(failed.failure.exitCode, 3);
+  });
+
+  test('a restart stops a hook that outlived the server', async () => {
+    const pidFile = path.join(work, 'long-hook-pid');
+    await setHook({ name: 'Long', command: `echo $$ > ${pidFile}; sleep 60` });
+    const taskId = await makeTask();
+    await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    await waitFor(taskId, 'checking');
+    for (let i = 0; i < 50 && !fs.existsSync(pidFile); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const pid = Number(fs.readFileSync(pidFile, 'utf8'));
+    server.kill('SIGKILL');
+    await new Promise((r) => server.once('exit', r));
+    process.kill(pid, 0); // It survived the crash.
+
+    await startServer();
+    await waitFor(taskId, 'stopped');
+    await new Promise((r) => setTimeout(r, 500));
+    assert.throws(() => process.kill(pid, 0));
+  });
+
+  test('a hook does not run when the worktree lost its .git', async () => {
+    const marker = path.join(work, 'hook-ran');
+    await setHook({ name: 'Check', command: `touch ${marker}` });
+    setMode('break-worktree');
+    const taskId = await makeTask();
+    await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    const failed = await waitFor(taskId, 'failed');
+    assert.ok(!fs.existsSync(marker));
+    assert.match(failed.hook.outputTail, /did not run/);
+    assert.match(failed.result.saveError, /.+/);
+    assert.equal(git(repo, 'status', '--porcelain'), '', 'nothing touched the checkout');
+  });
+
+  test('an answer past the loop cap still reaches the agent', async () => {
+    const baseEnv = env;
+    const taskId = await makeTask();
+    await stopServer();
+    env = { ...env, PIPELINE_MAX_LOOPS: '1', PRISM_TEST_SPACE: space, PRISM_TEST_TASK: taskId };
+    await startServer();
+    try {
+      setMode('question');
+      await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+      await waitFor(taskId, 'question');
+      await answerOpenQuestion(taskId, 'A1');
+      await waitFor(taskId, 'done');
+      setMode('question');
+      await call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'More' });
+      await waitFor(taskId, 'question');
+      setMode('question');
+      await answerOpenQuestion(taskId, 'A2');
+      await waitFor(taskId, 'question');
+      setMode('ok');
+      const turns = prompts();
+      await answerOpenQuestion(taskId, 'A3');
+      await waitFor(taskId, 'done');
+      assert.equal(prompts(), turns + 1, 'the agent ran again with the answer');
+      assert.match(lastPrompt(), /A3/);
+    } finally {
+      await stopServer();
+      env = baseEnv;
+      await startServer();
+    }
+  });
+
+  test('retrying a stopped question does not run the hooks over unfinished work', async () => {
+    const marker = path.join(work, 'question-hook-ran');
+    await setHook({ name: 'Check', command: `touch ${marker}` });
+    const taskId = await makeTask();
+    await withTaskEnv(taskId, async () => {
+      setMode('question');
+      const { json: run } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+      await waitFor(taskId, 'question');
+      await call('POST', `/runs/${run.runId}/stop`);
+      await waitFor(taskId, 'stopped');
+
+      const refused = await call('POST', `/runs/${run.runId}/resume`);
+      assert.equal(refused.status, 409);
+      assert.equal(refused.json.error.code, 'OPEN_QUESTION');
+      assert.ok(!fs.existsSync(marker));
+
+      await answerOpenQuestion(taskId, 'Answered late');
+      setMode('ok');
+      const turns = prompts();
+      assert.equal((await call('POST', `/runs/${run.runId}/resume`)).status, 200);
+      await waitFor(taskId, 'done');
+      assert.equal(prompts(), turns + 1, 'the agent ran again');
+      assert.match(lastPrompt(), /Answered late/);
+    });
+  });
+
+  test('a hook takes its background processes with it', async () => {
+    const pidFile = path.join(work, 'bg-pid');
+    await setHook({ name: 'Bg', command: `sh -c 'trap "" TERM; sleep 60' & echo $! > ${pidFile}; exit 0` });
+    const taskId = await makeTask();
+    await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    await waitFor(taskId, 'done');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.throws(() => process.kill(Number(fs.readFileSync(pidFile, 'utf8')), 0));
+  });
+
+  test('a file name with pathspec characters returns only that file', async () => {
+    const taskId = await makeTask();
+    const { json: run } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    await waitFor(taskId, 'done');
+    fs.mkdirSync(path.join(run.worktree.path, 'app/[id]'), { recursive: true });
+    fs.mkdirSync(path.join(run.worktree.path, 'app/i'), { recursive: true });
+    fs.writeFileSync(path.join(run.worktree.path, 'app/[id]/page.js'), 'bracket\n');
+    fs.writeFileSync(path.join(run.worktree.path, 'app/i/page.js'), 'plain\n');
+    git(run.worktree.path, 'add', '.');
+    git(run.worktree.path, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x');
+    const { json } = await call('GET', `/runs/${run.runId}/diff?path=${encodeURIComponent('app/[id]/page.js')}`);
+    assert.match(json.patch, /bracket/);
+    assert.doesNotMatch(json.patch, /plain/);
   });
 
   test('hooks are validated', async () => {

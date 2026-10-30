@@ -4,6 +4,8 @@
  * Runs a space's command hook when an agent finishes a task. The command comes
  * from the space's settings and runs in the task's worktree, in a shell, with the
  * same privileges as the server: it is the user's own command, not sandboxed.
+ * Whatever it leaves running in its process group ends with it, because Prism saves
+ * the worktree next. A hook that starts a service must detach it with `setsid`.
  *
  * Environment variables:
  *   PRISM_HOOK_TIMEOUT_MS - Maximum hook duration (default: 15 minutes)
@@ -81,6 +83,9 @@ function runCommandHook({ command, cwd, env, logPath }) {
       clearTimeout(timeoutTimer);
       clearTimeout(killTimer);
       clearTimeout(drainTimer);
+      signal('SIGKILL');
+      child.stdout.destroy();
+      child.stderr.destroy();
       log.end();
       resolve({ exitCode, timedOut, outputTail: tail.toString('utf8') });
     };

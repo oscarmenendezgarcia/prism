@@ -277,13 +277,33 @@ const activeFinalizations = new Map();
 // runId → { pid, done } of the hook running for a direct run.
 const activeHooks = new Map();
 
-// Tasks with a direct run being created, so a double click cannot start two.
-const startingDirectRuns = new Set();
+// taskId → tail of its queue of direct-run actions. Actions that change a task's run
+// (start, resume, change request, close) wait for each other, because each spans git
+// operations and two tabs must not interleave them.
+const taskLocks = new Map();
 
 // The agent a direct run uses: one task, one process, no stages.
 const DIRECT_AGENT_ID = 'prism-agent';
 
 const ACTIVE_RUN_STATUSES = ['pending', 'running', 'paused', 'blocked'];
+
+/**
+ * Run an action on a task's direct run after the ones already queued for that task.
+ *
+ * @template T
+ * @param {string} taskId
+ * @param {() => Promise<T>} action
+ * @returns {Promise<T>}
+ */
+function withTaskLock(taskId, action) {
+  const tail = taskLocks.get(taskId) ?? Promise.resolve();
+  const result = tail.then(action);
+  const settled = result.catch(() => {}).finally(() => {
+    if (taskLocks.get(taskId) === settled) taskLocks.delete(taskId);
+  });
+  taskLocks.set(taskId, settled);
+  return result;
+}
 
 /** The startup worktree sweep while it runs. It removes worktrees of failed runs too. */
 let startupSweep = null;
@@ -546,9 +566,10 @@ function findAskingStageIndex(run, author) {
  *   case the pipeline simply advances as before).
  */
 function reinjectQuestionAsker(run, questionIds) {
+  // A direct run has one agent, and it stopped to wait for this answer.
   const askingStage = Number.isInteger(run.blockedReason?.askingStage)
     ? run.blockedReason.askingStage
-    : null;
+    : (run.direct ? run.stages.length - 1 : null);
   if (askingStage === null || askingStage < 0 || askingStage >= run.stageStatuses.length) {
     return false;
   }
@@ -556,7 +577,9 @@ function reinjectQuestionAsker(run, questionIds) {
   if (!askerAgent) return false;
 
   const maxLoops = parseInt(process.env.PIPELINE_MAX_LOOPS || String(DEFAULT_MAX_LOOPS), 10);
-  if ((run.loopCounts || {})[askerAgent] >= maxLoops) {
+  // The cap stops question ping-pong between agents. A direct run's questions each wait
+  // for a person, and dropping an answer would let the card close with the work unfinished.
+  if (!run.direct && (run.loopCounts || {})[askerAgent] >= maxLoops) {
     pipelineLog('run.question_reinject_cap_reached', {
       runId: run.runId, askerAgent, loopCounts: run.loopCounts || {}, maxLoops,
     });
@@ -1680,6 +1703,29 @@ async function finalizeRun(dataDir, run, opts = {}) {
 }
 
 /**
+ * Stop a hook that kept running when the server restarted, so it does not write to the
+ * worktree while Prism saves it or a retry starts another one. A pid whose process is
+ * now something else, in another directory, is left alone.
+ *
+ * @param {object} run
+ * @returns {number|undefined} The process group signalled.
+ */
+function killLeftoverHook(run) {
+  const { pid } = run.hook;
+  if (!pid || pid === process.pid) return undefined;
+  try {
+    if (fs.realpathSync(`/proc/${pid}/cwd`) !== fs.realpathSync(run.worktree.path)) return undefined;
+  } catch { /* The leader is gone or this is not Linux. Its group can only still be the hook's. */ }
+  try {
+    process.kill(-pid, 'SIGTERM');
+    pipelineLog('hook.killed_on_startup', { runId: run.runId, pid });
+    return pid;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Commit what a direct run's agent left in its worktree and record what the branch
  * changed. The worktree stays, so the agent can continue on it if the user asks for
  * changes. A failed save goes on the run because the card has to show it.
@@ -1742,6 +1788,29 @@ async function finishDirectRun(dataDir, runId) {
   if (hook) {
     const hookRunId = crypto.randomUUID();
     run.hook = { id: hookRunId, name: hook.name, command: hook.command, status: 'running', startedAt: new Date().toISOString() };
+
+    // Without its own .git, git in the hook would walk up and act on the user's checkout.
+    try {
+      await worktreeManager.assertWorktreeRoot(run.worktree.path);
+    } catch (err) {
+      pipelineLog('worktree.error', { runId, op: 'hook_cwd', code: err.code, message: err.message });
+      const current = readRun(dataDir, runId);
+      if (!current || current.status !== 'running') return;
+      current.status = 'failed';
+      current.hook = {
+        ...run.hook,
+        status:     'failed',
+        exitCode:   null,
+        outputTail: 'The worktree is missing or damaged, so this check did not run.',
+        finishedAt: new Date().toISOString(),
+      };
+      writeRun(dataDir, current);
+      return;
+    }
+
+    run = readRun(dataDir, runId);
+    if (!run || run.status !== 'running') return; // Stopped meanwhile.
+    run.hook = { id: hookRunId, name: hook.name, command: hook.command, status: 'running', startedAt: new Date().toISOString() };
     writeRun(dataDir, run);
     pipelineLog('hook.started', { runId, name: hook.name });
 
@@ -1758,6 +1827,9 @@ async function finishDirectRun(dataDir, runId) {
       },
     });
     activeHooks.set(runId, handle);
+    // Persisted so a restart can stop a hook that outlived the server.
+    run.hook.pid = handle.pid;
+    writeRun(dataDir, run);
     const outcome = await handle.done;
     if (activeHooks.get(runId) === handle) activeHooks.delete(runId);
 
@@ -1810,7 +1882,9 @@ function directRunView(run) {
     completed:   'done',
   };
   const stage = run.stageStatuses[run.stageStatuses.length - 1] ?? {};
-  const failedHook = run.status === 'failed' && run.hook?.status === 'failed';
+  // A failed check stays on the run for the next turn's prompt, so a later failure of
+  // the agent itself must not read as the check failing again.
+  const failedHook = run.status === 'failed' && run.hook?.status === 'failed' && stage.status === 'completed';
 
   let failure = null;
   if (failedHook) {
@@ -1850,14 +1924,15 @@ function listDirectRunViews(spaceId) {
 }
 
 /**
- * Whether a task has a direct run that has not ended.
+ * Whether a task has a direct run that has not ended, or an action changing it in flight.
  *
  * @param {string} dataDir
  * @param {string} taskId
  * @returns {boolean}
  */
 function hasActiveDirectRun(dataDir, taskId) {
-  return !!_store && !!findActiveRunByTaskId(dataDir, taskId)?.direct;
+  if (!_store) return false;
+  return taskLocks.has(taskId) || !!findActiveRunByTaskId(dataDir, taskId)?.direct;
 }
 
 /**
@@ -1880,6 +1955,16 @@ function spaceHasActiveDirectRun(spaceId) {
  * @throws RUN_NOT_FOUND, RUN_ACTIVE, WORKTREE_KEPT.
  */
 async function closeDirectRun(runId, dataDir) {
+  const run = readRun(dataDir, runId);
+  if (!run || !run.direct) {
+    const err = new Error(`Direct run '${runId}' not found.`);
+    err.code = 'RUN_NOT_FOUND';
+    throw err;
+  }
+  return withTaskLock(run.taskId, () => closeDirectRunLocked(runId, dataDir));
+}
+
+async function closeDirectRunLocked(runId, dataDir) {
   const run = readRun(dataDir, runId);
   if (!run || !run.direct) {
     const err = new Error(`Direct run '${runId}' not found.`);
@@ -1940,41 +2025,81 @@ async function closeTaskDirectRuns(spaceId, taskId, dataDir, exceptRunId) {
  * @throws RUN_NOT_FOUND, RUN_ACTIVE, WORKTREE_UNAVAILABLE.
  */
 async function requestChanges(runId, dataDir, text) {
-  const run = readRun(dataDir, runId);
-  if (!run || !run.direct) {
+  const found = readRun(dataDir, runId);
+  if (!found || !found.direct) {
     const err = new Error(`Direct run '${runId}' not found.`);
     err.code = 'RUN_NOT_FOUND';
     throw err;
   }
-  if (ACTIVE_RUN_STATUSES.includes(run.status)) {
+  return withTaskLock(found.taskId, () => requestChangesLocked(runId, dataDir, text));
+}
+
+async function requestChangesLocked(runId, dataDir, text) {
+  let run = readRun(dataDir, runId);
+  if (!run || ACTIVE_RUN_STATUSES.includes(run.status)) {
     const err = new Error(`Run '${runId}' is still active.`);
     err.code = 'RUN_ACTIVE';
     throw err;
   }
 
-  // Answered questions may have added stages: another turn starts from one again.
+  // Before changing anything, so that a failure leaves the run as it was.
+  try {
+    await restoreRunWorktree(run);
+  } catch (restoreErr) {
+    const err = new Error(`Run '${runId}' cannot continue: its worktree could not be restored. ${restoreErr.message}`);
+    err.code = 'WORKTREE_UNAVAILABLE';
+    throw err;
+  }
+
+  run = readRun(dataDir, runId);
+  if (!run || ACTIVE_RUN_STATUSES.includes(run.status)) {
+    const err = new Error(`Run '${runId}' changed while its worktree was being restored.`);
+    err.code = 'RUN_ACTIVE';
+    throw err;
+  }
+
+  // The agent reads the card's comments in its prompt, so this goes first.
+  const now  = new Date().toISOString();
+  const task = _store.getTask(run.spaceId, run.taskId);
+  _store.updateTask(run.spaceId, run.taskId, {
+    comments: [...(task?.comments ?? []), {
+      id: crypto.randomUUID(), author: 'user', text, type: 'note', changeRequest: true,
+      needsHuman: false, resolved: false, createdAt: now,
+    }],
+    updatedAt: now,
+  });
+
+  // Keep the previous turn's log: the next spawn overwrites it.
+  const logPath = stageLogPath(dataDir, runId, 0);
+  const turn = run.iteration ?? 1;
+  if (fs.existsSync(logPath)) {
+    try { fs.copyFileSync(logPath, `${logPath}.turn-${turn}`); } catch { /* best-effort */ }
+  }
+
+  // Answered questions may have added stages. Their sentinels and logs go with them, or
+  // a later turn reaching that index would look finished before it starts.
+  for (let i = 0; i < run.stages.length; i++) {
+    try { fs.unlinkSync(stageDonePath(dataDir, runId, i)); } catch { /* not present */ }
+  }
   const [first] = run.stageStatuses;
+  first.status = 'pending';
+  first.retriedWithFallback = false;
+  delete first.fallbackFrom;
   run.stages        = [first.agentId];
   run.stageStatuses = [first];
-  run.iteration     = (run.iteration ?? 1) + 1;
-  run.changeRequest = { text, at: new Date().toISOString() };
+  run.iteration     = turn + 1;
+  run.changeRequest = { text, at: now };
   // A failed check stays on the run: the agent's prompt shows it.
   if (run.hook?.status !== 'failed') run.hook = null;
   delete run.questionAnswers;
-
-  // Keep the previous turn's log: the next spawn overwrites stage-0.log.
-  const logPath = stageLogPath(dataDir, runId, 0);
-  if (fs.existsSync(logPath)) {
-    try { fs.copyFileSync(logPath, `${logPath}.turn-${run.iteration - 1}`); } catch { /* best-effort */ }
-  }
-
-  // resumeRun only takes a run that stopped. It then restores the worktree or throws.
+  delete run.blockedReason;
+  delete run.loopCounts;
+  delete run.questionIterations;
+  // resumeRun only takes a run that stopped.
   if (run.status === 'completed') run.status = 'interrupted';
-  first.retriedWithFallback = false;
-  delete first.fallbackFrom;
   writeRun(dataDir, run);
 
-  const resumed = await resumeRun(runId, dataDir, { fromStage: 0 });
+  const resumed = await resumeRunUnlocked(runId, dataDir, { fromStage: 0 });
   await moveKanbanTask(run.spaceId, run.taskId, 'in-progress');
   return resumed;
 }
@@ -2613,6 +2738,8 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
 
   const logPath  = stageLogPath(dataDir, run.runId, stageIndex);
   const doneFile = stageDonePath(dataDir, run.runId, stageIndex);
+  // A sentinel left by an earlier attempt would end this one as soon as it starts.
+  try { fs.unlinkSync(doneFile); } catch { /* not present */ }
 
   const stageStartedAt = Date.now();
 
@@ -3069,9 +3196,13 @@ function _processRunsOnStartup(dataDir, runs, knownWorkingDirs) {
       if (runningStageIdx === -1) {
         // No stage is marked running — interrupt at run level.
         run.status = 'interrupted';
-        if (run.hook?.status === 'running') run.hook.status = 'interrupted';
+        let hookPid;
+        if (run.hook?.status === 'running') {
+          run.hook.status = 'interrupted';
+          hookPid = killLeftoverHook(run);
+        }
         writeRun(dataDir, run);
-        if (run.direct) finalizeRun(dataDir, run).catch(() => {});
+        if (run.direct) finalizeRun(dataDir, run, { signalledPid: hookPid }).catch(() => {});
         console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart)`);
         continue;
       }
@@ -3147,26 +3278,23 @@ function _processRunsOnStartup(dataDir, runs, knownWorkingDirs) {
 async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, dangerouslySkipPermissions = false, checkpoints = [], direct = false, agentConfig = null }) {
   if (!direct) return createRunUnchecked({ spaceId, taskId, stages, dataDir, workingDirectory, dangerouslySkipPermissions, checkpoints });
 
-  if (startingDirectRuns.has(taskId) || findActiveRunByTaskId(dataDir, taskId)) {
-    const err = new Error(`Task '${taskId}' already has an active run.`);
-    err.code = 'RUN_ACTIVE';
-    throw err;
-  }
   if (!workingDirectory) {
     const err = new Error('This space has no working directory. Set one to a git repository to run tasks.');
     err.code = 'NOT_A_GIT_REPO';
     throw err;
   }
 
-  startingDirectRuns.add(taskId);
-  try {
+  return withTaskLock(taskId, async () => {
+    if (findActiveRunByTaskId(dataDir, taskId)) {
+      const err = new Error(`Task '${taskId}' already has an active run.`);
+      err.code = 'RUN_ACTIVE';
+      throw err;
+    }
     const run = await createRunUnchecked({ spaceId, taskId, stages: [DIRECT_AGENT_ID], dataDir, workingDirectory, direct, agentConfig });
     // A task shows its latest run. Earlier ones no longer need their worktrees.
     closeTaskDirectRuns(spaceId, taskId, dataDir, run.runId).catch(() => {});
     return run;
-  } finally {
-    startingDirectRuns.delete(taskId);
-  }
+  });
 }
 
 async function createRunUnchecked({ spaceId, taskId, stages, dataDir, workingDirectory, dangerouslySkipPermissions = false, checkpoints = [], direct = false, agentConfig = null }) {
@@ -4643,7 +4771,13 @@ function unblockRunByComment(dataDir, taskId, commentId) {
  * @returns {Promise<object>} Updated run state.
  * @throws On validation failure (RUN_NOT_FOUND, RUN_NOT_RESUMABLE).
  */
-async function resumeRun(runId, dataDir, { fromStage } = {}) {
+async function resumeRun(runId, dataDir, opts = {}) {
+  const run = readRun(dataDir, runId);
+  if (run?.direct) return withTaskLock(run.taskId, () => resumeRunUnlocked(runId, dataDir, opts));
+  return resumeRunUnlocked(runId, dataDir, opts);
+}
+
+async function resumeRunUnlocked(runId, dataDir, { fromStage } = {}) {
   let run = readRun(dataDir, runId);
   if (!run) {
     const err = new Error(`Run '${runId}' not found.`);
@@ -4655,6 +4789,19 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
     const err = new Error(`Run '${runId}' has status '${run.status}' and cannot be resumed. Only interrupted, failed, paused, or blocked runs can be resumed.`);
     err.code = 'RUN_NOT_RESUMABLE';
     throw err;
+  }
+
+  // The agent of a direct run stops to ask, so its stage looks finished. Resuming must
+  // not take that for the end of the work and run the hooks: it waits for the answer,
+  // then the agent runs again and reads it.
+  if (run.direct && run.blockedReason) {
+    const task = _store.getTask(run.spaceId, run.taskId);
+    if ((task?.comments ?? []).some((c) => c.type === 'question' && !c.resolved)) {
+      const err = new Error('Answer the open question first.');
+      err.code = 'OPEN_QUESTION';
+      throw err;
+    }
+    fromStage = run.stages.length - 1;
   }
 
   const wasBlocked        = run.status === 'blocked';
@@ -5022,7 +5169,7 @@ async function deleteRun(runId, dataDir) {
  * @returns {Promise<void>}
  */
 async function abortAll(dataDir) {
-  const runIds = [...activeProcesses.keys()];
+  const runIds = [...new Set([...activeProcesses.keys(), ...activeHooks.keys()])];
   await Promise.all(runIds.map((runId) => deleteRun(runId, dataDir).catch(() => {})));
 }
 

@@ -326,6 +326,7 @@ async function handleResumeRun(req, res, runId, dataDir) {
     if (err.code === 'RUN_NOT_RESUMABLE')  return sendError(res, 422, err.code, err.message);
     if (err.code === 'INVALID_FROM_STAGE') return sendError(res, 400, err.code, err.message);
     if (err.code === 'WORKTREE_UNAVAILABLE') return sendError(res, 409, err.code, err.message);
+    if (err.code === 'OPEN_QUESTION')      return sendError(res, 409, err.code, err.message);
     console.error(`[pipeline] ERROR resuming run ${runId}:`, err);
     return sendError(res, 500, 'INTERNAL_ERROR', err.message);
   }

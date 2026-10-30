@@ -14,8 +14,6 @@
  * Stopping and retrying use the existing /runs/:runId/stop and /resume.
  */
 
-const crypto = require('crypto');
-
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const pipelineManager = require('../services/pipelineManager');
 const worktreeManager = require('../services/worktreeManager');
@@ -38,6 +36,7 @@ const ERROR_STATUS = {
   NOT_A_GIT_REPO:            422,
   AGENT_NOT_FOUND:           422,
   RUN_ACTIVE:                409,
+  RUN_NOT_RESUMABLE:         409,
   MAX_CONCURRENT_REACHED:    409,
   WORKTREE_KEPT:             409,
   WORKTREE_UNAVAILABLE:      409,
@@ -171,14 +170,7 @@ async function handleRequestChanges(req, res, store, spaceId, taskId, dataDir) {
   }
 
   try {
-    const run = await pipelineManager.requestChanges(view.runId, dataDir, text);
-    const now = new Date().toISOString();
-    const comment = {
-      id: crypto.randomUUID(), author: 'user', text, type: 'note', changeRequest: true,
-      needsHuman: false, resolved: false, createdAt: now,
-    };
-    store.updateTask(spaceId, taskId, { comments: [...comments, comment], updatedAt: now });
-    return sendJSON(res, 200, run);
+    return sendJSON(res, 200, await pipelineManager.requestChanges(view.runId, dataDir, text));
   } catch (err) {
     return sendRunError(res, err, 'requesting changes');
   }

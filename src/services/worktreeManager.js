@@ -649,7 +649,7 @@ function parseNumstat(raw) {
 async function listChangedFiles(workingDirectory, { baseRef, ref }) {
   const { stdout } = await runGit(
     workingDirectory,
-    ['diff', '--numstat', '-z', '-M', baseRef, ref],
+    ['diff', '--numstat', '-z', '-M', baseRef, ref, '--'],
     SAVE_GIT_OPTS,
   );
   return parseNumstat(stdout);
@@ -671,7 +671,7 @@ async function readFileDiff(workingDirectory, { baseRef, ref }, filePath) {
 
   const { stdout } = await runGit(
     workingDirectory,
-    ['diff', '-M', baseRef, ref, '--', ...(file.oldPath ? [file.oldPath] : []), file.path],
+    ['--literal-pathspecs', 'diff', '-M', baseRef, ref, '--', ...(file.oldPath ? [file.oldPath] : []), file.path],
     SAVE_GIT_OPTS,
   );
   const truncated = Buffer.byteLength(stdout) > MAX_PATCH_BYTES;
@@ -686,6 +686,7 @@ module.exports = {
   WorktreeError,
   provision,
   saveWork,
+  assertWorktreeRoot,
   teardown,
   restore,
   reapOrphans,
