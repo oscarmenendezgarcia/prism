@@ -33,11 +33,15 @@ const { resolveAgent, AgentNotFoundError, expandTilde } = require('./agentResolv
 const { readAgentRuns, writeAgentRuns } = require('../handlers/agentRuns');
 const { openFolioRun, closeFolioRun } = require('./folioRunSurface');
 const worktreeManager = require('./worktreeManager');
+const { runCommandHook } = require('./hookRunner');
 const {
   buildKanbanBlock,
   buildGitContextBlock,
   buildCompileGateBlock,
   buildResolvedQuestionsBlock,
+  buildDirectCardBlock,
+  buildCommentsBlock,
+  buildChangeRequestBlock,
 } = require('../utils/promptBuilder');
 const { readSettings }              = require('../handlers/settings');
 const { resolveStageModelConfig }   = require('./modelConfigResolver');
@@ -269,6 +273,17 @@ const activeProcesses = new Map();
  * @type {Map<string, Promise<void>>}
  */
 const activeFinalizations = new Map();
+
+// runId → { pid, done } of the hook running for a direct run.
+const activeHooks = new Map();
+
+// Tasks with a direct run being created, so a double click cannot start two.
+const startingDirectRuns = new Set();
+
+// The agent a direct run uses: one task, one process, no stages.
+const DIRECT_AGENT_ID = 'prism-agent';
+
+const ACTIVE_RUN_STATUSES = ['pending', 'running', 'paused', 'blocked'];
 
 /** The startup worktree sweep while it runs. It removes worktrees of failed runs too. */
 let startupSweep = null;
@@ -508,7 +523,8 @@ function findAskingStageIndex(run, author) {
   if (!run || !author || !Array.isArray(run.stageStatuses)) return null;
   for (let i = run.stageStatuses.length - 1; i >= 0; i--) {
     const s = run.stageStatuses[i];
-    if (s && s.status === 'completed' && s.agentId === author) return i;
+    // A direct run has one agent, whatever name it signs its questions with.
+    if (s && s.status === 'completed' && (s.agentId === author || run.direct)) return i;
   }
   return null;
 }
@@ -1644,6 +1660,10 @@ async function finalizeRun(dataDir, run, opts = {}) {
 
   const finalization = (async () => {
     await waitForAgentExit(opts.signalledPid);
+    if (run.direct) {
+      await saveDirectResult(dataDir, run.runId);
+      return;
+    }
     await worktreeManager.teardown(run.worktree, {
       reason:       run.status || 'unknown',
       runId:        run.runId,
@@ -1660,18 +1680,318 @@ async function finalizeRun(dataDir, run, opts = {}) {
 }
 
 /**
+ * Commit what a direct run's agent left in its worktree and record what the branch
+ * changed. The worktree stays, so the agent can continue on it if the user asks for
+ * changes. A failed save goes on the run because the card has to show it.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ */
+async function saveDirectResult(dataDir, runId) {
+  const run = readRun(dataDir, runId);
+  if (!run || !run.worktree) return;
+
+  const { branch, baseBranch, baseRef } = run.worktree;
+  let saveError = null;
+  let ref = run.result?.ref ?? null;
+  if (fs.existsSync(run.worktree.path)) {
+    try {
+      ref = (await worktreeManager.saveWork(run.worktree, { reason: run.status, runId })).ref;
+    } catch (err) {
+      saveError = err.message;
+      pipelineLog('worktree.error', { runId, op: 'save_work', code: err.code, message: err.message, kept: run.worktree.path });
+    }
+  }
+
+  let files = null;
+  try {
+    files = await worktreeManager.listChangedFiles(run.workingDirectory, { baseRef, ref: ref || branch });
+  } catch (err) {
+    pipelineLog('worktree.error', { runId, op: 'list_changed_files', code: err.code, message: err.message });
+  }
+
+  // The run may have been deleted, and its status may have changed, while git worked.
+  const fresh = readRun(dataDir, runId);
+  if (!fresh) return;
+  fresh.result = {
+    branch,
+    baseBranch,
+    ref,
+    fileCount: files ? files.length : null,
+    additions: files ? files.reduce((sum, f) => sum + f.additions, 0) : null,
+    deletions: files ? files.reduce((sum, f) => sum + f.deletions, 0) : null,
+    saveError,
+  };
+  writeRun(dataDir, fresh);
+}
+
+/**
+ * The last step of a direct run: save the work, run the space's hook, and close the
+ * card if it passes. A failing hook fails the run and the card stays open.
+ *
+ * @param {string} dataDir
+ * @param {string} runId
+ */
+async function finishDirectRun(dataDir, runId) {
+  await finalizeRun(dataDir, readRun(dataDir, runId));
+
+  let run = readRun(dataDir, runId);
+  if (!run || run.status !== 'running') return; // Stopped while saving.
+
+  const hook = _store?.getSpace(run.spaceId)?.hooks?.[0];
+  if (hook) {
+    const hookRunId = crypto.randomUUID();
+    run.hook = { id: hookRunId, name: hook.name, command: hook.command, status: 'running', startedAt: new Date().toISOString() };
+    writeRun(dataDir, run);
+    pipelineLog('hook.started', { runId, name: hook.name });
+
+    const handle = runCommandHook({
+      command: hook.command,
+      cwd:     run.worktree.path,
+      logPath: path.join(runDir(dataDir, runId), 'hook.log'),
+      env: {
+        PRISM_RUN_ID:      runId,
+        PRISM_SPACE_ID:    run.spaceId,
+        PRISM_TASK_ID:     run.taskId,
+        PRISM_BRANCH:      run.worktree.branch,
+        PRISM_BASE_BRANCH: run.worktree.baseBranch || '',
+      },
+    });
+    activeHooks.set(runId, handle);
+    const outcome = await handle.done;
+    if (activeHooks.get(runId) === handle) activeHooks.delete(runId);
+
+    run = readRun(dataDir, runId);
+    if (!run || run.status !== 'running' || run.hook?.id !== hookRunId) return; // Stopped meanwhile.
+
+    const passed = outcome.exitCode === 0 && !outcome.timedOut;
+    run.hook = {
+      ...run.hook,
+      status:     passed ? 'passed' : 'failed',
+      exitCode:   outcome.exitCode,
+      timedOut:   outcome.timedOut,
+      outputTail: outcome.outputTail,
+      finishedAt: new Date().toISOString(),
+    };
+    if (!passed) run.status = 'failed';
+    writeRun(dataDir, run);
+    pipelineLog(passed ? 'hook.passed' : 'hook.failed', { runId, name: hook.name, exitCode: outcome.exitCode, timedOut: outcome.timedOut });
+
+    // The hook may have changed files (a formatter, a generated changelog).
+    await finalizeRun(dataDir, run);
+    if (!passed) return;
+
+    run = readRun(dataDir, runId);
+    if (!run || run.status !== 'running') return;
+  }
+
+  run.status = 'completed';
+  writeRun(dataDir, run);
+  pipelineLog('run.completed', { runId, totalDurationMs: Date.now() - new Date(run.createdAt).getTime() });
+  await moveKanbanTask(run.spaceId, run.taskId, 'done');
+  await maybeConsolidate(dataDir, run);
+}
+
+/**
+ * What the board needs to know about a direct run.
+ *
+ * @param {object} run
+ * @returns {object}
+ */
+function directRunView(run) {
+  const STATUS = {
+    pending:     'working',
+    running:     run.hook?.status === 'running' ? 'checking' : 'working',
+    blocked:     'question',
+    paused:      'question',
+    failed:      'failed',
+    interrupted: 'stopped',
+    aborted:     'stopped',
+    completed:   'done',
+  };
+  const stage = run.stageStatuses[run.stageStatuses.length - 1] ?? {};
+  const failedHook = run.status === 'failed' && run.hook?.status === 'failed';
+
+  let failure = null;
+  if (failedHook) {
+    failure = { kind: 'hook', exitCode: run.hook.exitCode, timedOut: run.hook.timedOut };
+  } else if (run.status === 'failed') {
+    failure = { kind: 'agent', exitCode: stage.exitCode ?? null, reason: stage.failureReason ?? null };
+  }
+
+  return {
+    runId:      run.runId,
+    taskId:     run.taskId,
+    status:     STATUS[run.status] ?? 'stopped',
+    cliTool:    stage.cliTool ?? run.agentConfig?.cliTool ?? 'claude',
+    model:      stage.model ?? run.agentConfig?.model ?? null,
+    iteration:  run.iteration ?? 1,
+    createdAt:  run.createdAt,
+    updatedAt:  run.updatedAt,
+    closedAt:   run.closedAt ?? null,
+    result:     run.result ?? null,
+    hook:       run.hook ?? null,
+    failure,
+  };
+}
+
+/**
+ * The latest direct run of each task in a space, as the board shows them.
+ *
+ * @param {string} spaceId
+ * @returns {Record<string, object>} taskId → view.
+ */
+function listDirectRunViews(spaceId) {
+  const views = {};
+  for (const run of _store.listRunsBySpace(spaceId)) { // Newest first.
+    if (run.direct && !views[run.taskId]) views[run.taskId] = directRunView(run);
+  }
+  return views;
+}
+
+/**
+ * Whether a task has a direct run that has not ended.
+ *
+ * @param {string} dataDir
+ * @param {string} taskId
+ * @returns {boolean}
+ */
+function hasActiveDirectRun(dataDir, taskId) {
+  return !!_store && !!findActiveRunByTaskId(dataDir, taskId)?.direct;
+}
+
+/**
+ * Whether a space has a direct run that has not ended.
+ *
+ * @param {string} spaceId
+ * @returns {boolean}
+ */
+function spaceHasActiveDirectRun(spaceId) {
+  return _store.listActiveRuns().some((run) => run.direct && run.spaceId === spaceId);
+}
+
+/**
+ * Remove a finished direct run's worktree. Its branch stays, so the work remains
+ * reachable and asking for changes recreates the worktree from it.
+ *
+ * @param {string} runId
+ * @param {string} dataDir
+ * @returns {Promise<object>} Updated run.
+ * @throws RUN_NOT_FOUND, RUN_ACTIVE, WORKTREE_KEPT.
+ */
+async function closeDirectRun(runId, dataDir) {
+  const run = readRun(dataDir, runId);
+  if (!run || !run.direct) {
+    const err = new Error(`Direct run '${runId}' not found.`);
+    err.code = 'RUN_NOT_FOUND';
+    throw err;
+  }
+  if (ACTIVE_RUN_STATUSES.includes(run.status)) {
+    const err = new Error(`Run '${runId}' is still active.`);
+    err.code = 'RUN_ACTIVE';
+    throw err;
+  }
+
+  await activeFinalizations.get(runId);
+  const { keptError } = await worktreeManager.teardown(run.worktree, { reason: 'closed', runId });
+  if (keptError) {
+    const err = new Error(`The worktree was kept because its work could not be saved: ${keptError}`);
+    err.code = 'WORKTREE_KEPT';
+    throw err;
+  }
+
+  const fresh = readRun(dataDir, runId);
+  if (!fresh) return null;
+  fresh.closedAt = new Date().toISOString();
+  writeRun(dataDir, fresh);
+  pipelineLog('run.closed', { runId });
+  return fresh;
+}
+
+/**
+ * Remove the worktrees of a task's ended direct runs, ignoring failures because the
+ * caller has already moved on (the task was deleted, or a new run replaced them).
+ *
+ * @param {string} spaceId
+ * @param {string} taskId
+ * @param {string} dataDir
+ * @param {string} [exceptRunId]
+ */
+async function closeTaskDirectRuns(spaceId, taskId, dataDir, exceptRunId) {
+  for (const run of _store.listRunsBySpace(spaceId)) {
+    if (!run.direct || run.taskId !== taskId || run.closedAt || run.runId === exceptRunId) continue;
+    try {
+      await closeDirectRun(run.runId, dataDir);
+    } catch (err) {
+      pipelineLog('worktree.error', { runId: run.runId, op: 'close', code: err.code, message: err.message });
+    }
+  }
+}
+
+/**
+ * Relaunch a direct run's agent in the same worktree with what the user asked for.
+ * The agent sees the request and the card's comments in a new process. A worktree
+ * that was closed is recreated from the run branch.
+ *
+ * @param {string} runId
+ * @param {string} dataDir
+ * @param {string} text - What the user asked for.
+ * @returns {Promise<object>} Updated run.
+ * @throws RUN_NOT_FOUND, RUN_ACTIVE, WORKTREE_UNAVAILABLE.
+ */
+async function requestChanges(runId, dataDir, text) {
+  const run = readRun(dataDir, runId);
+  if (!run || !run.direct) {
+    const err = new Error(`Direct run '${runId}' not found.`);
+    err.code = 'RUN_NOT_FOUND';
+    throw err;
+  }
+  if (ACTIVE_RUN_STATUSES.includes(run.status)) {
+    const err = new Error(`Run '${runId}' is still active.`);
+    err.code = 'RUN_ACTIVE';
+    throw err;
+  }
+
+  // Answered questions may have added stages: another turn starts from one again.
+  const [first] = run.stageStatuses;
+  run.stages        = [first.agentId];
+  run.stageStatuses = [first];
+  run.iteration     = (run.iteration ?? 1) + 1;
+  run.changeRequest = { text, at: new Date().toISOString() };
+  // A failed check stays on the run: the agent's prompt shows it.
+  if (run.hook?.status !== 'failed') run.hook = null;
+  delete run.questionAnswers;
+
+  // Keep the previous turn's log: the next spawn overwrites stage-0.log.
+  const logPath = stageLogPath(dataDir, runId, 0);
+  if (fs.existsSync(logPath)) {
+    try { fs.copyFileSync(logPath, `${logPath}.turn-${run.iteration - 1}`); } catch { /* best-effort */ }
+  }
+
+  // resumeRun only takes a run that stopped. It then restores the worktree or throws.
+  if (run.status === 'completed') run.status = 'interrupted';
+  first.retriedWithFallback = false;
+  delete first.fallbackFrom;
+  writeRun(dataDir, run);
+
+  const resumed = await resumeRun(runId, dataDir, { fromStage: 0 });
+  await moveKanbanTask(run.spaceId, run.taskId, 'in-progress');
+  return resumed;
+}
+
+/**
  * Resolve the isolated worktree for a new run (best-effort, WORKTREE-1).
  *
  * Every run should be isolated so it never mutates the user's main checkout.
- * But a directory that is not a git repo (or has a detached HEAD) genuinely
+ * But a directory that is not a git repo genuinely
  * cannot become a worktree, so those runs fall back to running in-place — the
  * same behaviour as before WORKTREE-1.
  *
  * Returns:
  *  - the worktree meta when the directory is a git repo;
  *  - `null` (run in-place) when isolation is disabled, no working directory is
- *    set, or the directory simply cannot be isolated (NOT_A_GIT_REPO /
- *    DETACHED_HEAD) AND no other run is active there.
+ *    set, or the directory simply cannot be isolated (NOT_A_GIT_REPO)
+ *    AND no other run is active there.
  *
  * Throws `WORKTREE_PROVISION_FAILED` when isolation fails but another run is
  * already active in the directory (running in-place would race it), or on any
@@ -1688,8 +2008,7 @@ async function resolveRunWorktree(dataDir, workingDirectory, runId) {
   try {
     return await worktreeManager.provision(workingDirectory, runId);
   } catch (err) {
-    const cannotIsolate = err.code === 'NOT_A_GIT_REPO' || err.code === 'DETACHED_HEAD';
-    if (!cannotIsolate || hasActiveRunInDir(dataDir, workingDirectory)) {
+    if (err.code !== 'NOT_A_GIT_REPO' || hasActiveRunInDir(dataDir, workingDirectory)) {
       const provErr = new Error(`Worktree provisioning failed: ${err.message}`);
       provErr.code = 'WORKTREE_PROVISION_FAILED';
       provErr.original = err;
@@ -2014,8 +2333,11 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
     ? `Task: ${task.title}\n${task.description ? `Description: ${task.description}\n` : ''}TaskId: ${task.id}\nSpaceId: ${spaceId}\n`
     : `TaskId: ${taskId}\nSpaceId: ${spaceId}\n`;
 
+  const directRun = runId ? readRun(dataDir, runId) : null;
+  const isDirect  = !!directRun?.direct;
+
   // Tell the agent whether it is the last stage so it knows to move the task to done.
-  promptText += `LastStage: ${isLastStage}\n`;
+  if (!isDirect) promptText += `LastStage: ${isLastStage}\n`;
 
   // Provide run identifiers so agents can reference this run in kanban comments.
   if (runId) {
@@ -2057,7 +2379,10 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   // Include resolved Q&A from previous pipeline blocks so the next stage agent
   // knows what was decided without re-asking the same questions.
   // Only questions that were asked AND fully resolved (with an answer comment) are shown.
-  if (task && Array.isArray(task.comments) && task.comments.length > 0) {
+  if (isDirect) {
+    const commentsBlock = buildCommentsBlock(task?.comments);
+    if (commentsBlock) promptText += '\n' + commentsBlock + '\n';
+  } else if (task && Array.isArray(task.comments) && task.comments.length > 0) {
     const resolvedBlock = buildResolvedQuestionsBlock(task.comments);
     if (resolvedBlock) promptText += '\n' + resolvedBlock + '\n';
   }
@@ -2089,7 +2414,17 @@ function buildStagePrompt(dataDir, spaceId, taskId, stageIndex, agentId, stages,
   // buildKanbanBlock includes: stop conditions, note/handoff guidance, and MCP examples.
   // isLastStage gates the "move to done" instruction — intermediate stages must not close the task.
   // Do NOT also call buildCommentGuidanceLines — its content is already inside buildKanbanBlock.
-  promptText += '\n' + buildKanbanBlock(spaceId, taskId, isLastStage) + '\n';
+  if (isDirect) {
+    if (directRun.changeRequest) {
+      promptText += '\n' + buildChangeRequestBlock(directRun.changeRequest.text, directRun.worktree?.baseRef ?? null) + '\n';
+    }
+    if (directRun.hook?.status === 'failed') {
+      promptText += `\n## FAILED CHECK\nThe check "${directRun.hook.name}" (\`${directRun.hook.command}\`) failed after your last turn. End of its output:\n\n${directRun.hook.outputTail}\n`;
+    }
+    promptText += '\n' + buildDirectCardBlock(spaceId, taskId, agentId) + '\n';
+  } else {
+    promptText += '\n' + buildKanbanBlock(spaceId, taskId, isLastStage) + '\n';
+  }
 
   // For the developer stage: require compilation gate before closing.
   // Prevents QA from launching against code that does not compile.
@@ -2129,6 +2464,10 @@ async function executeNextStage(dataDir, runId) {
   }
 
   // Check if all stages have completed.
+  if (run.currentStage >= run.stages.length && run.direct) {
+    await finishDirectRun(dataDir, runId);
+    return;
+  }
   if (run.currentStage >= run.stages.length) {
     run.status = 'completed';
     writeRun(dataDir, run);
@@ -2282,7 +2621,9 @@ async function spawnStage(dataDir, run, stageIndex, opts = {}) {
   // real agentSpec) happens exactly once after resolveAgent below.
   const settings    = readSettings(dataDir);
   const spaceModels = _store ? (_store.getSpace(run.spaceId)?.stageModels ?? null) : null;
-  const taskModels  = _store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null;
+  const taskModels  = run.agentConfig
+    ? { [agentId]: run.agentConfig }
+    : (_store ? (_store.getTask(run.spaceId, run.taskId)?.stageModels ?? null) : null);
   let mergedPromptPath = null;
 
   // Test hook: when PIPELINE_NO_SPAWN=1, skip agent resolution and real spawning.
@@ -2728,7 +3069,9 @@ function _processRunsOnStartup(dataDir, runs, knownWorkingDirs) {
       if (runningStageIdx === -1) {
         // No stage is marked running — interrupt at run level.
         run.status = 'interrupted';
+        if (run.hook?.status === 'running') run.hook.status = 'interrupted';
         writeRun(dataDir, run);
+        if (run.direct) finalizeRun(dataDir, run).catch(() => {});
         console.warn(`[pipelineManager] WARN: run ${run.runId} was interrupted (server restart)`);
         continue;
       }
@@ -2775,6 +3118,7 @@ function _processRunsOnStartup(dataDir, runs, knownWorkingDirs) {
         }
       }
       writeRun(dataDir, run);
+      if (run.direct) finalizeRun(dataDir, run).catch(() => {});
       console.warn(`[pipelineManager] WARN: run ${run.runId} interrupted (PID ${pid} dead, no sentinel)`);
     } catch (err) {
       console.warn(`[pipelineManager] WARN: could not process run '${run?.runId ?? '?'}' on startup:`, err.message);
@@ -2800,7 +3144,32 @@ function _processRunsOnStartup(dataDir, runs, knownWorkingDirs) {
  * @returns {Promise<object>} Initial run state.
  * @throws On validation failure (TASK_NOT_FOUND, TASK_NOT_IN_TODO, MAX_CONCURRENT_REACHED, AGENT_NOT_FOUND).
  */
-async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, dangerouslySkipPermissions = false, checkpoints = [] }) {
+async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, dangerouslySkipPermissions = false, checkpoints = [], direct = false, agentConfig = null }) {
+  if (!direct) return createRunUnchecked({ spaceId, taskId, stages, dataDir, workingDirectory, dangerouslySkipPermissions, checkpoints });
+
+  if (startingDirectRuns.has(taskId) || findActiveRunByTaskId(dataDir, taskId)) {
+    const err = new Error(`Task '${taskId}' already has an active run.`);
+    err.code = 'RUN_ACTIVE';
+    throw err;
+  }
+  if (!workingDirectory) {
+    const err = new Error('This space has no working directory. Set one to a git repository to run tasks.');
+    err.code = 'NOT_A_GIT_REPO';
+    throw err;
+  }
+
+  startingDirectRuns.add(taskId);
+  try {
+    const run = await createRunUnchecked({ spaceId, taskId, stages: [DIRECT_AGENT_ID], dataDir, workingDirectory, direct, agentConfig });
+    // A task shows its latest run. Earlier ones no longer need their worktrees.
+    closeTaskDirectRuns(spaceId, taskId, dataDir, run.runId).catch(() => {});
+    return run;
+  } finally {
+    startingDirectRuns.delete(taskId);
+  }
+}
+
+async function createRunUnchecked({ spaceId, taskId, stages, dataDir, workingDirectory, dangerouslySkipPermissions = false, checkpoints = [], direct = false, agentConfig = null }) {
   const stageList = stages && stages.length > 0 ? stages : DEFAULT_STAGES;
 
   // --- Validate task exists and is in 'todo'. ---
@@ -2812,7 +3181,8 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
     err.code = 'TASK_NOT_FOUND';
     throw err;
   }
-  if (taskResult.column !== 'todo') {
+  // A direct run can also restart a card left in progress, e.g. after it was stopped.
+  if (taskResult.column !== 'todo' && !(direct && taskResult.column === 'in-progress')) {
     const err = new Error(`Task '${taskId}' is in column '${taskResult.column}', not 'todo'.`);
     err.code = 'TASK_NOT_IN_TODO';
     throw err;
@@ -2852,7 +3222,16 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
   // Isolate the run in its own worktree (best-effort). Done BEFORE building the
   // run object so a provisioning failure leaves no partial run.json on disk;
   // the task stays in 'todo'. See resolveRunWorktree for the fallback policy.
-  const worktreeMeta = await resolveRunWorktree(dataDir, workingDirectory, runId);
+  // A direct run needs the branch for its result, so it never runs in place.
+  let worktreeMeta;
+  try {
+    worktreeMeta = direct
+      ? await worktreeManager.provision(workingDirectory, runId)
+      : await resolveRunWorktree(dataDir, workingDirectory, runId);
+  } catch (err) {
+    if (direct && err.code !== 'NOT_A_GIT_REPO') err.code = 'WORKTREE_PROVISION_FAILED';
+    throw err;
+  }
 
   // --- Build initial run state. ---
   const now       = new Date().toISOString();
@@ -2882,6 +3261,8 @@ async function createRun({ spaceId, taskId, stages, dataDir, workingDirectory, d
     feedbackIterations: 0,
     ...(workingDirectory ? { workingDirectory } : {}),
     ...(worktreeMeta    ? { worktree: worktreeMeta } : {}),
+    ...(direct ? { direct: true, iteration: 1 } : {}),
+    ...(agentConfig ? { agentConfig } : {}),
   };
 
   // --- Ensure runs directory exists. ---
@@ -4106,9 +4487,8 @@ function attemptCrossAgentResolution(dataDir, run, comment) {
 function findActiveRunByTaskId(dataDir, taskId) {
   if (_store) return _store.findActiveRunByTaskId(taskId);
   const registry = readRegistry(dataDir);
-  const ACTIVE_STATUSES = ['pending', 'running', 'paused', 'blocked'];
   const entry = registry.find(
-    (r) => r.taskId === taskId && ACTIVE_STATUSES.includes(r.status)
+    (r) => r.taskId === taskId && ACTIVE_RUN_STATUSES.includes(r.status)
   );
   if (!entry) return null;
   return readRun(dataDir, entry.runId);
@@ -4140,6 +4520,8 @@ function blockRunByComment(dataDir, taskId, comment) {
     }
     return;
   }
+
+  if (run.hook?.status === 'running') return; // The agent has finished.
 
   // Only block between stages (not mid-execution).
   // "Between stages" means the current stage is pending (not actively running).
@@ -4362,6 +4744,7 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
     run.stageStatuses[i].exitCode   = null;
     run.stageStatuses[i].startedAt  = null;
     run.stageStatuses[i].finishedAt = null;
+    run.stageStatuses[i].failureReason = null;
     const staleFile = stageDonePath(dataDir, run.runId, i);
     try { fs.unlinkSync(staleFile); } catch { /* not present — fine */ }
 
@@ -4372,6 +4755,7 @@ async function resumeRun(runId, dataDir, { fromStage } = {}) {
 
   run.currentStage       = resumeIndex;
   run.status             = 'running';
+  delete run.closedAt; // restoreRunWorktree brought back a closed run's worktree.
   delete run.pausedBeforeStage;
   delete run.blockedReason;
   // Always clear bypassQuestionCheck first so it cannot leak from a prior blocked resume
@@ -4476,6 +4860,14 @@ async function stopRun(runId, dataDir) {
     }
   }
 
+  const hookHandle = activeHooks.get(runId);
+  if (hookHandle) {
+    activeHooks.delete(runId);
+    try { process.kill(-hookHandle.pid, 'SIGTERM'); } catch { /* already gone */ }
+    stoppedPid = hookHandle.pid;
+  }
+  if (run.hook?.status === 'running') run.hook.status = 'interrupted';
+
   run.status = 'interrupted';
   writeRun(dataDir, run);
 
@@ -4574,6 +4966,12 @@ async function unblockRun(runId, dataDir) {
  * @returns {Promise<void>}
  */
 async function deleteRun(runId, dataDir) {
+  const hookHandle = activeHooks.get(runId);
+  if (hookHandle) {
+    activeHooks.delete(runId);
+    try { process.kill(-hookHandle.pid, 'SIGTERM'); } catch { /* already gone */ }
+  }
+
   // Clear polling interval and kill by PID if running.
   if (activeProcesses.has(runId)) {
     const { interval, stageIndex } = activeProcesses.get(runId);
@@ -4592,6 +4990,13 @@ async function deleteRun(runId, dataDir) {
       run.status = 'aborted';
       await finalizeRun(dataDir, run, { signalledPid: pid });
     }
+  }
+
+  // A direct run's worktree outlives the run, so nothing else would remove it.
+  const toDelete = readRun(dataDir, runId);
+  if (toDelete?.direct) {
+    await activeFinalizations.get(runId);
+    await worktreeManager.teardown(toDelete.worktree, { reason: 'deleted', runId });
   }
 
   // Remove run directory (logs, sentinels, prompts — still on disk).
@@ -4634,6 +5039,13 @@ function getActiveProcessCount() {
 module.exports = {
   init,
   createRun,
+  DIRECT_AGENT_ID,
+  listDirectRunViews,
+  hasActiveDirectRun,
+  spaceHasActiveDirectRun,
+  closeDirectRun,
+  closeTaskDirectRuns,
+  requestChanges,
   resumeRun,
   blockRun,
   unblockRun,

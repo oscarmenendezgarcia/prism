@@ -29,7 +29,7 @@ const execFileAsync = promisify(execFile);
 
 /**
  * Structured error thrown by worktreeManager operations.
- * `.code` is one of: NOT_A_GIT_REPO | DETACHED_HEAD | WORKTREE_EXISTS | GIT_ERROR
+ * `.code` is one of: NOT_A_GIT_REPO | WORKTREE_EXISTS | GIT_ERROR
  */
 class WorktreeError extends Error {
   /**
@@ -74,6 +74,9 @@ async function runGit(cwd, args, opts = {}) {
 // `add`, `status` and `commit` scale with the number of files an agent left behind.
 const SAVE_GIT_OPTS = { timeout: 120_000, maxBuffer: 64 * 1024 * 1024 };
 
+// Beyond this a patch is unreadable in the card's detail panel.
+const MAX_PATCH_BYTES = 1024 * 1024;
+
 /**
  * Emit a structured pipeline log event to stderr.
  * Avoids importing pipelineManager (circular dependency risk).
@@ -117,9 +120,10 @@ function shortRunId(runId) {
  *   path:   <workingDirectory>/<PIPELINE_WORKTREE_DIR>/run-<short>
  *   branch: pipeline/run-<short>   (branched off current HEAD of workingDirectory)
  *
+ * baseBranch is null when the parent HEAD is detached.
+ *
  * Throws WorktreeError with code:
  *   NOT_A_GIT_REPO   — workingDirectory is not a git repo
- *   DETACHED_HEAD    — parent HEAD is detached (no branch to reference)
  *   WORKTREE_EXISTS  — target path already exists
  *   GIT_ERROR        — any other git failure
  *
@@ -127,7 +131,7 @@ function shortRunId(runId) {
  *
  * @param {string} workingDirectory - Absolute path to the git repository root.
  * @param {string} runId            - Pipeline run UUID.
- * @returns {Promise<{ path: string, branch: string, baseBranch: string, baseRef: string }>}
+ * @returns {Promise<{ path: string, branch: string, baseBranch: string|null, baseRef: string }>}
  */
 async function provision(workingDirectory, runId) {
   const t0    = Date.now();
@@ -161,8 +165,8 @@ async function provision(workingDirectory, runId) {
     );
   }
 
-  // --- Resolve current branch (detect detached HEAD) ---
-  let baseBranch;
+  // --- Resolve current branch (null when HEAD is detached) ---
+  let baseBranch = null;
   try {
     const { stdout } = await execFileAsync(
       'git', ['-C', workingDirectory, 'symbolic-ref', '--short', 'HEAD'],
@@ -170,11 +174,8 @@ async function provision(workingDirectory, runId) {
     );
     baseBranch = stdout.trim();
   } catch {
-    // symbolic-ref exits non-zero when HEAD is detached.
-    throw new WorktreeError(
-      `HEAD in '${workingDirectory}' is detached. Worktree provisioning requires a named branch.`,
-      'DETACHED_HEAD'
-    );
+    // symbolic-ref exits non-zero when HEAD is detached. The run branch can still
+    // start from that commit, and the run must not fall back to the user's checkout.
   }
 
   // --- Determine worktree path ---
@@ -189,6 +190,8 @@ async function provision(workingDirectory, runId) {
     );
   }
 
+  await excludeWorktreeDir(workingDirectory);
+
   // --- Create the worktree ---
   // git worktree add <path> -b <branch> <baseRef>
   // argv-based — no shell interpolation.
@@ -198,6 +201,27 @@ async function provision(workingDirectory, runId) {
   pipelineLog('worktree.created', { runId, path: worktreePath, branch, baseRef, baseBranch, durationMs });
 
   return { path: worktreePath, branch, baseBranch, baseRef };
+}
+
+/**
+ * Keep the worktrees directory out of the user's `git status` through the repo's
+ * local exclude file, so nothing in their history changes. Best-effort.
+ *
+ * @param {string} workingDirectory
+ */
+async function excludeWorktreeDir(workingDirectory) {
+  const pattern = `${worktreeSubdir().replace(/\/+$/, '')}/`;
+  try {
+    const { stdout } = await runGit(workingDirectory, ['rev-parse', '--git-common-dir']);
+    const excludeFile = path.join(path.resolve(workingDirectory, stdout.trim()), 'info', 'exclude');
+    const current = fs.existsSync(excludeFile) ? fs.readFileSync(excludeFile, 'utf8') : '';
+    if (current.split('\n').includes(pattern)) return;
+    fs.mkdirSync(path.dirname(excludeFile), { recursive: true });
+    const separator = current === '' || current.endsWith('\n') ? '' : '\n';
+    fs.appendFileSync(excludeFile, `${separator}${pattern}\n`);
+  } catch (err) {
+    pipelineLog('worktree.error', { op: 'exclude', message: err.message });
+  }
 }
 
 /**
@@ -317,17 +341,18 @@ async function branchHasWork(workingDirectory, { branch, baseRef }) {
  * @param {boolean} [opts.deleteBranch=false]  - Delete the branch after removing the worktree.
  * @param {string}  [opts.reason='unknown']    - Reason for removal (for observability).
  * @param {string}  [opts.runId]               - Run ID (for observability).
+ * @returns {Promise<{ keptError?: string }>} keptError says why the worktree stayed on disk.
  */
 async function teardown(worktreeMeta, opts = {}) {
   // Null/undefined guard — callers may pass run.worktree which is absent for solo runs.
-  if (!worktreeMeta) return;
+  if (!worktreeMeta) return {};
 
   const { path: worktreePath, branch } = worktreeMeta;
   const reason   = opts.reason   || 'unknown';
   const runId    = opts.runId    || undefined;
   const deleteBranch = opts.deleteBranch || false;
 
-  if (!worktreePath) return; // Malformed meta — no-op.
+  if (!worktreePath) return {}; // Malformed meta — no-op.
 
   // Derive the workingDirectory from the worktreePath.
   // Structure: <workingDirectory>/<PIPELINE_WORKTREE_DIR>/run-<short>
@@ -341,7 +366,7 @@ async function teardown(worktreeMeta, opts = {}) {
       await saveWork(worktreeMeta, { reason, runId });
     } catch (err) {
       pipelineLog('worktree.error', { runId, op: 'save_work', code: err.code, message: err.message, kept: worktreePath });
-      return;
+      return { keptError: err.message };
     }
 
     try {
@@ -374,6 +399,7 @@ async function teardown(worktreeMeta, opts = {}) {
       pipelineLog('worktree.error', { runId, op: 'branch_delete', code: err.code, message: err.message });
     }
   }
+  return {};
 }
 
 /**
@@ -481,6 +507,9 @@ async function reapOrphans(dataDir, workingDirectories, store) {
 
   const TERMINAL_STATUSES = new Set(['completed', 'failed', 'interrupted', 'aborted']);
 
+  // A direct run keeps its worktree after it ends, until its task is closed.
+  const statusForReap = (run) => (run.direct && !run.closedAt ? 'open' : run.status);
+
   /**
    * Build a map of runId → status.
    * Uses SQLite when a store is provided; falls back to reading run.json files.
@@ -493,7 +522,7 @@ async function reapOrphans(dataDir, workingDirectories, store) {
       try {
         const allRuns = store.listRuns();
         for (const run of allRuns) {
-          if (run && run.runId) map.set(run.runId, run.status);
+          if (run && run.runId) map.set(run.runId, statusForReap(run));
         }
       } catch { /* ignore — best-effort */ }
       return map;
@@ -508,7 +537,7 @@ async function reapOrphans(dataDir, workingDirectories, store) {
       if (!fs.existsSync(runJsonFile)) continue;
       try {
         const run = JSON.parse(fs.readFileSync(runJsonFile, 'utf8'));
-        if (run && run.runId) map.set(run.runId, run.status);
+        if (run && run.runId) map.set(run.runId, statusForReap(run));
       } catch { /* skip corrupt files */ }
     }
     return map;
@@ -584,6 +613,71 @@ async function reapOrphans(dataDir, workingDirectories, store) {
   }
 }
 
+/**
+ * Parse `git diff --numstat -z`. A rename is `<add>\t<del>\t\0<old>\0<new>\0`; anything
+ * else is `<add>\t<del>\t<path>\0`. Binary files report `-` for both counts.
+ *
+ * @param {string} raw
+ * @returns {Array<{ path: string, oldPath?: string, additions: number, deletions: number, binary: boolean }>}
+ */
+function parseNumstat(raw) {
+  const parts = raw.split('\0');
+  const files = [];
+  for (let i = 0; i < parts.length; i++) {
+    const match = /^(-|\d+)\t(-|\d+)\t(.*)$/s.exec(parts[i]);
+    if (!match) continue;
+    const [, add, del, name] = match;
+    const binary = add === '-';
+    const file = { path: name, additions: binary ? 0 : Number(add), deletions: binary ? 0 : Number(del), binary };
+    if (name === '') {
+      file.oldPath = parts[++i];
+      file.path    = parts[++i];
+    }
+    files.push(file);
+  }
+  return files;
+}
+
+/**
+ * List what a branch changed since it was created. Reads refs only, so it works
+ * after the worktree is gone.
+ *
+ * @param {string} workingDirectory
+ * @param {{ baseRef: string, ref: string }} range
+ * @returns {Promise<Array<{ path: string, oldPath?: string, additions: number, deletions: number, binary: boolean }>>}
+ */
+async function listChangedFiles(workingDirectory, { baseRef, ref }) {
+  const { stdout } = await runGit(
+    workingDirectory,
+    ['diff', '--numstat', '-z', '-M', baseRef, ref],
+    SAVE_GIT_OPTS,
+  );
+  return parseNumstat(stdout);
+}
+
+/**
+ * The patch of one changed file. Returns null when the branch did not change it,
+ * so the path cannot be used to read anything else from the repository.
+ *
+ * @param {string} workingDirectory
+ * @param {{ baseRef: string, ref: string }} range
+ * @param {string} filePath
+ * @returns {Promise<{ patch: string, truncated: boolean }|null>}
+ */
+async function readFileDiff(workingDirectory, { baseRef, ref }, filePath) {
+  const files = await listChangedFiles(workingDirectory, { baseRef, ref });
+  const file  = files.find((f) => f.path === filePath);
+  if (!file) return null;
+
+  const { stdout } = await runGit(
+    workingDirectory,
+    ['diff', '-M', baseRef, ref, '--', ...(file.oldPath ? [file.oldPath] : []), file.path],
+    SAVE_GIT_OPTS,
+  );
+  const truncated = Buffer.byteLength(stdout) > MAX_PATCH_BYTES;
+  return { patch: truncated ? Buffer.from(stdout).subarray(0, MAX_PATCH_BYTES).toString('utf8') : stdout, truncated };
+}
+
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
@@ -595,4 +689,6 @@ module.exports = {
   teardown,
   restore,
   reapOrphans,
+  listChangedFiles,
+  readFileDiff,
 };

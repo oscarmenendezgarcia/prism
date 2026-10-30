@@ -332,17 +332,13 @@ describe('worktreeManager.provision() — error paths', () => {
     }
   });
 
-  test('DETACHED_HEAD: detached HEAD throws WorktreeError', async () => {
+  test('detached HEAD: provisions from that commit, with no base branch', async () => {
     const repo = makeTempRepo({ detached: true });
     try {
-      await assert.rejects(
-        () => provision(repo, crypto.randomUUID()),
-        (err) => {
-          assert.ok(err instanceof WorktreeError);
-          assert.equal(err.code, 'DETACHED_HEAD');
-          return true;
-        }
-      );
+      const meta = await provision(repo, crypto.randomUUID());
+      assert.equal(meta.baseBranch, null);
+      assert.ok(fs.existsSync(meta.path));
+      assert.equal(execSync(`git -C "${meta.path}" rev-parse HEAD`, { encoding: 'utf8' }).trim(), meta.baseRef);
     } finally {
       rmrf(repo);
     }

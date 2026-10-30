@@ -154,6 +154,8 @@ function rowToSpace(row) {
   // MODEL-1: per-stage model routing overrides.
   const sm = fromJson(row.stage_models);
   if (sm !== undefined) space.stageModels = sm;
+  const hooks = fromJson(row.hooks);
+  if (hooks !== undefined) space.hooks = hooks;
   return space;
 }
 
@@ -269,6 +271,15 @@ function createStore(dataDir) {
     }
   }
 
+  // Additive migration: hooks column on spaces (commands to run when an agent finishes).
+  {
+    const cols = db.pragma('table_info(spaces)');
+    if (!cols.some((c) => c.name === 'hooks')) {
+      db.exec('ALTER TABLE spaces ADD COLUMN hooks TEXT');
+      console.log('[store] migration: added hooks column to spaces');
+    }
+  }
+
   // Additive migration: stage_models column on tasks (MODEL-1 per-stage model routing).
   {
     const cols = db.pragma('table_info(tasks)');
@@ -342,9 +353,9 @@ function createStore(dataDir) {
     getSpace:      db.prepare('SELECT * FROM spaces WHERE id = ?'),
     upsertSpace:   db.prepare(`
       INSERT INTO spaces
-        (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, folio_backend, stage_models, pinned, pinned_rank, created_at, updated_at)
+        (id, name, working_directory, pipeline, project_claude_md, agent_nicknames, folio_backend, stage_models, hooks, pinned, pinned_rank, created_at, updated_at)
       VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name              = excluded.name,
         working_directory = excluded.working_directory,
@@ -353,6 +364,7 @@ function createStore(dataDir) {
         agent_nicknames   = excluded.agent_nicknames,
         folio_backend     = excluded.folio_backend,
         stage_models      = excluded.stage_models,
+        hooks             = excluded.hooks,
         pinned            = excluded.pinned,
         pinned_rank       = excluded.pinned_rank,
         updated_at        = excluded.updated_at
@@ -445,6 +457,7 @@ function createStore(dataDir) {
     listRunsLimitOffset: db.prepare(
       'SELECT * FROM pipeline_runs ORDER BY updated_at DESC LIMIT ? OFFSET ?'
     ),
+    listRunsBySpace: db.prepare('SELECT * FROM pipeline_runs WHERE space_id = ? ORDER BY created_at DESC'),
     listActiveRuns: db.prepare(`
       SELECT * FROM pipeline_runs
        WHERE status IN ('pending', 'running', 'blocked', 'paused')
@@ -490,6 +503,7 @@ function createStore(dataDir) {
       space.folioBackend !== undefined ? space.folioBackend : null,
       // MODEL-1: stage_models is a JSON column.
       toJson(space.stageModels ?? null),
+      toJson(space.hooks ?? null),
       // pinned: boolean → INTEGER (1/0); default false when absent.
       space.pinned ? 1 : 0,
       // pinned_rank: number or null.
@@ -1014,6 +1028,14 @@ function createStore(dataDir) {
    * Return runs whose status is active (pending/running/blocked/paused).
    * @returns {object[]}
    */
+  function listRunsBySpace(spaceId) {
+    return stmts.listRunsBySpace.all(spaceId).map(rowToRun).filter(notFolioSurface);
+  }
+
+  /**
+   * Return runs whose status is active (pending/running/blocked/paused).
+   * @returns {object[]}
+   */
   function listActiveRuns() {
     return stmts.listActiveRuns.all().map(rowToRun).filter(notFolioSurface);
   }
@@ -1092,6 +1114,7 @@ function createStore(dataDir) {
     getRun,
     upsertRun,
     listRuns,
+    listRunsBySpace,
     listActiveRuns,
     findActiveRunByTaskId,
     deleteRun: deleteRun,

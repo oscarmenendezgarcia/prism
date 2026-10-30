@@ -103,10 +103,23 @@ const {
   handleBlockRun,
   handleUnblockRun,
 } = require('../handlers/pipeline');
+const {
+  handleStartTaskRun,
+  handleListTaskRuns,
+  handleRequestChanges,
+  handleCloseTaskRun,
+  handleGetRunDiff,
+  handleUpdateHooks,
+} = require('../handlers/taskRuns');
 
 // ---------------------------------------------------------------------------
 // Route patterns
 // ---------------------------------------------------------------------------
+
+const TASK_RUN_ACTION_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/(run|request-changes|close)$/;
+const SPACE_TASK_RUNS_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/task-runs$/;
+const SPACE_HOOKS_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/hooks$/;
+const RUN_DIFF_ROUTE        = /^\/api\/v1\/runs\/([^/]+)\/diff$/;
 
 const COMMENTS_LIST_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments$/;
 const COMMENTS_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments\/([^/]+)$/;
@@ -471,6 +484,48 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         `Method '${method}' is not allowed on this route`);
     }
 
+    // -------------------------------------------------------------------------
+    // Direct task runs — BEFORE SPACES_TASKS_ROUTE to avoid regex swallowing.
+    // -------------------------------------------------------------------------
+    const taskRunActionMatch = TASK_RUN_ACTION_ROUTE.exec(urlPath);
+    if (taskRunActionMatch) {
+      const [, spaceId, taskId, action] = taskRunActionMatch;
+      const spaceResult = spaceManager.getSpace(spaceId);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+      if (method !== 'POST') {
+        return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+      }
+      if (action === 'run') {
+        return handleStartTaskRun(req, res, store, spaceId, taskId, spaceResult.space.workingDirectory, dataDir);
+      }
+      if (action === 'request-changes') {
+        return handleRequestChanges(req, res, store, spaceId, taskId, dataDir);
+      }
+      return handleCloseTaskRun(res, spaceId, taskId, dataDir);
+    }
+
+    const spaceTaskRunsMatch = SPACE_TASK_RUNS_ROUTE.exec(urlPath);
+    if (spaceTaskRunsMatch) {
+      const spaceResult = spaceManager.getSpace(spaceTaskRunsMatch[1]);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+      if (method === 'GET') return handleListTaskRuns(res, spaceTaskRunsMatch[1]);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const spaceHooksMatch = SPACE_HOOKS_ROUTE.exec(urlPath);
+    if (spaceHooksMatch) {
+      const spaceResult = spaceManager.getSpace(spaceHooksMatch[1]);
+      if (!spaceResult.ok) {
+        return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      }
+      if (method === 'PUT') return handleUpdateHooks(req, res, store, spaceHooksMatch[1]);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
     const commentsListMatch = COMMENTS_LIST_ROUTE.exec(urlPath);
     if (commentsListMatch) {
       const spaceId = commentsListMatch[1];
@@ -730,6 +785,12 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     // -------------------------------------------------------------------------
     if (PIPELINE_RUNS_PREVIEW_ROUTE.test(urlPath)) {
       if (method === 'POST') return handlePreviewPrompts(req, res, dataDir, spaceManager);
+      return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+    }
+
+    const runDiffMatch = RUN_DIFF_ROUTE.exec(urlPath);
+    if (runDiffMatch) {
+      if (method === 'GET') return handleGetRunDiff(req, res, runDiffMatch[1], dataDir);
       return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
     }
 

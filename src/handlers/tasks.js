@@ -14,6 +14,7 @@ const path = require('path');
 const { COLUMNS }                          = require('../constants');
 const { sendJSON, sendError, parseBody }   = require('../utils/http');
 const { validateStageModelConfig }         = require('../services/modelConfigResolver');
+const pipelineManager                      = require('../services/pipelineManager');
 
 // ---------------------------------------------------------------------------
 // Validation constraints
@@ -525,6 +526,13 @@ function createApp(spaceId, store) {
         return sendJSON(res, 200, { task, from: sourceColumn, to });
       }
 
+      // Prism closes the card when the agent and the hooks are done, so neither
+      // the agent nor anyone else can skip them by moving the card.
+      if (to !== 'in-progress' && pipelineManager.hasActiveDirectRun(null, taskId)) {
+        return sendError(res, 409, 'TASK_RUN_ACTIVE',
+          'An agent is running this task. Stop it before moving the card.');
+      }
+
       // Atomic single-UPDATE move.
       const updatedTask = store.moveTask(spaceId, taskId, to);
       if (!updatedTask) {
@@ -826,10 +834,15 @@ function createApp(spaceId, store) {
 
   function handleDeleteTask(req, res, taskId) {
     try {
+      if (pipelineManager.hasActiveDirectRun(null, taskId)) {
+        return sendError(res, 409, 'TASK_RUN_ACTIVE',
+          'An agent is running this task. Stop it before deleting the card.');
+      }
       const deleted = store.deleteTask(spaceId, taskId);
       if (!deleted) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
       }
+      pipelineManager.closeTaskDirectRuns(spaceId, taskId, null).catch(() => {});
       sendJSON(res, 200, { deleted: true, id: taskId });
     } catch (err) {
       console.error(`DELETE tasks/${taskId} error:`, err);
