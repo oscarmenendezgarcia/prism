@@ -15,6 +15,10 @@ const path   = require('path');
 
 const { startServer } = require('../server');
 const { createStore } = require('../src/services/store');
+const { createLoginLimiter } = require('../src/handlers/auth');
+const { loadOrCreateSetupCode } = require('../src/utils/setupCode');
+
+let sessionCookie;
 
 const PASSWORD = 'correct horse battery';
 
@@ -62,14 +66,36 @@ async function serve(options) {
 
 const ADMIN = { name: 'Ana López', email: 'Ana@Example.com', password: PASSWORD };
 
+const setupCodeOf = (s) => fs.readFileSync(path.join(s.dataDir, 'setup-code'), 'utf8').trim();
+
+/** Make the first account, with the code of that server. */
+const setUp = (s, body = ADMIN) => s.call('POST', '/api/v1/auth/setup', { body: { ...body, setupCode: setupCodeOf(s) } });
+
 describe('first run', () => {
-  let s;
-  before(async () => { s = await serve(); });
+  let s, code;
+  before(async () => {
+    s = await serve();
+    code = setupCodeOf(s);
+  });
   after(() => s.close());
 
-  test('says it needs an admin, and asks no code on loopback', async () => {
+  test('says it needs an admin', async () => {
     const { json } = await s.call('GET', '/api/v1/auth/status');
-    assert.deepEqual(json, { needsSetup: true, setupCodeRequired: false, user: null });
+    assert.deepEqual(json, { needsSetup: true, user: null });
+  });
+
+  test('keeps the code private, and across restarts', () => {
+    const file = path.join(s.dataDir, 'setup-code');
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assert.equal(loadOrCreateSetupCode(s.dataDir), code);
+  });
+
+  test('refuses without the code, whatever the request looks like', async () => {
+    for (const headers of [{}, { Host: `localhost:${s.port}` }, { 'X-Forwarded-For': '127.0.0.1' }]) {
+      assert.equal((await s.call('POST', '/api/v1/auth/setup', { body: ADMIN, headers })).status, 403);
+    }
+    assert.equal((await s.call('POST', '/api/v1/auth/setup', { body: { ...ADMIN, setupCode: 'wrong' } })).status, 403);
+    assert.equal((await s.call('POST', '/api/v1/auth/setup', { body: { ...ADMIN, setupCode: { a: 1 } } })).status, 403);
   });
 
   test('refuses a weak or incomplete account', async () => {
@@ -77,72 +103,97 @@ describe('first run', () => {
       { ...ADMIN, password: 'short' },
       { ...ADMIN, password: 'x'.repeat(201) },
       { ...ADMIN, email: 'nope' },
+      { ...ADMIN, email: 7 },
       { ...ADMIN, name: '  ' },
       { ...ADMIN, name: 'x'.repeat(51) },
       { ...ADMIN, password: 1234567890123 },
     ]) {
-      assert.equal((await s.call('POST', '/api/v1/auth/setup', { body })).status, 400, JSON.stringify(body));
+      assert.equal((await s.call('POST', '/api/v1/auth/setup', { body: { ...body, setupCode: code } })).status, 400, JSON.stringify(body));
     }
   });
 
-  test('makes the admin and signs them in', async () => {
-    const res = await s.call('POST', '/api/v1/auth/setup', { body: ADMIN });
+  test('makes the admin, signs them in, and the code is gone', async () => {
+    const res = await s.call('POST', '/api/v1/auth/setup', { body: { ...ADMIN, setupCode: code } });
     assert.equal(res.status, 201);
     assert.equal(res.json.user.role, 'admin');
     assert.equal(res.json.user.email, 'ana@example.com');
     assert.equal(res.json.user.password_hash, undefined);
     assert.match(res.raw, /HttpOnly/);
     assert.match(res.raw, /SameSite=Lax/);
+    assert.doesNotMatch(res.raw, /Secure/);
     const status = await s.call('GET', '/api/v1/auth/status', { cookie: res.cookie });
     assert.equal(status.json.needsSetup, false);
     assert.equal(status.json.user.name, 'Ana López');
+    assert.ok(!fs.existsSync(path.join(s.dataDir, 'setup-code')));
+    sessionCookie = res.cookie;
   });
 
   test('cannot happen twice', async () => {
-    const res = await s.call('POST', '/api/v1/auth/setup', { body: { ...ADMIN, email: 'eve@example.com' } });
+    const res = await s.call('POST', '/api/v1/auth/setup', { body: { ...ADMIN, email: 'eve@example.com', setupCode: code } });
     assert.equal(res.status, 409);
   });
 
   test('two at once make one admin', async () => {
     const other = await serve();
     try {
-      const results = await Promise.all(['a', 'b', 'c'].map((n) => other.call('POST', '/api/v1/auth/setup', { body: { ...ADMIN, email: `${n}@example.com` } })));
+      const setupCode = setupCodeOf(other);
+      const results = await Promise.all(['a', 'b', 'c'].map((n) => other.call('POST', '/api/v1/auth/setup', { body: { ...ADMIN, email: `${n}@example.com`, setupCode } })));
       assert.deepEqual(results.map((r) => r.status).sort(), [201, 409, 409]);
     } finally {
       await other.close();
     }
   });
 
-  test('stores no password or session in the clear', () => {
-    const db = new (require('better-sqlite3'))(path.join(s.dataDir, 'prism.db'), { readonly: true });
+  test('stores no password or session in the clear, and only its owner can read it', () => {
+    const file = path.join(s.dataDir, 'prism.db');
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    const db = new (require('better-sqlite3'))(file, { readonly: true });
     const dump = JSON.stringify(db.prepare('SELECT * FROM users').all()) + JSON.stringify(db.prepare('SELECT * FROM sessions').all());
     db.close();
     assert.ok(!dump.includes(PASSWORD));
     assert.match(dump, /scrypt\$/);
+    const token = sessionCookie.split('=')[1];
+    assert.ok(token.length > 30);
+    assert.ok(!dump.includes(token));
+  });
+
+  test('marks the cookie Secure behind HTTPS', async () => {
+    const res = await s.call('POST', '/api/v1/auth/login', { body: { email: ADMIN.email, password: PASSWORD }, headers: { 'X-Forwarded-Proto': 'https,http' } });
+    assert.match(res.raw, /; Secure/);
   });
 });
 
-describe('a server others can reach', () => {
-  test('asks the code in its log for the first account', async () => {
+describe('the server log', () => {
+  test('gives a link with the code', async () => {
     const logged = [];
     const log = console.log;
     console.log = (line) => logged.push(String(line));
     let s;
     try {
-      s = await serve({ host: '0.0.0.0' });
+      s = await serve({ silent: false });
+      await new Promise((r) => setImmediate(r));
     } finally {
       console.log = log;
     }
     try {
-      const code = logged.join('\n').match(/Setup code for the first account: (\w+)/)?.[1];
-      assert.ok(code, 'the code is in the log');
-      assert.equal((await s.call('GET', '/api/v1/auth/status')).json.setupCodeRequired, true);
-      assert.equal((await s.call('POST', '/api/v1/auth/setup', { body: ADMIN })).status, 403);
-      assert.equal((await s.call('POST', '/api/v1/auth/setup', { body: { ...ADMIN, setupCode: 'wrong' } })).status, 403);
-      assert.equal((await s.call('POST', '/api/v1/auth/setup', { body: { ...ADMIN, setupCode: code } })).status, 201);
+      assert.ok(logged.join('\n').includes(`http://localhost:${s.port}/?setup=${setupCodeOf(s)}`));
     } finally {
       await s.close();
     }
+  });
+
+  test('says nothing of it once there is an admin', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-accounts-'));
+    const store = createStore(dataDir);
+    await store.accounts.createFirstAdmin({ email: 'a@b.c', name: 'A', password: PASSWORD });
+    store.close();
+    const server = startServer({ port: 0, dataDir, silent: true });
+    await new Promise((resolve) => server.once('listening', resolve));
+    assert.ok(!fs.existsSync(path.join(dataDir, 'setup-code')));
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+    server._store.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
   });
 });
 
@@ -191,7 +242,7 @@ describe('signing in and out', () => {
   let s;
   before(async () => {
     s = await serve();
-    await s.call('POST', '/api/v1/auth/setup', { body: ADMIN });
+    await setUp(s);
   });
   after(() => s.close());
 
@@ -247,6 +298,68 @@ describe('signing in and out', () => {
     // Another email is not affected.
     assert.equal((await s.call('POST', '/api/v1/auth/login', { body: { email: 'nobody@example.com', password: 'x' } })).status, 401);
   });
+
+  test('a burst at once is limited too', async () => {
+    const results = await Promise.all(Array.from({ length: 40 }, () =>
+      s.call('POST', '/api/v1/auth/login', { body: { email: 'burst@example.com', password: 'wrong wrong wrong' } })));
+    const statuses = results.map((r) => r.status);
+    assert.ok(statuses.filter((x) => x === 401).length <= 10, statuses.join());
+    assert.ok(statuses.includes(429));
+  });
+
+  test('a huge email or password costs nothing, and stays out of memory', async () => {
+    const big = 'a'.repeat(400 * 1024);
+    assert.equal((await s.call('POST', '/api/v1/auth/login', { body: { email: `${big}@example.com`, password: 'x' } })).status, 401);
+    assert.equal((await s.call('POST', '/api/v1/auth/login', { body: { email: 'long@example.com', password: big } })).status, 401);
+  });
+});
+
+describe('the sign-in limiter', () => {
+  test('stops an email attacked from many addresses', () => {
+    const limiter = createLoginLimiter();
+    for (let i = 0; i < 50; i++) assert.equal(limiter.attempt(`10.0.0.${i}`, 'a@b.c'), true);
+    assert.equal(limiter.attempt('10.0.1.1', 'a@b.c'), false);
+  });
+
+  test('a success clears that address, and only its own attempt from the email', () => {
+    const limiter = createLoginLimiter();
+    for (let i = 0; i < 10; i++) limiter.attempt('1.1.1.1', 'a@b.c');
+    assert.equal(limiter.attempt('1.1.1.1', 'a@b.c'), false);
+    limiter.attempt('2.2.2.2', 'a@b.c');
+    limiter.succeeded('2.2.2.2', 'a@b.c');
+    assert.equal(limiter.attempt('1.1.1.1', 'a@b.c'), false);
+  });
+
+  test('a flood of other emails does not forget a target, or grow without end', () => {
+    const limiter = createLoginLimiter({ maxEntries: 100 });
+    for (let i = 0; i < 10; i++) limiter.attempt('1.1.1.1', 'target@b.c');
+    for (let i = 0; i < 40; i++) limiter.attempt('3.3.3.3', `other${i}@b.c`);
+    assert.equal(limiter.attempt('1.1.1.1', 'target@b.c'), false);
+    for (let i = 0; i < 1000; i++) limiter.attempt('3.3.3.3', `more${i}@b.c`);
+    assert.ok(limiter.size <= 100);
+  });
+});
+
+describe('a reset while someone signs in', () => {
+  test('the old password does not get a session that outlives it', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-race-'));
+    const store = createStore(dir);
+    try {
+      const user = await store.accounts.createFirstAdmin({ email: 'a@b.c', name: 'A', password: PASSWORD });
+      for (let round = 0; round < 3; round++) {
+        const logins = Array.from({ length: 6 }, () => store.accounts.signIn('a@b.c', PASSWORD).catch(() => null));
+        const { token } = store.accounts.createResetLink({ userId: user.id, createdBy: 'test' });
+        await store.accounts.useLink(token, { password: PASSWORD });
+        const results = await Promise.all(logins);
+        // Whatever got in before the reset ended with it, and the rest got nothing.
+        const open = results.filter(Boolean).filter((r) => store.accounts.sessionFor(r.token));
+        assert.equal(open.length, 0);
+      }
+    } finally {
+      store.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('sessions over time', () => {
@@ -257,17 +370,17 @@ describe('sessions over time', () => {
       const user = await store.accounts.createFirstAdmin({ email: 'a@b.c', name: 'A', password: PASSWORD });
       const { token, expiresAt } = store.accounts.createSession(user.id);
       assert.ok(Date.parse(expiresAt) > Date.now() + 29 * 24 * 3600 * 1000);
-      assert.equal(store.accounts.userForSession(token).id, user.id);
+      assert.deepEqual(store.accounts.sessionFor(token), { user: { ...user, lastSeenAt: store.accounts.getUser(user.id).lastSeenAt }, renewed: false });
 
       const db = new (require('better-sqlite3'))(path.join(dir, 'prism.db'));
       const hours = (n) => new Date(Date.now() + n * 3600 * 1000).toISOString();
       db.prepare('UPDATE sessions SET used_at = ?, expires_at = ?').run(hours(-2), hours(1));
-      assert.equal(store.accounts.userForSession(token).id, user.id);
+      assert.equal(store.accounts.sessionFor(token).renewed, true);
       const renewed = db.prepare('SELECT expires_at FROM sessions').get().expires_at;
       assert.ok(Date.parse(renewed) > Date.now() + 29 * 24 * 3600 * 1000);
 
       db.prepare('UPDATE sessions SET expires_at = ?').run(hours(-1));
-      assert.equal(store.accounts.userForSession(token), null);
+      assert.equal(store.accounts.sessionFor(token), null);
       assert.equal(db.prepare('SELECT COUNT(*) AS n FROM sessions').get().n, 0);
       db.close();
     } finally {
@@ -277,11 +390,30 @@ describe('sessions over time', () => {
   });
 });
 
+describe('a session in use', () => {
+  test('sends the browser a new cookie, or it would drop it after 30 days', async () => {
+    const s = await serve();
+    try {
+      const { cookie } = await setUp(s);
+      const db = new (require('better-sqlite3'))(path.join(s.dataDir, 'prism.db'));
+      db.prepare('UPDATE sessions SET used_at = ?').run(new Date(Date.now() - 2 * 3600 * 1000).toISOString());
+      db.close();
+      const res = await s.call('GET', '/api/v1/spaces', { cookie });
+      assert.equal(res.status, 200);
+      assert.equal(res.cookie, cookie);
+      assert.match(res.raw, /Max-Age=2592000/);
+      assert.equal((await s.call('GET', '/api/v1/spaces', { cookie })).raw, undefined);
+    } finally {
+      await s.close();
+    }
+  });
+});
+
 describe('invitations', () => {
   let s, admin, member;
   before(async () => {
     s = await serve();
-    admin = (await s.call('POST', '/api/v1/auth/setup', { body: ADMIN })).cookie;
+    admin = (await setUp(s)).cookie;
   });
   after(() => s.close());
 
@@ -364,7 +496,7 @@ describe('reset links', () => {
   let s, admin, userId;
   before(async () => {
     s = await serve();
-    const res = await s.call('POST', '/api/v1/auth/setup', { body: ADMIN });
+    const res = await setUp(s);
     admin = res.cookie;
     userId = res.json.user.id;
   });
@@ -375,6 +507,7 @@ describe('reset links', () => {
     assert.equal(created.status, 201);
     const token = created.json.path.split('/').pop();
     assert.equal((await s.call('GET', `/api/v1/auth/links/${token}`)).json.kind, 'reset');
+    assert.equal((await s.call('POST', `/api/v1/auth/links/${token}`, { body: { password: 'short', name: 7 } })).status, 400);
 
     const NEW = 'a brand new password';
     const used = await s.call('POST', `/api/v1/auth/links/${token}`, { body: { password: NEW } });
@@ -402,7 +535,7 @@ describe('prism reset-password', () => {
   test('prints a link that works, and only the link', async () => {
     const s = await serve();
     try {
-      await s.call('POST', '/api/v1/auth/setup', { body: ADMIN });
+      await setUp(s);
       const out = run('ana@example.com', '--data-dir', s.dataDir);
       assert.ok(!out.includes('[store]'));
       const token = out.match(/\/reset\/([\w-]+)/)[1];
@@ -441,10 +574,20 @@ describe('upgrading a database', () => {
       assert.equal(store.listSpaces().every((sp) => sp.name === 'Kept'), true);
       assert.equal(store.accounts.hasUsers(), false);
       store.close();
+      assert.equal(fs.statSync(path.join(dir, 'prism.db.before-v4')).mode & 0o777, 0o600);
       assert.ok(fs.existsSync(path.join(dir, 'prism.db.before-v4')));
       const after = new (require('better-sqlite3'))(path.join(dir, 'prism.db'), { readonly: true });
       assert.equal(after.pragma('user_version', { simple: true }), 4);
       after.close();
+
+      // A database from a newer version keeps its number, so that going back to it still works.
+      const newer = new (require('better-sqlite3'))(path.join(dir, 'prism.db'));
+      newer.pragma('user_version = 9');
+      newer.close();
+      createStore(dir).close();
+      const again = new (require('better-sqlite3'))(path.join(dir, 'prism.db'), { readonly: true });
+      assert.equal(again.pragma('user_version', { simple: true }), 9);
+      again.close();
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

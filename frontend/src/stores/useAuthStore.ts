@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 import type { AuthStatus, User } from '@/types';
 import * as api from '@/api/client';
+import { reloadPage } from '@/utils/reloadPage';
 
 interface AuthState {
   /** Null until the server has answered. */
@@ -30,11 +31,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  signedIn: (user) => set({ status: { needsSetup: false, setupCodeRequired: false, user } }),
+  signedIn: (user) => set({ status: { needsSetup: false, user } }),
 
   signedOut: () => {
     const { status } = get();
-    if (status?.user) set({ status: { ...status, user: null } });
+    if (!status?.user) return;
+    set({ status: { ...status, user: null } });
+    // Nothing of this person stays in memory for whoever signs in next. The address stays.
+    reloadPage();
   },
 
   signOut: async () => {

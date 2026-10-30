@@ -23,6 +23,10 @@ const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 /** Failures from one address for one email, and for one email from anywhere. */
 const LOGIN_LIMIT_PER_ADDRESS = 10;
 const LOGIN_LIMIT_PER_EMAIL = 50;
+/** More than attackers can reach in a window at the rate logins are allowed to run. */
+const LOGIN_MAX_ENTRIES = 200000;
+/** Checking a password is slow on purpose, so only so many run at once. */
+const LOGIN_MAX_RUNNING = 16;
 
 const PUBLIC_ROUTES = [
   /^GET \/api\/v1\/auth\/status$/,
@@ -50,7 +54,8 @@ function sessionToken(req) {
 }
 
 function setSessionCookie(req, res, token) {
-  const secure = req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+  const proto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim();
+  const secure = req.socket.encrypted || proto === 'https' ? '; Secure' : '';
   // Lax rather than Strict, or arriving from a link in another app would look signed out.
   // Cross-site writes are stopped by the Origin check.
   res.setHeader('Set-Cookie', `${cookieName(req)}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${COOKIE_MAX_AGE}${secure}`);
@@ -82,40 +87,51 @@ function sameSecret(a, b) {
   return crypto.timingSafeEqual(hash(a), hash(b));
 }
 
-/** Failed sign-ins, kept in memory: a restart forgets them, and that is fine. */
-function createLoginLimiter() {
-  const failures = new Map();
+/**
+ * Failed sign-ins, kept in memory: a restart forgets them, and that is fine. An attempt counts
+ * from when it starts, or a burst would all get through before the first one failed.
+ */
+function createLoginLimiter({ maxEntries = LOGIN_MAX_ENTRIES } = {}) {
+  const attempts = new Map();
 
   function count(key) {
-    const entry = failures.get(key);
+    const entry = attempts.get(key);
     if (!entry) return 0;
     if (entry.resetAt <= Date.now()) {
-      failures.delete(key);
+      attempts.delete(key);
       return 0;
     }
     return entry.count;
   }
 
   function bump(key) {
-    const entry = failures.get(key);
-    if (entry && entry.resetAt > Date.now()) entry.count += 1;
-    else failures.set(key, { count: 1, resetAt: Date.now() + LOGIN_WINDOW_MS });
+    if (count(key) > 0) {
+      attempts.get(key).count += 1;
+      return;
+    }
+    attempts.set(key, { count: 1, resetAt: Date.now() + LOGIN_WINDOW_MS });
+    // The oldest go first: a flood of new emails must not wipe the counts of a real target.
+    if (attempts.size > maxEntries) attempts.delete(attempts.keys().next().value);
   }
 
   const keys = (address, email) => [`${address}|${email}`, `|${email}`];
 
   return {
-    blocked(address, email) {
+    /** @returns {boolean} Whether this attempt may go ahead. It counts if it does. */
+    attempt(address, email) {
       const [one, all] = keys(address, email);
-      return count(one) >= LOGIN_LIMIT_PER_ADDRESS || count(all) >= LOGIN_LIMIT_PER_EMAIL;
-    },
-    failed(address, email) {
-      if (failures.size > 10000) failures.clear();
-      keys(address, email).forEach(bump);
+      if (count(one) >= LOGIN_LIMIT_PER_ADDRESS || count(all) >= LOGIN_LIMIT_PER_EMAIL) return false;
+      bump(one);
+      bump(all);
+      return true;
     },
     succeeded(address, email) {
-      failures.delete(keys(address, email)[0]);
+      const [one, all] = keys(address, email);
+      attempts.delete(one);
+      const entry = attempts.get(all);
+      if (entry && --entry.count <= 0) attempts.delete(all);
     },
+    get size() { return attempts.size; },
   };
 }
 
@@ -123,10 +139,19 @@ function createLoginLimiter() {
  * @param {object} deps
  * @param {ReturnType<import('../services/accounts').createAccounts>} deps.accounts
  * @param {boolean} deps.required - False only from code, for the tests of what comes after this.
- * @param {string|null} [deps.setupCode] - Asked of whoever makes the first account, if set.
+ * @param {string|null} [deps.setupCode] - Asked of whoever makes the first account.
+ * @param {Function} [deps.onSetUp] - Called once the first account exists.
+ * @param {boolean} [deps.trustProxy] - Take the client's address from X-Forwarded-For.
  */
-function createAuth({ accounts, required, setupCode = null }) {
+function createAuth({ accounts, required, setupCode = null, onSetUp = () => {}, trustProxy = false }) {
   const limiter = createLoginLimiter();
+  let loginsRunning = 0;
+
+  /** The closest address is the one the proxy added: the rest, the client could have sent. */
+  function clientAddress(req) {
+    const forwarded = trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',').pop().trim() : '';
+    return forwarded || (req.socket.remoteAddress ?? '');
+  }
 
   /**
    * Work out who is asking, and stop the request if it needs someone and there is no one.
@@ -139,7 +164,9 @@ function createAuth({ accounts, required, setupCode = null }) {
       return true;
     }
     const token = sessionToken(req);
-    req.user = token ? accounts.userForSession(token) : null;
+    const session = token ? accounts.sessionFor(token) : null;
+    req.user = session?.user ?? null;
+    if (session?.renewed) setSessionCookie(req, res, token);
     const urlPath = req.url.split('?')[0];
     if (req.user || !urlPath.startsWith('/api/')) return true;
     if (PUBLIC_ROUTES.some((route) => route.test(`${req.method} ${urlPath}`))) return true;
@@ -175,12 +202,13 @@ function createAuth({ accounts, required, setupCode = null }) {
     if (!body) return;
     if (accounts.hasUsers()) return sendError(res, 409, 'ALREADY_SET_UP', 'This server already has an admin.');
     if (setupCode && !sameSecret(body.setupCode ?? '', setupCode)) {
-      return sendError(res, 403, 'SETUP_CODE_INVALID', 'That is not the setup code in the server log.');
+      return sendError(res, 403, 'SETUP_CODE_INVALID', 'That is not the setup code of this server.');
     }
     const invalid = invalidName(body.name) || invalidEmail(body.email) || invalidPassword(body.password);
     if (invalid) return sendError(res, 400, 'VALIDATION_ERROR', invalid);
     const user = await accounts.createFirstAdmin({ email: body.email, name: body.name.trim(), password: body.password });
     if (!user) return sendError(res, 409, 'ALREADY_SET_UP', 'This server already has an admin.');
+    onSetUp();
     signIn(req, res, 201, user);
   }
 
@@ -188,19 +216,31 @@ function createAuth({ accounts, required, setupCode = null }) {
     const body = await readBody(req, res);
     if (!body) return;
     const email = normalizeEmail(body.email);
-    const address = req.socket.remoteAddress ?? '';
-    if (limiter.blocked(address, email)) {
+    const password = typeof body.password === 'string' ? body.password : '';
+    // No account has these, and a long email would stay in memory as a key of the limiter.
+    if (!email || email.length > EMAIL_MAX || password.length > PASSWORD_MAX) {
+      return sendError(res, 401, 'INVALID_CREDENTIALS', 'Wrong email or password.');
+    }
+    const address = clientAddress(req);
+    if (!limiter.attempt(address, email)) {
       res.setHeader('Retry-After', String(LOGIN_WINDOW_MS / 1000));
       return sendError(res, 429, 'TOO_MANY_ATTEMPTS', 'Too many failed attempts. Try again in 15 minutes.');
     }
-    const password = typeof body.password === 'string' ? body.password.slice(0, PASSWORD_MAX) : '';
-    const user = await accounts.checkPassword(email, password);
-    if (!user) {
-      limiter.failed(address, email);
-      return sendError(res, 401, 'INVALID_CREDENTIALS', 'Wrong email or password.');
+    if (loginsRunning >= LOGIN_MAX_RUNNING) {
+      res.setHeader('Retry-After', '5');
+      return sendError(res, 503, 'BUSY', 'The server is busy. Try again in a moment.');
     }
+    loginsRunning += 1;
+    let session;
+    try {
+      session = await accounts.signIn(email, password);
+    } finally {
+      loginsRunning -= 1;
+    }
+    if (!session) return sendError(res, 401, 'INVALID_CREDENTIALS', 'Wrong email or password.');
     limiter.succeeded(address, email);
-    signIn(req, res, 200, user);
+    setSessionCookie(req, res, session.token);
+    sendJSON(res, 200, { user: session.user });
   }
 
   function handleLogout(req, res) {
@@ -217,7 +257,7 @@ function createAuth({ accounts, required, setupCode = null }) {
     if (!link) return sendError(res, 404, 'LINK_INVALID', 'This link is not valid any more.');
     const invalid = (link.kind === 'invite' && invalidName(body.name)) || invalidPassword(body.password);
     if (invalid) return sendError(res, 400, 'VALIDATION_ERROR', invalid);
-    const result = await accounts.useLink(token, { name: body.name?.trim(), password: body.password });
+    const result = await accounts.useLink(token, { name: link.kind === 'invite' ? body.name.trim() : undefined, password: body.password });
     if (result.error === 'LINK_INVALID') return sendError(res, 404, 'LINK_INVALID', 'This link is not valid any more.');
     if (result.error === 'EMAIL_TAKEN') return sendError(res, 409, 'EMAIL_TAKEN', 'There is already an account with this email.');
     signIn(req, res, 200, result);
@@ -245,7 +285,7 @@ function createAuth({ accounts, required, setupCode = null }) {
 
     if (urlPath === '/api/v1/auth/status' && method === 'GET') {
       const needsSetup = required && !accounts.hasUsers();
-      sendJSON(res, 200, { needsSetup, setupCodeRequired: needsSetup && !!setupCode, user: req.user ?? null });
+      sendJSON(res, 200, { needsSetup, user: req.user ?? null });
       return true;
     }
     if (urlPath === '/api/v1/auth/setup' && method === 'POST') { await handleSetup(req, res); return true; }
@@ -295,4 +335,4 @@ function createAuth({ accounts, required, setupCode = null }) {
   return { admit, handle };
 }
 
-module.exports = { createAuth };
+module.exports = { createAuth, createLoginLimiter };

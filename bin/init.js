@@ -22,6 +22,7 @@ const os            = require('os');
 const { spawn, spawnSync } = require('child_process');
 
 const { resolveDataDir } = require(path.join(__dirname, '..', 'src', 'utils', 'dataDir.js'));
+const { readSetupCode, setupUrl } = require(path.join(__dirname, '..', 'src', 'utils', 'setupCode.js'));
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -348,6 +349,8 @@ async function run(flags = {}) {
     try {
       await waitForServer(port);
       log(`[init] server     : ready on port ${port}`);
+      const setupCode = readSetupCode(dataDirPath);
+      if (setupCode) log(`[init] first account: ${setupUrl(setupCode, { loopback: true }, port)}`);
     } catch (err) {
       warnings.push(err.message);
       log(`[init] server     : WARNING — ${err.message}`);

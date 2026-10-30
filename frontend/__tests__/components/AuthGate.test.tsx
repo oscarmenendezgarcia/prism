@@ -3,10 +3,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { AuthGate } from '../../src/components/auth/AuthGate';
 import { useAuthStore } from '../../src/stores/useAuthStore';
 import * as api from '../../src/api/client';
+import { reloadPage } from '../../src/utils/reloadPage';
 import type { AuthStatus, User } from '../../src/types';
 
+vi.mock('../../src/utils/reloadPage', () => ({ reloadPage: vi.fn() }));
+
 const ANA: User = { id: 'u1', name: 'Ana López', email: 'ana@example.com', role: 'admin', active: true };
-const status = (over: Partial<AuthStatus> = {}): AuthStatus => ({ needsSetup: false, setupCodeRequired: false, user: null, ...over });
+const status = (over: Partial<AuthStatus> = {}): AuthStatus => ({ needsSetup: false, user: null, ...over });
 
 function renderGate() {
   return render(<AuthGate><p>The board</p></AuthGate>);
@@ -17,6 +20,7 @@ const submit = (name: RegExp) => fireEvent.click(screen.getByRole('button', { na
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.mocked(reloadPage).mockClear();
   useAuthStore.setState({ status: null, failed: false });
   window.history.replaceState(null, '', '/');
 });
@@ -55,30 +59,33 @@ describe('AuthGate', () => {
     expect(screen.getByRole('button', { name: /^sign in$/i })).toBeEnabled();
   });
 
-  it('makes the first account, without a code on loopback', async () => {
+  it('makes the first account with the code it asks for', async () => {
     vi.spyOn(api, 'getAuthStatus').mockResolvedValue(status({ needsSetup: true }));
     const setUp = vi.spyOn(api, 'setUp').mockResolvedValue({ user: ANA });
     renderGate();
     await screen.findByRole('heading', { name: /create the admin account/i });
-    expect(screen.queryByLabelText('Setup code')).not.toBeInTheDocument();
+    type('Setup code', 'abc');
     type('Name', 'Ana López');
     type('Email', 'ana@example.com');
     type('Password', 'correct horse');
     submit(/create account/i);
     expect(await screen.findByText('The board')).toBeInTheDocument();
-    expect(setUp).toHaveBeenCalledWith({ name: 'Ana López', email: 'ana@example.com', password: 'correct horse' });
+    expect(setUp).toHaveBeenCalledWith({ name: 'Ana López', email: 'ana@example.com', password: 'correct horse', setupCode: 'abc' });
   });
 
-  it('asks the setup code where the server needs it', async () => {
-    vi.spyOn(api, 'getAuthStatus').mockResolvedValue(status({ needsSetup: true, setupCodeRequired: true }));
+  it('takes the code from the link the server prints, and out of the address bar', async () => {
+    window.history.replaceState(null, '', '/?setup=fromlink&issue=WEB-1');
+    vi.spyOn(api, 'getAuthStatus').mockResolvedValue(status({ needsSetup: true }));
     const setUp = vi.spyOn(api, 'setUp').mockResolvedValue({ user: ANA });
     renderGate();
-    type(await screen.findByLabelText('Setup code').then(() => 'Setup code'), 'abc');
+    await screen.findByRole('heading', { name: /create the admin account/i });
+    expect(screen.queryByLabelText('Setup code')).not.toBeInTheDocument();
+    expect(window.location.search).toBe('?issue=WEB-1');
     type('Name', 'A');
     type('Email', 'a@b.c');
     type('Password', 'correct horse');
     submit(/create account/i);
-    await waitFor(() => expect(setUp).toHaveBeenCalledWith(expect.objectContaining({ setupCode: 'abc' })));
+    await waitFor(() => expect(setUp).toHaveBeenCalledWith(expect.objectContaining({ setupCode: 'fromlink' })));
   });
 
   it('accepts an invitation, and takes the link out of the address bar', async () => {
@@ -147,6 +154,7 @@ describe('AuthGate', () => {
     useAuthStore.getState().signedOut();
     expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
     expect(window.location.search).toBe('?issue=WEB-1');
+    expect(reloadPage).toHaveBeenCalledTimes(1); // Nothing of theirs stays in memory.
   });
 
   it('any request that finds the session gone signs out', async () => {

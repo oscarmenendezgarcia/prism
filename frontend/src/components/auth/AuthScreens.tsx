@@ -75,24 +75,36 @@ function AuthForm({ submitLabel, onSubmit, children }: {
   );
 }
 
-export function SetupScreen({ codeRequired }: { codeRequired: boolean }) {
+/** The link the server prints carries the code, so that there is nothing to copy. */
+function takeSetupCodeFromAddress(): string {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('setup') ?? '';
+  if (code) {
+    params.delete('setup');
+    window.history.replaceState(null, '', `${window.location.pathname}${params.size > 0 ? `?${params}` : ''}`);
+  }
+  return code;
+}
+
+export function SetupScreen() {
   const signedIn = useAuthStore((s) => s.signedIn);
+  const [codeFromLink] = useState(takeSetupCodeFromAddress);
+  const [setupCode, setSetupCode] = useState(codeFromLink);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [setupCode, setSetupCode] = useState('');
 
   return (
     <AuthLayout title="Create the admin account" hint="You are the first one here. You can invite your team next.">
       <AuthForm
         submitLabel="Create account"
         onSubmit={async () => {
-          const { user } = await api.setUp({ name, email, password, ...(codeRequired && { setupCode }) });
+          const { user } = await api.setUp({ name, email, password, setupCode });
           signedIn(user);
         }}
       >
-        {codeRequired && (
-          <Field label="Setup code" hint="It is in the server log." autoComplete="off" value={setupCode} onChange={(e) => setSetupCode(e.target.value)} />
+        {!codeFromLink && (
+          <Field label="Setup code" hint="The server prints it when it starts. It is also in the file setup-code, in its data folder." autoComplete="off" value={setupCode} onChange={(e) => setSetupCode(e.target.value)} />
         )}
         <Field label="Name" autoComplete="name" maxLength={50} value={name} onChange={(e) => setName(e.target.value)} />
         <Field label="Email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />

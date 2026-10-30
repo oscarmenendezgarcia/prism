@@ -271,10 +271,10 @@ The worktree path and branch are git-ignored and never committed.
 |----------|---------|-------------|
 | `PORT` | `3000` | HTTP server port |
 | `DATA_DIR` | *(resolved, see below)* | Directory where `prism.db` is stored |
-| `PRISM_HOST` | `127.0.0.1` | Address to listen on. Anything other than loopback requires an access token |
-| `PRISM_TOKEN` | generated when not on loopback | Access token. Clients send `Authorization: Bearer <token>`; browsers open `/?token=<token>` once. Agents started by Prism receive it. Export it too in shells where you run `claude` by hand, or the Prism MCP tools get a 401 |
+| `PRISM_HOST` | `127.0.0.1` | Address to listen on |
 | `ALLOWED_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173` | Allowed browser origins — set to your public URL behind a reverse proxy |
-| `ALLOWED_HOSTS` | none | Extra `Host` names allowed on loopback, for a reverse proxy without a token |
+| `ALLOWED_HOSTS` | none | Extra `Host` names allowed on loopback, for a reverse proxy |
+| `PRISM_TRUST_PROXY` | off | Set it behind a reverse proxy, so that failed sign-ins are counted per client and not for the proxy as a whole. The proxy must set `X-Forwarded-For` |
 | `ANTHROPIC_API_KEY` | — | Required for any stage/agent routed to Claude (the default). Not needed for stages routed to opencode, pi, or hermes against a local or self-hosted model — [see Agents & Routing](#agents--routing--bring-your-own-model). |
 
 `DATA_DIR` isn't a flat default — without an explicit override it's resolved in this order: **(1)** `DATA_DIR` env var if set; **(2)** `<packageRoot>/data` when running from a git checkout (has a `.git` directory — this repo, or a dev clone); **(3)** `$XDG_DATA_HOME/prism` if `XDG_DATA_HOME` is set; **(4)** `~/.local/share/prism` otherwise. A global `npm install -g prism-kanban` install lands on (3) or (4), *not* `./data` — the Docker image sets `DATA_DIR=/app/data` explicitly, which is why that path shows up there.

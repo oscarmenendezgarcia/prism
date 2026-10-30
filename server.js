@@ -30,7 +30,6 @@
 
 'use strict';
 
-const crypto = require('crypto');
 const http = require('http');
 const path = require('path');
 const fs   = require('fs');
@@ -44,6 +43,7 @@ const { createRouter }       = require('./src/routes');
 const { resolveDataDir }     = require('./src/utils/dataDir');
 const { resolveAccess, allowRequest } = require('./src/utils/access');
 const { createAuth }         = require('./src/handlers/auth');
+const { loadOrCreateSetupCode, removeSetupCode, setupUrl } = require('./src/utils/setupCode');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -140,9 +140,17 @@ function startServer(options = {}) {
   // Server start is NOT blocked — tagger is not a core feature (ADR-1 §Consequences).
   // Step 5: Create and start the HTTP server.
   const access = resolveAccess({ host: options.host });
-  // On a server others can reach, whoever arrives first must not become the admin.
-  const setupCode = !access.loopback && !store.accounts.hasUsers() ? crypto.randomBytes(16).toString('hex') : null;
-  const auth = createAuth({ accounts: store.accounts, required: options.auth !== false, setupCode });
+  // Whoever arrives first must not become the admin, and a proxy on this machine looks like
+  // a local visitor. So the first account always asks a code only this server's owner can see.
+  const usesAccounts = options.auth !== false;
+  const setupCode = usesAccounts && !store.accounts.hasUsers() ? loadOrCreateSetupCode(dataDir) : null;
+  const auth = createAuth({
+    accounts: store.accounts,
+    required: usesAccounts,
+    setupCode,
+    onSetUp: () => removeSetupCode(dataDir),
+    trustProxy: !!process.env.PRISM_TRUST_PROXY,
+  });
 
   if (process.env.PRISM_TOKEN && !options.silent) {
     console.warn('[startup] PRISM_TOKEN no longer gives access to this server. Remove it, and sign in with an account.');
@@ -171,8 +179,8 @@ function startServer(options = {}) {
       process.env.KANBAN_API_URL = `http://${urlHost}:${boundPort}/api/v1`;
     }
 
-    if (setupCode) console.log(`[startup] Setup code for the first account: ${setupCode}`);
     if (options.silent) return;
+    if (setupCode) console.log(`[startup] Create the first account: ${setupUrl(setupCode, access, boundPort)}`);
     console.log(access.loopback ? `Prism running at http://localhost:${boundPort}` : `Prism listening on ${access.host}:${boundPort}`);
   });
 

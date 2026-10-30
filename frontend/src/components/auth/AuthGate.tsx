@@ -33,7 +33,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }
   if (!status) return null;
   if (linkToken) return <AccountLinkScreen token={linkToken} onDone={leaveLink} />;
-  if (status.needsSetup) return <SetupScreen codeRequired={status.setupCodeRequired} />;
+  if (status.needsSetup) return <SetupScreen />;
   if (!status.user) return <SignInScreen />;
   return <>{children}</>;
 }

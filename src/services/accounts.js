@@ -86,7 +86,7 @@ async function verifyPassword(password, stored) {
 /** Checked against when the email is unknown, so that the answer takes as long either way. */
 const NOBODY_HASH = hashPassword(newToken());
 
-const normalizeEmail = (email) => String(email ?? '').trim().toLowerCase();
+const normalizeEmail = (email) => (typeof email === 'string' ? email.trim().toLowerCase() : '');
 
 const publicUser = (row) => ({
   id: row.id,
@@ -146,11 +146,20 @@ function createAccounts(db) {
     })();
   }
 
-  /** @returns {Promise<object|null>} The user, if these are right and the account is active. */
-  async function checkPassword(email, password) {
-    const row = stmts.getByEmail.get(normalizeEmail(email));
+  /**
+   * Sign in. The account is read again after the slow part, in one go with making the session,
+   * so that a reset or a deactivation in between is not outlived by a session.
+   *
+   * @returns {Promise<{ user: object, token: string }|null>} Null if these are not right.
+   */
+  async function signIn(email, password) {
+    const normalized = normalizeEmail(email);
+    const row = stmts.getByEmail.get(normalized);
     const matches = await verifyPassword(password, row?.password_hash ?? await NOBODY_HASH);
-    return row && matches && row.active === 1 ? publicUser(row) : null;
+    if (!row || !matches) return null;
+    const current = stmts.getByEmail.get(normalized);
+    if (current?.id !== row.id || current.password_hash !== row.password_hash || current.active !== 1) return null;
+    return { user: publicUser(current), token: createSession(current.id).token };
   }
 
   /** @returns {{ token: string, expiresAt: string }} */
@@ -164,8 +173,8 @@ function createAccounts(db) {
     return { token, expiresAt };
   }
 
-  /** @returns {object|null} Who holds this session, and renews it if it is being used. */
-  function userForSession(token) {
+  /** @returns {{ user: object, renewed: boolean }|null} Who holds this session. One in use is renewed. */
+  function sessionFor(token) {
     const tokenHash = hashToken(token);
     const row = stmts.findSession.get(tokenHash);
     if (!row || row.active !== 1) return null;
@@ -174,12 +183,13 @@ function createAccounts(db) {
       stmts.dropSession.run(tokenHash);
       return null;
     }
-    if (now - Date.parse(row.used_at) > SESSION_TOUCH_MS) {
+    const renewed = now - Date.parse(row.used_at) > SESSION_TOUCH_MS;
+    if (renewed) {
       const iso = new Date(now).toISOString();
       stmts.touchSession.run(iso, inDays(SESSION_DAYS), tokenHash);
       stmts.touchUser.run(iso, row.id);
     }
-    return publicUser(row);
+    return { user: publicUser(row), renewed };
   }
 
   const endSession = (token) => stmts.dropSession.run(hashToken(token));
@@ -243,9 +253,9 @@ function createAccounts(db) {
   return {
     hasUsers,
     createFirstAdmin,
-    checkPassword,
+    signIn,
     createSession,
-    userForSession,
+    sessionFor,
     endSession,
     createInvite,
     createResetLink,

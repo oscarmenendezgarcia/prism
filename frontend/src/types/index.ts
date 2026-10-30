@@ -352,7 +352,6 @@ export interface User {
 
 export interface AuthStatus {
   needsSetup: boolean;
-  setupCodeRequired: boolean;
   user: User | null;
 }
 

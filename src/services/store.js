@@ -353,6 +353,7 @@ function backUpBeforeUpgrade(db, dbPath) {
       const partial = `${backupPath}.partial`;
       fs.rmSync(partial, { force: true });
       db.prepare('VACUUM INTO ?').run(partial);
+      fs.chmodSync(partial, 0o600);
       fs.renameSync(partial, backupPath);
       console.log(`[store] upgrade: kept a copy of the database in ${backupPath}`);
     }
@@ -490,6 +491,8 @@ function createStore(dataDir) {
     : path.join(dataDir, 'prism.db');
 
   const db = new Database(dbPath);
+  // It holds password hashes. SQLite gives its side files the same permissions.
+  if (dbPath !== ':memory:') fs.chmodSync(dbPath, 0o600);
 
   backUpBeforeUpgrade(db, dbPath);
 
@@ -589,7 +592,7 @@ function createStore(dataDir) {
   if (db.pragma('user_version', { simple: true }) < ISSUES_SCHEMA_VERSION) migrateToIssues(db);
 
   db.exec(ACCOUNTS_SQL);
-  db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  if (db.pragma('user_version', { simple: true }) < SCHEMA_VERSION) db.pragma(`user_version = ${SCHEMA_VERSION}`);
   const accounts = createAccounts(db);
 
   console.log(`[store] open — WAL mode confirmed, schema ready (${dbPath})`);
