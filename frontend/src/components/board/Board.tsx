@@ -261,7 +261,8 @@ export function Board() {
     );
   }, [reorderTask, reorderTasks]); // stable — Zustand actions never change
 
-  const taskCounts = Object.fromEntries(statuses.map((s) => [s.id, (tasks[s.id] ?? []).length]));
+  const epicFilter = useAppStore((s) => s.epicFilter);
+  const taskCounts = Object.fromEntries(statuses.map((s) => [s.id, getVisibleColumnTasks(tasks[s.id] ?? [], epicFilter, tasks).length]));
 
   // F1/ADR-1: show the onboarding guide when the active space has zero tasks.
   // No persistence — visibility is derived purely from store state.
@@ -276,7 +277,7 @@ export function Board() {
   }
 
   return (
-    <>
+    <div className="flex flex-col h-full">
       {/* MB-1: Tab bar — only visible on mobile (< 640px) */}
       <div className="sm:hidden">
         <ColumnTabBar
@@ -294,7 +295,7 @@ export function Board() {
 
       <main
         role="main"
-        className="flex h-full overflow-x-auto overflow-y-hidden"
+        className="flex flex-1 min-h-0 overflow-x-auto overflow-y-hidden"
       >
         <div className="flex gap-4 p-6 mx-auto min-w-fit h-full">
         {statuses.map(({ id: col }) => (
@@ -333,6 +334,6 @@ export function Board() {
       >
         <span className="material-symbols-outlined text-2xl" aria-hidden="true">add</span>
       </button>
-    </>
+    </div>
   );
 }

@@ -26,7 +26,7 @@ import type {
   Comment,
 } from '@/types';
 import { safeStorage } from '@/utils/safeStorage';
-import { mapBoard } from '@/utils/issues';
+import { allTasks, mapBoard } from '@/utils/issues';
 
 /** Key used to persist the active space across page reloads. */
 const ACTIVE_SPACE_KEY = 'prism-active-space';
@@ -99,6 +99,8 @@ interface AppState {
    */
   mutatingTaskIds: Set<string>;
   loadBoard: () => Promise<void>;
+  /** Pick up changes made elsewhere to the spaces, such as a renamed status. */
+  refreshSpaces: () => Promise<void>;
   createTask: (payload: CreateTaskPayload) => Promise<void>;
   /** Move a task to a status of the active space. */
   moveTask: (taskId: string, statusId: Column) => Promise<void>;
@@ -354,14 +356,28 @@ export const useAppStore = create<AppState>((set, get) => ({
       const data = await api.getTasks(activeSpaceId);
       // The user may have moved to another space while this was on its way.
       if (get().activeSpaceId !== activeSpaceId) return;
-      set({ tasks: data });
-      // Someone changed the statuses: without the new list, its issues would have no column.
+      // An epic that is gone would leave the board empty, with nothing to clear the filter.
+      const { epicFilter } = get();
+      const epicGone = epicFilter !== null && !allTasks(data).some((t) => t.id === epicFilter);
+      set({ tasks: data, ...(epicGone && { epicFilter: null }) });
+      // Someone changed the statuses: the board must show them as they are now.
       const known = get().spaces.find((s) => s.id === activeSpaceId)?.statuses;
-      if (known && Object.keys(data).some((id) => !known.some((s) => s.id === id))) {
+      const columns = Object.keys(data);
+      if (known && (columns.length !== known.length || columns.some((id) => !known.some((s) => s.id === id)))) {
         set({ spaces: await api.getSpaces() });
       }
     } catch (err) {
       showToast(`Failed to load tasks: ${(err as Error).message}`, 'error');
+    }
+  },
+
+  refreshSpaces: async () => {
+    try {
+      const spaces = await api.getSpaces();
+      // Only if something changed: every subscriber re-renders otherwise.
+      if (JSON.stringify(spaces) !== JSON.stringify(get().spaces)) set({ spaces });
+    } catch {
+      // The next poll tries again.
     }
   },
 
@@ -556,7 +572,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // Reconcile with server response (authoritative timestamps, etc.).
       set({
-        tasks: mapBoard(get().tasks, (t) => (t.id === taskId ? updated : t)),
+        // The response does not derive these, and a poll would flicker them back.
+        tasks: mapBoard(get().tasks, (t) => (t.id === taskId
+          ? { ...updated, ...(!('dependsOn' in patch) && { isBlocked: t.isBlocked, blockedByCount: t.blockedByCount }) }
+          : t)),
         detailTask: get().detailTask?.id === taskId ? updated : get().detailTask,
       });
 

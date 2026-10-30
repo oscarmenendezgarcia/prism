@@ -22,12 +22,14 @@ interface SpaceHookSectionProps {
   hooks: SpaceHooks;
   onChange: (hooks: SpaceHooks) => void;
   /** The saved statuses an agent's finished work can move to. */
-  statuses?: Status[];
+  statuses?: Array<Pick<Status, 'id' | 'name'>>;
+  /** Statuses in the form that cannot be chosen until they are saved. */
+  hasUnsavedStatuses?: boolean;
   finishStatus?: string;
   onFinishStatusChange?: (statusId: string) => void;
 }
 
-export function SpaceHookSection({ hooks, onChange, statuses, finishStatus, onFinishStatusChange }: SpaceHookSectionProps) {
+export function SpaceHookSection({ hooks, onChange, statuses, hasUnsavedStatuses, finishStatus, onFinishStatusChange }: SpaceHookSectionProps) {
   return (
     <fieldset className="flex flex-col gap-3 border-t border-border pt-3" data-testid="hook-section">
       <legend className="sr-only">When an agent finishes</legend>
@@ -62,6 +64,7 @@ export function SpaceHookSection({ hooks, onChange, statuses, finishStatus, onFi
           >
             {statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
+          {hasUnsavedStatuses && <span className="text-text-disabled">New statuses can be chosen after saving.</span>}
         </label>
       )}
     </fieldset>

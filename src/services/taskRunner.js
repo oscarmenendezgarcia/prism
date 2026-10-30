@@ -162,6 +162,11 @@ function spaceHooks(spaceId) {
   };
 }
 
+/** An epic only groups issues, so no agent works on one, whichever way it became one. */
+function assertNotEpic(task) {
+  if (task?.type === 'epic') throw runnerError('TASK_IS_EPIC', 'An epic groups issues. Run the issues in it instead.');
+}
+
 /** Who the history says did what a run did. */
 function agentName(run) {
   return run.agentConfig?.cliTool ?? 'claude';
@@ -176,8 +181,9 @@ function agentName(run) {
 function moveToInProgress(run) {
   const { spaceId, taskId } = run;
   const task = _store.getTask(spaceId, taskId);
-  const { finishStatusId } = _store.getSpace(spaceId);
-  if (task?.category === 'in-progress' && task.statusId !== finishStatusId) return;
+  const space = _store.getSpace(spaceId);
+  if (!task || !space) return;
+  if (task.category === 'in-progress' && task.statusId !== space.finishStatusId) return;
   _store.moveTask(spaceId, taskId, _store.firstStatusOf(spaceId, 'in-progress').id, { actor: agentName(run) });
 }
 
@@ -577,8 +583,8 @@ async function finishRun(runId, signalledPid) {
   log('run.completed', { runId, totalDurationMs: Date.now() - new Date(run.createdAt).getTime() });
   // Directly: the HTTP route refuses moves while a queued action holds the task's lock.
   // A person reviews it from here, unless the space says otherwise.
-  const { finishStatusId } = _store.getSpace(run.spaceId);
-  _store.moveTask(run.spaceId, run.taskId, finishStatusId, { actor: agentName(run) });
+  const finishStatusId = _store.getSpace(run.spaceId)?.finishStatusId;
+  if (finishStatusId) _store.moveTask(run.spaceId, run.taskId, finishStatusId, { actor: agentName(run) });
 }
 
 // ---------------------------------------------------------------------------
@@ -1069,8 +1075,12 @@ async function createRun({ spaceId, taskId, workingDirectory, agentConfig = null
     if (found.column === 'done') {
       throw runnerError('TASK_NOT_IN_TODO', `Task '${taskId}' is already done.`);
     }
-    if (found.task.type === 'epic') {
-      throw runnerError('TASK_IS_EPIC', 'An epic groups issues. Run the issues in it instead.');
+    assertNotEpic(found.task);
+    // Starting over would drop the finished work from the card. A person decides first:
+    // ask for changes, or move the card back to run it again.
+    const finished = listRunViews(spaceId)[taskId];
+    if (finished?.status === 'done' && found.task.statusId === _store.getSpace(spaceId).finishStatusId) {
+      throw runnerError('TASK_AWAITING_REVIEW', 'This task is waiting for review. Ask for changes, or move it back to run it again.');
     }
 
     assertRoomForRun();
@@ -1085,6 +1095,12 @@ async function createRun({ spaceId, taskId, workingDirectory, agentConfig = null
       creatingRuns--;
       if (err.code !== 'NOT_A_GIT_REPO') err.code = 'WORKTREE_PROVISION_FAILED';
       throw err;
+    }
+    // Provisioning takes a while, and its space may be gone by now.
+    if (!_store.getTask(spaceId, taskId)) {
+      creatingRuns--;
+      await worktreeManager.teardown(worktree).catch(() => {});
+      throw runnerError('TASK_NOT_FOUND', `Task '${taskId}' not found in space '${spaceId}'.`);
     }
 
     const now = new Date().toISOString();
@@ -1194,6 +1210,8 @@ function hasActiveRun(taskId) {
  * @returns {boolean} Whether a space has a run that has not ended.
  */
 function spaceHasActiveRun(spaceId) {
+  // One being set up holds its task's lock before it is written down.
+  if ([...taskLocks.keys()].some((taskId) => _store.getTask(spaceId, taskId))) return true;
   return _store.listActiveRuns().some((run) => isTaskRun(run) && run.spaceId === spaceId);
 }
 
@@ -1298,6 +1316,7 @@ async function requestChanges(runId, text) {
       throw runnerError('RUN_ACTIVE', `Run '${runId}' was stopped while this was waiting.`);
     }
 
+    assertNotEpic(_store.getTask(run.spaceId, run.taskId));
     // The agent reads the task's comments in its prompt, so this goes first.
     const now  = new Date().toISOString();
     _store.addComment(run.spaceId, run.taskId, {
@@ -1328,6 +1347,7 @@ async function resumeRun(runId) {
     if (!RESUMABLE_STATUSES.includes(run.status)) {
       throw runnerError('RUN_NOT_RESUMABLE', `Run '${runId}' has status '${run.status}' and cannot be resumed.`);
     }
+    assertNotEpic(_store.getTask(run.spaceId, run.taskId));
     // The agent stops to ask. Resuming must not take that for the end of the work.
     if (run.blockedReason && openQuestions(run).length > 0) {
       throw runnerError('OPEN_QUESTION', 'Answer the open question first.');

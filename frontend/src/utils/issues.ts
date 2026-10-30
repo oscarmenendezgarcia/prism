@@ -7,20 +7,20 @@ import type { BoardTasks, Priority, Space, Status, Task, TaskType } from '@/type
 
 export const PRIORITIES: { id: Priority; label: string; icon: string; className: string }[] = [
   { id: 'urgent', label: 'Urgent', icon: 'keyboard_double_arrow_up', className: 'text-error' },
-  { id: 'high',   label: 'High',   icon: 'keyboard_arrow_up',        className: 'text-warning' },
-  { id: 'medium', label: 'Medium', icon: 'drag_handle',              className: 'text-text-disabled' },
+  { id: 'high',   label: 'High',   icon: 'keyboard_arrow_up',        className: 'text-badge-tech-debt-text' },
+  { id: 'medium', label: 'Medium', icon: 'drag_handle',              className: 'text-text-secondary' },
   { id: 'low',    label: 'Low',    icon: 'keyboard_arrow_down',      className: 'text-info' },
 ];
 
 export const priorityOf = (id: Priority | undefined) =>
   PRIORITIES.find((p) => p.id === id) ?? PRIORITIES[2];
 
-export const TYPES: { id: TaskType; label: string; className: string }[] = [
-  { id: 'feature',   label: 'Feature',   className: 'bg-primary/10 text-primary' },
-  { id: 'bug',       label: 'Bug',       className: 'bg-error/10 text-error' },
-  { id: 'chore',     label: 'Chore',     className: 'bg-info/10 text-info' },
-  { id: 'tech-debt', label: 'Tech debt', className: 'bg-warning/10 text-warning' },
-  { id: 'epic',      label: 'Epic',      className: 'bg-primary text-white' },
+export const TYPES: { id: TaskType; label: string }[] = [
+  { id: 'feature',   label: 'Feature' },
+  { id: 'bug',       label: 'Bug' },
+  { id: 'chore',     label: 'Chore' },
+  { id: 'tech-debt', label: 'Tech debt' },
+  { id: 'epic',      label: 'Epic' },
 ];
 
 export const typeOf = (id: TaskType) => TYPES.find((t) => t.id === id) ?? TYPES[2];
@@ -90,6 +90,12 @@ export function statusDotClass(status: Status, statuses: Status[]): string {
   if (status.category === 'todo') return 'bg-text-disabled';
   const first = statuses.find((s) => s.category === 'in-progress');
   return first?.id === status.id ? 'bg-primary' : 'bg-warning';
+}
+
+/** What a card in this status would show as Space settings' "move to" when none was chosen. */
+export function defaultFinishStatus(statuses: { id?: string; category: string }[]): string | undefined {
+  return statuses.find((s) => s.id === 'in-review' && s.category !== 'todo')?.id
+    ?? statuses.find((s) => s.category === 'done' && s.id)?.id;
 }
 
 /** An agent finished this and a person has not moved it on yet. */

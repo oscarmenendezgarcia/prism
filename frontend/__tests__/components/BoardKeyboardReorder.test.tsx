@@ -7,8 +7,8 @@
  *   - Alt+ArrowUp/Down on a focused card calls reorderTask with the correct
  *     rank; plain arrows / Tab / Enter are NOT swallowed.
  *   - Announcer text after a successful move.
- *   - Column-boundary and arc-group-boundary spoken no-ops.
- *   - Arc filter narrows the visible-neighbor list.
+ *   - Column-boundary spoken no-ops.
+ *   - The epic filter narrows the visible-neighbor list.
  *   - isMutating suppresses the reorder.
  *   - Focus retention after reorder.
  *   - Neighbor resolver (resolveKeyboardNeighbor) unit cases.
@@ -20,7 +20,7 @@ import { Board, resolveKeyboardNeighbor } from '../../src/components/board/Board
 import { useAppStore } from '../../src/stores/useAppStore';
 import { useDragStore } from '../../src/stores/useDragStore';
 import { useAnnouncer } from '../../src/stores/useAnnouncer';
-import type { Task, Column } from '../../src/types';
+import type { Task } from '../../src/types';
 
 vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(), getTasks: vi.fn(), createTask: vi.fn(), moveTask: vi.fn(),
@@ -38,15 +38,15 @@ vi.mock('../../src/api/client', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 
-function mkTask(id: string, rank: number, arc?: string): Task {
+function mkTask(id: string, rank: number, parentId?: string, type: Task['type'] = 'feature'): Task {
   return {
     id,
     title: `Task ${id}`,
-    type: 'feature',
+    type,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     rank,
-    arc,
+    parentId,
   };
 }
 
@@ -56,12 +56,16 @@ function setBoard(overrides: Partial<ReturnType<typeof useAppStore.getState>> = 
   useAppStore.setState({
     tasks: { todo: TASKS_TODO, 'in-progress': [], done: [] },
     activeSpaceId: 'space-1',
-    spaces: [{ id: 'space-1', name: 'Test', createdAt: '', updatedAt: '' }],
+    spaces: [{
+      id: 'space-1', name: 'Test', createdAt: '', updatedAt: '',
+      statuses: [
+        { id: 'todo', name: 'Todo', category: 'todo' },
+        { id: 'in-progress', name: 'In Progress', category: 'in-progress' },
+        { id: 'done', name: 'Done', category: 'done' },
+      ],
+    }],
     isMutating: false,
-    arcFilter: null,
-    arcGrouping: false,
-    availableAgents: [],
-    activeRun: null,
+    epicFilter: null,
     reorderTask: vi.fn(),
     ...overrides,
   } as never);
@@ -82,58 +86,38 @@ describe('resolveKeyboardNeighbor', () => {
   const col: Task[] = [mkTask('a', 1000), mkTask('b', 2000), mkTask('c', 3000)];
 
   it('returns the previous card for up', () => {
-    const r = resolveKeyboardNeighbor(col, 'b', null, false, 'up');
+    const r = resolveKeyboardNeighbor(col, 'b', 'up');
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.neighborId).toBe('a');
   });
 
   it('returns the next card for down', () => {
-    const r = resolveKeyboardNeighbor(col, 'b', null, false, 'down');
+    const r = resolveKeyboardNeighbor(col, 'b', 'down');
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.neighborId).toBe('c');
   });
 
-  it('boundary=column when pressing up on the first card', () => {
-    const r = resolveKeyboardNeighbor(col, 'a', null, false, 'up');
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe('column');
+  it('reports the position of the card and how many are visible', () => {
+    expect(resolveKeyboardNeighbor(col, 'b', 'down')).toEqual({ ok: true, neighborId: 'c', visibleIndex: 1, visibleCount: 3 });
   });
 
-  it('boundary=column when pressing down on the last card', () => {
-    const r = resolveKeyboardNeighbor(col, 'c', null, false, 'down');
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe('column');
+  it('has no neighbor when pressing up on the first card', () => {
+    expect(resolveKeyboardNeighbor(col, 'a', 'up')).toEqual({ ok: false, visibleIndex: 0, visibleCount: 3 });
   });
 
-  it('arc filter narrows visible neighbors', () => {
-    const withArcs = [mkTask('a', 1000, 'X'), mkTask('b', 2000, 'Y'), mkTask('c', 3000, 'X')];
-    const r = resolveKeyboardNeighbor(withArcs, 'a', 'X', false, 'down');
+  it('has no neighbor when pressing down on the last card', () => {
+    expect(resolveKeyboardNeighbor(col, 'c', 'down')).toEqual({ ok: false, visibleIndex: 2, visibleCount: 3 });
+  });
+
+  it('has no neighbor for a card that is not visible', () => {
+    expect(resolveKeyboardNeighbor(col, 'zzz', 'down')).toEqual({ ok: false, visibleIndex: -1, visibleCount: 3 });
+  });
+
+  it('only looks at the cards it is given, which is how a filter narrows neighbors', () => {
+    const filtered = [mkTask('a', 1000), mkTask('c', 3000)];
+    const r = resolveKeyboardNeighbor(filtered, 'a', 'down');
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.neighborId).toBe('c'); // 'b' filtered out
-  });
-
-  it('arc grouping: within-group neighbor works', () => {
-    const grouped = [mkTask('a', 1000, 'X'), mkTask('b', 2000, 'X'), mkTask('c', 3000, 'Y')];
-    const r = resolveKeyboardNeighbor(grouped, 'a', null, true, 'down');
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.neighborId).toBe('b');
-  });
-
-  it('arc grouping: cross-group press is a group boundary', () => {
-    const grouped = [mkTask('a', 1000, 'X'), mkTask('b', 2000, 'X'), mkTask('c', 3000, 'Y')];
-    const r = resolveKeyboardNeighbor(grouped, 'b', null, true, 'down');
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.reason).toBe('group');
-      expect(r.arcLabel).toBe('X');
-    }
-  });
-
-  it('arc grouping: press up from ungrouped bucket into a group is a group boundary', () => {
-    const grouped = [mkTask('a', 1000, 'X'), mkTask('b', 2000)];
-    const r = resolveKeyboardNeighbor(grouped, 'b', null, true, 'up');
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.reason).toBe('group');
+    if (r.ok) expect(r.neighborId).toBe('c');
   });
 });
 
@@ -204,27 +188,37 @@ describe('Board — keyboard reorder', () => {
     );
   });
 
-  it('arc-group boundary announces the group name', () => {
+  it('the epic filter narrows the neighbor: a hidden card is jumped over', () => {
     const reorderTask = vi.fn();
     setBoard({
       tasks: {
-        todo: [
-          mkTask('a', 1000, 'Alpha'),
-          mkTask('b', 2000, 'Alpha'),
-          mkTask('c', 3000, 'Beta'),
-        ],
-        'in-progress': [], done: [],
+        todo: [mkTask('a', 1000, 'e1'), mkTask('b', 2000), mkTask('c', 3000, 'e1')],
+        'in-progress': [], done: [mkTask('e1', 1000, undefined, 'epic')],
       },
-      arcGrouping: true,
+      epicFilter: 'e1',
       reorderTask,
     });
     render(<Board />);
-    // b is last in group 'Alpha', pressing down should hit group boundary
-    fireEvent.keyDown(findCard('b'), { key: 'ArrowDown', altKey: true });
+    fireEvent.keyDown(findCard('a'), { key: 'ArrowDown', altKey: true });
+    // After c, the last of the whole column: rank math runs against the full column.
+    expect(reorderTask).toHaveBeenCalledWith('a', 'todo', 4000);
+    expect(useAnnouncer.getState().message).toBe('Task "Task a" moved to position 2 of 2 in Todo.');
+  });
+
+  it('the last card the epic filter shows is at the bottom, with a hidden one below it', () => {
+    const reorderTask = vi.fn();
+    setBoard({
+      tasks: {
+        todo: [mkTask('a', 1000, 'e1'), mkTask('b', 2000)],
+        'in-progress': [], done: [mkTask('e1', 1000, undefined, 'epic')],
+      },
+      epicFilter: 'e1',
+      reorderTask,
+    });
+    render(<Board />);
+    fireEvent.keyDown(findCard('a'), { key: 'ArrowDown', altKey: true });
     expect(reorderTask).not.toHaveBeenCalled();
-    expect(useAnnouncer.getState().message).toBe(
-      'Task "Task b" is already at the bottom of the "Alpha" group in Todo.'
-    );
+    expect(useAnnouncer.getState().message).toBe('Task "Task a" is already at the bottom of Todo.');
   });
 
   it('isMutating suppresses reorder AND announcement (silent no-op)', () => {

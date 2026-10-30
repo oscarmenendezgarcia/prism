@@ -38,6 +38,8 @@ const ERROR_STATUS = {
   NOT_A_GIT_REPO:            422,
   AGENT_NOT_FOUND:           422,
   RUN_ACTIVE:                409,
+  TASK_IS_EPIC:              409,
+  TASK_AWAITING_REVIEW:      409,
   RUN_NOT_RESUMABLE:         409,
   MAX_CONCURRENT_REACHED:    409,
   WORKTREE_KEPT:             409,
@@ -277,8 +279,10 @@ async function handleUpdateHooks(req, res, store, spaceId) {
 
   const space = store.getSpace(spaceId);
   const finishStatus = body.finishStatus ?? space.hooks?.finishStatus;
-  if (body.finishStatus !== undefined && !space.statuses.some((s) => s.id === body.finishStatus)) {
-    return sendError(res, 400, 'VALIDATION_ERROR', `finishStatus must be one of: ${space.statuses.map((s) => s.id).join(', ')}`);
+  // Not a to-do one: work that is finished would look like work not started.
+  const finishable = space.statuses.filter((s) => s.category !== 'todo');
+  if (body.finishStatus !== undefined && !finishable.some((s) => s.id === body.finishStatus)) {
+    return sendError(res, 400, 'VALIDATION_ERROR', `finishStatus must be one of: ${finishable.map((s) => s.id).join(', ')}`);
   }
   store.upsertSpace({
     ...space,

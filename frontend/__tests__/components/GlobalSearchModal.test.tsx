@@ -43,9 +43,9 @@ vi.mock('../../src/api/client', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 
-function makeResult(id: string, title: string, spaceName: string, column = 'todo' as const): SearchResult {
+function makeResult(id: string, title: string, spaceName: string, column = 'todo'): SearchResult {
   return {
-    task:      { id, title, type: 'feature', createdAt: '', updatedAt: '' },
+    task:      { id, title, type: 'feature', statusId: column, createdAt: '', updatedAt: '' },
     spaceId:   `space-${id}`,
     spaceName,
     column,
@@ -133,7 +133,13 @@ describe('GlobalSearchModal — results', () => {
     expect(document.body.textContent).toContain('Beta');
   });
 
-  it('renders column badges for each result', () => {
+  it('renders the status name of each result, from its own space', () => {
+    useAppStore.setState({
+      spaces: [{
+        id: 'space-t1', name: 'Alpha', createdAt: '', updatedAt: '',
+        statuses: [{ id: 'in-progress', name: 'In Progress', category: 'in-progress' }],
+      }],
+    });
     mockUseGlobalSearch.mockReturnValue(idleState({
       query:   'deploy',
       results: [makeResult('t1', 'Deploy', 'Alpha', 'in-progress')],
@@ -141,6 +147,16 @@ describe('GlobalSearchModal — results', () => {
 
     render(<GlobalSearchModal open={true} onClose={onClose} />);
     expect(document.body.textContent).toContain('In Progress');
+  });
+
+  it('falls back to the status id when its space is not loaded', () => {
+    mockUseGlobalSearch.mockReturnValue(idleState({
+      query:   'deploy',
+      results: [makeResult('t1', 'Deploy', 'Alpha', 'in-progress')],
+    }));
+
+    render(<GlobalSearchModal open={true} onClose={onClose} />);
+    expect(document.body.textContent).toContain('in-progress');
   });
 
   it('shows no-match message when results are empty after searching', () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { TaskRunFooter } from '../TaskRunFooter';
@@ -84,6 +84,31 @@ describe('TaskRunFooter', () => {
   it('offers to run a Done card moved back to In progress', () => {
     renderFooter('in-progress', view({ status: 'done' }));
     expect(screen.getByRole('button', { name: /run/i })).toBeEnabled();
+  });
+
+  describe('with a finish status', () => {
+    const SPACE = { id: 's1', name: 'S', workingDirectory: '/repo', finishStatusId: 'in-review', createdAt: '', updatedAt: '' };
+
+    beforeEach(() => { useAppStore.setState({ spaces: [SPACE] }); });
+    afterEach(() => { useAppStore.setState({ spaces: [] }); });
+
+    it('offers no Run on a card awaiting review, and shows its result instead', () => {
+      renderFooter('in-progress', { status: 'done', result }, { ...task, statusId: 'in-review' });
+      expect(screen.queryByRole('button', { name: /run/i })).toBeNull();
+      expect(screen.getByTestId('run-result')).toHaveTextContent('2 files');
+    });
+
+    it('offers Run on a finished card moved back by hand', async () => {
+      renderFooter('in-progress', { status: 'done', result }, { ...task, statusId: 'in-progress' });
+      expect(screen.queryByTestId('run-result')).toBeNull();
+      await userEvent.click(screen.getByRole('button', { name: /run/i }));
+      expect(api.startTaskRun).toHaveBeenCalledWith('s1', 't1', { cliTool: 'claude' });
+    });
+
+    it('offers no Run on a card still running in the finish status', () => {
+      renderFooter('in-progress', { status: 'working' }, { ...task, statusId: 'in-review' });
+      expect(screen.queryByRole('button', { name: /run/i })).toBeNull();
+    });
   });
 
   it('asks for a repository before offering to run', () => {

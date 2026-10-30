@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { EMPTY_SPACE_HOOKS, readSpaceHooks, SpaceHookSection } from '@/components/runs/SpaceHookSection';
 import { getTasks, updateSpaceHooks, updateSpaceStatuses, validateDirectory } from '@/api/client';
 import type { SpaceHooks, Status } from '@/types';
+import { defaultFinishStatus } from '@/utils/issues';
 import { StatusesEditor, StatusRow, toStatusRows } from './StatusesEditor';
 import type { ApiError } from '@/api/client';
 import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/components/shared/Modal';
@@ -72,14 +73,19 @@ export function SpaceModal() {
     }
   }, [isOpen, mode, space]);
 
-  const savedStatuses: Status[] = space?.statuses ?? [];
+  // From the store, not from when the form opened: a refused save may have saved a part.
+  const currentSpace = useAppStore((s) => s.spaces.find((sp) => sp.id === space?.id)) ?? space;
+  const savedStatuses: Status[] = currentSpace?.statuses ?? [];
   const removed = savedStatuses.filter((s) => !rows.some((r) => r.id === s.id));
-  const keptStatuses = savedStatuses.filter((s) => rows.some((r) => r.id === s.id));
+  const finishable = rows.flatMap((r) => (r.id && r.category !== 'todo' ? [{ id: r.id, name: r.name }] : []));
+  const shownFinish = finishable.some((s) => s.id === finishStatus) ? finishStatus : defaultFinishStatus(rows);
 
   function handleRemoveStatus(row: StatusRow) {
     setRows(rows.filter((r) => r.rowKey !== row.rowKey));
     setStatusError('');
     if (row.id && row.id === finishStatus) setFinishStatus(undefined);
+    // Issues cannot go to a status that is also going.
+    setMoves(Object.fromEntries(Object.entries(moves).filter(([, target]) => target !== row.id)));
   }
 
   async function handleSubmit() {
@@ -95,6 +101,10 @@ export function SpaceModal() {
     }
 
     const trimmedKey = key.trim();
+    if (mode === 'rename' && currentSpace?.key && !trimmedKey) {
+      setKeyError('A space needs a key.');
+      return;
+    }
     if (trimmedKey && !KEY_PATTERN.test(trimmedKey)) {
       setKeyError('A key has 2 to 10 capital letters or digits and starts with a letter.');
       return;
@@ -132,14 +142,17 @@ export function SpaceModal() {
         const nextStatuses = rows.map(({ id, name: statusName, category }) => ({ ...(id && { id }), name: statusName.trim(), category }));
         if (JSON.stringify(nextStatuses) !== JSON.stringify(savedStatuses)) {
           try {
-            await updateSpaceStatuses(space.id, nextStatuses, moves);
+            const updated = await updateSpaceStatuses(space.id, nextStatuses, moves);
+            // Saved now, whatever happens next: saving again must not create them again.
+            setRows(toStatusRows(updated.statuses));
+            setMoves({});
           } catch (err) {
             setStatusError((err as Error).message);
             return;
           }
           await loadSpaces();
         }
-        const finishChanged = !!finishStatus && finishStatus !== space.finishStatusId;
+        const finishChanged = !!finishStatus && finishStatus !== useAppStore.getState().spaces.find((sp) => sp.id === space.id)?.finishStatusId;
         if (finishChanged) next.finishStatus = finishStatus;
         if (finishChanged || next.checkCommand !== saved.checkCommand || next.autoPr !== saved.autoPr) {
           try {
@@ -267,8 +280,9 @@ export function SpaceModal() {
             <SpaceHookSection
               hooks={hooks}
               onChange={setHooks}
-              statuses={keptStatuses}
-              finishStatus={finishStatus}
+              statuses={finishable}
+              hasUnsavedStatuses={rows.some((r) => !r.id)}
+              finishStatus={shownFinish}
               onFinishStatusChange={setFinishStatus}
             />
             {hookError && <span className="text-xs text-error block" role="alert">{hookError}</span>}

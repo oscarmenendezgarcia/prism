@@ -5,10 +5,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { Board } from '../../src/components/board/Board';
 import { useAppStore } from '../../src/stores/useAppStore';
 import { useDragStore } from '../../src/stores/useDragStore';
+import * as api from '../../src/api/client';
 
 vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(), getTasks: vi.fn(), createTask: vi.fn(), moveTask: vi.fn(),
@@ -16,13 +17,21 @@ vi.mock('../../src/api/client', () => ({
   getAttachmentContent: vi.fn(),
 }));
 
+const STATUSES = [
+  { id: 'todo', name: 'Todo', category: 'todo' as const },
+  { id: 'in-progress', name: 'In Progress', category: 'in-progress' as const },
+  { id: 'done', name: 'Done', category: 'done' as const },
+];
+
+const SPACE = { id: 'space-1', name: 'Space', statuses: STATUSES, createdAt: '', updatedAt: '' };
+
 const TASKS_FIXTURE = {
   todo: [
-    { id: 't1', title: 'Task One', type: 'chore' as const, createdAt: '', updatedAt: '' },
-    { id: 't2', title: 'Task Two', type: 'feature' as const, createdAt: '', updatedAt: '' },
+    { id: 't1', title: 'Task One', type: 'chore' as const, statusId: 'todo', category: 'todo' as const, createdAt: '', updatedAt: '' },
+    { id: 't2', title: 'Task Two', type: 'feature' as const, statusId: 'todo', category: 'todo' as const, createdAt: '', updatedAt: '' },
   ],
   'in-progress': [
-    { id: 't3', title: 'Task Three', type: 'bug' as const, createdAt: '', updatedAt: '' },
+    { id: 't3', title: 'Task Three', type: 'bug' as const, statusId: 'in-progress', category: 'in-progress' as const, createdAt: '', updatedAt: '' },
   ],
   done: [],
 };
@@ -32,6 +41,9 @@ const EMPTY_TASKS = { todo: [], 'in-progress': [], done: [] };
 beforeEach(() => {
   useAppStore.setState({
     tasks: EMPTY_TASKS,
+    activeSpaceId: 'space-1',
+    spaces: [SPACE],
+    epicFilter: null,
     moveTask: vi.fn(),
     openCreateModal: vi.fn(),
   });
@@ -56,7 +68,7 @@ describe('Board — empty-state (BoardEmptyState)', () => {
   it('does not render mobile FAB when board is empty', () => {
     render(<Board />);
     expect(
-      screen.queryByRole('button', { name: 'Create new task' }),
+      screen.queryByRole('button', { name: 'Create new issue' }),
     ).not.toBeInTheDocument();
   });
 
@@ -80,6 +92,9 @@ describe('Board — empty-state (BoardEmptyState)', () => {
     expect(screen.getAllByText('Todo').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('In Progress').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Done').length).toBeGreaterThanOrEqual(1);
+    // What the empty board leaves out is back.
+    expect(screen.getByRole('button', { name: 'Create new issue' })).toBeInTheDocument();
+    expect(screen.getByRole('tablist')).toBeInTheDocument();
   });
 
   it('calls openCreateModal when CTA in empty state is clicked', () => {
@@ -115,6 +130,31 @@ describe('Board — rendering', () => {
     expect(screen.getAllByText('Todo').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('In Progress').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Done').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('has a column per status of the space, in its order and with its names', () => {
+    useAppStore.setState({
+      tasks: TASKS_FIXTURE,
+      spaces: [{
+        ...SPACE,
+        statuses: [
+          { id: 'done', name: 'Shipped', category: 'done' },
+          { id: 'review', name: 'In review', category: 'in-progress' },
+          { id: 'in-progress', name: 'Doing', category: 'in-progress' },
+          { id: 'todo', name: 'Backlog', category: 'todo' },
+        ],
+      }],
+    });
+    render(<Board />);
+    expect(screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent)).toEqual(['Shipped', 'In review', 'Doing', 'Backlog']);
+    expect(screen.queryByRole('region', { name: 'Todo column' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Backlog column' })).toHaveTextContent('Task One');
+  });
+
+  it('mobile tabs show the statuses with their counts', () => {
+    useAppStore.setState({ tasks: TASKS_FIXTURE });
+    render(<Board />);
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Todo2', 'In Progress1', 'Done0']);
   });
 
   it('renders tasks from the store', () => {
@@ -172,7 +212,7 @@ describe('Board — drag and drop', () => {
     expect(moveTaskMock).not.toHaveBeenCalled();
   });
 
-  it('calls moveTask with direction=right when dropping on a later column', () => {
+  it('calls moveTask with the status of the column dropped on', () => {
     const moveTaskMock = vi.fn().mockResolvedValue(undefined);
     useAppStore.setState({ tasks: TASKS_FIXTURE, moveTask: moveTaskMock });
     render(<Board />);
@@ -193,7 +233,7 @@ describe('Board — drag and drop', () => {
       dataTransfer: { getData: vi.fn().mockReturnValue('t1') },
     });
 
-    expect(moveTaskMock).toHaveBeenCalledWith('t1', 'right', 'todo');
+    expect(moveTaskMock).toHaveBeenCalledWith('t1', 'in-progress');
   });
 
   it('BUG-003 regression: reordering into empty space below the last card appends at the end, not before the last card the cursor passed over', () => {
@@ -235,5 +275,61 @@ describe('Board — drag and drop', () => {
     // rebalance) confirms the drop landed at the end, not wedged against t2.
     expect(reorderTaskMock).toHaveBeenCalledTimes(1);
     expect(reorderTaskMock).toHaveBeenCalledWith('t1', 'todo', 1000);
+  });
+});
+
+// ─── Epic filter ─────────────────────────────────────────────────────────────
+
+describe('Board — epic filter', () => {
+  const issue = (id: string, title: string, parentId?: string, type: 'feature' | 'epic' = 'feature') => (
+    { id, title, type, parentId, statusId: 'todo', category: 'todo' as const, createdAt: '', updatedAt: '' }
+  );
+  const BOARD = {
+    todo: [
+      issue('e1', 'Epic One', undefined, 'epic'),
+      issue('e2', 'Epic Two', undefined, 'epic'),
+      issue('a', 'Direct issue', 'e1'),
+      issue('b', 'Other epic issue', 'e2'),
+      issue('c', 'Loose issue'),
+    ],
+    'in-progress': [
+      { ...issue('s', 'Sub-task of a', 'a'), statusId: 'in-progress', category: 'in-progress' as const },
+    ],
+    done: [],
+  };
+
+  it('shows every issue with no filter', () => {
+    useAppStore.setState({ tasks: BOARD });
+    render(<Board />);
+    expect(screen.getAllByTestId('task-card')).toHaveLength(6);
+  });
+
+  it('choosing an epic in the bar leaves it, its issues and their sub-tasks', () => {
+    useAppStore.setState({ tasks: BOARD });
+    render(<Board />);
+    fireEvent.click(screen.getByRole('button', { name: 'Epic One' }));
+    const cards = screen.getAllByTestId('task-card').map((c) => c.getAttribute('data-id'));
+    expect(cards.sort()).toEqual(['a', 'e1', 's']);
+  });
+
+  it('All epics brings everything back', () => {
+    useAppStore.setState({ tasks: BOARD, epicFilter: 'e1' });
+    render(<Board />);
+    fireEvent.click(screen.getByRole('button', { name: 'All epics' }));
+    expect(screen.getAllByTestId('task-card')).toHaveLength(6);
+  });
+
+  // Fails today: nothing clears epicFilter when its epic goes, and the bar hides its chips
+  // with no epics left. The board stays empty until switching space.
+  it('deleting the last epic while filtered to it leaves a way back to the issues', async () => {
+    const after = { todo: [issue('c', 'Loose issue')], 'in-progress': [], done: [] };
+    vi.mocked(api.deleteTask).mockResolvedValue({ deleted: true, id: 'e1' });
+    vi.mocked(api.getTasks).mockResolvedValue(after);
+    useAppStore.setState({ tasks: { ...after, todo: [issue('e1', 'Epic One', undefined, 'epic'), ...after.todo] }, epicFilter: 'e1' });
+    render(<Board />);
+    await act(() => useAppStore.getState().deleteTask('e1'));
+    const canReachIt = screen.queryAllByTestId('task-card').length > 0
+      || screen.queryByRole('button', { name: 'All epics' }) !== null;
+    expect(canReachIt).toBe(true);
   });
 });

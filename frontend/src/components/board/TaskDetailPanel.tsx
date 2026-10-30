@@ -21,6 +21,7 @@ import React, {
   useState,
 } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
+import { Badge } from '@/components/shared/Badge';
 import { LabelsInput } from '@/components/shared/LabelsInput';
 import { ChildIssues } from '@/components/board/ChildIssues';
 import { IssueHistory } from '@/components/board/IssueHistory';
@@ -152,12 +153,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const addComment           = useAppStore((s) => s.addComment);
   const patchComment         = useAppStore((s) => s.patchComment);
   const answerQuestion       = useAppStore((s) => s.answerQuestion);
-  // Per-task mutation flag — the panel is read-only only when the detailTask
-  // itself has an in-flight mutation. A move/delete on another card must not
-  // freeze this panel.
-  const isMutating           = useAppStore((s) =>
-    s.detailTask ? s.mutatingTaskIds.has(s.detailTask.id) : false
-  );
   const tasks                = useAppStore((s) => s.tasks);
   const moveTask             = useAppStore((s) => s.moveTask);
   const statuses             = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId)?.statuses) ?? [];
@@ -173,6 +168,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const [localAssigned, setLocalAssigned]       = useState('');
   const [localDescription, setLocalDescription] = useState('');
   const [localEstimate, setLocalEstimate]       = useState('');
+  const [localDueDate, setLocalDueDate]         = useState('');
   const [activityTab, setActivityTab]           = useState<'comments' | 'history'>('comments');
   const [localDependsOn, setLocalDependsOn]     = useState<string[]>([]);
   /** Mobile tab — shown only when viewport is <768px (two-column doesn't fit). */
@@ -202,6 +198,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
     setLocalAssigned(detailTask.assigned ?? '');
     setLocalDescription(detailTask.description ?? '');
     setLocalEstimate(detailTask.estimate != null ? String(detailTask.estimate) : '');
+    setLocalDueDate(detailTask.dueDate ?? '');
     setActivityTab('comments');
     setLocalDependsOn(detailTask.dependsOn ?? []);
 
@@ -210,7 +207,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
     // Capture the currently focused element as the trigger before the panel
     // steals focus.
-    triggerRef.current = document.activeElement;
+    // Not when going from an issue to another: what opened the panel is where focus returns.
+    if (!prevDetailTask.current) triggerRef.current = document.activeElement;
 
     // Focus goes to the panel container (not the title input) so the modal
     // is keyboard-accessible without immediately entering edit mode.
@@ -267,9 +265,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
         // the topmost layer, not the panel behind it.
         const hasOpenModal = document.querySelector(
           '[id="markdown-modal-title"], [id="attachment-modal-title"], [data-testid="agent-picker-menu"]'
-        );
+        ) || [...document.querySelectorAll('[aria-modal="true"]')].some((el) => el !== panelRef.current);
         if (hasOpenModal) return;
+        // A field that uses Escape to cancel itself gets it first.
+        if ((e.target as HTMLElement).closest?.('[data-escape-local]')) return;
         e.stopPropagation();
+        // Leaving the field saves what it holds, as clicking outside does.
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
         closeDetailPanel();
       }
     };
@@ -278,10 +280,35 @@ export function TaskDetailPanel(): React.ReactElement | null {
     return () => document.removeEventListener('keydown', handleKeyDown, true);
   }, [detailTask, closeDetailPanel]);
 
+  // A save that failed rolled the issue back, and the fields must not keep what was refused.
+  const isMutating = useAppStore((s) => (s.detailTask ? s.mutatingTaskIds.has(s.detailTask.id) : false));
+  const wasMutating = useRef(false);
+  useEffect(() => {
+    const finished = wasMutating.current && !isMutating;
+    wasMutating.current = isMutating;
+    const task = useAppStore.getState().detailTask;
+    if (!finished || !task) return;
+    const focused = document.activeElement;
+    if (focused !== titleInputRef.current) { setLocalTitle(task.title); savedTitle.current = task.title; }
+    if (focused?.id !== 'detail-assigned') { setLocalAssigned(task.assigned ?? ''); savedAssigned.current = task.assigned ?? ''; }
+    if (focused?.id !== 'detail-estimate') setLocalEstimate(task.estimate != null ? String(task.estimate) : '');
+    if (focused?.id !== 'detail-due') setLocalDueDate(task.dueDate ?? '');
+  }, [isMutating]);
+
+  // Deleted elsewhere: nothing here can be saved any more.
+  const onBoard = !!detailTask && boardIndex(tasks).byId.has(detailTask.id);
+  const wasOnBoard = useRef(false);
+  useEffect(() => {
+    if (wasOnBoard.current && !onBoard && detailTask) {
+      showToast(`${detailTask.key ?? 'This issue'} was deleted`, 'info');
+      closeDetailPanel();
+    }
+    wasOnBoard.current = onBoard;
+  }, [onBoard]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Save helpers ─────────────────────────────────────────────────────────
 
   const taskRunView = useTaskRunStore((s) => (detailTask ? s.views[detailTask.id] : undefined));
-  const isReadOnly = isMutating;
 
   const handleTitleBlur = useCallback(() => {
     const trimmed = localTitle.trim();
@@ -303,17 +330,26 @@ export function TaskDetailPanel(): React.ReactElement | null {
     updateTask(detailTask.id, { assigned: trimmed });
   }, [detailTask, localAssigned, updateTask]);
 
-  const handleEstimateBlur = useCallback(() => {
+  const handleEstimateBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
     if (!detailTask) return;
+    const saved = useAppStore.getState().detailTask?.estimate ?? null;
     const text = localEstimate.trim();
     const estimate = text === '' ? null : Number(text);
-    if (estimate !== null && (!isFinite(estimate) || estimate < 0)) {
-      setLocalEstimate(detailTask.estimate != null ? String(detailTask.estimate) : '');
+    // A number input reads as empty while it holds something like "5-".
+    if (e.target.validity.badInput || (estimate !== null && (!isFinite(estimate) || estimate < 0))) {
+      e.target.value = '';
+      setLocalEstimate(saved != null ? String(saved) : '');
       return;
     }
-    const saved = useAppStore.getState().detailTask?.estimate ?? null;
     if (estimate !== saved) updateTask(detailTask.id, { estimate });
   }, [detailTask, localEstimate, updateTask]);
+
+  // On leaving the field: while typing a date, each digit can already make a valid one.
+  const handleDueDateBlur = useCallback(() => {
+    if (!detailTask) return;
+    const dueDate = localDueDate || null;
+    if (dueDate !== (useAppStore.getState().detailTask?.dueDate ?? null)) updateTask(detailTask.id, { dueDate });
+  }, [detailTask, localDueDate, updateTask]);
 
   const handleSaveDescription = useCallback(() => {
     if (!detailTask) return;
@@ -422,8 +458,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
     && column !== 'todo'
     && ['failed', 'stopped', 'done'].includes(taskRunView.status)
     && !hasOpenQuestion;
-  const fieldDisabled = isReadOnly;
-
   // ── Shared sub-elements ──────────────────────────────────────────────────
 
   const closeButton = (
@@ -486,7 +520,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 </button>
               </>
             )}
-            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${typeOf(issue.type).className}`}>{typeOf(issue.type).label}</span>
+            <Badge type={issue.type} label={typeOf(issue.type).label} className="flex-shrink-0" />
             <div className="flex-1" />
             {detailTask.createdAt && (
               <time
@@ -537,8 +571,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                     titleInputRef.current?.blur();
                   }
                 }}
-                disabled={fieldDisabled}
-                aria-disabled={fieldDisabled}
                 aria-label="Issue title"
                 className="w-full bg-transparent border-b border-transparent hover:border-border/40 focus:border-primary/50 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled/50 focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-40 disabled:cursor-not-allowed transition-[border-color] duration-[220ms] ease-spring"
                 placeholder="Issue title"
@@ -558,15 +590,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   value={localDescription}
                   onChange={(e) => setLocalDescription(e.target.value)}
                   onBlur={handleSaveDescription}
-                  disabled={fieldDisabled}
-                  aria-disabled={fieldDisabled}
                   rows={1}
                   className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[6rem] transition-[border-color] duration-[220ms] ease-spring"
                   placeholder="Add a description…"
                 />
               </div>
 
-              <ChildIssues task={issue} spaceId={activeSpaceId} />
+              <ChildIssues key={issue.id} task={issue} spaceId={activeSpaceId} />
 
               {/* Comments and history */}
               <div className="border-t border-border/30 pt-4 animate-fade-in-up [animation-delay:170ms]">
@@ -601,7 +631,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   onCommentUpdated={handleCommentUpdated}
                   onAnswerQuestion={handleAnswerQuestion}
                   onRequestChanges={canRequestChanges ? handleRequestChanges : undefined}
-                  disabled={fieldDisabled}
                 />
               </div>
                 )}
@@ -617,7 +646,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <select
                   id="detail-status"
                   value={issue.statusId ?? ''}
-                  disabled={fieldDisabled}
                   onChange={(e) => moveTask(issue.id, e.target.value)}
                   className={DETAIL_FIELD_CLASS}
                 >
@@ -631,7 +659,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <select
                   id="detail-priority"
                   value={issue.priority ?? 'medium'}
-                  disabled={fieldDisabled}
                   onChange={(e) => updateTask(issue.id, { priority: e.target.value as Priority })}
                   className={DETAIL_FIELD_CLASS}
                 >
@@ -645,7 +672,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <select
                   id="detail-type"
                   value={issue.type}
-                  disabled={fieldDisabled}
                   onChange={(e) => updateTask(issue.id, { type: e.target.value as TaskType })}
                   className={DETAIL_FIELD_CLASS}
                 >
@@ -662,8 +688,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   value={localAssigned}
                   onChange={(e) => setLocalAssigned(e.target.value)}
                   onBlur={handleAssignedBlur}
-                  disabled={fieldDisabled}
-                  aria-disabled={fieldDisabled}
                   className={DETAIL_FIELD_CLASS}
                   placeholder="Unassigned"
                 />
@@ -685,7 +709,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                     </button>
                     <button
                       type="button"
-                      disabled={fieldDisabled}
                       aria-label="Make it an issue of its own"
                       title="Make it an issue of its own"
                       onClick={() => updateTask(issue.id, { parentId: null })}
@@ -701,7 +724,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   <select
                     id="detail-epic"
                     value={issue.parentId ?? ''}
-                    disabled={fieldDisabled}
                     onChange={(e) => updateTask(issue.id, { parentId: e.target.value || null })}
                     className={DETAIL_FIELD_CLASS}
                   >
@@ -717,7 +739,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <LabelsInput
                   id="detail-labels"
                   labels={issue.labels ?? []}
-                  disabled={fieldDisabled}
                   inputClassName={DETAIL_FIELD_CLASS}
                   onChange={(labels) => updateTask(issue.id, { labels })}
                 />
@@ -731,9 +752,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <input
                   id="detail-due"
                   type="date"
-                  value={issue.dueDate ?? ''}
-                  disabled={fieldDisabled}
-                  onChange={(e) => updateTask(issue.id, { dueDate: e.target.value || null })}
+                  value={localDueDate}
+                  onChange={(e) => setLocalDueDate(e.target.value)}
+                  onBlur={handleDueDateBlur}
                   className={DETAIL_FIELD_CLASS}
                 />
               </div>
@@ -748,7 +769,6 @@ export function TaskDetailPanel(): React.ReactElement | null {
                     min={0}
                     step="any"
                     value={localEstimate}
-                    disabled={fieldDisabled}
                     onChange={(e) => setLocalEstimate(e.target.value)}
                     onBlur={handleEstimateBlur}
                     className={DETAIL_FIELD_CLASS}
@@ -766,7 +786,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   spaceId={activeSpaceId}
                   taskId={detailTask.id}
                   dependsOn={localDependsOn}
-                  disabled={fieldDisabled || column === 'done'}
+                  disabled={column === 'done'}
                   onUpdated={(newDeps) => {
                     setLocalDependsOn(newDeps);
                     // Refresh board so isBlocked is recalculated for all tasks

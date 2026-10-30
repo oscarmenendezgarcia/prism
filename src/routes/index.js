@@ -43,7 +43,8 @@ const RUN_ACTION_ROUTE      = /^\/api\/v1\/runs\/([^/]+)\/(diff|log|stop|resume)
 const COMMENTS_LIST_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments$/;
 const COMMENTS_SINGLE_ROUTE = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([^/]+)\/comments\/([^/]+)$/;
 const FS_VALIDATE_ROUTE     = /^\/api\/v1\/fs\/validate$/;
-const ISSUE_KEY_IN_PATH     = /^\/api\/v1\/spaces\/([^/]+)\/tasks\/([A-Za-z][A-Za-z0-9]{1,9}-\d+)(?=\/|$)/;
+// With a space, or the legacy form for the default space.
+const ISSUE_KEY_IN_PATH     = /^\/api\/v1(?:\/spaces\/([^/]+))?\/tasks\/([A-Za-z][A-Za-z0-9]{1,9}-\d+)(?=\/|$)/;
 const ISSUE_ROUTE           = /^\/api\/v1\/issues\/([^/]+)$/;
 const SPACE_STATUSES_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/statuses$/;
 const SPACES_LIST_ROUTE     = /^\/api\/v1\/spaces$/;
@@ -83,8 +84,8 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
     const issueKeyMatch = ISSUE_KEY_IN_PATH.exec(urlPath);
     if (issueKeyMatch) {
       const found = store.getTaskByKey(issueKeyMatch[2]);
-      if (found && found.spaceId === issueKeyMatch[1]) {
-        urlPath = urlPath.replace(issueKeyMatch[0], `/api/v1/spaces/${issueKeyMatch[1]}/tasks/${found.task.id}`);
+      if (found && found.spaceId === (issueKeyMatch[1] ?? 'default')) {
+        urlPath = urlPath.replace(issueKeyMatch[2], found.task.id);
       }
     }
 
@@ -241,11 +242,7 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
           const keyCheck = spaceManager.checkKey(key);
           if (!keyCheck.ok) return sendError(res, keyCheck.code === 'DUPLICATE_KEY' ? 409 : 400, keyCheck.code, keyCheck.message);
         }
-        const result = spaceManager.createSpace(name, workingDirectory);
-        if (result.ok && key !== undefined) {
-          spaceManager.setKey(result.space.id, key);
-          result.space = spaceManager.getSpace(result.space.id).space;
-        }
+        const result = spaceManager.createSpace(name, workingDirectory, undefined, key);
 
         if (!result.ok) {
           const status = result.code === 'DUPLICATE_NAME' ? 409 : 400;

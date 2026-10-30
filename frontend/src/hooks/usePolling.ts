@@ -12,8 +12,11 @@ const POLL_INTERVAL_MS = 3000;
 export function usePolling(): void {
   useEffect(() => {
     const id = setInterval(() => {
-      const { isMutating, loadBoard } = useAppStore.getState();
-      if (!isMutating) loadBoard();
+      const { isMutating, loadBoard, refreshSpaces } = useAppStore.getState();
+      if (!isMutating) {
+        loadBoard();
+        refreshSpaces();
+      }
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(id);

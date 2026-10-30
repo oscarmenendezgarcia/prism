@@ -19,9 +19,10 @@ export function LabelsInput({ labels, onChange, disabled, inputClassName = '', i
   const [draft, setDraft] = useState('');
 
   const commit = () => {
-    const label = draft.trim().replace(/,/g, '').slice(0, LABEL_MAX);
+    const typed = draft.split(',').map((l) => l.trim().slice(0, LABEL_MAX)).filter(Boolean);
     setDraft('');
-    if (label && !labels.includes(label) && labels.length < LABELS_MAX) onChange([...labels, label]);
+    const next = [...new Set([...labels, ...typed])].slice(0, LABELS_MAX);
+    if (next.length !== labels.length) onChange(next);
   };
 
   return (

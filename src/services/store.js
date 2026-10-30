@@ -126,9 +126,10 @@ CREATE TABLE IF NOT EXISTS statuses (
 );
 
 -- Every key a space has had: old links keep working, and nobody else can take them.
+-- They outlive the space, or a new space would answer to the links of a deleted one.
 CREATE TABLE IF NOT EXISTS space_keys (
   key      TEXT PRIMARY KEY,
-  space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE
+  space_id TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS comments (
@@ -345,8 +346,12 @@ function backUpBeforeUpgrade(db, dbPath) {
   const hasData = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'spaces'").get();
   if (hasData) {
     const backupPath = `${dbPath}.before-v${Math.max(version + 1, 2)}`;
-    if (!fs.existsSync(backupPath)) {
-      db.prepare('VACUUM INTO ?').run(backupPath);
+    // Written aside and renamed, so that what has this name is always a whole copy.
+    if (!fs.existsSync(backupPath) || fs.statSync(backupPath).size === 0) {
+      const partial = `${backupPath}.partial`;
+      fs.rmSync(partial, { force: true });
+      db.prepare('VACUUM INTO ?').run(partial);
+      fs.renameSync(partial, backupPath);
       console.log(`[store] upgrade: kept a copy of the database in ${backupPath}`);
     }
   }
@@ -414,16 +419,27 @@ function migrateToIssues(db) {
         try {
           comments = task.comments ? JSON.parse(task.comments) : [];
         } catch {
+          comments = null;
+        }
+        // Anything but a list of comments stays in the old column, where it can still be read.
+        const readable = Array.isArray(comments)
+          && comments.every((c) => c && typeof c === 'object' && typeof c.text === 'string');
+        if (!readable) {
           console.warn(`[store] upgrade: task ${task.id} has unreadable comments, left as they were`);
           continue;
         }
-        for (const comment of Array.isArray(comments) ? comments : []) {
+        for (const comment of comments) {
           const id = comment.id && !seenComments.has(comment.id) ? comment.id : crypto.randomUUID();
           seenComments.add(id);
           insertComment.run(
-            id, task.id, comment.author ?? 'unknown', comment.text ?? '', comment.type ?? 'note',
-            comment.parentId ?? null, comment.resolved ? 1 : 0, comment.changeRequest ? 1 : 0,
-            comment.createdAt ?? task.created_at, comment.updatedAt ?? null,
+            id, task.id,
+            typeof comment.author === 'string' ? comment.author : 'unknown',
+            comment.text,
+            typeof comment.type === 'string' ? comment.type : 'note',
+            typeof comment.parentId === 'string' ? comment.parentId : null,
+            comment.resolved ? 1 : 0, comment.changeRequest ? 1 : 0,
+            typeof comment.createdAt === 'string' ? comment.createdAt : task.created_at,
+            typeof comment.updatedAt === 'string' ? comment.updatedAt : null,
           );
         }
         db.prepare('UPDATE tasks SET comments = NULL WHERE id = ?').run(task.id);
@@ -759,7 +775,8 @@ function createStore(dataDir) {
   function finishStatusOf(space) {
     const { statuses, hooks } = space;
     const known = (id) => statuses.some((s) => s.id === id);
-    if (known(hooks?.finishStatus)) return hooks.finishStatus;
+    // A status that became a to-do one no longer qualifies.
+    if (statuses.some((s) => s.id === hooks?.finishStatus && s.category !== 'todo')) return hooks.finishStatus;
     if (known('in-review')) return 'in-review';
     return statuses.find((s) => s.category === 'done')?.id ?? null;
   }
@@ -832,6 +849,13 @@ function createStore(dataDir) {
         }
         stmts.deleteStatus.run(spaceId, removed.id);
       }
+
+      // Forget a finish status that is gone, or a later one with its name would inherit the choice.
+      const space = getSpace(spaceId);
+      if (space.hooks?.finishStatus && !space.statuses.some((s) => s.id === space.hooks.finishStatus)) {
+        const { finishStatus: _gone, ...hooks } = space.hooks;
+        upsertSpace({ ...space, hooks, updatedAt: new Date().toISOString() });
+      }
       return getStatuses(spaceId);
     })();
   }
@@ -867,7 +891,7 @@ function createStore(dataDir) {
     );
     // A new space gets its key and statuses here, so no space can be without them.
     if (!stmts.getSpace.get(space.id).key) {
-      const key = suggestKey(space.name, (candidate) => !!getKeyOwner(candidate));
+      const key = space.key ?? suggestKey(space.name, (candidate) => !!getKeyOwner(candidate));
       stmts.addKey.run(key, space.id);
       stmts.setKey.run(key, space.id);
     }
@@ -1389,6 +1413,8 @@ function createStore(dataDir) {
 
   function deleteTask(spaceId, taskId, { actor } = {}) {
     const doDelete = db.transaction(() => {
+      if (!stmts.getTask.get(spaceId, taskId)) return false;
+
       // Its epic's issues and its sub-tasks stay, without a parent.
       const removedKey = historyValue(spaceId, 'parentId', taskId);
       for (const child of stmts.getChildren.all(taskId)) {
@@ -1396,10 +1422,7 @@ function createStore(dataDir) {
         recordHistory(child.id, actor, 'parentId', removedKey, null);
       }
 
-      const info = withFtsRecovery(() => stmts.deleteTask.run(spaceId, taskId));
-      if (info.changes === 0) return false;
-
-      // Clean up reverse references in other tasks' dependsOn arrays
+      // Clean up reverse references in other tasks' dependsOn arrays, while keys still read.
       const rows = stmts.getTasksWithDepsInSpace.all(spaceId);
       let cleanedCount = 0;
       const now = new Date().toISOString();
@@ -1411,11 +1434,16 @@ function createStore(dataDir) {
           newDeps.length > 0 ? JSON.stringify(newDeps) : null,
           now, spaceId, row.id
         );
+        recordHistory(
+          row.id, actor, 'dependsOn',
+          historyValue(spaceId, 'dependsOn', deps), historyValue(spaceId, 'dependsOn', newDeps),
+        );
         cleanedCount++;
       }
       if (cleanedCount > 0) {
         console.log(`[store] deleteTask: cleaned dependsOn refs in ${cleanedCount} tasks`);
       }
+      withFtsRecovery(() => stmts.deleteTask.run(spaceId, taskId));
       return true;
     });
     return doDelete();

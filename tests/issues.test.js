@@ -92,6 +92,31 @@ describe('issues over HTTP', () => {
       assert.equal((await call('PUT', `/spaces/${other.id}`, { key: 'OLD' })).status, 200, 'its own old key');
     });
 
+    it('does not free the key of a deleted space, nor burn the one it did not use', async () => {
+      const gone = (await call('POST', '/spaces', { name: 'Gone', key: 'ZED' })).json;
+      await call('POST', `/spaces/${gone.id}/tasks`, { title: 'old', type: 'bug' });
+      await call('DELETE', `/spaces/${gone.id}`);
+      assert.equal((await call('POST', '/spaces', { name: 'Thief 2', key: 'ZED' })).status, 409);
+      assert.equal((await call('GET', '/issues/ZED-1')).status, 404);
+
+      await call('POST', '/spaces', { name: 'Sugar', key: 'ABC' });
+      assert.equal((await call('POST', '/spaces', { name: 'Other', key: 'SUG' })).status, 201);
+    });
+
+    it('takes keys for parents and dependencies, and on the legacy routes', async () => {
+      const epic = await issue({ type: 'epic' });
+      const dep = await issue();
+      const made = await issue({ parentId: epic.key, dependsOn: [dep.key] });
+      assert.equal(made.parentId, epic.id);
+      assert.deepEqual(made.dependsOn, [dep.id]);
+
+      const { json: general } = await call('GET', '/spaces');
+      const own = general.find((s) => s.id === 'default');
+      const task = (await call('POST', '/tasks', { title: 'legacy', type: 'bug' })).json;
+      assert.equal(task.key.split('-')[0], own.key);
+      assert.equal((await call('GET', `/tasks/${task.key}`)).json.id, task.id);
+    });
+
     it('rejects a malformed key and does not create the space', async () => {
       const bad = await call('POST', '/spaces', { name: 'Bad key', key: 'a-b' });
       assert.equal(bad.status, 400);
@@ -171,6 +196,25 @@ describe('issues over HTTP', () => {
       const history = (await call('GET', `/spaces/${space.id}/tasks/${member.id}/history`)).json.history;
       assert.equal(history[0].field, 'parentId');
       assert.equal(history[0].oldValue, epic.key);
+    });
+
+    it('deleting through another space changes nothing there', async () => {
+      const other = (await call('POST', '/spaces', { name: 'Cross' })).json;
+      const parent = await issue();
+      const child = await issue({ parentId: parent.id });
+      assert.equal((await call('DELETE', `/spaces/${other.id}/tasks/${parent.id}`)).status, 404);
+      const { history } = (await call('GET', `/spaces/${space.id}/tasks/${child.id}/history`)).json;
+      assert.deepEqual(history.map((h) => h.field), ['created']);
+    });
+
+    it('records dependencies lost when an issue is deleted', async () => {
+      const dep = await issue();
+      const made = await issue({ dependsOn: [dep.id] });
+      await call('DELETE', `/spaces/${space.id}/tasks/${dep.id}`);
+      const { history } = (await call('GET', `/spaces/${space.id}/tasks/${made.id}/history`)).json;
+      assert.equal(history[0].field, 'dependsOn');
+      assert.equal(history[0].oldValue, dep.key);
+      assert.equal(history[0].newValue, null);
     });
 
     it('does not run an epic', async () => {
@@ -304,10 +348,25 @@ describe('issues over HTTP', () => {
       assert.equal((await call('PUT', `/spaces/${own.id}/tasks/${made.json.id}/move`, { to: 'nope' })).status, 400);
     });
 
+    it('forgets a finish status that was removed', async () => {
+      const space6 = (await call('POST', '/spaces', { name: 'Forget' })).json;
+      const statuses = [...space6.statuses, { name: 'Proto', category: 'in-progress' }];
+      const added = (await call('PUT', `/spaces/${space6.id}/statuses`, { statuses })).json;
+      await call('PUT', `/spaces/${space6.id}/hooks`, { checkCommand: null, autoPr: false, finishStatus: 'proto' });
+      const without = added.statuses.filter((s) => s.id !== 'proto');
+      const saved = (await call('PUT', `/spaces/${space6.id}/statuses`, { statuses: without })).json;
+      assert.equal(saved.hooks.finishStatus, undefined);
+      assert.equal(saved.finishStatusId, 'in-review');
+
+      const again = (await call('PUT', `/spaces/${space6.id}/statuses`, { statuses: [...without, { name: 'Proto', category: 'in-progress' }] })).json;
+      assert.equal(again.finishStatusId, 'in-review', 'a new status with that name does not inherit it');
+    });
+
     it('lets a space choose where agents finish, while the status exists', async () => {
       const space5 = (await call('POST', '/spaces', { name: 'Finish' })).json;
       const hooks = (body) => call('PUT', `/spaces/${space5.id}/hooks`, { checkCommand: null, autoPr: false, ...body });
       assert.equal((await hooks({ finishStatus: 'nope' })).status, 400);
+      assert.equal((await hooks({ finishStatus: 'todo' })).status, 400, 'finished work does not look unstarted');
       assert.equal((await hooks({ finishStatus: 'done' })).json.finishStatusId, 'done');
       assert.equal((await hooks({})).json.finishStatusId, 'done', 'saving the rest keeps it');
     });
@@ -346,6 +405,7 @@ describe('upgrade from tasks with arcs', () => {
     const space = db.prepare(`INSERT INTO spaces (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`);
     space.run('s1', 'General', '2026-01-01', '2026-01-01');
     space.run('s2', 'Géneral Ñu', '2026-01-02', '2026-01-02');
+    space.run('s3', 'Odd comments', '2026-01-03', '2026-01-03');
     const task = db.prepare(`INSERT INTO tasks (id, space_id, column, title, type, comments, arc, rank, created_at, updated_at, depends_on)
       VALUES (?, ?, ?, ?, 'feature', ?, ?, ?, ?, ?, ?)`);
     const comment = JSON.stringify([{ id: 'c1', author: 'Ana', text: 'hello', type: 'question', resolved: true, createdAt: '2026-02-01T00:00:00Z' }]);
@@ -354,6 +414,10 @@ describe('upgrade from tasks with arcs', () => {
     task.run('t2', 's1', 'done', 'Second', '{broken', 'Finished', 3000, '2026-01-12', '2026-01-12', JSON.stringify(['t1']));
     task.run('t4', 's1', 'todo', 'Fourth', null, null, 4000, '2026-01-14', '2026-01-14', null);
     task.run('t5', 's2', 'in-progress', 'Other space', null, 'Billing', 1000, '2026-01-15', '2026-01-15', null);
+    for (const [id, odd] of [['o1', '[null]'], ['o2', '[{"text":{"a":1}}]'], ['o3', '{"note":"keep me"}'], ['o4', '["just text"]']]) {
+      task.run(id, 's3', 'todo', id, odd, null, 1000, '2026-01-20', '2026-01-20', null);
+    }
+    task.run('o5', 's3', 'todo', 'o5', '[{"text":"ok","author":true,"parentId":7}]', null, 1000, '2026-01-21', '2026-01-21', null);
     db.pragma('user_version = 2');
     db.close();
   }
@@ -373,7 +437,7 @@ describe('upgrade from tasks with arcs', () => {
 
   it('keeps a copy of the old database', () => {
     const copy = new Database(path.join(dir, 'prism.db.before-v3'), { readonly: true });
-    assert.equal(copy.prepare('SELECT COUNT(*) AS n FROM tasks').get().n, 5);
+    assert.equal(copy.prepare('SELECT COUNT(*) AS n FROM tasks').get().n, 10);
     assert.equal(copy.pragma('user_version', { simple: true }), 2);
     copy.close();
   });
@@ -426,6 +490,30 @@ describe('upgrade from tasks with arcs', () => {
     assert.equal(raw.prepare(`SELECT comments FROM tasks WHERE id = 't2'`).get().comments, '{broken');
     raw.close();
     store = createStore(dir);
+  });
+
+  it('leaves comments of an unexpected shape where they were, and starts anyway', () => {
+    store.close();
+    const raw = new Database(path.join(dir, 'prism.db'), { readonly: true });
+    const left = (id) => raw.prepare('SELECT comments FROM tasks WHERE id = ?').get(id).comments;
+    assert.equal(left('o1'), '[null]');
+    assert.equal(left('o2'), '[{"text":{"a":1}}]');
+    assert.equal(left('o3'), '{"note":"keep me"}');
+    assert.equal(left('o4'), '["just text"]');
+    raw.close();
+    store = createStore(dir);
+    assert.equal(store.getTask('s3', 'o3').comments, undefined);
+    const { author, parentId, text } = store.getTask('s3', 'o5').comments[0];
+    assert.deepEqual([author, parentId, text], ['unknown', undefined, 'ok']);
+  });
+
+  it('does not trust an empty backup', () => {
+    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-upgrade-empty-'));
+    oldDatabase(emptyDir);
+    fs.writeFileSync(path.join(emptyDir, 'prism.db.before-v3'), '');
+    createStore(emptyDir).close();
+    assert.ok(fs.statSync(path.join(emptyDir, 'prism.db.before-v3')).size > 0);
+    fs.rmSync(emptyDir, { recursive: true, force: true });
   });
 
   it('does nothing the second time', () => {

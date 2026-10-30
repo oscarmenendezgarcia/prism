@@ -69,11 +69,18 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   useAppStore.setState({
-    spaces: [],
+    spaces: [{
+      id: SPACE_ID, name: 'Space', createdAt: '', updatedAt: '',
+      statuses: [
+        { id: 'todo', name: 'Backlog', category: 'todo' },
+        { id: 'in-progress', name: 'Doing', category: 'in-progress' },
+        { id: 'done', name: 'Done', category: 'done' },
+      ],
+    }],
     activeSpaceId: SPACE_ID,
     tasks: {
-      todo:          [{ id: DEP_ID_1, title: 'Task B', type: 'feature', createdAt: '', updatedAt: '' }],
-      'in-progress': [{ id: DEP_ID_2, title: 'Task C', type: 'bug',     createdAt: '', updatedAt: '' }],
+      todo:          [{ id: DEP_ID_1, title: 'Task B', type: 'feature', category: 'todo',        createdAt: '', updatedAt: '' }],
+      'in-progress': [{ id: DEP_ID_2, title: 'Task C', type: 'bug',     category: 'in-progress', createdAt: '', updatedAt: '' }],
       done:          [],
     },
     detailTask: null,
@@ -112,13 +119,13 @@ describe('DependsOnSection — rendering', () => {
 
   it('should_show_column_pill_for_dep', () => {
     renderSection({ dependsOn: [DEP_ID_1] });
-    // DEP_ID_1 is in 'todo'
-    expect(screen.getByText('todo')).toBeInTheDocument();
+    // DEP_ID_1 is in the status called 'Backlog'
+    expect(screen.getByText('Backlog')).toBeInTheDocument();
   });
 
   it('should_show_column_pill_for_in_progress_dep', () => {
     renderSection({ dependsOn: [DEP_ID_2] });
-    expect(screen.getByText('in progress')).toBeInTheDocument();
+    expect(screen.getByText('Doing')).toBeInTheDocument();
   });
 
   it('should_not_show_add_button_when_disabled', () => {

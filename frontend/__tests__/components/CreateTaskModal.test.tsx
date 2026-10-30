@@ -8,7 +8,6 @@ vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(), getTasks: vi.fn(), createTask: vi.fn(), moveTask: vi.fn(),
   deleteTask: vi.fn(), createSpace: vi.fn(), renameSpace: vi.fn(), deleteSpace: vi.fn(),
   getAttachmentContent: vi.fn(),
-  getArcs: vi.fn().mockResolvedValue({ arcs: [] }),
 }));
 
 beforeEach(() => {
@@ -16,6 +15,7 @@ beforeEach(() => {
     createModalOpen: false,
     activeSpaceId: 'default',
     isMutating: false,
+    tasks: {},
   });
   vi.clearAllMocks();
 });
@@ -23,23 +23,23 @@ beforeEach(() => {
 describe('CreateTaskModal', () => {
   it('does not render when modal is closed', () => {
     render(<CreateTaskModal />);
-    expect(screen.queryByText('New Task')).not.toBeInTheDocument();
+    expect(screen.queryByText('New issue')).not.toBeInTheDocument();
   });
 
   it('renders form when modal is open', () => {
     useAppStore.setState({ createModalOpen: true });
     render(<CreateTaskModal />);
-    expect(screen.getByText('New Task')).toBeInTheDocument();
+    expect(screen.getByText('New issue')).toBeInTheDocument();
     expect(screen.getByLabelText(/title/i)).toBeInTheDocument();
     // Type field is now a chip group (role="group")
-    expect(screen.getByRole('group', { name: /task type/i })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: /issue type/i })).toBeInTheDocument();
   });
 
   it('shows title validation error when submitting empty title', async () => {
     useAppStore.setState({ createModalOpen: true });
     render(<CreateTaskModal />);
 
-    fireEvent.submit(screen.getByRole('button', { name: /create task/i }).closest('form')!);
+    fireEvent.submit(screen.getByRole('button', { name: /create issue/i }).closest('form')!);
     await waitFor(() => {
       expect(screen.getByText('Title is required')).toBeInTheDocument();
     });
@@ -51,7 +51,7 @@ describe('CreateTaskModal', () => {
     render(<CreateTaskModal />);
 
     await user.type(screen.getByLabelText(/title/i), 'Some title');
-    fireEvent.submit(screen.getByRole('button', { name: /create task/i }).closest('form')!);
+    fireEvent.submit(screen.getByRole('button', { name: /create issue/i }).closest('form')!);
     await waitFor(() => {
       expect(screen.getByText('Type is required')).toBeInTheDocument();
     });
@@ -66,18 +66,13 @@ describe('CreateTaskModal', () => {
     expect(screen.getByText('3 / 200')).toBeInTheDocument();
   });
 
-  it('chip group shows the 4 new types and not the legacy ones', () => {
+  it('chip group shows the issue types, epic included, and not the legacy ones', () => {
     useAppStore.setState({ createModalOpen: true });
     render(<CreateTaskModal />);
     // Type is now a chip group of radio buttons
-    const chipGroup = screen.getByRole('group', { name: /task type/i });
+    const chipGroup = screen.getByRole('group', { name: /issue type/i });
     expect(chipGroup).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'feature' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'bug' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'tech-debt' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'chore' })).toBeInTheDocument();
-    expect(screen.queryByRole('radio', { name: 'task' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('radio', { name: 'research' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('radio').map((r) => r.textContent)).toEqual(['Feature', 'Bug', 'Chore', 'Tech debt', 'Epic']);
   });
 
   it('closes when Cancel button is clicked', () => {
@@ -97,10 +92,10 @@ describe('CreateTaskModal', () => {
 
     await user.type(screen.getByLabelText(/title/i), 'New Feature');
     // Click the 'feature' chip instead of selectOptions
-    await user.click(screen.getByRole('radio', { name: 'feature' }));
+    await user.click(screen.getByRole('radio', { name: 'Feature' }));
     await user.type(screen.getByLabelText(/description/i), 'Some details');
 
-    await user.click(screen.getByRole('button', { name: /create task/i }));
+    await user.click(screen.getByRole('button', { name: /create issue/i }));
 
     await waitFor(() => {
       expect(mockCreateTask).toHaveBeenCalledWith(
@@ -121,12 +116,67 @@ describe('CreateTaskModal', () => {
 
     await user.type(screen.getByLabelText(/title/i), 'Title');
     // Click the 'chore' chip
-    await user.click(screen.getByRole('radio', { name: 'chore' }));
-    await user.click(screen.getByRole('button', { name: /create task/i }));
+    await user.click(screen.getByRole('radio', { name: 'Chore' }));
+    await user.click(screen.getByRole('button', { name: /create issue/i }));
 
     await waitFor(() => {
       const payload = mockCreateTask.mock.calls[0][0];
       expect(payload.assigned).toBeUndefined();
+    });
+  });
+
+  describe('issue fields', () => {
+    const EPIC = { id: 'e1', title: 'Checkout', type: 'epic' as const, createdAt: '', updatedAt: '' };
+
+    function openWith(mockCreateTask: ReturnType<typeof vi.fn>) {
+      useAppStore.setState({ createModalOpen: true, createTask: mockCreateTask, tasks: { todo: [EPIC] } } as any);
+      render(<CreateTaskModal />);
+      fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'T' } });
+    }
+
+    it('sends medium priority and nothing else optional by default', async () => {
+      const mockCreateTask = vi.fn().mockResolvedValue(undefined);
+      openWith(mockCreateTask);
+      fireEvent.click(screen.getByRole('radio', { name: 'Bug' }));
+      fireEvent.click(screen.getByRole('button', { name: /create issue/i }));
+      await waitFor(() => expect(mockCreateTask).toHaveBeenCalledWith({ title: 'T', type: 'bug', priority: 'medium' }));
+    });
+
+    it('sends the priority, epic, labels and due date chosen', async () => {
+      const mockCreateTask = vi.fn().mockResolvedValue(undefined);
+      openWith(mockCreateTask);
+      fireEvent.click(screen.getByRole('radio', { name: 'Bug' }));
+      fireEvent.change(screen.getByLabelText(/priority/i), { target: { value: 'urgent' } });
+      fireEvent.change(screen.getByLabelText(/^epic$/i), { target: { value: 'e1' } });
+      fireEvent.change(screen.getByLabelText(/due date/i), { target: { value: '2030-01-02' } });
+      const labels = screen.getByRole('textbox', { name: 'Add a label' });
+      fireEvent.change(labels, { target: { value: 'ui' } });
+      fireEvent.keyDown(labels, { key: 'Enter' });
+      fireEvent.click(screen.getByRole('button', { name: /create issue/i }));
+      await waitFor(() => expect(mockCreateTask).toHaveBeenCalledWith({
+        title: 'T', type: 'bug', priority: 'urgent', parentId: 'e1', labels: ['ui'], dueDate: '2030-01-02',
+      }));
+    });
+
+    it('does not let an epic go inside an epic', async () => {
+      const mockCreateTask = vi.fn().mockResolvedValue(undefined);
+      openWith(mockCreateTask);
+      fireEvent.change(screen.getByLabelText(/^epic$/i), { target: { value: 'e1' } });
+      fireEvent.click(screen.getByRole('radio', { name: 'Epic' }));
+      expect(screen.getByLabelText(/^epic$/i)).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: /create issue/i }));
+      await waitFor(() => expect(mockCreateTask).toHaveBeenCalled());
+      expect(mockCreateTask.mock.calls[0][0].parentId).toBeUndefined();
+    });
+
+    it('lists only the epics of the board', () => {
+      useAppStore.setState({
+        createModalOpen: true,
+        tasks: { todo: [EPIC, { id: 't', title: 'Not an epic', type: 'chore', createdAt: '', updatedAt: '' }] },
+      } as any);
+      render(<CreateTaskModal />);
+      const options = Array.from(screen.getByLabelText(/^epic$/i).querySelectorAll('option')).map((o) => o.textContent);
+      expect(options).toEqual(['None', 'Checkout']);
     });
   });
 });

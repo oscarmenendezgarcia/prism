@@ -12,6 +12,8 @@ type BadgeType = TaskType | 'done';
 
 interface BadgeProps {
   type: BadgeType;
+  /** Shown instead of the type's own name, as written. */
+  label?: string;
   className?: string;
 }
 
@@ -48,12 +50,12 @@ const badgeLabel: Record<BadgeType, string> = {
   done:        'done',
 };
 
-export function Badge({ type, className = '' }: BadgeProps) {
+export function Badge({ type, label, className = '' }: BadgeProps) {
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium leading-none uppercase tracking-wide ${badgeClasses[type]} ${className}`}
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium leading-none ${label ? '' : 'uppercase tracking-wide'} ${badgeClasses[type]} ${className}`}
     >
-      {badgeLabel[type]}
+      {label ?? badgeLabel[type]}
     </span>
   );
 }

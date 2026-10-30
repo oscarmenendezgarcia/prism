@@ -2,7 +2,7 @@
  * T-013: TaskCard blocked badge rendering tests.
  *
  * Tests that the "blocked by N" badge appears/disappears based on
- * task.isBlocked and the current column.
+ * task.isBlocked and the category of its status.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -91,9 +91,9 @@ describe('TaskCard — blocked badge', () => {
     expect(screen.queryByTestId('blocked-badge')).toBeNull();
   });
 
-  it('should_NOT_render_blocked_badge_in_done_column_even_if_isBlocked_true', () => {
-    const task = makeTask({ isBlocked: true, blockedByCount: 1 });
-    render(<TaskCard task={task} column="done" />);
+  it('should_NOT_render_blocked_badge_in_a_done_status_even_if_isBlocked_true', () => {
+    const task = makeTask({ isBlocked: true, blockedByCount: 1, category: 'done' });
+    render(<TaskCard task={task} column="shipped" />);
     expect(screen.queryByTestId('blocked-badge')).toBeNull();
   });
 

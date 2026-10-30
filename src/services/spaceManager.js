@@ -92,7 +92,7 @@ function createSpaceManager(storeOrDataDir) {
   /**
    * Create a new space.
    */
-  function createSpace(name, workingDirectory, _id) {
+  function createSpace(name, workingDirectory, _id, key) {
     const validation = validateName(name);
     if (!validation.valid) {
       return { ok: false, code: 'VALIDATION_ERROR', message: validation.error };
@@ -114,6 +114,7 @@ function createSpaceManager(storeOrDataDir) {
       id:        _id || crypto.randomUUID(),
       name:      validation.name,
       ...(workingDirectory ? { workingDirectory } : {}),
+      ...(key ? { key } : {}),
       createdAt: now,
       updatedAt: now,
     };

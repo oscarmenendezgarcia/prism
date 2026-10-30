@@ -42,6 +42,14 @@ vi.mock('../../src/api/client', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 
+const STATUSES = [
+  { id: 'todo', name: 'Todo', category: 'todo' as const },
+  { id: 'in-progress', name: 'In Progress', category: 'in-progress' as const },
+  { id: 'done', name: 'Done', category: 'done' as const },
+];
+
+const SPACE = { id: 'space-1', name: 'Test Space', statuses: STATUSES, createdAt: '', updatedAt: '' };
+
 const BASE_TASK: Task = {
   id: 'task-1',
   title: 'Implement user auth flow',
@@ -83,8 +91,9 @@ function setRunStatus(taskId: string, status: string) {
 function resetStores(overrides: Record<string, unknown> = {}) {
   useAppStore.setState({
     activeSpaceId: 'space-1',
-    spaces: [{ id: 'space-1', name: 'Test Space', createdAt: '', updatedAt: '' }],
+    spaces: [SPACE],
     isMutating: false,
+    mutatingTaskIds: new Set<string>(),
     tasks: { todo: [], 'in-progress': [], done: [] },
     ...overrides,
   });
@@ -104,28 +113,35 @@ beforeEach(() => {
 describe('TaskCard — Zone A (identity)', () => {
   it('renders the badge with the correct type (feature)', () => {
     render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
-    expect(screen.getByText('feature')).toBeInTheDocument();
+    expect(screen.getByTestId('type-badge')).toHaveTextContent('Feature');
   });
 
   it('renders a bug badge when type is bug', () => {
     render(
       <TaskCard task={{ ...BASE_TASK, type: 'bug' }} column="todo" {...DRAG_HANDLERS} />
     );
-    expect(screen.getByText('bug')).toBeInTheDocument();
+    expect(screen.getByTestId('type-badge')).toHaveTextContent('Bug');
   });
 
   it('renders a tech-debt badge when type is tech-debt', () => {
     render(
       <TaskCard task={{ ...BASE_TASK, type: 'tech-debt' }} column="todo" {...DRAG_HANDLERS} />
     );
-    expect(screen.getByText('tech-debt')).toBeInTheDocument();
+    expect(screen.getByTestId('type-badge')).toHaveTextContent('Tech debt');
   });
 
   it('renders a chore badge when type is chore', () => {
     render(
       <TaskCard task={{ ...BASE_TASK, type: 'chore' }} column="todo" {...DRAG_HANDLERS} />
     );
-    expect(screen.getByText('chore')).toBeInTheDocument();
+    expect(screen.getByTestId('type-badge')).toHaveTextContent('Chore');
+  });
+
+  it('renders an epic badge when type is epic', () => {
+    render(
+      <TaskCard task={{ ...BASE_TASK, type: 'epic' }} column="todo" {...DRAG_HANDLERS} />
+    );
+    expect(screen.getByTestId('type-badge')).toHaveTextContent('Epic');
   });
 
   it('renders the title text', () => {
@@ -143,7 +159,7 @@ describe('TaskCard — Zone A (identity)', () => {
 
   it('does NOT render an open_in_full expand button', () => {
     render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
-    expect(screen.queryByLabelText(/open task detail/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/open (task|issue) detail/i)).not.toBeInTheDocument();
   });
 });
 
@@ -213,6 +229,7 @@ describe('TaskCard — Zone B (assigned)', () => {
       <TaskCard task={{ ...BASE_TASK, description: 'Some desc' }} column="todo" {...DRAG_HANDLERS} />
     );
     expect(screen.queryByTestId('assigned-name')).not.toBeInTheDocument();
+    expect(screen.getByTestId('unassigned-label')).toHaveTextContent('Unassigned');
   });
 });
 
@@ -266,27 +283,116 @@ describe('TaskCard — Zone B (attachment count)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Zone B — description preview
+// Epic, parent, labels, progress and due date
 // ---------------------------------------------------------------------------
 
-describe('TaskCard — Zone B (description preview)', () => {
-  it('description preview is absent when task.description is undefined', () => {
-    render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
-    expect(screen.queryByTestId('desc-preview')).not.toBeInTheDocument();
+describe('TaskCard — issue tags', () => {
+  const issue = (over: Partial<Task>): Task => ({ ...BASE_TASK, ...over });
+  const EPIC = issue({ id: 'epic-1', key: 'WEB-1', title: 'Checkout epic', type: 'epic' });
+  const PARENT = issue({ id: 'parent-1', key: 'WEB-2', title: 'Parent issue', parentId: 'epic-1' });
+
+  it('shows the key and the priority', () => {
+    render(<TaskCard task={issue({ key: 'WEB-142', priority: 'urgent' })} column="todo" />);
+    expect(screen.getByTestId('issue-key')).toHaveTextContent('WEB-142');
+    expect(screen.getByTestId('priority-icon')).toHaveAttribute('aria-label', 'Urgent priority');
+    expect(screen.getByTestId('priority-icon')).toHaveTextContent('keyboard_double_arrow_up');
   });
 
-  it('description preview is present when task.description is set', () => {
-    render(
-      <TaskCard task={{ ...BASE_TASK, description: 'My description' }} column="todo" {...DRAG_HANDLERS} />
-    );
-    expect(screen.getByTestId('desc-preview')).toHaveTextContent('My description');
+  it('counts an issue without a priority as medium', () => {
+    render(<TaskCard task={BASE_TASK} column="todo" />);
+    expect(screen.getByTestId('priority-icon')).toHaveAttribute('aria-label', 'Medium priority');
   });
 
-  it('description preview has line-clamp-2 class', () => {
-    render(
-      <TaskCard task={{ ...BASE_TASK, description: 'My description' }} column="todo" {...DRAG_HANDLERS} />
-    );
-    expect(screen.getByTestId('desc-preview')).toHaveClass('line-clamp-2');
+  it('has no tags at all when the issue has none of them', () => {
+    render(<TaskCard task={BASE_TASK} column="todo" />);
+    expect(screen.queryByTestId('issue-tags')).not.toBeInTheDocument();
+  });
+
+  it('shows the epic of an issue in one', () => {
+    const task = issue({ parentId: 'epic-1' });
+    resetStores({ tasks: { todo: [EPIC, task] } });
+    render(<TaskCard task={task} column="todo" />);
+    expect(screen.getByTestId('epic-tag')).toHaveTextContent('Checkout epic');
+    expect(screen.queryByTestId('parent-tag')).not.toBeInTheDocument();
+  });
+
+  it('shows the same epic tag in any status', () => {
+    const task = issue({ parentId: 'epic-1', category: 'done' });
+    resetStores({ tasks: { todo: [EPIC], done: [task] } });
+    render(<TaskCard task={task} column="done" />);
+    expect(screen.getByTestId('epic-tag')).toHaveTextContent('Checkout epic');
+  });
+
+  it('shows the parent and the epic of a sub-task', () => {
+    const task = issue({ parentId: 'parent-1' });
+    resetStores({ tasks: { todo: [EPIC, PARENT, task] } });
+    render(<TaskCard task={task} column="todo" />);
+    expect(screen.getByTestId('parent-tag')).toHaveTextContent('WEB-2');
+    expect(screen.getByTestId('epic-tag')).toHaveTextContent('Checkout epic');
+  });
+
+  it('shows no epic tag on the epic itself', () => {
+    resetStores({ tasks: { todo: [EPIC] } });
+    render(<TaskCard task={EPIC} column="todo" />);
+    expect(screen.queryByTestId('epic-tag')).not.toBeInTheDocument();
+  });
+
+  it('shows the labels', () => {
+    render(<TaskCard task={issue({ labels: ['ui', 'urgent-fix'] })} column="todo" />);
+    const tags = screen.getByTestId('issue-tags');
+    expect(tags).toHaveTextContent('ui');
+    expect(tags).toHaveTextContent('urgent-fix');
+  });
+
+  it('shows the progress of an epic, and no Run on it', () => {
+    const done = issue({ id: 'c1', parentId: 'epic-1', category: 'done' });
+    const open = issue({ id: 'c2', parentId: 'epic-1', category: 'todo' });
+    resetStores({ tasks: { todo: [EPIC, open], done: [done] } });
+    render(<TaskCard task={{ ...EPIC, category: 'todo' }} column="todo" />);
+    expect(screen.getByTestId('epic-progress')).toHaveTextContent('50% · 1 of 2 done');
+    expect(screen.queryByTestId('subtask-count')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('run-footer')).not.toBeInTheDocument();
+  });
+
+  it('counts the sub-tasks of an issue', () => {
+    const done = issue({ id: 'c1', parentId: 'task-1', category: 'done' });
+    const open = issue({ id: 'c2', parentId: 'task-1', category: 'todo' });
+    resetStores({ tasks: { todo: [BASE_TASK, open], done: [done] } });
+    render(<TaskCard task={BASE_TASK} column="todo" />);
+    expect(screen.getByTestId('subtask-count')).toHaveTextContent('1/2');
+    expect(screen.queryByTestId('epic-progress')).not.toBeInTheDocument();
+  });
+
+  it('marks a due date in the past as overdue', () => {
+    render(<TaskCard task={issue({ dueDate: '2020-03-04', category: 'todo' })} column="todo" />);
+    const due = screen.getByTestId('due-date');
+    expect(due).toHaveTextContent('Mar 4, 2020');
+    expect(due).toHaveClass('text-error');
+    expect(due).toHaveAttribute('title', 'Overdue');
+  });
+
+  it('does not mark a due date in the past as overdue once the issue is done', () => {
+    render(<TaskCard task={issue({ dueDate: '2020-03-04', category: 'done' })} column="done" />);
+    expect(screen.getByTestId('due-date')).not.toHaveClass('text-error');
+  });
+
+  it('has no due date when none is set', () => {
+    render(<TaskCard task={BASE_TASK} column="todo" />);
+    expect(screen.queryByTestId('due-date')).not.toBeInTheDocument();
+  });
+
+  it('offers Run according to the category of the status, not its id', () => {
+    resetStores({ spaces: [{ ...SPACE, workingDirectory: '/repo' }] });
+    const { unmount } = render(<TaskCard task={issue({ category: 'todo' })} column="backlog" />);
+    expect(screen.getByRole('button', { name: /^.*run$/i })).toBeInTheDocument();
+    unmount();
+    render(<TaskCard task={issue({ category: 'done' })} column="todo" />);
+    expect(screen.queryByRole('button', { name: /^.*run$/i })).not.toBeInTheDocument();
+  });
+
+  it('does not show the description on the card', () => {
+    render(<TaskCard task={{ ...BASE_TASK, description: 'My description' }} column="todo" />);
+    expect(screen.queryByText('My description')).not.toBeInTheDocument();
   });
 });
 
@@ -348,14 +454,27 @@ describe('TaskCard — hover overlay', () => {
 // ---------------------------------------------------------------------------
 
 describe('TaskCard — move actions (in overlay)', () => {
-  it('move-left absent on todo column', () => {
+  it('move-left absent on the first status', () => {
     render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
-    expect(screen.queryByRole('button', { name: /move to todo/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^move to /i, hidden: true }).map((b) => b.getAttribute('aria-label'))).toEqual(['Move to In Progress']);
   });
 
-  it('move-right absent on done column', () => {
+  it('move-right absent on the last status', () => {
     render(<TaskCard task={BASE_TASK} column="done" {...DRAG_HANDLERS} />);
-    expect(screen.queryByRole('button', { name: /move to done/i })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^move to /i, hidden: true }).map((b) => b.getAttribute('aria-label'))).toEqual(['Move to In Progress']);
+  });
+
+  it('moves between the statuses next to it, whatever they are', () => {
+    const moveTask = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({
+      moveTask,
+      spaces: [{ ...SPACE, statuses: [...STATUSES.slice(0, 2), { id: 'rev', name: 'In review', category: 'in-progress' as const }, STATUSES[2]] }],
+    } as never);
+    render(<TaskCard task={BASE_TASK} column="rev" {...DRAG_HANDLERS} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Move to In Progress', hidden: true }));
+    expect(moveTask).toHaveBeenCalledWith('task-1', 'in-progress');
+    fireEvent.click(screen.getByRole('button', { name: 'Move to Done', hidden: true }));
+    expect(moveTask).toHaveBeenCalledWith('task-1', 'done');
   });
 
   it('both arrows present on in-progress column', () => {
@@ -370,14 +489,14 @@ describe('TaskCard — move actions (in overlay)', () => {
     useAppStore.setState({ moveTask: mockMoveTask } as never);
     render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
     fireEvent.click(screen.getByRole('button', { name: /move to in progress/i, hidden: true }));
-    expect(mockMoveTask).toHaveBeenCalledWith('task-1', 'right', 'todo');
+    expect(mockMoveTask).toHaveBeenCalledWith('task-1', 'in-progress');
   });
 
   it('calls deleteTask when delete clicked', () => {
     const mockDeleteTask = vi.fn().mockResolvedValue(undefined);
     useAppStore.setState({ deleteTask: mockDeleteTask } as never);
     render(<TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />);
-    fireEvent.click(screen.getByRole('button', { name: /delete task/i, hidden: true }));
+    fireEvent.click(screen.getByRole('button', { name: /delete issue/i, hidden: true }));
     expect(mockDeleteTask).toHaveBeenCalledWith('task-1');
   });
 
@@ -402,21 +521,22 @@ describe('TaskCard — move actions (in overlay)', () => {
 // ---------------------------------------------------------------------------
 
 describe('TaskCard — done state', () => {
-  it('applies opacity-50 and grayscale-[25%] when column is done', () => {
+  it('applies opacity-60 and grayscale-[25%] when its status is in the done category', () => {
     const { container } = render(
-      <TaskCard task={BASE_TASK} column="done" {...DRAG_HANDLERS} />
+      <TaskCard task={{ ...BASE_TASK, category: 'done' }} column="shipped" {...DRAG_HANDLERS} />
     );
     const article = container.querySelector('[data-testid="task-card"]');
-    expect(article?.className).toContain('opacity-50');
+    expect(article?.className).toContain('opacity-60');
     expect(article?.className).toContain('grayscale-[25%]');
   });
 
-  it('does not apply done styles when column is todo', () => {
+  it('does not apply done styles when its status is in another category', () => {
     const { container } = render(
-      <TaskCard task={BASE_TASK} column="todo" {...DRAG_HANDLERS} />
+      <TaskCard task={{ ...BASE_TASK, category: 'in-progress' }} column="done" {...DRAG_HANDLERS} />
     );
     const article = container.querySelector('[data-testid="task-card"]');
-    expect(article?.className).not.toContain('opacity-50');
+    expect(article?.className).not.toContain('opacity-60');
+    expect(article?.className).not.toContain('grayscale-[25%]');
   });
 });
 

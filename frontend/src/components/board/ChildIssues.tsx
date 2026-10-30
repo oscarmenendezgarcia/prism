@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react';
 import * as api from '@/api/client';
+import { Button } from '@/components/shared/Button';
 import { useAppStore, useTasks } from '@/stores/useAppStore';
 import { boardIndex, parentIssueOf, progressOf, statusDotClass } from '@/utils/issues';
 import type { Task } from '@/types';
@@ -80,6 +81,7 @@ export function ChildIssues({ task, spaceId }: ChildIssuesProps) {
         <input
           type="text"
           autoFocus
+          data-escape-local
           value={title}
           maxLength={200}
           disabled={saving}
@@ -94,15 +96,17 @@ export function ChildIssues({ task, spaceId }: ChildIssuesProps) {
           className="w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary placeholder:text-text-disabled/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60"
         />
       ) : (
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="sm"
           onClick={() => setAdding(true)}
           data-testid="add-child-issue"
-          className="self-start inline-flex items-center gap-1 px-2 py-1 -ml-2 rounded-full text-xs font-medium text-primary hover:bg-primary/10 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+          className="self-start -ml-2"
         >
           <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">add</span>
           {isEpic ? 'Add issue' : 'Add sub-task'}
-        </button>
+        </Button>
       )}
     </div>
   );

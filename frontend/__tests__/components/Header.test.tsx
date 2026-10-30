@@ -28,16 +28,16 @@ describe('Header', () => {
     expect(screen.getByText('Prism')).toBeInTheDocument();
   });
 
-  it('renders New Task button', () => {
+  it('renders New issue button', () => {
     renderHeader();
-    expect(screen.getByText('New Task')).toBeInTheDocument();
+    expect(screen.getByText('New issue')).toBeInTheDocument();
   });
 
-  it('opens create modal when New Task button clicked', () => {
+  it('opens create modal when New issue button clicked', () => {
     const mockOpen = vi.fn();
     useAppStore.setState({ openCreateModal: mockOpen } as any);
     renderHeader();
-    fireEvent.click(screen.getByText('New Task'));
+    fireEvent.click(screen.getByText('New issue'));
     expect(mockOpen).toHaveBeenCalled();
   });
 

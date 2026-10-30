@@ -3,6 +3,7 @@
  */
 
 import React, { useRef } from 'react';
+import { Button } from '@/components/shared/Button';
 import type { Status, StatusCategory } from '@/types';
 
 export interface StatusRow {
@@ -67,8 +68,6 @@ export function StatusesEditor({ rows, onChange, counts, removed, moves, onRemov
       {rows.map((row, i) => (
         <div
           key={row.rowKey}
-          draggable
-          onDragStart={(e) => { dragged.current = row.rowKey; e.dataTransfer.effectAllowed = 'move'; }}
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
@@ -79,7 +78,16 @@ export function StatusesEditor({ rows, onChange, counts, removed, moves, onRemov
           className="flex items-center gap-1.5 px-2 py-1.5 border border-border rounded-lg bg-surface"
           data-testid="status-row"
         >
-          <span className="material-symbols-outlined text-base leading-none text-text-disabled cursor-grab select-none" aria-hidden="true">drag_indicator</span>
+          {/* Only the grip drags: a draggable row would stop its inputs selecting text. */}
+          <span
+            draggable
+            onDragStart={(e) => { dragged.current = row.rowKey; e.dataTransfer.effectAllowed = 'move'; }}
+            className="material-symbols-outlined text-base leading-none text-text-disabled cursor-grab select-none"
+            aria-hidden="true"
+            data-testid="status-grip"
+          >
+            drag_indicator
+          </span>
           <input
             type="text"
             value={row.name}
@@ -131,16 +139,18 @@ export function StatusesEditor({ rows, onChange, counts, removed, moves, onRemov
         </label>
       ))}
 
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="sm"
         disabled={rows.length >= STATUSES_MAX}
         onClick={() => onChange([...rows, { rowKey: `new-${nextKey.current++}`, name: '', category: 'in-progress' }])}
         data-testid="add-status"
-        className="self-start inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-40 focus:outline-hidden focus:ring-2 focus:ring-primary transition-colors duration-fast"
+        className="self-start"
       >
         <span className="material-symbols-outlined text-sm leading-none" aria-hidden="true">add</span>
         Add status
-      </button>
+      </Button>
     </fieldset>
   );
 }

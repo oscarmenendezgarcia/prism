@@ -277,6 +277,17 @@ function createApp(spaceId, store) {
   // Task payload validation
   // -------------------------------------------------------------------------
 
+  /** A parent or a dependency can be given by key, such as WEB-142, like any route. */
+  function resolveIssueRefs(body) {
+    if (!body || typeof body !== 'object') return;
+    const toId = (ref) => {
+      const found = typeof ref === 'string' ? store.getTaskByKey(ref) : null;
+      return found?.spaceId === spaceId ? found.task.id : ref;
+    };
+    if (body.parentId) body.parentId = toId(body.parentId);
+    if (Array.isArray(body.dependsOn)) body.dependsOn = body.dependsOn.map(toId);
+  }
+
   function validateCreatePayload(body) {
     const errors = [];
 
@@ -435,6 +446,7 @@ function createApp(spaceId, store) {
       return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
     }
 
+    resolveIssueRefs(body);
     const { valid, errors, data } = validateCreatePayload(body);
     if (!valid) {
       return sendError(res, 400, 'VALIDATION_ERROR', errors.join('; '));
@@ -539,7 +551,8 @@ function createApp(spaceId, store) {
 
       // Prism moves the card when the agent and the hooks are done, so neither
       // the agent nor anyone else can skip them by moving the card.
-      if (target.category !== 'in-progress' && taskRunner.hasActiveRun(taskId)) {
+      const finishStatusId = store.getSpace(spaceId).finishStatusId;
+      if ((target.category !== 'in-progress' || to === finishStatusId) && taskRunner.hasActiveRun(taskId)) {
         return sendError(res, 409, 'TASK_RUN_ACTIVE',
           'An agent is running this task. Stop it before moving the card.');
       }
@@ -667,6 +680,7 @@ function createApp(spaceId, store) {
       return sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be a JSON object');
     }
 
+    resolveIssueRefs(body);
     const UPDATABLE_FIELDS = ['title', 'type', 'description', 'assigned', 'priority', 'labels', 'parentId', 'dueDate', 'estimate', 'dependsOn'];
     const provided         = UPDATABLE_FIELDS.filter((f) => f in body);
 

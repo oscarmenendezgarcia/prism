@@ -16,6 +16,7 @@ import { CardActionMenu } from '@/components/board/CardActionMenu';
 import { useAppStore } from '@/stores/useAppStore';
 import { useTaskRunStore } from '@/stores/useTaskRunStore';
 import { useDragStore } from '@/stores/useDragStore';
+import { Badge } from '@/components/shared/Badge';
 import { boardIndex, epicOf, formatDueDate, isOverdue, parentIssueOf, priorityOf, progressOf, typeOf } from '@/utils/issues';
 import { TaskRunFooter } from '@/components/runs/TaskRunFooter';
 
@@ -132,6 +133,10 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   // Only intercepts that exact combo — Tab, Enter, Space, Escape, plain
   // arrows all pass through unchanged so we never trap the keyboard.
   const handleKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (e.key === 'Enter' && e.target === e.currentTarget) {
+      openDetailPanel(task);
+      return;
+    }
     if (!onKeyboardReorder) return;
     if (!e.altKey) return;
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
@@ -205,14 +210,15 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
           <span
             className={`material-symbols-outlined text-base leading-none flex-shrink-0 ${priority.className}`}
             title={`${priority.label} priority`}
+            role="img"
             aria-label={`${priority.label} priority`}
             data-testid="priority-icon"
           >
             {priority.icon}
           </span>
           <span className="font-mono text-[11px] font-semibold text-text-secondary" data-testid="issue-key">{task.key}</span>
-          <span className={`ml-auto text-[11px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${type.className}`} data-testid="type-badge">
-            {type.label}
+          <span className="ml-auto flex-shrink-0" data-testid="type-badge">
+            <Badge type={task.type} label={type.label} />
           </span>
         </div>
 
@@ -335,7 +341,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
         {/* Action menu — absolute top-right, hover/focus-within only */}
         <div
           data-testid="hover-overlay"
-          className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 transition-opacity duration-fast"
+          className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-within:opacity-100 [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:static [@media(pointer:coarse)]:flex [@media(pointer:coarse)]:justify-end [@media(pointer:coarse)]:mt-2 transition-opacity duration-fast"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="bg-surface-elevated border border-border rounded-md shadow-sm">

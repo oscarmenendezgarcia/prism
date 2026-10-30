@@ -224,6 +224,7 @@ export function DependsOnSection({
           <div className="relative">
             <input
               ref={searchRef}
+              data-escape-local
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}

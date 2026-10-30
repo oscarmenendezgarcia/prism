@@ -185,6 +185,39 @@ describe('task runs', () => {
     await setCheck(null);
   });
 
+  test('a card waiting for review does not start over, and one moved back does', async () => {
+    const taskId = await makeTask();
+    await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    await waitFor(taskId, 'done');
+    const again = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    assert.equal(again.status, 409);
+    assert.equal(again.json.error.code, 'TASK_AWAITING_REVIEW');
+
+    await call('PUT', `/spaces/${space}/tasks/${taskId}/move`, { to: 'in-progress' });
+    assert.equal((await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {})).status, 201);
+    await waitFor(taskId, 'done');
+  });
+
+  test('a running card cannot jump to where finished work lands', async () => {
+    setMode('block');
+    const taskId = await makeTask();
+    await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    assert.equal((await call('PUT', `/spaces/${space}/tasks/${taskId}/move`, { to: 'in-review' })).status, 409);
+    const { json: view } = await call('GET', `/spaces/${space}/task-runs`);
+    await call('POST', `/runs/${view[taskId].runId}/stop`);
+    setMode('ok');
+  });
+
+  test('asking for changes on a task that became an epic is refused', async () => {
+    const taskId = await makeTask();
+    await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});
+    await waitFor(taskId, 'done');
+    assert.equal((await call('PUT', `/spaces/${space}/tasks/${taskId}`, { type: 'epic' })).status, 200);
+    const refused = await call('POST', `/spaces/${space}/tasks/${taskId}/request-changes`, { text: 'more' });
+    assert.equal(refused.status, 409);
+    assert.equal(refused.json.error.code, 'TASK_IS_EPIC');
+  });
+
   test('runs the task in a worktree, keeps it, closes the card and exposes the diff', async () => {
     const taskId = await makeTask();
     const { status, json: run } = await call('POST', `/spaces/${space}/tasks/${taskId}/run`, {});

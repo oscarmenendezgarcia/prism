@@ -35,8 +35,15 @@ function resetStore() {
     spaceModal: null,
     deleteSpaceDialog: null,
     toast: null,
+    epicFilter: null,
   });
 }
+
+const STATUSES = [
+  { id: 'todo', name: 'Todo', category: 'todo' as const },
+  { id: 'in-progress', name: 'In Progress', category: 'in-progress' as const },
+  { id: 'done', name: 'Done', category: 'done' as const },
+];
 
 beforeEach(() => {
   resetStore();
@@ -56,34 +63,32 @@ describe('setActiveSpace', () => {
     expect(localStorage.getItem('prism-active-space')).toBe('space-123');
   });
 
-  it('resets arc filter and grouping when switching space', () => {
-    useAppStore.setState({ arcFilter: 'AUTH', arcGrouping: true });
+  it('resets the epic filter when switching space', () => {
+    useAppStore.setState({ epicFilter: 'epic-1' });
     useAppStore.getState().setActiveSpace('space-456');
-    expect(useAppStore.getState().arcFilter).toBeNull();
-    expect(useAppStore.getState().arcGrouping).toBe(false);
+    expect(useAppStore.getState().epicFilter).toBeNull();
+  });
+
+  it('drops the board of the old space when switching, and keeps it when the space is the same', () => {
+    const board = { todo: [{ id: 't1', title: 'T', type: 'chore' as const, createdAt: '', updatedAt: '' }] };
+    useAppStore.setState({ activeSpaceId: 'space-1', tasks: board });
+    useAppStore.getState().setActiveSpace('space-1');
+    expect(useAppStore.getState().tasks).toBe(board);
+    useAppStore.getState().setActiveSpace('space-2');
+    expect(useAppStore.getState().tasks).toEqual({});
   });
 });
 
-describe('arc filter / grouping are mutually exclusive', () => {
-  it('setting a filter turns grouping off', () => {
-    useAppStore.setState({ arcFilter: null, arcGrouping: true });
-    useAppStore.getState().setArcFilter('AUTH');
-    expect(useAppStore.getState().arcFilter).toBe('AUTH');
-    expect(useAppStore.getState().arcGrouping).toBe(false);
+describe('epic filter', () => {
+  it('setting it stores the epic', () => {
+    useAppStore.getState().setEpicFilter('epic-1');
+    expect(useAppStore.getState().epicFilter).toBe('epic-1');
   });
 
-  it('turning grouping on clears the filter', () => {
-    useAppStore.setState({ arcFilter: 'AUTH', arcGrouping: false });
-    useAppStore.getState().toggleArcGrouping();
-    expect(useAppStore.getState().arcGrouping).toBe(true);
-    expect(useAppStore.getState().arcFilter).toBeNull();
-  });
-
-  it('clearing the filter (null) leaves grouping untouched', () => {
-    useAppStore.setState({ arcFilter: 'AUTH', arcGrouping: false });
-    useAppStore.getState().setArcFilter(null);
-    expect(useAppStore.getState().arcFilter).toBeNull();
-    expect(useAppStore.getState().arcGrouping).toBe(false);
+  it('null clears it', () => {
+    useAppStore.setState({ epicFilter: 'epic-1' });
+    useAppStore.getState().setEpicFilter(null);
+    expect(useAppStore.getState().epicFilter).toBeNull();
   });
 });
 
@@ -144,6 +149,33 @@ describe('loadBoard', () => {
     await useAppStore.getState().loadBoard();
     expect(useAppStore.getState().toast?.type).toBe('error');
   });
+
+  it('ignores a board that arrives after the user moved to another space', async () => {
+    let resolve!: (board: Record<string, never[]>) => void;
+    vi.mocked(api.getTasks).mockReturnValue(new Promise((r) => { resolve = r; }));
+    useAppStore.setState({ activeSpaceId: 'space-1', tasks: {} });
+    const loading = useAppStore.getState().loadBoard();
+    useAppStore.setState({ activeSpaceId: 'space-2' });
+    resolve({ late: [] });
+    await loading;
+    expect(useAppStore.getState().tasks).toEqual({});
+  });
+
+  it('reloads the spaces when the board has a status it does not know', async () => {
+    const fresh = [{ id: 'space-1', name: 'S', statuses: [...STATUSES, { id: 'qa', name: 'QA', category: 'in-progress' as const }], createdAt: '', updatedAt: '' }];
+    useAppStore.setState({ activeSpaceId: 'space-1', spaces: [{ id: 'space-1', name: 'S', statuses: STATUSES, createdAt: '', updatedAt: '' }] });
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], qa: [] });
+    vi.mocked(api.getSpaces).mockResolvedValue(fresh);
+    await useAppStore.getState().loadBoard();
+    expect(useAppStore.getState().spaces).toEqual(fresh);
+  });
+
+  it('does not reload the spaces when it knows every status', async () => {
+    useAppStore.setState({ activeSpaceId: 'space-1', spaces: [{ id: 'space-1', name: 'S', statuses: STATUSES, createdAt: '', updatedAt: '' }] });
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    await useAppStore.getState().loadBoard();
+    expect(api.getSpaces).not.toHaveBeenCalled();
+  });
 });
 
 describe('createTask', () => {
@@ -181,8 +213,8 @@ describe('createTask', () => {
 });
 
 describe('moveTask', () => {
-  it('calls api.moveTask with target column, shows toast, reloads board', async () => {
-    useAppStore.setState({ activeSpaceId: 'space-1' });
+  it('calls api.moveTask with the target status, shows its name in a toast, reloads board', async () => {
+    useAppStore.setState({ activeSpaceId: 'space-1', spaces: [{ id: 'space-1', name: 'S', statuses: STATUSES, createdAt: '', updatedAt: '' }] });
     vi.mocked(api.moveTask).mockResolvedValue({
       task: { id: 't1', title: 'T', type: 'chore', createdAt: '', updatedAt: '' },
       from: 'todo',
@@ -190,10 +222,10 @@ describe('moveTask', () => {
     });
     vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
 
-    await useAppStore.getState().moveTask('t1', 'right', 'todo');
+    await useAppStore.getState().moveTask('t1', 'in-progress');
 
     expect(api.moveTask).toHaveBeenCalledWith('space-1', 't1', 'in-progress');
-    expect(useAppStore.getState().toast?.message).toContain('In Progress');
+    expect(useAppStore.getState().toast?.message).toBe('Moved to In Progress');
     expect(api.getTasks).toHaveBeenCalled();
   });
 
@@ -211,7 +243,7 @@ describe('moveTask', () => {
     });
     vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
 
-    await useAppStore.getState().moveTask('t1', 'right', 'todo');
+    await useAppStore.getState().moveTask('t1', 'in-progress');
 
     expect(inFlightIds).not.toBeNull();
     expect(Array.from(inFlightIds!)).toEqual(['t1']);
@@ -232,7 +264,7 @@ describe('moveTask', () => {
     });
     vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
 
-    await useAppStore.getState().moveTask('t1', 'right', 'todo');
+    await useAppStore.getState().moveTask('t1', 'in-progress');
 
     // Regression guard: only 't1' is tracked, never 'other-task'.
     expect(inFlightIds!.has('t1')).toBe(true);
@@ -242,7 +274,7 @@ describe('moveTask', () => {
   it('clears mutatingTaskIds even when api.moveTask throws', async () => {
     useAppStore.setState({ activeSpaceId: 'space-1' });
     vi.mocked(api.moveTask).mockRejectedValue(new Error('boom'));
-    await useAppStore.getState().moveTask('t1', 'right', 'todo');
+    await useAppStore.getState().moveTask('t1', 'in-progress');
     expect(useAppStore.getState().mutatingTaskIds.size).toBe(0);
   });
 
@@ -255,7 +287,7 @@ describe('moveTask', () => {
     });
     vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
 
-    await useAppStore.getState().moveTask('t1', 'left', 'in-progress');
+    await useAppStore.getState().moveTask('t1', 'todo');
 
     expect(api.moveTask).toHaveBeenCalledWith('space-1', 't1', 'todo');
   });
@@ -270,7 +302,7 @@ describe('deleteTask', () => {
     await useAppStore.getState().deleteTask('t1');
 
     expect(api.deleteTask).toHaveBeenCalledWith('space-1', 't1');
-    expect(useAppStore.getState().toast?.message).toBe('Task deleted');
+    expect(useAppStore.getState().toast?.message).toBe('Issue deleted');
   });
 });
 
@@ -292,7 +324,7 @@ describe('reorderTask', () => {
 
   it('optimistically re-sorts the column and persists via api.reorderTask', async () => {
     useAppStore.setState({ activeSpaceId: 'space-1', tasks: columnTasks });
-    vi.mocked(api.reorderTask).mockResolvedValue(undefined);
+    vi.mocked(api.reorderTask).mockResolvedValue(columnTasks.todo[0]);
 
     const promise = useAppStore.getState().reorderTask('t1', 'todo', 2500);
     // Optimistic re-sort happens synchronously, before the API call resolves.
@@ -323,7 +355,7 @@ describe('modal open/close actions', () => {
   });
 
   it('openAttachmentModal / closeAttachmentModal', () => {
-    useAppStore.getState().openAttachmentModal('s1', 't1', 0, 'file.txt');
+    useAppStore.getState().openAttachmentModal('s1', 't1', 0, 'file.txt', []);
     const modal = useAppStore.getState().attachmentModal;
     expect(modal).toMatchObject({ open: true, spaceId: 's1', taskId: 't1', index: 0, name: 'file.txt' });
     useAppStore.getState().closeAttachmentModal();

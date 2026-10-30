@@ -1,35 +1,12 @@
 /**
  * Unit tests for CardActionMenu.
- * T-006: renders correct buttons per column, disabled states, aria-labels.
+ * T-006: renders the buttons for the statuses on each side, disabled states, aria-labels.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type React from 'react';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { CardActionMenu } from '../../src/components/board/CardActionMenu';
-import { useAppStore } from '../../src/stores/useAppStore';
-
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
-vi.mock('../../src/api/client', () => ({
-  getSpaces: vi.fn(),
-  getTasks: vi.fn(),
-  createTask: vi.fn(),
-  moveTask: vi.fn(),
-  deleteTask: vi.fn(),
-  createSpace: vi.fn(),
-  renameSpace: vi.fn(),
-  deleteSpace: vi.fn(),
-  getAttachmentContent: vi.fn(),
-  getAgents: vi.fn(),
-  getAgent: vi.fn(),
-  generatePrompt: vi.fn(),
-  getSettings: vi.fn(),
-  saveSettings: vi.fn(),
-  listRuns: vi.fn(),
-  getRun: vi.fn(),
-}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,11 +14,9 @@ vi.mock('../../src/api/client', () => ({
 
 function renderMenu(overrides: Partial<React.ComponentProps<typeof CardActionMenu>> = {}) {
   const defaults: React.ComponentProps<typeof CardActionMenu> = {
-    taskId: 'task-1',
-    column: 'in-progress',
-    spaceId: 'space-1',
+    leftLabel: 'Todo',
+    rightLabel: 'Done',
     isMutating: false,
-    activeRun: null,
     onMoveLeft: vi.fn(),
     onMoveRight: vi.fn(),
     onDelete: vi.fn(),
@@ -49,48 +24,43 @@ function renderMenu(overrides: Partial<React.ComponentProps<typeof CardActionMen
   return render(<CardActionMenu {...defaults} {...overrides} />);
 }
 
-beforeEach(() => {
-  useAppStore.setState({
-    activeSpaceId: 'space-1',
-    spaces: [{ id: 'space-1', name: 'Test Space', createdAt: '', updatedAt: '' }],
-    availableAgents: [],
-    activeRun: null,
-    isMutating: false,
-  });
-  vi.clearAllMocks();
-});
-
 // ---------------------------------------------------------------------------
 // Move-left button tests
 // ---------------------------------------------------------------------------
 
 describe('CardActionMenu — move-left button', () => {
-  it('is absent on the todo column', () => {
-    renderMenu({ column: 'todo' });
-    expect(screen.queryByRole('button', { name: /move to todo/i })).not.toBeInTheDocument();
+  it('is absent when there is no status to the left', () => {
+    renderMenu({ leftLabel: undefined, rightLabel: 'In Progress' });
+    expect(screen.getAllByRole('button', { name: /^move to /i }).map((b) => b.getAttribute('aria-label'))).toEqual(['Move to In Progress']);
   });
 
-  it('is present on the in-progress column', () => {
-    renderMenu({ column: 'in-progress' });
-    expect(screen.getByRole('button', { name: /move to todo/i })).toBeInTheDocument();
+  it('is present when there is a status to the left, with its name', () => {
+    renderMenu({ leftLabel: 'Todo', rightLabel: undefined });
+    expect(screen.getByRole('button', { name: 'Move to Todo' })).toBeInTheDocument();
   });
 
-  it('is present on the done column', () => {
-    renderMenu({ column: 'done' });
-    expect(screen.getByRole('button', { name: /move to in progress/i })).toBeInTheDocument();
+  it('names whatever the status is called', () => {
+    renderMenu({ leftLabel: 'In review', rightLabel: undefined });
+    expect(screen.getByRole('button', { name: 'Move to In review' })).toBeInTheDocument();
   });
 
   it('calls onMoveLeft when clicked', () => {
     const onMoveLeft = vi.fn();
-    renderMenu({ column: 'in-progress', onMoveLeft });
+    const onMoveRight = vi.fn();
+    renderMenu({ onMoveLeft, onMoveRight });
     fireEvent.click(screen.getByRole('button', { name: /move to todo/i }));
     expect(onMoveLeft).toHaveBeenCalledOnce();
+    expect(onMoveRight).not.toHaveBeenCalled();
+  });
+
+  it('is disabled when isMutating is true', () => {
+    renderMenu({ isMutating: true });
+    expect(screen.getByRole('button', { name: /move to todo/i })).toBeDisabled();
   });
 
   it('has an aria-label', () => {
-    renderMenu({ column: 'in-progress' });
-    const btn = screen.getByRole('button', { name: /move to todo/i });
-    expect(btn).toHaveAttribute('aria-label');
+    renderMenu();
+    expect(screen.getByRole('button', { name: /move to todo/i })).toHaveAttribute('aria-label', 'Move to Todo');
   });
 });
 
@@ -99,32 +69,33 @@ describe('CardActionMenu — move-left button', () => {
 // ---------------------------------------------------------------------------
 
 describe('CardActionMenu — move-right button', () => {
-  it('is absent on the done column', () => {
-    renderMenu({ column: 'done' });
-    expect(screen.queryByRole('button', { name: /move to done/i })).not.toBeInTheDocument();
+  it('is absent when there is no status to the right', () => {
+    renderMenu({ leftLabel: 'In Progress', rightLabel: undefined });
+    expect(screen.getAllByRole('button', { name: /^move to /i }).map((b) => b.getAttribute('aria-label'))).toEqual(['Move to In Progress']);
   });
 
-  it('is present on the todo column', () => {
-    renderMenu({ column: 'todo' });
-    expect(screen.getByRole('button', { name: /move to in progress/i })).toBeInTheDocument();
-  });
-
-  it('is present on the in-progress column', () => {
-    renderMenu({ column: 'in-progress' });
-    expect(screen.getByRole('button', { name: /move to done/i })).toBeInTheDocument();
+  it('is present when there is a status to the right, with its name', () => {
+    renderMenu({ leftLabel: undefined, rightLabel: 'In Progress' });
+    expect(screen.getByRole('button', { name: 'Move to In Progress' })).toBeInTheDocument();
   });
 
   it('calls onMoveRight when clicked', () => {
+    const onMoveLeft = vi.fn();
     const onMoveRight = vi.fn();
-    renderMenu({ column: 'in-progress', onMoveRight });
+    renderMenu({ onMoveLeft, onMoveRight });
     fireEvent.click(screen.getByRole('button', { name: /move to done/i }));
     expect(onMoveRight).toHaveBeenCalledOnce();
+    expect(onMoveLeft).not.toHaveBeenCalled();
+  });
+
+  it('is disabled when isMutating is true', () => {
+    renderMenu({ isMutating: true });
+    expect(screen.getByRole('button', { name: /move to done/i })).toBeDisabled();
   });
 
   it('has an aria-label', () => {
-    renderMenu({ column: 'in-progress' });
-    const btn = screen.getByRole('button', { name: /move to done/i });
-    expect(btn).toHaveAttribute('aria-label');
+    renderMenu();
+    expect(screen.getByRole('button', { name: /move to done/i })).toHaveAttribute('aria-label', 'Move to Done');
   });
 });
 
@@ -134,36 +105,32 @@ describe('CardActionMenu — move-right button', () => {
 
 describe('CardActionMenu — delete button', () => {
   it('is always rendered', () => {
-    renderMenu({ column: 'todo' });
-    expect(screen.getByRole('button', { name: /delete task/i })).toBeInTheDocument();
+    renderMenu({ leftLabel: undefined, rightLabel: undefined });
+    expect(screen.getByRole('button', { name: 'Delete issue' })).toBeInTheDocument();
   });
 
   it('is disabled when isMutating is true', () => {
     renderMenu({ isMutating: true });
-    expect(screen.getByRole('button', { name: /delete task/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Delete issue' })).toBeDisabled();
   });
 
   it('is enabled when isMutating is false', () => {
     renderMenu({ isMutating: false });
-    expect(screen.getByRole('button', { name: /delete task/i })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Delete issue' })).not.toBeDisabled();
   });
 
   it('calls onDelete when clicked', () => {
     const onDelete = vi.fn();
     renderMenu({ onDelete });
-    fireEvent.click(screen.getByRole('button', { name: /delete task/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete issue' }));
     expect(onDelete).toHaveBeenCalledOnce();
   });
 
   it('has an aria-label', () => {
     renderMenu();
-    expect(screen.getByRole('button', { name: /delete task/i })).toHaveAttribute('aria-label');
+    expect(screen.getByRole('button', { name: 'Delete issue' })).toHaveAttribute('aria-label', 'Delete issue');
   });
 });
-
-// ---------------------------------------------------------------------------
-// AgentLauncherMenu (run-agent) — only on todo column
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Move-up / Move-down buttons (ADR-1 keyboard-card-reorder, T-004)
@@ -184,7 +151,6 @@ describe('CardActionMenu — move-up / move-down buttons', () => {
 
   it('render leftmost (before the move-left / move-right pair)', () => {
     const { container } = renderMenu({
-      column: 'in-progress',
       onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true,
     });
     const buttons = Array.from(container.querySelectorAll('button')).map((b) => b.getAttribute('aria-label'));
@@ -245,12 +211,18 @@ describe('CardActionMenu — move-up / move-down buttons', () => {
   });
 
   it('preserves ARIA toolbar role and shows ↑↓ alongside ←→, with a divider between the groups', () => {
-    renderMenu({ column: 'in-progress', onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true });
+    const { container } = renderMenu({ onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true });
     const toolbar = screen.getByRole('toolbar', { name: /card actions/i });
     expect(toolbar).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Move up' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Move down' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /move to todo/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /move to done/i })).toBeInTheDocument();
+    expect(container.querySelector('[role="toolbar"] > .w-px')).toBeInTheDocument();
+  });
+
+  it('has no divider when no horizontal group follows', () => {
+    const { container } = renderMenu({ leftLabel: undefined, rightLabel: undefined, onMoveUp: vi.fn(), onMoveDown: vi.fn(), canMoveUp: true, canMoveDown: true });
+    expect(container.querySelector('[role="toolbar"] > .w-px')).toBeNull();
   });
 });

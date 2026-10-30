@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TaskDetailPanel } from '../../src/components/board/TaskDetailPanel';
 import { useAppStore } from '../../src/stores/useAppStore';
 import * as api from '../../src/api/client';
@@ -27,7 +27,7 @@ vi.mock('../../src/api/client', () => ({
   deleteSpace:       vi.fn(),
   getAttachmentContent: vi.fn(),
   updateTask:        vi.fn(),
-  getArcs:           vi.fn().mockResolvedValue({ arcs: [] }),
+  getTaskHistory:    vi.fn().mockResolvedValue({ history: [] }),
   getAgents:         vi.fn(),
   generatePrompt:    vi.fn(),
   getSettings:       vi.fn().mockResolvedValue({}),
@@ -44,8 +44,17 @@ vi.mock('../../src/api/client', () => ({
 // Fixtures
 // ---------------------------------------------------------------------------
 
+const STATUSES = [
+  { id: 'todo', name: 'Todo', category: 'todo' as const },
+  { id: 'doing', name: 'In Progress', category: 'in-progress' as const },
+  { id: 'done', name: 'Done', category: 'done' as const },
+];
+
 const TASK: Task = {
   id: 'task-abc-1234567',
+  key: 'WEB-7',
+  statusId: 'todo',
+  category: 'todo',
   title: 'Build auth flow',
   type: 'feature',
   description: 'Implement JWT-based authentication',
@@ -70,8 +79,9 @@ function resetStore(overrides: Partial<ReturnType<typeof useAppStore.getState>> 
     detailTask: null,
     isMutating: false,
     mutatingTaskIds: new Set<string>(),
-    tasks: { todo: [TASK, TASK_WITH_ATTACHMENTS], 'in-progress': [], done: [] },
+    tasks: { todo: [TASK, TASK_WITH_ATTACHMENTS], doing: [], done: [] },
     activeSpaceId: 'space-1',
+    spaces: [{ id: 'space-1', name: 'Space', statuses: STATUSES, createdAt: '', updatedAt: '' }],
     ...overrides,
   } as any);
 }
@@ -81,6 +91,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useAppStore.getState>> 
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
+  useAppStore.setState(useAppStore.getInitialState());
   resetStore();
   vi.clearAllMocks();
 });
@@ -106,7 +117,7 @@ describe('TaskDetailPanel — render state', () => {
   it('pre-populates assigned input with task assigned', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
-    expect(screen.getByLabelText(/assigned/i)).toHaveValue(TASK.assigned);
+    expect(screen.getByLabelText(/assignee/i)).toHaveValue(TASK.assigned);
   });
 
   it('pre-populates description textarea with task description', () => {
@@ -115,10 +126,27 @@ describe('TaskDetailPanel — render state', () => {
     expect(screen.getByLabelText(/description/i)).toHaveValue(TASK.description);
   });
 
-  it('shows the task short ID in the header', () => {
+  it('shows the issue key in the header', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
-    expect(screen.getByText(`#${TASK.id.slice(-7)}`)).toBeInTheDocument();
+    expect(screen.getByTestId('detail-key')).toHaveTextContent('WEB-7');
+  });
+
+  it('shows no key buttons on an issue without a key', () => {
+    useAppStore.setState({ detailTask: { ...TASK, key: undefined }, tasks: {} } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.queryByTestId('detail-key')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /copy link/i })).not.toBeInTheDocument();
+  });
+
+  it('shows what is on the board over the copy it opened with', () => {
+    useAppStore.setState({
+      detailTask: TASK,
+      tasks: { doing: [{ ...TASK, statusId: 'doing', category: 'in-progress', priority: 'high' }] },
+    } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByLabelText(/^status$/i)).toHaveValue('doing');
+    expect(screen.getByLabelText(/^priority$/i)).toHaveValue('high');
   });
 
   it('shows a relative timestamp in the header with created/updated in the tooltip', () => {
@@ -138,7 +166,7 @@ describe('TaskDetailPanel — close actions', () => {
     useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
     render(<TaskDetailPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /close task detail/i }));
+    fireEvent.click(screen.getByRole('button', { name: /close issue detail/i }));
     expect(closeDetailPanel).toHaveBeenCalled();
   });
 
@@ -209,7 +237,7 @@ describe('TaskDetailPanel — auto-save on blur: assigned', () => {
     useAppStore.setState({ detailTask: TASK, updateTask } as any);
     render(<TaskDetailPanel />);
 
-    const assignedInput = screen.getByLabelText(/assigned/i);
+    const assignedInput = screen.getByLabelText(/assignee/i);
     fireEvent.change(assignedInput, { target: { value: 'senior-architect' } });
     fireEvent.blur(assignedInput);
 
@@ -221,7 +249,7 @@ describe('TaskDetailPanel — auto-save on blur: assigned', () => {
     useAppStore.setState({ detailTask: TASK, updateTask } as any);
     render(<TaskDetailPanel />);
 
-    const assignedInput = screen.getByLabelText(/assigned/i);
+    const assignedInput = screen.getByLabelText(/assignee/i);
     fireEvent.change(assignedInput, { target: { value: '' } });
     fireEvent.blur(assignedInput);
 
@@ -230,32 +258,234 @@ describe('TaskDetailPanel — auto-save on blur: assigned', () => {
 });
 
 describe('TaskDetailPanel — auto-save on change: type', () => {
-  it('calls store.updateTask with { type } immediately when type button is clicked', () => {
+  it('calls store.updateTask with { type } immediately when another type is chosen', () => {
     const updateTask = vi.fn().mockResolvedValue(undefined);
     useAppStore.setState({ detailTask: TASK, updateTask } as any);
     render(<TaskDetailPanel />);
 
-    // Task starts as 'feature', click 'bug' to change it
-    const bugButton = screen.getByRole('radio', { name: /^bug$/i });
-    fireEvent.click(bugButton);
+    // Task starts as 'feature', choose 'bug' to change it
+    fireEvent.change(screen.getByLabelText(/^type$/i), { target: { value: 'bug' } });
 
     expect(updateTask).toHaveBeenCalledWith(TASK.id, { type: 'bug' });
   });
+});
 
-  it('does NOT call updateTask when same type is clicked again', () => {
-    const updateTask = vi.fn().mockResolvedValue(undefined);
-    useAppStore.setState({ detailTask: TASK, updateTask } as any);
+describe('TaskDetailPanel — status', () => {
+  it('offers the statuses of the space and shows the current one', () => {
+    useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
+    const select = screen.getByLabelText(/^status$/i);
+    expect(select).toHaveValue('todo');
+    expect(Array.from(select.querySelectorAll('option')).map((o) => o.textContent)).toEqual(['Todo', 'In Progress', 'Done']);
+  });
 
-    // Click the currently-active 'feature' button — no change should occur
-    const featureButton = screen.getByRole('radio', { name: /^feature$/i });
-    fireEvent.click(featureButton);
-
-    expect(updateTask).not.toHaveBeenCalled();
+  it('moves the issue when another is chosen', () => {
+    const moveTask = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState({ detailTask: TASK, moveTask } as any);
+    render(<TaskDetailPanel />);
+    fireEvent.change(screen.getByLabelText(/^status$/i), { target: { value: 'doing' } });
+    expect(moveTask).toHaveBeenCalledWith(TASK.id, 'doing');
   });
 });
 
-describe('TaskDetailPanel — explicit save: description', () => {
+describe('TaskDetailPanel — issue fields', () => {
+  function open(detail: Task = TASK, tasks: Record<string, Task[]> = { todo: [detail] }) {
+    const updateTask = vi.fn().mockResolvedValue(undefined);
+    const openDetailPanel = vi.fn();
+    useAppStore.setState({ detailTask: detail, tasks, updateTask, openDetailPanel } as any);
+    render(<TaskDetailPanel />);
+    return { updateTask, openDetailPanel };
+  }
+
+  const EPIC: Task = { ...TASK, id: 'epic-1', key: 'WEB-1', title: 'Checkout', type: 'epic' };
+
+  it('saves the priority, showing medium when it has none', () => {
+    const { updateTask } = open();
+    const select = screen.getByLabelText(/^priority$/i);
+    expect(select).toHaveValue('medium');
+    fireEvent.change(select, { target: { value: 'urgent' } });
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { priority: 'urgent' });
+  });
+
+  it('puts the issue in an epic and takes it out', () => {
+    const inEpic = { ...TASK, parentId: 'epic-1' };
+    const { updateTask } = open(inEpic, { todo: [inEpic, EPIC] });
+    const select = screen.getByLabelText(/^epic$/i);
+    expect(select).toHaveValue('epic-1');
+    fireEvent.change(select, { target: { value: '' } });
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { parentId: null });
+  });
+
+  it('offers the epics of the board, none other', () => {
+    const { updateTask } = open(TASK, { todo: [TASK, EPIC, { ...TASK, id: 'other', title: 'Not an epic' }] });
+    const select = screen.getByLabelText(/^epic$/i);
+    expect(Array.from(select.querySelectorAll('option')).map((o) => o.textContent)).toEqual(['None', 'Checkout']);
+    fireEvent.change(select, { target: { value: 'epic-1' } });
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { parentId: 'epic-1' });
+  });
+
+  it('shows the parent of a sub-task instead of an epic, which opens it, and lets it go', () => {
+    const parent: Task = { ...TASK, id: 'p1', key: 'WEB-2', title: 'Parent issue' };
+    const sub: Task = { ...TASK, id: 's1', key: 'WEB-3', parentId: 'p1' };
+    const { updateTask, openDetailPanel } = open(sub, { todo: [parent, sub] });
+    expect(screen.queryByLabelText(/^epic$/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('parent-link'));
+    expect(openDetailPanel).toHaveBeenCalledWith(parent);
+    fireEvent.click(screen.getByRole('button', { name: 'Make it an issue of its own' }));
+    expect(updateTask).toHaveBeenCalledWith('s1', { parentId: null });
+  });
+
+  it('has neither epic, estimate nor agent on an epic, and does have its issues', () => {
+    open(EPIC, { todo: [EPIC] });
+    expect(screen.queryByLabelText(/^epic$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/estimate/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('child-issues')).toHaveTextContent('Issues in this epic');
+  });
+
+  it('saves labels', () => {
+    const { updateTask } = open({ ...TASK, labels: ['ui'] }, { todo: [{ ...TASK, labels: ['ui'] }] });
+    const input = screen.getByRole('textbox', { name: 'Add a label' });
+    fireEvent.change(input, { target: { value: 'api' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { labels: ['ui', 'api'] });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove label ui' }));
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { labels: [] });
+  });
+
+  it('saves the due date and clears it with null', () => {
+    const dated = { ...TASK, dueDate: '2030-01-02' };
+    const { updateTask } = open(dated, { todo: [dated] });
+    const input = screen.getByLabelText(/due date/i);
+    expect(input).toHaveValue('2030-01-02');
+    // Typing can make a valid date at each digit, such as year 0002: nothing saves until leaving.
+    fireEvent.change(input, { target: { value: '0002-03-11' } });
+    fireEvent.change(input, { target: { value: '2030-02-03' } });
+    expect(updateTask).not.toHaveBeenCalled();
+    fireEvent.blur(input);
+    expect(updateTask).toHaveBeenCalledTimes(1);
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { dueDate: '2030-02-03' });
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { dueDate: null });
+  });
+
+  it('closes, saying so, when the issue is deleted elsewhere', () => {
+    open(TASK, { todo: [TASK] });
+    act(() => { useAppStore.setState({ tasks: { todo: [] } } as any); });
+    expect(useAppStore.getState().detailTask).toBeNull();
+    expect(useAppStore.getState().toast?.message).toContain('deleted');
+  });
+
+  it('Escape saves the field being edited as it closes', () => {
+    const { updateTask } = open(TASK, { todo: [TASK] });
+    const input = screen.getByLabelText(/assignee/i) as HTMLInputElement;
+    input.focus();
+    fireEvent.change(input, { target: { value: 'Someone new' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { assigned: 'Someone new' });
+  });
+
+  it('Escape leaves the panel alone when another dialog is on top', () => {
+    open(TASK, { todo: [TASK] });
+    const other = document.createElement('div');
+    other.setAttribute('aria-modal', 'true');
+    document.body.appendChild(other);
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    other.remove();
+    expect(useAppStore.getState().detailTask).not.toBeNull();
+  });
+
+  it('says when it is overdue', () => {
+    const late = { ...TASK, dueDate: '2020-01-02' };
+    open(late, { todo: [late] });
+    expect(screen.getByText(/Due date · overdue/)).toBeInTheDocument();
+  });
+
+  it('does not say overdue when it is done', () => {
+    const late = { ...TASK, dueDate: '2020-01-02', category: 'done' as const };
+    open(late, { done: [late] });
+    expect(screen.queryByText(/overdue/)).not.toBeInTheDocument();
+  });
+
+  it('saves the estimate as a number on blur', () => {
+    const { updateTask } = open();
+    const input = screen.getByLabelText(/estimate/i);
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.blur(input);
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { estimate: 5 });
+  });
+
+  it('saves a cleared estimate as null', () => {
+    const sized = { ...TASK, estimate: 3 };
+    const { updateTask } = open(sized, { todo: [sized] });
+    const input = screen.getByLabelText(/estimate/i);
+    expect(input).toHaveValue(3);
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    expect(updateTask).toHaveBeenCalledWith(TASK.id, { estimate: null });
+  });
+
+  it('does not save an estimate that did not change', () => {
+    const sized = { ...TASK, estimate: 3 };
+    const { updateTask } = open(sized, { todo: [sized] });
+    fireEvent.blur(screen.getByLabelText(/estimate/i));
+    expect(updateTask).not.toHaveBeenCalled();
+  });
+
+  it('reverts a negative estimate', () => {
+    const sized = { ...TASK, estimate: 3 };
+    const { updateTask } = open(sized, { todo: [sized] });
+    const input = screen.getByLabelText(/estimate/i);
+    fireEvent.change(input, { target: { value: '-1' } });
+    fireEvent.blur(input);
+    expect(updateTask).not.toHaveBeenCalled();
+    expect(input).toHaveValue(3);
+  });
+});
+
+describe('TaskDetailPanel — comments and history', () => {
+  it('shows the comments first, and the history of the issue on its tab', async () => {
+    vi.mocked(api.getTaskHistory).mockResolvedValue({
+      history: [{ id: 1, actor: 'user', field: 'created', oldValue: null, newValue: null, createdAt: '2026-01-01T00:00:00.000Z' }],
+    });
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+    expect(screen.getByTestId('comments-panel')).toBeInTheDocument();
+    expect(api.getTaskHistory).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('activity-tab-history'));
+
+    expect(await screen.findByTestId('history-entry')).toHaveTextContent('You created it');
+    expect(api.getTaskHistory).toHaveBeenCalledWith('space-1', TASK.id);
+    expect(screen.queryByTestId('comments-panel')).not.toBeInTheDocument();
+  });
+
+  it('reloads the history when the issue changes on the board', async () => {
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+    fireEvent.click(screen.getByTestId('activity-tab-history'));
+    await waitFor(() => expect(api.getTaskHistory).toHaveBeenCalledTimes(1));
+    act(() => {
+      useAppStore.setState({ tasks: { doing: [{ ...TASK, statusId: 'doing', updatedAt: '2026-04-01T00:00:00.000Z' }] } } as any);
+    });
+    await waitFor(() => expect(api.getTaskHistory).toHaveBeenCalledTimes(2));
+  });
+
+  // Fails today: the panel's Escape listener on document (capture) runs first, stops the
+  // event and closes the panel, so the field never sees it.
+  it('cancels adding a sub-task on Escape without closing the panel', () => {
+    const closeDetailPanel = vi.fn();
+    useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
+    render(<TaskDetailPanel />);
+    fireEvent.click(screen.getByTestId('add-child-issue'));
+    const input = screen.getByRole('textbox', { name: 'New sub-task title' });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByRole('textbox', { name: 'New sub-task title' })).not.toBeInTheDocument();
+    expect(closeDetailPanel).not.toHaveBeenCalled();
+  });
+});
+
+describe('TaskDetailPanel — save on blur: description', () => {
   it('does not save a description nobody changed, which could undo an agent\'s edit', () => {
     const updateTask = vi.fn();
     useAppStore.setState({ detailTask: TASK, updateTask } as any);
@@ -264,7 +494,7 @@ describe('TaskDetailPanel — explicit save: description', () => {
     expect(updateTask).not.toHaveBeenCalled();
   });
 
-  it('calls store.updateTask with { description } when Save description button is clicked', async () => {
+  it('calls store.updateTask with { description } when the description is blurred with a changed value', async () => {
     const updateTask = vi.fn().mockResolvedValue(undefined);
     useAppStore.setState({ detailTask: TASK, updateTask } as any);
     render(<TaskDetailPanel />);
@@ -281,54 +511,31 @@ describe('TaskDetailPanel — explicit save: description', () => {
 });
 
 describe('TaskDetailPanel — disabled state during isMutating', () => {
-  it('disables title input when isMutating is true', () => {
+  it('keeps every field enabled while its own save is in flight, so focus stays where it is', () => {
     useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
     render(<TaskDetailPanel />);
-    expect(screen.getByLabelText(/title/i)).toBeDisabled();
+    for (const label of [/title/i, /assignee/i, /description/i, /^status$/i, /^priority$/i, /^type$/i, /due date/i, /estimate/i, /^epic$/i]) {
+      expect(screen.getByLabelText(label)).toBeEnabled();
+    }
+    expect(screen.getByRole('textbox', { name: 'Add a label' })).toBeEnabled();
   });
 
-  it('disables assigned input when isMutating is true', () => {
-    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
+  it('leaves the panel editable while ANOTHER task is mutating', () => {
+    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set(['other']) } as any);
     render(<TaskDetailPanel />);
-    expect(screen.getByLabelText(/assigned/i)).toBeDisabled();
-  });
-
-  it('disables description textarea when isMutating is true', () => {
-    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
-    render(<TaskDetailPanel />);
-    expect(screen.getByLabelText(/description/i)).toBeDisabled();
-  });
-
-  it('disables type radio buttons when isMutating is true', () => {
-    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
-    render(<TaskDetailPanel />);
-    const radios = screen.getAllByRole('radio');
-    radios.forEach((r) => expect(r).toBeDisabled());
-  });
-
-  it('disables Save description button when isMutating is true', () => {
-    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
-    render(<TaskDetailPanel />);
-    // The button is disabled; text changes to "Saving..."
-    const btn = document.body.querySelector('button[disabled]') as HTMLButtonElement;
-    expect(btn).not.toBeNull();
+    expect(screen.getByLabelText(/^status$/i)).toBeEnabled();
+    expect(screen.getByLabelText(/assignee/i)).toBeEnabled();
   });
 });
 
-describe('TaskDetailPanel — ID copy', () => {
-  it('renders the full task ID in the ID field', () => {
+describe('TaskDetailPanel — key copy', () => {
+  it('renders a copy button with aria-label "Copy key WEB-7"', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
-    expect(screen.getByText(TASK.id)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy key WEB-7' })).toBeInTheDocument();
   });
 
-  it('renders a copy button with aria-label "Copy task ID"', () => {
-    useAppStore.setState({ detailTask: TASK } as any);
-    render(<TaskDetailPanel />);
-    expect(screen.getByRole('button', { name: /copy task id/i })).toBeInTheDocument();
-  });
-
-  it('calls navigator.clipboard.writeText with full task ID on copy button click', async () => {
+  it('calls navigator.clipboard.writeText with the key on copy button click', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });
 
@@ -336,11 +543,27 @@ describe('TaskDetailPanel — ID copy', () => {
     useAppStore.setState({ detailTask: TASK, showToast } as any);
     render(<TaskDetailPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /copy task id/i }));
+    fireEvent.click(screen.getByRole('button', { name: /copy key/i }));
 
     await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith(TASK.id);
-      expect(showToast).toHaveBeenCalledWith('Task ID copied to clipboard', 'success');
+      expect(writeText).toHaveBeenCalledWith('WEB-7');
+      expect(showToast).toHaveBeenCalledWith('WEB-7 copied to clipboard', 'success');
+    });
+  });
+
+  it('copies a link that opens the issue by its key', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+
+    const showToast = vi.fn();
+    useAppStore.setState({ detailTask: TASK, showToast } as any);
+    render(<TaskDetailPanel />);
+
+    fireEvent.click(screen.getByRole('button', { name: /copy link/i }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(`${window.location.origin}${window.location.pathname}?issue=WEB-7`);
+      expect(showToast).toHaveBeenCalledWith('Link copied to clipboard', 'success');
     });
   });
 
@@ -353,10 +576,10 @@ describe('TaskDetailPanel — ID copy', () => {
     useAppStore.setState({ detailTask: TASK, showToast } as any);
     render(<TaskDetailPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /copy task id/i }));
+    fireEvent.click(screen.getByRole('button', { name: /copy key/i }));
 
     await waitFor(() => {
-      expect(showToast).toHaveBeenCalledWith('Failed to copy ID', 'error');
+      expect(showToast).toHaveBeenCalledWith('Failed to copy', 'error');
     });
   });
 });
@@ -369,16 +592,16 @@ describe('TaskDetailPanel — ARIA accessibility', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true');
   });
 
-  it('has aria-label="Task detail"', () => {
+  it('has aria-label="Issue detail"', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
-    expect(screen.getByRole('dialog')).toHaveAttribute('aria-label', 'Task detail');
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-label', 'Issue detail');
   });
 
-  it('close button has aria-label="Close task detail"', () => {
+  it('close button has aria-label="Close issue detail"', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
-    expect(screen.getByRole('button', { name: /close task detail/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /close issue detail/i })).toBeInTheDocument();
   });
 });
 
@@ -523,7 +746,7 @@ describe('TaskDetailPanel — centered modal layout', () => {
 
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(dialog).toHaveAttribute('aria-label', 'Task detail');
+    expect(dialog).toHaveAttribute('aria-label', 'Issue detail');
   });
 
   it('renders all editable fields inside the modal', () => {
@@ -531,7 +754,7 @@ describe('TaskDetailPanel — centered modal layout', () => {
     render(<TaskDetailPanel />);
 
     expect(screen.getByLabelText(/title/i)).toHaveValue(TASK.title);
-    expect(screen.getByLabelText(/assigned/i)).toHaveValue(TASK.assigned);
+    expect(screen.getByLabelText(/assignee/i)).toHaveValue(TASK.assigned);
     expect(screen.getByLabelText(/description/i)).toHaveValue(TASK.description);
   });
 
@@ -549,7 +772,7 @@ describe('TaskDetailPanel — centered modal layout', () => {
     useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
     render(<TaskDetailPanel />);
 
-    fireEvent.click(screen.getByRole('button', { name: /close task detail/i }));
+    fireEvent.click(screen.getByRole('button', { name: /close issue detail/i }));
     expect(closeDetailPanel).toHaveBeenCalled();
   });
 
@@ -613,17 +836,10 @@ describe('TaskDetailPanel — centered modal layout', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('shows the task short ID in the modal header', () => {
+  it('shows the issue key in the modal header', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     render(<TaskDetailPanel />);
-    expect(screen.getByText(`#${TASK.id.slice(-7)}`)).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toHaveTextContent('WEB-7');
   });
 
-  it('disables all inputs when isMutating is true', () => {
-    useAppStore.setState({ detailTask: TASK, isMutating: true, mutatingTaskIds: new Set([TASK.id]) } as any);
-    render(<TaskDetailPanel />);
-    expect(screen.getByLabelText(/title/i)).toBeDisabled();
-    expect(screen.getByLabelText(/assigned/i)).toBeDisabled();
-    expect(screen.getByLabelText(/description/i)).toBeDisabled();
-  });
 });

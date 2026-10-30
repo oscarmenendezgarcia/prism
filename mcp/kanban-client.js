@@ -185,6 +185,15 @@ export async function listTasks(filters = {}) {
 export async function getTask(id, spaceId) {
   const wantedKey = String(id).toUpperCase();
 
+  /** A key its space used to have is not on the board any more, but still finds the issue. */
+  async function findByOldKey() {
+    const notFound = { error: true, code: 'TASK_NOT_FOUND', message: `Task with id '${id}' not found` };
+    if (!/^[A-Z][A-Z0-9]{1,9}-\d+$/.test(wantedKey)) return notFound;
+    const issue = await request('GET', `/issues/${wantedKey}`);
+    if (issue.error || (spaceId && issue.spaceId !== spaceId)) return notFound;
+    return { ...issue, column: issue.statusId };
+  }
+
   /** Search a single space's task-list response, keyed by status, for `id` or a key. */
   function findInResult(result, sid) {
     for (const [column, tasks] of Object.entries(result)) {
@@ -199,11 +208,7 @@ export async function getTask(id, spaceId) {
     // Explicit space — search only there.
     const result = await request('GET', tasksBasePath(spaceId));
     if (result.error) return result;
-    return findInResult(result, spaceId) ?? {
-      error:   true,
-      code:    'TASK_NOT_FOUND',
-      message: `Task with id '${id}' not found`,
-    };
+    return findInResult(result, spaceId) ?? findByOldKey();
   }
 
   // No spaceId — iterate every space until the task is found.
@@ -217,11 +222,7 @@ export async function getTask(id, spaceId) {
     if (found) return found;
   }
 
-  return {
-    error:   true,
-    code:    'TASK_NOT_FOUND',
-    message: `Task with id '${id}' not found`,
-  };
+  return findByOldKey();
 }
 
 /**
