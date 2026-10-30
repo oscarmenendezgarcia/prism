@@ -22,9 +22,13 @@ interface ContextMenuProps {
   items: ContextMenuItem[];
   onSelect: (id: string) => void;
   onClose: () => void;
+  /** Line up with the right edge of the anchor, for one at the right of the screen. */
+  alignEnd?: boolean;
+  /** Who or what the menu is about, above its items. */
+  heading?: React.ReactNode;
 }
 
-export function ContextMenu({ open, anchorRect, items, onSelect, onClose }: ContextMenuProps) {
+export function ContextMenu({ open, anchorRect, items, onSelect, onClose, alignEnd = false, heading }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click
@@ -58,7 +62,7 @@ export function ContextMenu({ open, anchorRect, items, onSelect, onClose }: Cont
   const style: React.CSSProperties = {
     position: 'fixed',
     top: anchorRect.bottom + 4,
-    left: anchorRect.left,
+    ...(alignEnd ? { right: document.documentElement.clientWidth - anchorRect.right } : { left: anchorRect.left }),
     zIndex: 150,
   };
 
@@ -69,6 +73,7 @@ export function ContextMenu({ open, anchorRect, items, onSelect, onClose }: Cont
       style={style}
       className="bg-surface glass-surface border border-border rounded-lg shadow-md py-1 min-w-[160px] animate-scale-in"
     >
+      {heading && <div className="px-3 py-2 mb-1 border-b border-border">{heading}</div>}
       {items.map((item) => (
         <button
           key={item.id}

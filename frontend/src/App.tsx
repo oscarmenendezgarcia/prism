@@ -21,6 +21,7 @@ import { SpaceModal } from '@/components/modals/SpaceModal';
 import { DeleteSpaceDialog } from '@/components/modals/DeleteSpaceDialog';
 import { GlobalSearchModal } from '@/components/modals/GlobalSearchModal';
 import { Toast } from '@/components/shared/Toast';
+import { AuthGate } from '@/components/auth/AuthGate';
 import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
 import { useTaskRunsPolling } from '@/hooks/useTaskRunsPolling';
@@ -160,7 +161,9 @@ function AppContent() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <AppContent />
+      <AuthGate>
+        <AppContent />
+      </AuthGate>
     </ErrorBoundary>
   );
 }

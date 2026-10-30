@@ -4,6 +4,7 @@
 
 import { Button } from '@/components/shared/Button';
 import { ThemeToggle } from '@/components/layout/ThemeToggle';
+import { UserMenu } from '@/components/layout/UserMenu';
 import { useAppStore } from '@/stores/useAppStore';
 
 // The global-search shortcut binds metaKey || ctrlKey (App.tsx), so it fires on both
@@ -97,6 +98,7 @@ export function Header() {
           </span>
           <span className="hidden sm:inline">New issue</span>
         </Button>
+        <UserMenu />
       </div>
     </header>
   );

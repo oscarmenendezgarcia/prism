@@ -30,6 +30,7 @@
 
 'use strict';
 
+const crypto = require('crypto');
 const http = require('http');
 const path = require('path');
 const fs   = require('fs');
@@ -42,6 +43,7 @@ const { createApp }          = require('./src/handlers/tasks');
 const { createRouter }       = require('./src/routes');
 const { resolveDataDir }     = require('./src/utils/dataDir');
 const { resolveAccess, allowRequest } = require('./src/utils/access');
+const { createAuth }         = require('./src/handlers/auth');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -69,6 +71,7 @@ const DEFAULT_DATA_DIR = _dataDirResult.path;
  * @param {boolean} [options.silent]    - Suppress startup log.
  * @param {string}  [options.agentsDir] - Absolute path to agents dir (overrides env/default).
  * @param {string}  [options.host]      - Address to listen on (overrides PRISM_HOST, default 127.0.0.1).
+ * @param {boolean} [options.auth]      - False to skip accounts. Only for tests: no flag or env var reaches it.
  * @returns {import('http').Server}
  */
 function startServer(options = {}) {
@@ -136,13 +139,19 @@ function startServer(options = {}) {
   // Step 4b: Tagger startup info — log the configured CLI.
   // Server start is NOT blocked — tagger is not a core feature (ADR-1 §Consequences).
   // Step 5: Create and start the HTTP server.
-  const access = resolveAccess({ host: options.host, dataDir });
-  // Agents and the MCP servers they start inherit this to reach the API.
-  if (access.token) process.env.PRISM_TOKEN = access.token;
+  const access = resolveAccess({ host: options.host });
+  // On a server others can reach, whoever arrives first must not become the admin.
+  const setupCode = !access.loopback && !store.accounts.hasUsers() ? crypto.randomBytes(16).toString('hex') : null;
+  const auth = createAuth({ accounts: store.accounts, required: options.auth !== false, setupCode });
+
+  if (process.env.PRISM_TOKEN && !options.silent) {
+    console.warn('[startup] PRISM_TOKEN no longer gives access to this server. Remove it, and sign in with an account.');
+  }
 
   const server = http.createServer((req, res) => {
     if (!allowRequest(access, req, res)) return;
-    mainRouter(req, res).catch((err) => {
+    if (!auth.admit(req, res)) return;
+    auth.handle(req, res).then((handled) => (handled ? undefined : mainRouter(req, res))).catch((err) => {
       console.error('Unhandled error in router:', err);
       const payload = JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' } });
       res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(payload) });
@@ -154,23 +163,17 @@ function startServer(options = {}) {
     const boundPort = server.address().port;
 
     // Agents and card moves default to localhost:3000. On another port or address they
-    // would miss this server, or send the token to whatever listens there. Port 0 is
-    // tests, where several servers share one process.
+    // would miss this server, or send their credentials to whatever listens there. Port 0
+    // is tests, where several servers share one process.
     if (!process.env.KANBAN_API_URL && port !== 0) {
       const wildcard = ['0.0.0.0', '::'].includes(access.host);
       const urlHost  = wildcard ? '127.0.0.1' : access.host.includes(':') ? `[${access.host}]` : access.host;
       process.env.KANBAN_API_URL = `http://${urlHost}:${boundPort}/api/v1`;
     }
 
+    if (setupCode) console.log(`[startup] Setup code for the first account: ${setupCode}`);
     if (options.silent) return;
-    if (!access.token) {
-      console.log(`Prism running at http://localhost:${boundPort}`);
-      return;
-    }
-    console.log(`Prism listening on ${access.host}:${boundPort}. An access token is required.`);
-    if (access.generated) {
-      console.log(`Open: http://<this-machine>:${boundPort}/?token=${access.token}`);
-    }
+    console.log(access.loopback ? `Prism running at http://localhost:${boundPort}` : `Prism listening on ${access.host}:${boundPort}`);
   });
 
   // Attach the store to the server instance so callers (e.g. the direct-
@@ -182,15 +185,20 @@ function startServer(options = {}) {
   return server;
 }
 
-module.exports = { startServer };
+module.exports = { startServer, runServer };
 
 // ---------------------------------------------------------------------------
 // Direct invocation bootstrap
 // ---------------------------------------------------------------------------
 
-if (require.main === module) {
+/**
+ * Run a server until told to stop, letting active runs finish first.
+ *
+ * @param {object} [options] - As for startServer.
+ */
+function runServer(options) {
   const { getActiveProcessCount } = taskRunner;
-  const server = startServer();
+  const server = startServer(options);
   const store  = server._store;
 
   // Graceful shutdown: wait up to 30s for active pipeline runs to finish
@@ -231,3 +239,5 @@ if (require.main === module) {
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
   process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 }
+
+if (require.main === module) runServer();

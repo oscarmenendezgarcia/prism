@@ -333,3 +333,32 @@ export interface ValidationResult {
   isGitRepo?: boolean;
   message?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Accounts
+// ---------------------------------------------------------------------------
+
+export type Role = 'admin' | 'member' | 'viewer';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  active: boolean;
+  createdAt?: string;
+  lastSeenAt?: string | null;
+}
+
+export interface AuthStatus {
+  needsSetup: boolean;
+  setupCodeRequired: boolean;
+  user: User | null;
+}
+
+export interface AccountLink {
+  kind: 'invite' | 'reset';
+  email: string;
+  role: Role | null;
+  createdBy: string;
+}

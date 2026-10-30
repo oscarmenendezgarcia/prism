@@ -6,7 +6,8 @@ const path = require('path');
 const { startServer } = require('../../server');
 
 /**
- * Start an isolated test server with a temporary data directory.
+ * Start an isolated test server with a temporary data directory. Without accounts, unless
+ * a test is about them: every request counts as an admin.
  *
  * @returns {Promise<{ port: number, close: Function }>}
  */
@@ -18,7 +19,7 @@ function startTestServer() {
     const prevRunsDir = process.env.PIPELINE_RUNS_DIR;
     process.env.PIPELINE_RUNS_DIR = runsDir;
 
-    const server = startServer({ port: 0, dataDir: tmpDir, silent: true });
+    const server = startServer({ port: 0, dataDir: tmpDir, silent: true, auth: false });
 
     server.once('listening', () => {
       const port = server.address().port;

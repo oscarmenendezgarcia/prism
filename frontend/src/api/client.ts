@@ -23,6 +23,9 @@ import type {
   SpaceHooks,
   HistoryEntry,
   Status,
+  AuthStatus,
+  AccountLink,
+  User,
 } from '@/types';
 
 const API_BASE = '/api/v1';
@@ -37,6 +40,13 @@ export class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+let onSignedOut: () => void = () => {};
+
+/** What to do when the server no longer knows who this is, as when a session expires. */
+export function setSignedOutHandler(handler: () => void): void {
+  onSignedOut = handler;
 }
 
 /**
@@ -67,11 +77,36 @@ export async function apiFetch<T>(
     const errorBody = data as { error?: { message?: string; code?: string } };
     const message = errorBody?.error?.message || `HTTP ${res.status}`;
     const code    = errorBody?.error?.code;
+    if (code === 'UNAUTHENTICATED') onSignedOut();
     throw new ApiError(message, res.status, code);
   }
 
   return data as T;
 }
+
+// ---------------------------------------------------------------------------
+// Accounts
+// ---------------------------------------------------------------------------
+
+export const getAuthStatus = (): Promise<AuthStatus> =>
+  apiFetch<AuthStatus>('/auth/status');
+
+/** Make the first account, the admin. */
+export const setUp = (body: { name: string; email: string; password: string; setupCode?: string }): Promise<{ user: User }> =>
+  apiFetch<{ user: User }>('/auth/setup', { method: 'POST', body: JSON.stringify(body) });
+
+export const signIn = (email: string, password: string): Promise<{ user: User }> =>
+  apiFetch<{ user: User }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+
+export const signOut = (): Promise<{ ok: true }> =>
+  apiFetch<{ ok: true }>('/auth/logout', { method: 'POST' });
+
+/** What an invitation or reset link is for. */
+export const getAccountLink = (token: string): Promise<AccountLink> =>
+  apiFetch<AccountLink>(`/auth/links/${encodeURIComponent(token)}`);
+
+export const redeemAccountLink = (token: string, body: { name?: string; password: string }): Promise<{ user: User }> =>
+  apiFetch<{ user: User }>(`/auth/links/${encodeURIComponent(token)}`, { method: 'POST', body: JSON.stringify(body) });
 
 // ---------------------------------------------------------------------------
 // Space management

@@ -89,7 +89,7 @@ describe('task runs', () => {
   let env;
 
   const startServer = async () => {
-    server = spawn(process.execPath, ['server.js'], { cwd: ROOT, env, stdio: 'ignore' });
+    server = spawn(process.execPath, ['-e', "require('./server').runServer({ auth: false })"], { cwd: ROOT, env, stdio: 'ignore' });
     for (let i = 0; i < 100; i++) {
       try {
         if ((await fetch(`${api}/spaces`)).ok) return;

@@ -7,7 +7,7 @@
  * Idempotently provisions Prism end-to-end after `npm i -g prism-kanban`:
  *   1. ensureDataDir   — create <dataDir> tree + write default settings.json
  *   2. startServer     — spawn server.js detached + write <dataDir>/prism.pid (skipped with --no-start)
- *   3. waitForServer   — poll /api/v1/spaces until 200 (6 s budget)
+ *   3. waitForServer   — poll /api/v1/auth/status until 200 (6 s budget)
  *   4. registerMcp     — merge mcpServers.prism into ~/.claude/settings.json (atomic)
  *   5. verifyClaude    — run `claude mcp list` as advisory check
  *
@@ -123,7 +123,7 @@ function startServer(dataDir, port) {
 }
 
 /**
- * Polls `GET http://127.0.0.1:<port>/api/v1/spaces` every 200 ms until it
+ * Polls `GET http://127.0.0.1:<port>/api/v1/auth/status` every 200 ms until it
  * returns HTTP 200 or the budget is exhausted.
  *
  * @param {number} port
@@ -131,7 +131,7 @@ function startServer(dataDir, port) {
  * @returns {Promise<void>} — resolves on first 200, rejects on timeout
  */
 async function waitForServer(port, timeoutMs = SERVER_BOOT_BUDGET_MS) {
-  const url      = `http://127.0.0.1:${port}/api/v1/spaces`;
+  const url      = `http://127.0.0.1:${port}/api/v1/auth/status`;
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {

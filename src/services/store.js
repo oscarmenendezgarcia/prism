@@ -17,6 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const Database = require('better-sqlite3');
+const { ACCOUNTS_SQL, createAccounts } = require('./accounts');
 
 const DEFAULT_PRIORITY = 'medium';
 
@@ -327,9 +328,10 @@ function statusSlug(name, isTaken) {
 
 /**
  * Bumped when a version changes what the data means.
- * 2: pipelines and Folio retired. 3: tasks became issues.
+ * 2: pipelines and Folio retired. 3: tasks became issues. 4: accounts.
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
+const ISSUES_SCHEMA_VERSION = 3;
 
 /**
  * Keep a copy of a database from before an upgrade, once, so someone going back has their
@@ -468,7 +470,7 @@ function migrateToIssues(db) {
 
       setSpace.run(key, number + 1, space.id);
     }
-    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+    db.pragma(`user_version = ${ISSUES_SCHEMA_VERSION}`);
   })();
 }
 
@@ -584,7 +586,11 @@ function createStore(dataDir) {
   }
 
   addIssueSchema(db);
-  if (db.pragma('user_version', { simple: true }) < SCHEMA_VERSION) migrateToIssues(db);
+  if (db.pragma('user_version', { simple: true }) < ISSUES_SCHEMA_VERSION) migrateToIssues(db);
+
+  db.exec(ACCOUNTS_SQL);
+  db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  const accounts = createAccounts(db);
 
   console.log(`[store] open — WAL mode confirmed, schema ready (${dbPath})`);
 
@@ -1678,6 +1684,8 @@ function createStore(dataDir) {
     listActiveRuns,
     findActiveRunByTaskId,
     deleteRun: deleteRun,
+    // People
+    accounts,
     // Lifecycle
     close,
   };

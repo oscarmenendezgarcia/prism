@@ -10,6 +10,7 @@
  *   prism init    [--data-dir <path>] [--force] [--no-start]
  *   prism update  [--no-update-check]
  *   prism doctor  [--data-dir <path>] [--json]
+ *   prism reset-password <email> [--data-dir <path>]
  *   prism --version
  *   prism --help
  *
@@ -35,6 +36,7 @@ Usage:
   prism init    [--data-dir <path>] [--force] [--no-start]
   prism update
   prism doctor  [--data-dir <path>] [--json]
+  prism reset-password <email> [--data-dir <path>]
   prism --version
   prism --help
 
@@ -50,8 +52,8 @@ prism init options:
 prism start options:
   --port <n>            Port to listen on (default 3000, env: PORT)
   --host <addr>         Address to listen on (default 127.0.0.1, env: PRISM_HOST).
-                        Anything else requires an access token (env: PRISM_TOKEN),
-                        generated on first start and printed if not set.
+                        Anywhere else, making the first account asks for a code
+                        printed when the server starts.
 
 prism stop:
   Reads <dataDir>/prism.pid, sends SIGTERM, and waits up to 35s for the
@@ -62,6 +64,10 @@ prism doctor:
   Checks Node.js version, git, better-sqlite3, Claude CLI,
   data-dir writability, and server status. Exit 0 if all pass, 1 if any fail.
   --json                Print machine-readable JSON instead of text
+
+prism reset-password:
+  Prints a link to set a new password, valid for a day. For when the only admin
+  has forgotten theirs. Run it on the server, as the user that runs Prism.
 
 prism update:
   Fetches the latest version from npm and installs it globally.
@@ -116,6 +122,8 @@ function parseArgv(argv) {
       flags.json = true;
     } else if (!arg.startsWith('-') && subcommand === null) {
       subcommand = arg;
+    } else if (!arg.startsWith('-') && flags.positional === undefined) {
+      flags.positional = arg;
     } else if (arg.startsWith('-')) {
       // Unknown flag — warn but do not hard-fail here; subcommand handler decides
       process.stderr.write(`Warning: unknown flag '${arg}'\n`);
@@ -213,6 +221,10 @@ function runDoctor(flags) {
   require(path.join(__dirname, 'doctor.js')).run(flags);
 }
 
+function runResetPassword(flags) {
+  require(path.join(__dirname, 'reset-password.js')).run(flags);
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -254,6 +266,10 @@ function runDoctor(flags) {
 
     case 'update':
       runUpdate(flags);
+      break;
+
+    case 'reset-password':
+      runResetPassword(flags);
       break;
 
     case 'doctor':

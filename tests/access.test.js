@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Who may reach the server: loopback by default, and a token for anything else.
+ * Which requests may reach the server at all, before asking who makes them.
  * Run with: node --test tests/access.test.js
  */
 
@@ -34,7 +34,7 @@ function request(port, { method = 'GET', url = '/api/v1/spaces', headers = {}, b
 
 async function serve(options) {
   const dataDir = tmp();
-  const server = startServer({ port: 0, dataDir, silent: true, ...options });
+  const server = startServer({ port: 0, dataDir, silent: true, auth: false, ...options });
   await new Promise((resolve) => server.once('listening', resolve));
   return {
     server,
@@ -49,41 +49,17 @@ async function serve(options) {
 }
 
 describe('resolveAccess', () => {
-  test('defaults to loopback with no token', () => {
-    assert.deepEqual(resolveAccess({ dataDir: '/nowhere', env: {} }), { host: '127.0.0.1', token: null, generated: false });
+  test('defaults to loopback', () => {
+    assert.deepEqual(resolveAccess({ env: {} }), { host: '127.0.0.1', loopback: true });
   });
 
-  test('PRISM_HOST on loopback still needs no token', () => {
-    assert.equal(resolveAccess({ dataDir: '/nowhere', env: { PRISM_HOST: 'localhost' } }).token, null);
+  test('PRISM_HOST sets the address', () => {
+    assert.equal(resolveAccess({ env: { PRISM_HOST: 'localhost' } }).loopback, true);
+    assert.deepEqual(resolveAccess({ env: { PRISM_HOST: '0.0.0.0' } }), { host: '0.0.0.0', loopback: false });
   });
 
   test('an ambient HOST, as conda exports, is ignored', () => {
-    assert.equal(resolveAccess({ dataDir: '/nowhere', env: { HOST: 'x86_64-conda-linux-gnu' } }).host, '127.0.0.1');
-  });
-
-  test('a non-loopback host generates a token and keeps it private', () => {
-    const dataDir = tmp();
-    try {
-      const first = resolveAccess({ dataDir, env: { PRISM_HOST: '0.0.0.0' } });
-      assert.equal(first.generated, true);
-      assert.ok(first.token.length >= 32);
-      const file = path.join(dataDir, 'auth-token');
-      assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-      assert.equal(resolveAccess({ dataDir, env: { PRISM_HOST: '0.0.0.0' } }).token, first.token, 'must survive a restart');
-    } finally {
-      fs.rmSync(dataDir, { recursive: true, force: true });
-    }
-  });
-
-  test('PRISM_TOKEN wins and is never written to disk', () => {
-    const dataDir = tmp();
-    try {
-      const access = resolveAccess({ dataDir, env: { PRISM_HOST: '0.0.0.0', PRISM_TOKEN: 'mine' } });
-      assert.equal(access.token, 'mine');
-      assert.ok(!fs.existsSync(path.join(dataDir, 'auth-token')));
-    } finally {
-      fs.rmSync(dataDir, { recursive: true, force: true });
-    }
+    assert.equal(resolveAccess({ env: { HOST: 'x86_64-conda-linux-gnu' } }).host, '127.0.0.1');
   });
 
   test('isLoopback', () => {
@@ -101,7 +77,7 @@ describe('default server', () => {
     assert.equal(s.server.address().address, '127.0.0.1');
   });
 
-  test('accepts local clients with no credentials', async () => {
+  test('accepts local clients', async () => {
     assert.equal((await request(s.port)).status, 200);
     assert.equal((await request(s.port, { headers: { Host: `localhost:${s.port}` } })).status, 200);
   });
@@ -129,95 +105,36 @@ describe('default server', () => {
 
 });
 
-describe('server with a token', () => {
-  const TOKEN = 'test-token-value';
-  let s;
-  before(async () => {
-    process.env.PRISM_TOKEN = TOKEN;
-    s = await serve();
-  });
-  after(async () => {
-    delete process.env.PRISM_TOKEN;
-    await s.close();
-  });
-
-  test('refuses requests without it, including the frontend', async () => {
-    assert.equal((await request(s.port)).status, 401);
-    assert.equal((await request(s.port, { url: '/' })).status, 401);
-    assert.equal((await request(s.port, { headers: { Authorization: 'Bearer wrong' } })).status, 401);
-    assert.equal((await request(s.port, { headers: { Cookie: `prism_token_${s.port}=wrong` } })).status, 401);
-  });
-
-  test('accepts the bearer token from any Host', async () => {
-    const res = await request(s.port, { headers: { Authorization: `Bearer ${TOKEN}`, Host: '192.168.1.32:3000' } });
-    assert.equal(res.status, 200);
-  });
-
-  test('?token= sets an HttpOnly cookie and drops the token from the URL', async () => {
-    const res = await request(s.port, { url: `/board?x=1&token=${TOKEN}` });
-    assert.equal(res.status, 302);
-    assert.equal(res.headers.location, '/board?x=1');
-    const cookie = res.headers['set-cookie'][0];
-    assert.match(cookie, /HttpOnly/);
-    assert.match(cookie, /SameSite=Lax/);
-
-    const pair = cookie.split(';')[0];
-    assert.equal((await request(s.port, { headers: { Cookie: pair } })).status, 200);
-  });
-
-  test('a malformed request target is refused and does not crash the server', async () => {
-    const res = await request(s.port, { url: '//[' });
-    assert.equal(res.status, 401);
-    assert.equal((await request(s.port, { headers: { Authorization: `Bearer ${TOKEN}` } })).status, 200);
-  });
-
-  test('a cookie from an instance on another port does not count', async () => {
-    assert.equal((await request(s.port, { headers: { Cookie: `prism_token_1=${TOKEN}` } })).status, 401);
-  });
-
-  test('a wrong ?token= gets nothing', async () => {
-    const res = await request(s.port, { url: '/?token=wrong' });
-    assert.equal(res.status, 401);
-    assert.equal(res.headers['set-cookie'], undefined);
-  });
-
-  test('a valid token does not excuse a cross-site Origin', async () => {
-    const res = await request(s.port, { headers: { Authorization: `Bearer ${TOKEN}`, Origin: 'http://evil.example' } });
-    assert.equal(res.status, 403);
-  });
-
-});
-
-describe('tokens with characters a cookie cannot hold', () => {
-  test('still log in and do not crash the server', async () => {
-    const TOKEN = 'a;b c€';
-    process.env.PRISM_TOKEN = TOKEN;
-    const s = await serve();
+describe('server bound beyond loopback', () => {
+  test('takes any Host, but still refuses a cross-site Origin', async () => {
+    const s = await serve({ host: '0.0.0.0' });
     try {
-      const res = await request(s.port, { url: `/?token=${encodeURIComponent(TOKEN)}` });
-      assert.equal(res.status, 302);
-      const pair = res.headers['set-cookie'][0].split(';')[0];
-      assert.equal((await request(s.port, { headers: { Cookie: pair } })).status, 200);
+      assert.equal(s.server.address().address, '0.0.0.0');
+      assert.equal((await request(s.port, { headers: { Host: '192.168.1.32:3000' } })).status, 200);
+      assert.equal((await request(s.port, { headers: { Origin: 'http://evil.example' } })).status, 403);
     } finally {
-      delete process.env.PRISM_TOKEN;
       await s.close();
     }
   });
 });
 
-describe('server bound beyond loopback', () => {
-  test('generates a token and hands it to the processes it spawns', async () => {
-    delete process.env.PRISM_TOKEN;
-    const s = await serve({ host: '0.0.0.0' });
+describe('PRISM_TOKEN, from before there were accounts', () => {
+  test('gives no access, as a header or in the address', async () => {
+    process.env.PRISM_TOKEN = 'old-token';
+    const dataDir = tmp();
+    const server = startServer({ port: 0, dataDir, silent: true });
+    await new Promise((resolve) => server.once('listening', resolve));
+    const { port } = server.address();
     try {
-      assert.equal(s.server.address().address, '0.0.0.0');
-      const token = fs.readFileSync(path.join(s.dataDir, 'auth-token'), 'utf8').trim();
-      assert.equal((await request(s.port)).status, 401);
-      assert.equal((await request(s.port, { headers: { Authorization: `Bearer ${token}` } })).status, 200);
-      assert.equal(process.env.PRISM_TOKEN, token);
+      assert.equal((await request(port, { headers: { Authorization: 'Bearer old-token' } })).status, 401);
+      const res = await request(port, { url: '/?token=old-token' });
+      assert.equal(res.headers['set-cookie'], undefined);
+      assert.notEqual(res.status, 302);
     } finally {
       delete process.env.PRISM_TOKEN;
-      await s.close();
+      server.closeAllConnections();
+      await new Promise((resolve) => server.close(resolve));
+      fs.rmSync(dataDir, { recursive: true, force: true });
     }
   });
 });
