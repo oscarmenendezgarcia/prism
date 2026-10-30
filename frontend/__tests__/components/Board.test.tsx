@@ -329,6 +329,31 @@ describe('Board — epic filter', () => {
 // ─── Polling ─────────────────────────────────────────────────────────────────
 
 describe('Board — polling', () => {
+  it('drops the filter when its epic stops being one', async () => {
+    const was = { id: 'e', key: 'K-1', title: 'E', type: 'epic', createdAt: '', updatedAt: '' };
+    useAppStore.setState({ tasks: { todo: [was], 'in-progress': [], done: [] } as never, epicFilter: 'e' });
+    vi.mocked(api.getTasks).mockResolvedValue({ todo: [{ ...was, type: 'feature' }], 'in-progress': [], done: [] } as never);
+    await act(() => useAppStore.getState().loadBoard());
+    expect(useAppStore.getState().epicFilter).toBeNull();
+  });
+
+  it('turns a card overdue when the day changes, though the issue did not', async () => {
+    const yesterday = new Date(Date.now() - 864e5);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const dueDate = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}`;
+    const tasks = { todo: [{ id: 'a', key: 'K-1', title: 'A', type: 'feature', dueDate, createdAt: '', updatedAt: '' }], 'in-progress': [], done: [] } as never;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59));
+    useAppStore.setState({ tasks, today: dueDate });
+    vi.mocked(api.getTasks).mockResolvedValue(JSON.parse(JSON.stringify(tasks)));
+    render(<Board />);
+    expect(screen.getByTestId('due-date')).not.toHaveClass('text-error');
+    vi.setSystemTime(new Date(Date.now() + 864e5));
+    await act(() => useAppStore.getState().loadBoard());
+    expect(screen.getByTestId('due-date')).toHaveClass('text-error');
+    vi.useRealTimers();
+  });
+
   it('renders nothing again when a poll brings the same issues', async () => {
     const tasks = { todo: [{ id: 'a', key: 'K-1', title: 'A', type: 'feature', createdAt: '', updatedAt: '' }], 'in-progress': [], done: [] } as never;
     useAppStore.setState({ tasks });

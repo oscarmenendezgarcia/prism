@@ -18,11 +18,14 @@ export const HARNESS_NAMES: Record<DirectCliTool, string> = {
   hermes:   'Hermes',
 };
 
-/** Whether an assignee is one of the agents, as written by hand or by the agent itself. */
+const AGENT_MODELS = ['sonnet', 'opus', 'haiku'];
+
+/** Whether an assignee is an agent, as people and agents write it: "Claude Code", "claude-code", "developer-agent". */
 export function isAgentName(assigned: string | undefined): boolean {
-  const name = assigned?.trim().toLowerCase();
+  const name = assigned?.trim().toLowerCase().replace(/[-_]+/g, ' ');
   if (!name) return false;
-  return Object.entries(HARNESS_NAMES).some(([id, label]) => name === id || name === label.toLowerCase());
+  return name.endsWith(' agent') || AGENT_MODELS.includes(name)
+    || Object.entries(HARNESS_NAMES).some(([id, label]) => name === id || name === label.toLowerCase());
 }
 
 const LOGOS: Record<DirectCliTool, string> = {

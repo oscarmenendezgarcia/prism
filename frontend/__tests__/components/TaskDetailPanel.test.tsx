@@ -395,6 +395,17 @@ describe('TaskDetailPanel — issue fields', () => {
     expect(useAppStore.getState().detailTask).not.toBeNull();
   });
 
+  it('measures the description again each time it is opened', () => {
+    const long = { ...TASK, description: 'line\n'.repeat(20) };
+    Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', { configurable: true, value: 400 });
+    open(long, { todo: [long] });
+    expect(document.getElementById('detail-description')).toHaveStyle({ height: '400px' });
+    act(() => useAppStore.setState({ detailTask: null }));
+    act(() => useAppStore.setState({ detailTask: long }));
+    expect(document.getElementById('detail-description')).toHaveStyle({ height: '400px' });
+    delete (HTMLTextAreaElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+  });
+
   it('says when it is overdue', () => {
     const late = { ...TASK, dueDate: '2020-01-02' };
     open(late, { todo: [late] });

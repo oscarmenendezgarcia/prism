@@ -49,6 +49,24 @@ describe('TaskRunFooter', () => {
     expect(screen.getByTestId('run-footer')).toHaveClass('opacity-0');
   });
 
+  it('does not cover the reason a blocked issue cannot run, nor its attachments', () => {
+    const { unmount } = renderFooter('todo', undefined, { ...task, isBlocked: true });
+    expect(screen.getByTestId('run-footer')).not.toHaveClass('opacity-0');
+    unmount();
+    renderFooter('todo', undefined, { ...task, attachments: [{ name: 'a', type: 'text', content: 'x' }] } as Task);
+    expect(screen.getByTestId('run-footer')).not.toHaveClass('opacity-0');
+  });
+
+  it.each(['Claude Code', 'claude-code', 'claude', 'developer-agent', 'Sonnet', 'opencode', 'Hermes'])('takes %s for an agent', (assigned) => {
+    renderFooter('todo', undefined, { ...task, assigned });
+    expect(screen.getByTestId('run-footer')).not.toHaveClass('opacity-0');
+  });
+
+  it.each(['Ana López', 'Piero', 'agent smith'])('takes %s for a person', (assigned) => {
+    renderFooter('todo', undefined, { ...task, assigned });
+    expect(screen.getByTestId('run-footer')).toHaveClass('opacity-0');
+  });
+
   it('offers to create a PR on a finished card', async () => {
     renderFooter('done', { status: 'done', result: { ...result, head: 'abc', pr: null } });
     await userEvent.click(screen.getByRole('button', { name: 'Create PR' }));

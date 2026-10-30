@@ -103,6 +103,9 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const isDragOverThis = useDragStore((s) => s.dragOverTaskId === task.id);
   const insertBeforeThis = useDragStore((s) => s.insertBefore);
 
+  // A card that did not change must still turn red when the day does.
+  useAppStore((s) => s.today);
+
   const isDone = task.category === 'done';
   const isEpic = task.type === 'epic';
 
@@ -217,6 +220,15 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
             {priority.icon}
           </span>
           <span className="font-mono text-[11px] font-semibold text-text-secondary" data-testid="issue-key">{task.key}</span>
+          {task.dueDate && (
+            <span
+              className={`ml-1 text-xs ${overdue ? 'text-error font-semibold' : 'text-text-secondary'}`}
+              title={overdue ? 'Overdue' : 'Due date'}
+              data-testid="due-date"
+            >
+              {formatDueDate(task.dueDate)}
+            </span>
+          )}
           <span className="ml-auto flex-shrink-0" data-testid="type-badge">
             <Badge type={task.type} label={type.label} />
           </span>
@@ -257,7 +269,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
           </div>
         )}
 
-        {/* ── Meta row: assigned + sub-tasks + attachments + questions + due date ── */}
+        {/* ── Meta row: assigned + sub-tasks + attachments + questions ── */}
         <div className="flex items-center gap-2 mt-2 flex-wrap min-h-5" data-testid="zone-b">
           {/* Assigned / Unassigned */}
           {task.assigned ? (
@@ -326,16 +338,6 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
             </span>
           )}
 
-          {/* Due date */}
-          {task.dueDate && (
-            <span
-              className={`ml-auto text-xs ${overdue ? 'text-error font-semibold' : 'text-text-secondary'}`}
-              title={overdue ? 'Overdue' : 'Due date'}
-              data-testid="due-date"
-            >
-              {formatDueDate(task.dueDate)}
-            </span>
-          )}
         </div>
 
         {/* With touch there is no hover: the actions and the agent share a row at the end of the card. */}

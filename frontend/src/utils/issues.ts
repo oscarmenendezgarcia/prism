@@ -57,6 +57,12 @@ export function boardIndex(board: BoardTasks): BoardIndex {
   return index;
 }
 
+/** Today's date in the local time zone, as YYYY-MM-DD. */
+export function localToday(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
 /**
  * The new board, reusing the objects of the old one wherever nothing changed. Polling brings
  * a fresh copy every few seconds, and a new object would re-render a card that looks the same.
@@ -137,7 +143,5 @@ export function formatDueDate(dueDate: string): string {
 
 export function isOverdue(task: Task): boolean {
   if (!task.dueDate || task.category === 'done') return false;
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  return task.dueDate < today;
+  return task.dueDate < localToday();
 }

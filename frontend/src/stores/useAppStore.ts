@@ -26,7 +26,7 @@ import type {
   Comment,
 } from '@/types';
 import { safeStorage } from '@/utils/safeStorage';
-import { allTasks, keepUnchanged, mapBoard } from '@/utils/issues';
+import { allTasks, keepUnchanged, localToday, mapBoard } from '@/utils/issues';
 
 /** Key used to persist the active space across page reloads. */
 const ACTIVE_SPACE_KEY = 'prism-active-space';
@@ -98,6 +98,8 @@ interface AppState {
    * disabled state; the rest of the board stays interactive.
    */
   mutatingTaskIds: Set<string>;
+  /** The local date, kept current by polling, for what depends on the day. */
+  today: string;
   loadBoard: () => Promise<void>;
   /** Pick up changes made elsewhere to the spaces, such as a renamed status. */
   refreshSpaces: () => Promise<void>;
@@ -350,6 +352,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   isMutating: false,
   mutatingTaskIds: new Set<string>(),
 
+  today: localToday(),
+
   loadBoard: async () => {
     const { activeSpaceId, showToast } = get();
     try {
@@ -358,8 +362,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (get().activeSpaceId !== activeSpaceId) return;
       // An epic that is gone would leave the board empty, with nothing to clear the filter.
       const { epicFilter } = get();
-      const epicGone = epicFilter !== null && !allTasks(data).some((t) => t.id === epicFilter);
-      set({ tasks: keepUnchanged(get().tasks, data), ...(epicGone && { epicFilter: null }) });
+      const epicGone = epicFilter !== null && !allTasks(data).some((t) => t.id === epicFilter && t.type === 'epic');
+      const today = localToday();
+      set({ tasks: keepUnchanged(get().tasks, data), ...(epicGone && { epicFilter: null }), ...(today !== get().today && { today }) });
       // Someone changed the statuses: the board must show them as they are now.
       const known = get().spaces.find((s) => s.id === activeSpaceId)?.statuses;
       const columns = Object.keys(data);

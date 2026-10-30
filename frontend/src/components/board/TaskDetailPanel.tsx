@@ -164,6 +164,16 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const openMarkdownModal    = useAppStore((s) => s.openMarkdownModal);
   const activeSpaceId        = useAppStore((s) => s.activeSpaceId);
 
+  const isOpen = detailTask !== null;
+
+  // Keeps "Created 5 min ago" true while the panel stays open.
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const id = setInterval(() => setClockTick((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, [isOpen]);
+
   // ── Local field state ────────────────────────────────────────────────────
 
   const [localTitle, setLocalTitle]             = useState('');
@@ -227,7 +237,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
     if (!el) return;
     el.style.height = '0';
     el.style.height = `${el.scrollHeight}px`;
-  }, [localTitle]);
+  }, [localTitle, detailTask?.id, isOpen, mobileTab]);
 
   // Auto-grow description textarea — runs on every content change and on
   // initial mount (when localDescription is set from detailTask).
@@ -236,7 +246,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
     if (!el) return;
     el.style.height = '0';
     el.style.height = `${el.scrollHeight}px`;
-  }, [localDescription]);
+    // Closing unmounts the fields, and a hidden tab measures nothing: measure again on coming back.
+  }, [localDescription, detailTask?.id, isOpen, mobileTab]);
 
   // ── Return focus on close ────────────────────────────────────────────────
 
@@ -622,7 +633,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   ))}
                 </div>
                 {activityTab === 'history' ? (
-                  <IssueHistory spaceId={activeSpaceId} taskId={detailTask.id} version={issue.updatedAt} />
+                  <IssueHistory spaceId={activeSpaceId} taskId={detailTask.id} version={`${issue.updatedAt}|${issue.category}`} />
                 ) : (
               <div data-testid="comments-panel">
                 <CommentsSection

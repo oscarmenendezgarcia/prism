@@ -12,7 +12,7 @@ import { AgentPicker } from './AgentPicker';
 import { HarnessIcon, isAgentName } from './HarnessIcon';
 import { failureMessage, PullRequestAction, ResultLine, SaveErrorNote, StatusLine } from './TaskRunStatus';
 
-const REVEALED_FOOTER = 'absolute right-0 bottom-0 flex items-center gap-1 pl-2 bg-surface rounded-lg opacity-0 '
+const REVEALED_FOOTER = 'absolute right-0 -bottom-1 flex items-center gap-1 pl-2 bg-surface opacity-0 '
   + 'group-hover:opacity-100 group-focus-within:opacity-100 has-[[aria-expanded=true]]:opacity-100 transition-opacity duration-fast '
   + '[@media(pointer:coarse)]:static [@media(pointer:coarse)]:opacity-100 [@media(pointer:coarse)]:pl-0';
 
@@ -58,8 +58,9 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
     }
     const problem = choiceProblem(choice, harnesses);
     // Only an issue meant for an agent keeps these in view: on the rest they appear on
-    // hover, over the end of the last row so that the cards around do not move.
-    const inView = missingHarness || isAgentName(task.assigned);
+    // hover, over the end of the last row so that the cards around do not move. A blocked
+    // issue explains its disabled Run, and attachments are a button: neither can be covered.
+    const inView = missingHarness || isAgentName(task.assigned) || !!task.isBlocked || (task.attachments?.length ?? 0) > 0;
     return (
       <div className={inView ? 'flex flex-wrap items-center gap-1 mt-2 -ml-2 [@media(pointer:coarse)]:mt-0 [@media(pointer:coarse)]:ml-0' : REVEALED_FOOTER} data-testid="run-footer">
         {missingHarness && <p className="w-full ml-2 text-xs text-error leading-snug">This agent is not installed on this machine.</p>}

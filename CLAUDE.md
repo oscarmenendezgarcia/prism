@@ -33,7 +33,7 @@ Every UI task MUST use the design system defined in `frontend/tailwind.config.js
 
 3. **Before adding a new component**, check `frontend/src/components/` for existing ones.
 
-4. **Fonts already loaded** in `frontend/index.html`: Inter, JetBrains Mono, Material Symbols Outlined. No duplicate imports.
+4. **Fonts already loaded** at the top of `frontend/src/index.css`: Inter, JetBrains Mono, Material Symbols Outlined. No duplicate imports. The import stays in a layer: outside one, Google's 24px icon rule beats every `text-*` utility.
 
 5. **No `style={{}}` attributes** — use Tailwind arbitrary values (`bg-[#hex]`, `w-[480px]`) instead.
 

@@ -22,20 +22,29 @@ export function EpicBar() {
       className="flex items-center gap-1 pr-4 border-b border-border bg-surface-elevated flex-shrink-0"
     >
       {epics.length > 0 && (
-        <select
-          value={epicFilter ?? ''}
-          onChange={(e) => setEpicFilter(e.target.value || null)}
-          aria-label="Filter by epic"
-          data-testid="epic-filter"
-          className={`h-7 max-w-[7.5rem] sm:max-w-[12rem] pl-2.5 pr-1 rounded-md border text-xs font-medium truncate cursor-pointer transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-primary/50 ${
-            epicFilter
-              ? 'bg-primary/15 border-primary/40 text-primary'
-              : 'bg-surface border-border text-text-secondary hover:border-primary/30 hover:text-text-primary'
-          }`}
-        >
-          <option value="">All epics</option>
-          {epics.map((epic) => <option key={epic.id} value={epic.id}>{epic.title}</option>)}
-        </select>
+        // On a phone it is an icon over an invisible select, or it would leave no room for the spaces.
+        <div className="relative flex items-center justify-center w-7 h-7 sm:w-auto sm:h-auto">
+          <span
+            className={`sm:hidden material-symbols-outlined text-lg leading-none ${epicFilter ? 'text-primary' : 'text-text-secondary'}`}
+            aria-hidden="true"
+          >
+            filter_list
+          </span>
+          <select
+            value={epicFilter ?? ''}
+            onChange={(e) => setEpicFilter(e.target.value || null)}
+            aria-label="Filter by epic"
+            data-testid="epic-filter"
+            className={`absolute inset-0 opacity-0 sm:static sm:opacity-100 sm:h-7 sm:max-w-[12rem] pl-2.5 pr-1 rounded-md border text-xs font-medium truncate cursor-pointer transition-colors duration-fast focus:outline-none focus:ring-2 focus:ring-primary/50 ${
+              epicFilter
+                ? 'bg-primary/15 border-primary/40 text-primary'
+                : 'bg-surface border-border text-text-secondary hover:border-primary/30 hover:text-text-primary'
+            }`}
+          >
+            <option value="">All epics</option>
+            {epics.map((epic) => <option key={epic.id} value={epic.id}>{epic.title}</option>)}
+          </select>
+        </div>
       )}
 
       {space && (
