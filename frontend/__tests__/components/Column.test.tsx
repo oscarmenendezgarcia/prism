@@ -1,6 +1,6 @@
 import type React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Column } from '../../src/components/board/Column';
 import { useAppStore } from '../../src/stores/useAppStore';
 import type { Status, Task } from '../../src/types';
@@ -128,6 +128,58 @@ describe('Column', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
       expect(showMoreCards).toHaveBeenCalledWith('todo');
       await waitFor(() => expect(screen.getByRole('button', { name: 'Show more' })).toBeEnabled());
+    });
+
+    const DONE: Status = { id: 'done', name: 'Done', category: 'done' };
+    const doneCard = (id: string): Task => ({ ...tasks[0], id, title: id, category: 'done', statusId: 'done' });
+
+    it('in a done column it goes above the cards, since what it reveals goes there', () => {
+      useAppStore.setState({ columnTotals: { done: 300 } });
+      render(<Column column="done" status={DONE} tasks={[doneCard('a')]} />);
+      const button = screen.getByRole('button', { name: 'Show more' });
+      expect(button.compareDocumentPosition(screen.getByTestId('task-card')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('in any other column it goes below them', () => {
+      useAppStore.setState({ columnTotals: { todo: 300 } });
+      renderColumn(TODO, tasks);
+      const button = screen.getByRole('button', { name: 'Show more' });
+      expect(button.compareDocumentPosition(screen.getAllByTestId('task-card')[0]) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    });
+
+    function scrollable(height: { value: number }) {
+      const list = screen.getByRole('list');
+      Object.defineProperty(list, 'scrollHeight', { configurable: true, get: () => height.value });
+      return list;
+    }
+
+    it('in a done column, what was on screen stays there when earlier cards arrive above it', async () => {
+      let loaded: () => void = () => {};
+      const showMoreCards = vi.fn(() => new Promise<void>((resolve) => { loaded = resolve; }));
+      useAppStore.setState({ columnTotals: { done: 300 }, showMoreCards } as never);
+      const { rerender } = render(<Column column="done" status={DONE} tasks={[doneCard('b')]} />);
+      const height = { value: 500 };
+      const list = scrollable(height);
+      list.scrollTop = 30;
+      fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+      height.value = 900;
+      rerender(<Column column="done" status={DONE} tasks={[doneCard('a'), doneCard('b')]} />);
+      expect(list.scrollTop).toBe(430);
+      await act(async () => { loaded(); });
+      expect(list.scrollTop).toBe(430);
+    });
+
+    it('does not move the column for a change after it, if nothing arrived', async () => {
+      const showMoreCards = vi.fn().mockResolvedValue(undefined);
+      useAppStore.setState({ columnTotals: { done: 300 }, showMoreCards } as never);
+      const { rerender } = render(<Column column="done" status={DONE} tasks={[doneCard('b')]} />);
+      const height = { value: 500 };
+      const list = scrollable(height);
+      list.scrollTop = 30;
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Show more' })); });
+      height.value = 900;
+      rerender(<Column column="done" status={DONE} tasks={[doneCard('a'), doneCard('b')]} />);
+      expect(list.scrollTop).toBe(30);
     });
 
     it('offers nothing when all are loaded', () => {

@@ -4,7 +4,7 @@
  * ADR-003 §8.3: bg-transparent, rounded-lg, col.* tokens replace hardcoded hex.
  */
 
-import React, { memo, useState } from 'react';
+import React, { memo, useLayoutEffect, useRef, useState } from 'react';
 import type { Task, Column as ColumnType, Status } from '@/types';
 import { Button } from '@/components/shared/Button';
 import { MAX_COLUMN_LIMIT, useAppStore } from '@/stores/useAppStore';
@@ -41,11 +41,30 @@ export const Column = memo(function Column({ column, status, statuses = [], task
   const isDragOver    = useDragStore((s) => s.dragOverColumn === column && s.draggedTaskId !== null);
   // What the column really has: not all of it is loaded, and the server applies the epic filter.
   const total         = useAppStore((s) => own(s.columnTotals, column)) ?? tasks.length;
+  const fromEnd       = status?.category === 'done';
   const limit         = useAppStore((s) => own(s.columnLimits, column)) ?? 0;
   const showMoreCards = useAppStore((s) => s.showMoreCards);
   const [loadingMore, setLoadingMore] = useState(false);
 
+  // A done column reveals the cards before those it shows, above them: what is on screen stays
+  // where it is, counted from the bottom. The browser only does that once scrolled down.
+  const listRef = useRef<HTMLDivElement>(null);
+  const keepFromBottom = useRef<{ distance: number; tasks: Task[] } | null>(null);
+  useLayoutEffect(() => {
+    const kept = keepFromBottom.current;
+    const list = listRef.current;
+    if (!kept || !list) return;
+    if (kept.tasks !== tasks) {
+      list.scrollTop = list.scrollHeight - kept.distance;
+      keepFromBottom.current = null;
+    } else if (!loadingMore) {
+      keepFromBottom.current = null;
+    }
+  }, [tasks, loadingMore]);
+
   const handleShowMore = async () => {
+    const list = listRef.current;
+    if (fromEnd && list) keepFromBottom.current = { distance: list.scrollHeight - list.scrollTop, tasks };
     setLoadingMore(true);
     try {
       await showMoreCards(column);
@@ -74,6 +93,21 @@ export const Column = memo(function Column({ column, status, statuses = [], task
     e.preventDefault();
     onDrop?.(e, column);
   };
+
+  const showMore = tasks.length < total && limit < MAX_COLUMN_LIMIT && (
+    <div role="listitem" className="shrink-0 flex justify-center">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={loadingMore}
+        onClick={() => { void handleShowMore(); }}
+        data-testid="show-more-cards"
+      >
+        Show more
+      </Button>
+    </div>
+  );
 
   return (
     <section
@@ -104,9 +138,11 @@ export const Column = memo(function Column({ column, status, statuses = [], task
 
       {/* Card area */}
       <div
+        ref={listRef}
         role="list"
         className="flex-1 p-3 flex flex-col gap-2 overflow-y-auto"
       >
+        {fromEnd && showMore}
         {tasks.length === 0 ? (
           <EmptyState column={status?.category ?? 'todo'} />
         ) : (
@@ -124,20 +160,7 @@ export const Column = memo(function Column({ column, status, statuses = [], task
             />
           ))
         )}
-        {tasks.length < total && limit < MAX_COLUMN_LIMIT && (
-          <div role="listitem" className="shrink-0 flex justify-center">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={loadingMore}
-              onClick={() => { void handleShowMore(); }}
-              data-testid="show-more-cards"
-            >
-              Show more
-            </Button>
-          </div>
-        )}
+        {!fromEnd && showMore}
       </div>
     </section>
   );
