@@ -104,6 +104,12 @@ describe('getBoard', () => {
     expect(url.searchParams.get('epic')).toBe('e1');
   });
 
+  it('asks by id for what the limit would hide', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => ({ columns: {}, epics: [] }) });
+    await getBoard('space-1', { include: ['a', 'b'] });
+    expect(new URL(mockFetch.mock.calls[0][0], 'http://x').searchParams.get('include')).toBe('a,b');
+  });
+
   it('sends the version it has, and a 304 is null, without reading a body', async () => {
     const json = vi.fn();
     mockFetch.mockResolvedValueOnce({ ok: false, status: 304, headers: new Headers({ ETag: '"one"' }), json });

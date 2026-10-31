@@ -149,7 +149,7 @@ describe('loadBoard', () => {
     await useAppStore.getState().loadBoard();
 
     expect(useAppStore.getState().tasks).toEqual(board);
-    expect(api.getBoard).toHaveBeenCalledWith('space-1', { limits: {}, epic: null, etag: null });
+    expect(api.getBoard).toHaveBeenCalledWith('space-1', { limits: {}, epic: null, include: [], etag: null });
   });
 
   it('shows error toast on failure', async () => {

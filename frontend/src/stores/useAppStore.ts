@@ -37,6 +37,8 @@ const emptyBoard = (): BoardTasks => ({});
 
 /** How many more cards "Show more" brings, and the most a column can ask the server for. */
 const SHOW_MORE_STEP = 100;
+/** How many cards the board is asked to keep whatever their column's limit, as the server allows. */
+const MAX_INCLUDED = 20;
 export const MAX_COLUMN_LIMIT = 2000;
 
 /**
@@ -97,6 +99,10 @@ interface AppState {
   columnBounds: Record<Column, { rankBefore?: number; rankAfter?: number }>;
   /** How many cards a column was asked to show. Only those "Show more" raised. */
   columnLimits: Record<Column, number>;
+  /** Cards moved or created here, newest last: they must not vanish past their column's limit. */
+  includedIds: string[];
+  /** Keep this card on the board, wherever it lands. */
+  keepOnBoard: (taskId: string) => void;
   /** Every epic of the space, loaded or not. */
   epics: BoardEpic[];
   /** The space and filter the loaded cards are of, which change later than what was asked for. */
@@ -278,8 +284,8 @@ let detailRequests = 0;
 let detailWrites = 0;
 let detailWritesInFlight = 0;
 
-const boardQueryKey = (s: { epicFilter: string | null; columnLimits: Record<string, number> }) =>
-  JSON.stringify([s.epicFilter, s.columnLimits]);
+const boardQueryKey = (s: { epicFilter: string | null; columnLimits: Record<string, number>; includedIds: string[] }) =>
+  JSON.stringify([s.epicFilter, s.columnLimits, s.includedIds]);
 
 /** Questions open on an issue, as a card shows them, from its comments. */
 function questionsOf(comments: Comment[] | undefined): Pick<Task, 'pendingQuestions' | 'pendingQuestionText'> {
@@ -341,7 +347,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // An epic of the old space would hide every card in the new one.
     boardEtag = null;
     set({
-      activeSpaceId: id, epicFilter: null, columnLimits: {},
+      activeSpaceId: id, epicFilter: null, columnLimits: {}, includedIds: [],
       ...(id !== get().activeSpaceId && {
         tasks: emptyBoard(), columnTotals: {}, columnBounds: {}, epics: [], boardScope: `${id}|`, boardVersion: null,
       }),
@@ -462,6 +468,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   columnTotals: {},
   columnBounds: {},
   columnLimits: {},
+  includedIds: [],
+  keepOnBoard: (taskId) => {
+    set({ includedIds: [...get().includedIds.filter((id) => id !== taskId), taskId].slice(-MAX_INCLUDED) });
+  },
   epics: [],
   boardScope: '',
   boardVersion: null,
@@ -477,7 +487,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const asked = get();
       const queryKey = boardQueryKey(asked);
       const request = ++boardRequests;
-      const fresh = await api.getBoard(activeSpaceId, { limits: asked.columnLimits, epic: asked.epicFilter, etag: boardEtag });
+      const fresh = await api.getBoard(activeSpaceId, { limits: asked.columnLimits, epic: asked.epicFilter, include: asked.includedIds, etag: boardEtag });
       // The user may have moved to another space while this was on its way.
       if (get().activeSpaceId !== activeSpaceId) return;
       // From before a save, it would undo it on the screen until the next one.
@@ -502,7 +512,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const { epicFilter } = get();
       if (epicFilter !== null && !data.epics.some((e) => e.id === epicFilter)) {
         boardEtag = null;
-        set({ epicFilter: null, columnLimits: {} });
+        set({ epicFilter: null, columnLimits: {}, includedIds: [] });
         void get().loadBoard();
         return;
       }
@@ -554,7 +564,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activeSpaceId, closeCreateModal, loadBoard, showToast } = get();
     set({ isMutating: true });
     try {
-      await api.createTask(activeSpaceId, payload);
+      const created = await api.createTask(activeSpaceId, payload);
+      if (created?.id) get().keepOnBoard(created.id);
       closeCreateModal();
       await loadBoard();
       showToast('Issue created');
@@ -575,6 +586,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { detailTask } = get();
     const panelBefore = detailTask?.id === taskId ? { statusId: detailTask.statusId, category: detailTask.category } : null;
 
+    get().keepOnBoard(taskId);
     savesStarted += 1;
     movesInFlight += 1;
     detailWrites += 1;
@@ -707,6 +719,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       t.id === taskId ? { ...t, rank: newRank } : t
     );
     updated.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt));
+    get().keepOnBoard(taskId);
     // Mark in flight (same contract as moveTask / deleteTask) so rapid Alt+Arrow
     // presses and polling can't overlap the write.
     set({
@@ -997,7 +1010,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (epicId === get().epicFilter) return;
     // The server filters, and what it sent was for the other filter.
     boardEtag = null;
-    set({ epicFilter: epicId, columnLimits: {} });
+    set({ epicFilter: epicId, columnLimits: {}, includedIds: [] });
     void get().loadBoard();
   },
 

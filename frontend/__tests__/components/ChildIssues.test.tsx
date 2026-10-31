@@ -143,6 +143,14 @@ describe('ChildIssues — listing', () => {
     expect(screen.queryByTestId('show-more-children')).not.toBeInTheDocument();
   });
 
+  it('keeps what it added on the board, even past the limit of its column', async () => {
+    const keepOnBoard = vi.fn();
+    useAppStore.setState({ keepOnBoard } as never);
+    render(<ChildIssues task={EPIC} spaceId="s1" />);
+    addChild('New issue');
+    await waitFor(() => expect(keepOnBoard).toHaveBeenCalledWith('new'));
+  });
+
   it('lists what was added without waiting for the board', async () => {
     render(<ChildIssues task={EPIC} spaceId="s1" />);
     await screen.findAllByTestId('child-issue');

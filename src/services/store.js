@@ -790,6 +790,9 @@ function createStore(dataDir) {
     childrenPage: db.prepare(
       `${TASK_SELECT} WHERE t.space_id = ? AND t.parent_id = ? ORDER BY t.number ASC LIMIT ?`
     ),
+    epicMembersAmong: db.prepare(
+      `${EPIC_MEMBERS} SELECT id FROM members WHERE id IN (SELECT value FROM json_each(@ids))`
+    ),
     tasksByIds: db.prepare(
       `${TASK_SELECT} WHERE t.space_id = ? AND t.id IN (SELECT value FROM json_each(?)) ORDER BY t.number ASC`
     ),
@@ -1614,13 +1617,15 @@ function createStore(dataDir) {
    * in rank order.
    *
    * @param {string} spaceId
-   * @param {{ limits?: Record<string, number>, epicId?: string|null }} [options]
+   * @param {{ limits?: Record<string, number>, epicId?: string|null, include?: string[] }} [options]
    *   limits: how many cards of a status, instead of the default. epicId: only what is in it.
+   *   include: cards to bring wherever they are, as long as they would show: what someone just
+   *   moved must not vanish past the limit. They are not added to the total.
    * @returns {{ columns: Record<string, { tasks: object[], total: number, rankBefore?: number, rankAfter?: number }>, epics: object[] }}
    *   rankBefore and rankAfter: the ranks of the cards next to what was loaded, when there are
    *   any, so that a card dropped at the end of what is loaded lands there.
    */
-  function getBoard(spaceId, { limits = {}, epicId = null } = {}) {
+  function getBoard(spaceId, { limits = {}, epicId = null, include = [] } = {}) {
     const statuses = stmts.getStatuses.all(spaceId).map(rowToStatus);
     const spaceKey = stmts.getSpace.get(spaceId)?.key ?? null;
     const filtered = epicId !== null;
@@ -1631,6 +1636,17 @@ function createStore(dataDir) {
     const counts = new Map();
     if (!noEpic) {
       for (const row of (filtered ? stmts.epicCounts : stmts.boardCounts).all(params)) counts.set(row.status_id, row.n);
+    }
+
+    const included = new Map();
+    if (include.length > 0 && !noEpic) {
+      const ids = JSON.stringify(include);
+      const allowed = filtered ? new Set(stmts.epicMembersAmong.all({ epic: epicId, ids }).map((row) => row.id)) : null;
+      for (const row of stmts.tasksByIds.all(spaceId, ids)) {
+        if (allowed && !allowed.has(row.id)) continue;
+        if (!included.has(row.status_id)) included.set(row.status_id, []);
+        included.get(row.status_id).push(row);
+      }
     }
 
     // A status is named by its users, and can be called "constructor".
@@ -1645,6 +1661,12 @@ function createStore(dataDir) {
       const rows = total === 0 ? [] : query.all({ ...params, status: status.id, limit: limit + 1 });
       const beyond = rows.length > limit ? rows.pop() : null;
       if (fromEnd) rows.reverse();
+      const loaded = new Set(rows.map((row) => row.id));
+      const extras = (included.get(status.id) ?? []).filter((row) => !loaded.has(row.id));
+      if (extras.length > 0) {
+        rows.push(...extras);
+        rows.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
+      }
       columns[status.id] = {
         tasks: [],
         total,

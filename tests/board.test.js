@@ -143,6 +143,54 @@ describe('GET /spaces/:id/board', () => {
       assert.equal(all.rankAfter, undefined);
     });
 
+    describe('include', () => {
+      test('brings a card beyond the limit, into its column, in rank order, not added to the total', async () => {
+        const { columns } = (await board(`?limits=${todoId}:3&include=t50`)).json;
+        assert.deepEqual(titles(columns[todoId]), ['T1', 'T2', 'T3', 'T50']);
+        assert.equal(columns[todoId].total, 120);
+      });
+
+      test('brings a card before what a done column shows, in rank order', async () => {
+        const { columns } = (await board(`?limits=${doneId}:2&include=d5`)).json;
+        assert.deepEqual(titles(columns[doneId]), ['D5', 'D119', 'D120']);
+        assert.equal(columns[doneId].total, 120);
+      });
+
+      test('does not repeat a card that is already there', async () => {
+        const { columns } = (await board(`?limits=${todoId}:3&include=t2,t4`)).json;
+        assert.deepEqual(titles(columns[todoId]), ['T1', 'T2', 'T3', 'T4']);
+      });
+
+      test('carries what any card carries', async () => {
+        const { columns } = (await board(`?limits=${todoId}:1&include=t50`)).json;
+        assert.deepEqual(columns[todoId].tasks[1].progress, { done: 0, total: 0 });
+      });
+
+      test('ignores what does not exist, or is of another space', async () => {
+        const other = await newSpace('Include elsewhere');
+        const theirs = (await json(port, 'POST', `/api/v1/spaces/${other}/tasks`, { title: 'Theirs', type: 'chore' })).json;
+        const { columns } = (await board(`?limits=${todoId}:1&include=nope,${theirs.id}`)).json;
+        assert.deepEqual(titles(columns[todoId]), ['T1']);
+      });
+
+      test('takes at most 20, and only what looks like an id', async () => {
+        const many = Array.from({ length: 21 }, (_, i) => `t${i + 1}`).join(',');
+        assert.equal((await board(`?include=${many}`)).status, 400);
+        assert.equal((await board(`?include=${encodeURIComponent("t1'; DROP")}`)).status, 400);
+        const twenty = Array.from({ length: 20 }, (_, i) => `t${i + 101}`).join(',');
+        const { columns } = (await board(`?limits=${todoId}:0&include=${twenty}`)).json;
+        assert.equal(columns[todoId].tasks.length, 20);
+      });
+
+      test('is part of the ETag, through the body', async () => {
+        const first = await raw(port, 'GET', `/api/v1/spaces/${id}/board?limits=${todoId}:1`);
+        const second = await raw(port, 'GET', `/api/v1/spaces/${id}/board?limits=${todoId}:1&include=t50`, { headers: { 'If-None-Match': first.headers.etag } });
+        assert.equal(second.status, 200);
+        const inside = await raw(port, 'GET', `/api/v1/spaces/${id}/board?limits=${todoId}:1&include=t1`, { headers: { 'If-None-Match': first.headers.etag } });
+        assert.equal(inside.status, 304);
+      });
+    });
+
     test('takes the cards of the right end when ranks tie', async () => {
       const space = await newSpace('Ties');
       const { statuses } = (await json(port, 'GET', `/api/v1/spaces/${space}`)).json;
@@ -263,6 +311,13 @@ describe('GET /spaces/:id/board', () => {
       assert.ok(mine.statusId);
       assert.equal(mine.total, 1);
       assert.equal(mine.done, 0);
+    });
+
+    test('include does not bring in what the filter leaves out', async () => {
+      const body = await board(`?epic=${epic.id}&include=${loose.id},${issue.id}`);
+      assert.ok(!ids(body).includes(loose.id));
+      assert.ok(ids(body).includes(issue.id));
+      assert.ok(!ids(await board(`?epic=nope&include=${loose.id}`)).includes(loose.id));
     });
 
     test('something that is not an epic of this space has nothing in it', async () => {

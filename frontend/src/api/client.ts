@@ -232,16 +232,18 @@ async function getIfChanged<T>(path: string, etag: string | null | undefined): P
  *
  * @param query.limits How many cards of a status, where it is not the default.
  * @param query.epic   Only what is in this epic.
+ * @param query.include Cards to bring even past the limit of their column.
  * @param query.etag   The version the caller has: if it is still current, the answer is null.
  */
 export const getBoard = (
   spaceId: string,
-  { limits = {}, epic = null, etag }: { limits?: Record<string, number>; epic?: string | null; etag?: string | null } = {},
+  { limits = {}, epic = null, include = [], etag }: { limits?: Record<string, number>; epic?: string | null; include?: string[]; etag?: string | null } = {},
 ): Promise<Fresh<BoardResponse>> => {
   const params = new URLSearchParams();
   const overrides = Object.entries(limits).map(([statusId, n]) => `${statusId}:${n}`).join(',');
   if (overrides) params.set('limits', overrides);
   if (epic) params.set('epic', epic);
+  if (include.length > 0) params.set('include', include.join(','));
   const query = params.size > 0 ? `?${params}` : '';
   return getIfChanged<BoardResponse>(`/spaces/${spaceId}/board${query}`, etag);
 };

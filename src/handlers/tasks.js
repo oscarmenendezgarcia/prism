@@ -24,6 +24,8 @@ const taskRunner                           = require('../services/taskRunner');
 
 /** The most cards of a column a board can ask for at once. */
 const BOARD_MAX_LIMIT      = 2000;
+const BOARD_MAX_INCLUDE    = 20;
+const ISSUE_ID             = /^[A-Za-z0-9_-]{1,100}$/;
 const DEFAULT_CHILDREN     = 200;
 const MAX_CHILDREN         = 1000;
 const MAX_IDS              = 100;
@@ -424,7 +426,8 @@ function createApp(spaceId, store) {
 
   /**
    * GET /spaces/:id/board — the cards on screen and what they show.
-   * Query: limits=<statusId>:<n>,... to show more of a column; epic=<id> to only show that epic.
+   * Query: limits=<statusId>:<n>,... to show more of a column; epic=<id> to only show that epic;
+   * include=<id>,... for cards to bring even past the limit of their column.
    */
   function handleGetBoard(req, res) {
     try {
@@ -439,7 +442,14 @@ function createApp(spaceId, store) {
         }
         limits[part.slice(0, separator)] = Math.min(n, BOARD_MAX_LIMIT);
       }
-      sendJSONWithETag(req, res, serializeBoard(store.getBoard(spaceId, { limits, epicId: qs.get('epic') || null })));
+      const include = (qs.get('include') ?? '').split(',').filter(Boolean);
+      if (include.length > BOARD_MAX_INCLUDE) {
+        return sendError(res, 400, 'VALIDATION_ERROR', `include must not exceed ${BOARD_MAX_INCLUDE} ids`);
+      }
+      if (!include.every((id) => ISSUE_ID.test(id))) {
+        return sendError(res, 400, 'VALIDATION_ERROR', 'include must be a list of issue ids');
+      }
+      sendJSONWithETag(req, res, serializeBoard(store.getBoard(spaceId, { limits, epicId: qs.get('epic') || null, include })));
     } catch (err) {
       console.error('GET board error:', err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to read the board');

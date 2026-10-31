@@ -12,6 +12,7 @@ import { boardAnswer } from '../helpers/board';
 vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(),
   getBoard: vi.fn(),
+  createTask: vi.fn(),
   getTaskForPanel: vi.fn(),
   moveTask: vi.fn(),
   reorderTask: vi.fn(),
@@ -175,7 +176,7 @@ describe('Show more', () => {
     await useAppStore.getState().showMoreCards('todo');
     useAppStore.getState().setEpicFilter('e1');
     expect(useAppStore.getState().columnLimits).toEqual({});
-    expect(lastQuery()).toMatchObject({ limits: {}, epic: 'e1' });
+    expect(lastQuery()).toMatchObject({ limits: {}, epic: 'e1', include: [] });
   });
 
   it('ignores an answer for fewer cards that arrives after', async () => {
@@ -516,5 +517,66 @@ describe('a write that fails', () => {
     fail(new Error('No'));
     await reordering;
     expect(useAppStore.getState().tasks.todo.map((t) => `${t.id}:${t.title}`)).toEqual(['a:Before', 'b:Changed since']);
+  });
+});
+
+describe('a card moved or created where the limit would hide it', () => {
+  beforeEach(() => {
+    useAppStore.setState({ tasks: { todo: [card('a'), card('b')], done: [] }, columnTotals: { todo: 2, done: 0 } });
+    vi.mocked(api.getBoard).mockResolvedValue(null);
+    vi.mocked(api.moveTask).mockResolvedValue({} as never);
+    vi.mocked(api.reorderTask).mockResolvedValue({} as never);
+  });
+
+  it('a moved one is asked for by id on every poll', async () => {
+    await useAppStore.getState().moveTask('a', 'done');
+    expect(lastQuery()?.include).toEqual(['a']);
+    await useAppStore.getState().loadBoard();
+    expect(lastQuery()?.include).toEqual(['a']);
+  });
+
+  it('so is a created one, by the id the server gave it', async () => {
+    vi.mocked(api.createTask).mockResolvedValue(card('new'));
+    await useAppStore.getState().createTask({ title: 'T', type: 'chore' });
+    expect(lastQuery()?.include).toEqual(['new']);
+  });
+
+  it('and one placed by hand, which may land past the end of what is loaded', async () => {
+    await useAppStore.getState().reorderTask('a', 'todo', 9000);
+    await useAppStore.getState().loadBoard();
+    expect(lastQuery()?.include).toEqual(['a']);
+  });
+
+  it('keeps the newest 20, without repeating any', async () => {
+    for (let i = 0; i < 25; i += 1) useAppStore.getState().keepOnBoard(`c${i}`);
+    useAppStore.getState().keepOnBoard('c10');
+    const kept = useAppStore.getState().includedIds;
+    expect(kept).toHaveLength(20);
+    expect(kept.at(-1)).toBe('c10');
+    expect(kept).not.toContain('c4');
+    expect(new Set(kept).size).toBe(20);
+  });
+
+  it('forgets them on changing space', () => {
+    useAppStore.getState().keepOnBoard('a');
+    useAppStore.getState().setActiveSpace('another');
+    expect(useAppStore.getState().includedIds).toEqual([]);
+  });
+
+  it('forgets them on changing the epic filter', () => {
+    useAppStore.getState().keepOnBoard('a');
+    useAppStore.getState().setEpicFilter('e1');
+    expect(useAppStore.getState().includedIds).toEqual([]);
+    expect(lastQuery()?.include).toEqual([]);
+  });
+
+  it('does not let an answer from before it was kept replace one from after', async () => {
+    let answer: (v: ReturnType<typeof boardAnswer>) => void = () => {};
+    vi.mocked(api.getBoard).mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+    const poll = useAppStore.getState().loadBoard();
+    useAppStore.getState().keepOnBoard('far');
+    answer(boardAnswer({ todo: [card('without')], done: [] }));
+    await poll;
+    expect(useAppStore.getState().tasks.todo[0].id).toBe('a');
   });
 });

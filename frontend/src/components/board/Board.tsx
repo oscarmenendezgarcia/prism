@@ -61,8 +61,11 @@ export function computeDropRank(
   bounds: { rankBefore?: number; rankAfter?: number } = {},
 ): { newRank: number; needsRebalance: boolean; rebalancedTasks?: Task[] } {
   const withoutDragged = tasks.filter((t) => t.id !== draggedId);
-  const floor = bounds.rankBefore ?? 0;
-  const ceiling = bounds.rankAfter ?? Infinity;
+  // A card brought by id may lie past those bounds, and then they say nothing about its side.
+  const firstRank = withoutDragged[0]?.rank ?? 0;
+  const lastRank = withoutDragged.at(-1)?.rank ?? 0;
+  const floor = bounds.rankBefore !== undefined && (withoutDragged.length === 0 || bounds.rankBefore < firstRank) ? bounds.rankBefore : 0;
+  const ceiling = bounds.rankAfter !== undefined && (withoutDragged.length === 0 || bounds.rankAfter > lastRank) ? bounds.rankAfter : Infinity;
 
   let prevRank = floor;
   let nextRank = ceiling;

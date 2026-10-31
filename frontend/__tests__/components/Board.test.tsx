@@ -431,6 +431,15 @@ describe('Board — a space with more cards than are loaded', () => {
       expect(computeDropRank(head, 'c', 'a', false, { rankAfter: 4000 }).newRank).toBe(1500);
     });
 
+    it('next to a card brought by include, which may be beyond the bounds, the rank still falls between', () => {
+      // The last card shown is at 9000 though the next hidden one is at 4000: it came by id.
+      const withExtra = [card('a', 1000), card('b', 3000), card('far', 9000)];
+      expect(computeDropRank(withExtra, 'a', 'far', false, { rankAfter: 4000 }).newRank).toBe(10000);
+      // The first one shown is at 500 though the last hidden one before the tail is at 5000.
+      const tailExtra = [card('near', 500), card('x', 6000), card('y', 7000)];
+      expect(computeDropRank(tailExtra, 'y', 'near', true, { rankBefore: 5000 }).newRank).toBe(250);
+    });
+
     const crowded = [card('a', 6000), card('b', 6000.0004), card('c', 6000.0008), card('d', 7000)];
 
     it('a rebalance stays where the cards are, in a column that shows its tail', () => {
@@ -441,10 +450,10 @@ describe('Board — a space with more cards than are loaded', () => {
     });
 
     it('a rebalance stays above the cards below, in a column that shows its head', () => {
-      const { rebalancedTasks } = computeDropRank(crowded, 'd', 'b', true, { rankBefore: 5000, rankAfter: 5400 });
+      const { rebalancedTasks } = computeDropRank(crowded, 'd', 'b', true, { rankBefore: 5000, rankAfter: 7400 });
       const ranks = rebalancedTasks!.map((t) => t.rank as number);
       expect(ranks[0]).toBeGreaterThan(5000);
-      expect(ranks[3]).toBeLessThan(5400);
+      expect(ranks[3]).toBeLessThan(7400);
       expect([...ranks].sort((a, b) => a - b)).toEqual(ranks);
     });
 

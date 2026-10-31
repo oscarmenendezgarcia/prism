@@ -27,6 +27,7 @@ export function ChildIssues({ task, spaceId, readOnly = false }: ChildIssuesProp
   const boardVersion = useAppStore((s) => s.boardVersion);
   const openDetailPanel = useAppStore((s) => s.openDetailPanel);
   const loadBoard = useAppStore((s) => s.loadBoard);
+  const keepOnBoard = useAppStore((s) => s.keepOnBoard);
   const showToast = useAppStore((s) => s.showToast);
   const statuses = useAppStore((s) => s.spaces.find((sp) => sp.id === spaceId)?.statuses) ?? [];
 
@@ -68,7 +69,8 @@ export function ChildIssues({ task, spaceId, readOnly = false }: ChildIssuesProp
     if (!trimmed || saving) return;
     setSaving(true);
     try {
-      await api.createTask(spaceId, { title: trimmed, type: isEpic ? 'feature' : 'chore', parentId: task.id });
+      const created = await api.createTask(spaceId, { title: trimmed, type: isEpic ? 'feature' : 'chore', parentId: task.id });
+      keepOnBoard(created.id);
       setTitle('');
       setAdded((n) => n + 1);
       await loadBoard();
