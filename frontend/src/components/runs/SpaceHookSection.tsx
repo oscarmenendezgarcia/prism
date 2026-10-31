@@ -40,7 +40,7 @@ export function SpaceHookSection({ hooks, onChange, statuses, hasUnsavedStatuses
           value={hooks.checkCommand ?? ''}
           onChange={(e) => onChange({ ...hooks, checkCommand: e.target.value })}
           placeholder="npm test"
-          className="w-full px-3 py-2 rounded-lg bg-surface-variant border border-border text-sm font-mono text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:border-primary transition-colors duration-fast"
+          className="w-full px-3 py-2 rounded-lg bg-surface-variant border border-border text-sm font-mono text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:border-primary transition-colors duration-fast"
         />
         <span className="text-text-disabled">Runs in the task's worktree when the agent finishes. It must pass before the task moves on.</span>
       </label>

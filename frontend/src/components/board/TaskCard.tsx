@@ -7,7 +7,8 @@
  *
  * ADR-1 (redesign-cards): replaces monolithic flat-list layout with progressive disclosure.
  * ADR-002: replaces buildCard() in legacy app.js.
- * ADR-003 §8.4: transition-all ease-apple, done state opacity-50 grayscale-[30%].
+ * Moving between places is up to useCardMotion: the card has no entrance of its own,
+ * since it mounts again each time it changes column.
  */
 
 import React, { memo, useMemo } from 'react';
@@ -35,8 +36,6 @@ interface TaskCardProps {
   onDragStart?: (e: React.DragEvent, taskId: string, sourceColumn: Column) => void;
   onDragEnd?: () => void;
   onDragOverTask?: (taskId: string | null, insertBefore: boolean) => void;
-  /** A-1: stagger delay in ms for the entrance animation. EXCEPTION: only inline style allowed. */
-  staggerDelayMs?: number;
   /**
    * Keyboard/button reorder within the column (Alt+Arrow shortcut, and the
    * CardActionMenu move-up/move-down buttons — shared by the keyboard and
@@ -57,7 +56,7 @@ interface TaskCardProps {
 // task list changes). Drag state is now read directly from useDragStore with
 // per-card boolean selectors — only this specific card re-renders when its own
 // drag state changes, giving O(1) re-renders per drag event.
-export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragEnd, staggerDelayMs = 0, onDragOverTask, onKeyboardReorder, isFirstInList = false, isLastInList = false }: TaskCardProps) {
+export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDragEnd, onDragOverTask, onKeyboardReorder, isFirstInList = false, isLastInList = false }: TaskCardProps) {
   const moveTask          = useAppStore((s) => s.moveTask);
   const deleteTask        = useAppStore((s) => s.deleteTask);
   const openAttachmentModal = useAppStore((s) => s.openAttachmentModal);
@@ -151,22 +150,22 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
       data-testid="task-card"
       className={[
         'group relative bg-surface rounded-xl border border-border p-3 pl-4 cursor-pointer overflow-hidden',
-        'animate-fade-in-up shrink-0',
+        'shrink-0',
         // Animate only what changes (transform/shadow/ring/border) instead of `all`,
         // and give a subtle tactile press — the card is clickable (opens the panel).
         'transition-[transform,box-shadow,border-color] duration-fast ease-default',
-        'hover:-translate-y-0.5 hover:shadow-[0_4px_20px_rgba(124,109,250,0.15)] hover:ring-1 hover:ring-primary/30',
-        'active:scale-[0.99] active:duration-100',
+        'hover:ring-1 hover:ring-primary/30',
+        'active:scale-[0.99] active:duration-fast',
         // 2.4.7 Focus Visible — card had no focus indicator before; :focus-visible
         // so mouse clicks don't show a ring, only real keyboard focus does.
         'focus:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface',
         isDone ? 'opacity-60 grayscale-[25%]' : '',
-        isDragging ? 'rotate-1 scale-[0.97] shadow-xl ring-1 ring-primary/40 opacity-80' : '',
+        isDragging ? 'opacity-40' : '',
         isActiveTask ? 'border-primary/30 animate-glow-pulse' : '',
-        isDragOverThis && insertBeforeThis  ? 'border-t-2 border-t-primary ring-0' : '',
-        isDragOverThis && !insertBeforeThis ? 'border-b-2 border-b-primary ring-0' : '',
+        // A shadow, so that marking the gap moves nothing around it.
+        isDragOverThis && insertBeforeThis  ? 'shadow-[0_-4px_0_-2px_var(--color-primary)]' : '',
+        isDragOverThis && !insertBeforeThis ? 'shadow-[0_4px_0_-2px_var(--color-primary)]' : '',
       ].filter(Boolean).join(' ')}
-      style={staggerDelayMs > 0 ? { animationDelay: `${staggerDelayMs}ms`, animationFillMode: 'both' } : { animationFillMode: 'both' }}
       aria-grabbed={isDragging}
       onClick={() => openDetailPanel(task)}
       onKeyDown={handleKeyDown}
@@ -280,7 +279,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
               </span>
             </>
           ) : (
-            <span className="text-[11px] text-text-disabled" data-testid="unassigned-label">
+            <span className="text-[11px] text-text-tertiary" data-testid="unassigned-label">
               Unassigned
             </span>
           )}

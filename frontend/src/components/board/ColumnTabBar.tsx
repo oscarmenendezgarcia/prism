@@ -31,7 +31,7 @@ export function ColumnTabBar({ statuses, activeColumn, taskCounts, onSelect }: C
             aria-controls={`column-panel-${column}`}
             onClick={() => onSelect(column)}
             className={[
-              'flex-shrink-0 snap-start flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ease-apple',
+              'flex-shrink-0 snap-start flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-ui duration-fast ease-default',
               isActive
                 ? 'bg-primary/15 text-primary font-semibold border-b-2 border-primary'
                 : 'text-text-secondary hover:text-text-primary hover:bg-surface-variant',

@@ -52,7 +52,6 @@ export function MarkdownModal() {
       onClose={handleClose}
       labelId={TITLE_ID}
       maxWidth=""
-      enterAnimation="animate-modal-dialog-in"
       className="w-[92vw] max-w-[860px] mx-auto max-h-[90vh]"
     >
       <ModalHeader onClose={handleClose}>

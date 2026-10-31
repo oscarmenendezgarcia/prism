@@ -163,7 +163,7 @@ describe('MarkdownModal — close interactions', () => {
 
     render(<MarkdownModal />);
     fireEvent.click(screen.getByRole('button', { name: 'Close modal' }));
-    // M-1: 180ms exit animation plays before onClose fires
+    // M-1: 120ms exit animation plays before onClose fires
     act(() => { vi.advanceTimersByTime(200); });
 
     expect(mockClose).toHaveBeenCalled();

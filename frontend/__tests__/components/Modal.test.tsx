@@ -32,7 +32,7 @@ describe('Modal', () => {
     // Modal renders via createPortal to document.body
     const overlay = document.body.querySelector('[role="dialog"]');
     fireEvent.click(overlay!);
-    // M-1: onClose fires after 180ms exit animation
+    // M-1: onClose fires after 120ms exit animation
     act(() => { vi.advanceTimersByTime(200); });
     expect(onClose).toHaveBeenCalled();
     vi.useRealTimers();
@@ -92,7 +92,7 @@ describe('Modal', () => {
     // Before animation completes, modal is still in DOM (isClosing=true)
     expect(document.body.querySelector('[role="dialog"]')).toBeInTheDocument();
 
-    // After 180ms exit animation the modal unmounts
+    // After 120ms exit animation the modal unmounts
     act(() => { vi.advanceTimersByTime(200); });
     expect(document.body.querySelector('[role="dialog"]')).not.toBeInTheDocument();
     vi.useRealTimers();

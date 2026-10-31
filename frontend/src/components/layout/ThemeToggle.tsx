@@ -42,10 +42,10 @@ export function ThemeToggle() {
       onClick={handleClick}
       aria-label={LABEL[theme]}
       title={LABEL[theme]}
-      className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-text-secondary hover:bg-surface-variant hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-150 ease-apple leading-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/50"
+      className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-text-secondary hover:bg-surface-variant hover:text-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-ui duration-fast ease-default leading-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary/50"
     >
       <span
-        className="material-symbols-outlined text-lg leading-none transition-opacity duration-150"
+        className="material-symbols-outlined text-lg leading-none transition-opacity duration-fast"
         aria-hidden="true"
       >
         {ICON[theme]}

@@ -152,7 +152,7 @@ const components: Components = {
   ),
 
   tr: ({ children }) => (
-    <tr className="border-t border-border hover:bg-surface-variant/50 transition-colors duration-100">
+    <tr className="border-t border-border hover:bg-surface-variant/50 transition-colors duration-fast">
       {children}
     </tr>
   ),
@@ -177,7 +177,7 @@ const components: Components = {
         href={href}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-primary underline underline-offset-2 hover:text-primary-hover transition-colors duration-150"
+        className="text-primary underline underline-offset-2 hover:text-primary-hover transition-colors duration-fast"
       >
         {children}
       </a>

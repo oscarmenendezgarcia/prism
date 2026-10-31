@@ -78,7 +78,7 @@ export function CardActionMenu({
             aria-label="Move up"
             title="Move up (Alt+↑)"
             data-testid="move-up-button"
-            className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+            className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
           >
             <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
               arrow_upward
@@ -91,7 +91,7 @@ export function CardActionMenu({
             aria-label="Move down"
             title="Move down (Alt+↓)"
             data-testid="move-down-button"
-            className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+            className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
           >
             <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
               arrow_downward
@@ -113,7 +113,7 @@ export function CardActionMenu({
           disabled={isMutating}
           aria-label={`Move to ${leftLabel}`}
           title={`Move to ${leftLabel}`}
-          className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+          className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
         >
           <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
             arrow_back
@@ -128,7 +128,7 @@ export function CardActionMenu({
           disabled={isMutating}
           aria-label={`Move to ${rightLabel}`}
           title={`Move to ${rightLabel}`}
-          className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+          className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
         >
           <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
             arrow_forward
@@ -143,7 +143,7 @@ export function CardActionMenu({
           disabled={isMutating}
           aria-label="Delete issue"
           title="Delete issue"
-          className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-error hover:bg-error/[0.08] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150"
+          className="w-7 h-7 flex items-center justify-center rounded-sm text-text-secondary hover:text-error hover:bg-error/[0.08] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-fast"
         >
           <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">
             delete

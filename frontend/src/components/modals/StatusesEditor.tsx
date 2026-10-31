@@ -22,7 +22,7 @@ const CATEGORY_LABELS: { id: StatusCategory; label: string }[] = [
 ];
 
 const STATUSES_MAX = 12;
-const fieldClass = 'bg-surface border border-border rounded-lg px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-fast';
+const fieldClass = 'bg-surface border border-border rounded-lg px-2 py-1.5 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-ui duration-fast';
 const iconButton = 'w-6 h-7 flex-shrink-0 flex items-center justify-center rounded-sm text-text-secondary hover:text-primary hover:bg-surface-variant disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-fast';
 
 export function toStatusRows(statuses: Status[] | undefined): StatusRow[] {

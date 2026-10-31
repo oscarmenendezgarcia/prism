@@ -418,15 +418,40 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   moveTask: async (taskId: string, statusId: Column) => {
-    const { activeSpaceId, spaces, loadBoard, showToast } = get();
+    const { activeSpaceId, spaces, tasks, loadBoard, showToast } = get();
     const target = spaces.find((s) => s.id === activeSpaceId)?.statuses?.find((s) => s.id === statusId);
+    const source = Object.keys(tasks).find((column) => tasks[column]?.some((t) => t.id === taskId));
+    const moved = source && source !== statusId ? tasks[source].find((t) => t.id === taskId) : undefined;
 
-    set({ isMutating: true, mutatingTaskIds: addMutatingId(get().mutatingTaskIds, taskId) });
+    savesStarted += 1;
+    set({
+      isMutating: true,
+      mutatingTaskIds: addMutatingId(get().mutatingTaskIds, taskId),
+      // At once, and last in the column: where the server will put it.
+      ...(moved && {
+        tasks: {
+          ...tasks,
+          [source!]: tasks[source!].filter((t) => t.id !== taskId),
+          [statusId]: [
+            ...(tasks[statusId] ?? []),
+            {
+              ...moved,
+              statusId,
+              category: target?.category ?? moved.category,
+              rank: Math.max(0, ...(tasks[statusId] ?? []).map((t) => t.rank ?? 0)) + 1000,
+            },
+          ],
+        },
+      }),
+    });
     try {
       await api.moveTask(activeSpaceId, taskId, statusId);
+      // A poll that left while this was on its way still carries the old column.
+      savesStarted += 1;
       showToast(`Moved to ${target?.name ?? statusId}`);
       await loadBoard();
     } catch (err) {
+      if (moved) set({ tasks: { ...get().tasks, [source!]: tasks[source!], [statusId]: tasks[statusId] ?? [] } });
       showToast((err as Error).message, 'error');
     } finally {
       set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });

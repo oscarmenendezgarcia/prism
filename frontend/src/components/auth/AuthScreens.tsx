@@ -12,7 +12,7 @@ import { useAuthStore } from '@/stores/useAuthStore';
 const PASSWORD_HINT = 'At least 10 characters.';
 
 const INPUT_CLASS =
-  'w-full h-10 px-3 rounded-lg border border-border bg-surface text-sm text-text-primary placeholder:text-text-disabled ' +
+  'w-full h-10 px-3 rounded-lg border border-border bg-surface text-sm text-text-primary placeholder:text-text-tertiary ' +
   'focus:outline-hidden focus:ring-2 focus:ring-primary/40 focus:border-primary transition-colors duration-fast';
 
 export function AuthLayout({ title, hint, children }: { title: string; hint?: React.ReactNode; children?: React.ReactNode }) {

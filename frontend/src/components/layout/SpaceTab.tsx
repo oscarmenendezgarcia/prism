@@ -145,7 +145,7 @@ export function SpaceTab({
             // Animate in on hover — uses the button's group hover
             'opacity-0 translate-y-1',
             'group-hover:opacity-100 group-hover:translate-y-0',
-            'transition-all duration-fast',
+            'transition-ui duration-fast',
             '[transition-delay:400ms]',
           ].join(' ')}
         >

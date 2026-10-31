@@ -110,7 +110,7 @@ export function CreateTaskModal() {
   }
 
   const baseInputClass =
-    'w-full bg-surface border border-border rounded-lg px-3 py-2 text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-fast text-sm';
+    'w-full bg-surface border border-border rounded-lg px-3 py-2 text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-ui duration-fast text-sm';
 
   return (
     <Modal open={open} onClose={closeModal} labelId={TITLE_ID}>
@@ -179,7 +179,7 @@ export function CreateTaskModal() {
                   role="radio"
                   aria-checked={type === t}
                   onClick={() => setType(t)}
-                  className={`px-3 py-1.5 rounded-full border text-sm font-medium cursor-pointer transition-all duration-fast focus:outline-none focus:ring-2 focus:ring-primary/50 capitalize ${
+                  className={`px-3 py-1.5 rounded-full border text-sm font-medium cursor-pointer transition-ui duration-fast focus:outline-none focus:ring-2 focus:ring-primary/50 capitalize ${
                     type === t
                       ? 'border-primary bg-primary/10 text-primary'
                       : 'border-border text-text-secondary hover:border-primary/40 hover:text-text-primary'

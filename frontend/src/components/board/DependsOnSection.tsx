@@ -164,7 +164,7 @@ export function DependsOnSection({
             onClick={() => setSearchOpen(true)}
             aria-label="Add dependency"
             title="Add dependency"
-            className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-text-secondary hover:bg-surface-variant focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-[180ms] ease-spring"
+            className="p-2.5 -m-1 flex items-center justify-center rounded text-text-disabled hover:text-text-secondary hover:bg-surface-variant focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-40 disabled:cursor-not-allowed transition-ui duration-[180ms] ease-default"
           >
             <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">add</span>
           </button>
@@ -230,7 +230,7 @@ export function DependsOnSection({
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Escape') { setSearchOpen(false); setQuery(''); } }}
               placeholder="Search tasks to add…"
-              className="w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary placeholder:text-text-disabled/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 transition-all duration-[220ms] ease-spring"
+              className="w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary placeholder:text-text-tertiary/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 transition-ui duration-[220ms] ease-default"
               aria-label="Search tasks to add as dependency"
             />
             {searching && (

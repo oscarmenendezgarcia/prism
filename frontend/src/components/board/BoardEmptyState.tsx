@@ -69,7 +69,7 @@ export function BoardEmptyState({ onCreateTask }: BoardEmptyStateProps) {
 
         {/* Left — headline + CTA */}
         <div className="flex flex-col gap-6 md:pt-1">
-          <div className="animate-fade-in-up [animation-delay:0ms]">
+          <div className="animate-fade-in-up">
             <p className="text-[11px] font-semibold text-text-tertiary uppercase tracking-widest mb-3">
               Getting started
             </p>
@@ -84,12 +84,12 @@ export function BoardEmptyState({ onCreateTask }: BoardEmptyStateProps) {
             </p>
           </div>
 
-          {canEdit && <div className="animate-fade-in-up [animation-delay:60ms]">
+          {canEdit && <div className="animate-fade-in-up">
             <Button
               variant="primary"
               onClick={onCreateTask}
               aria-label="Add your first task to start using Prism"
-              className="min-h-[44px] active:scale-[0.97] transition-transform duration-100"
+              className="min-h-[44px] active:scale-[0.97] transition-transform duration-fast"
             >
               <span className="material-symbols-outlined text-lg" aria-hidden="true">add</span>
               Add first task

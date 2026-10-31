@@ -38,12 +38,11 @@ interface ResultItemProps {
   id:       string;
 }
 
-function ResultItem({ result, selected, onSelect, id, index = 0 }: ResultItemProps & { index?: number }) {
+function ResultItem({ result, selected, onSelect, id }: ResultItemProps) {
   const { task, spaceId, spaceName, column } = result;
   const colLabel = useAppStore((s) =>
     s.spaces.find((sp) => sp.id === spaceId)?.statuses?.find((st) => st.id === task.statusId)?.name) ?? column;
   const colColor = COLUMN_COLORS[task.category ?? column] ?? 'text-text-secondary bg-surface-variant';
-  const staggerClass = `stagger-delay-${Math.min(index, 7)}`;
 
   return (
     <li
@@ -51,7 +50,7 @@ function ResultItem({ result, selected, onSelect, id, index = 0 }: ResultItemPro
       role="option"
       aria-selected={selected}
       onClick={onSelect}
-      className={`flex flex-col gap-1 px-4 py-3 cursor-pointer transition-all duration-150 border-b border-border/50 last:border-b-0 animate-stagger-in ${staggerClass} ${
+      className={`flex flex-col gap-1 px-4 py-3 cursor-pointer transition-ui duration-fast border-b border-border/50 last:border-b-0 ${
         selected ? 'bg-primary/10' : 'hover:bg-surface-variant'
       }`}
     >
@@ -165,8 +164,6 @@ export function GlobalSearchModal({ open, onClose }: GlobalSearchModalProps) {
       onClose={onClose}
       labelId={titleId}
       className="max-w-[560px]"
-      enterAnimation="animate-search-in"
-      exitAnimation="animate-search-out"
     >
       {/* Search input — no ModalHeader so the input IS the header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border">
@@ -194,7 +191,7 @@ export function GlobalSearchModal({ open, onClose }: GlobalSearchModalProps) {
           aria-autocomplete="list"
           role="combobox"
           aria-expanded={showResults}
-          className="flex-1 bg-transparent text-text-primary placeholder:text-text-disabled text-sm focus:outline-none"
+          className="flex-1 bg-transparent text-text-primary placeholder:text-text-tertiary text-sm focus:outline-none"
         />
         {showLoading && (
           <span
@@ -221,7 +218,6 @@ export function GlobalSearchModal({ open, onClose }: GlobalSearchModalProps) {
             key={result.task.id}
             id={`${listboxId}-item-${i}`}
             result={result}
-            index={i}
             selected={i === selectedIndex}
             onSelect={() => activateResult(result)}
           />

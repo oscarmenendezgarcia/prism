@@ -69,7 +69,7 @@ export const Column = memo(function Column({ column, status, statuses = [], task
 
   return (
     <section
-      className={`flex flex-col sm:bg-surface sm:rounded-xl border-0 sm:border overflow-hidden min-h-[200px] h-full transition-all duration-fast ${
+      className={`flex flex-col sm:bg-surface sm:rounded-xl border-0 sm:border overflow-hidden min-h-[200px] h-full transition-ui duration-fast ${
         isDragOver
           ? 'border-primary/60 ring-2 ring-primary/20 bg-primary/[0.03]'
           : 'border-border'
@@ -109,7 +109,6 @@ export const Column = memo(function Column({ column, status, statuses = [], task
               column={column}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
-              staggerDelayMs={tasks.length > 30 ? 0 : Math.min(cardIndex * 35, 500)}
               onDragOverTask={onDragOverTask}
               onKeyboardReorder={onKeyboardReorder}
               isFirstInList={cardIndex === 0}

@@ -229,6 +229,61 @@ describe('moveTask', () => {
     expect(api.getTasks).toHaveBeenCalled();
   });
 
+  const moveFixture = () => {
+    const task = (id: string, statusId: string, rank: number) => ({ id, statusId, rank, title: id, type: 'chore', createdAt: '', updatedAt: '' });
+    useAppStore.setState({
+      activeSpaceId: 'space-1',
+      spaces: [{ id: 'space-1', name: 'S', statuses: STATUSES }] as never,
+      tasks: { todo: [task('t1', 'todo', 1000), task('t2', 'todo', 2000)], 'in-progress': [task('t3', 'in-progress', 5000)], done: [] } as never,
+    });
+  };
+  const ids = (column: string) => useAppStore.getState().tasks[column].map((t) => t.id);
+
+  it('moves the card at once, last in its new column, before the server answers', async () => {
+    moveFixture();
+    let answer!: () => void;
+    vi.mocked(api.moveTask).mockImplementation(() => new Promise((resolve) => { answer = () => resolve({} as never); }));
+    vi.mocked(api.getTasks).mockResolvedValue(useAppStore.getState().tasks);
+
+    const moving = useAppStore.getState().moveTask('t1', 'in-progress');
+
+    expect(ids('todo')).toEqual(['t2']);
+    expect(ids('in-progress')).toEqual(['t3', 't1']);
+    expect(useAppStore.getState().tasks['in-progress'][1].rank).toBe(6000);
+    answer();
+    await moving;
+  });
+
+  it('puts the card back when the server refuses the move', async () => {
+    moveFixture();
+    vi.mocked(api.moveTask).mockRejectedValue(new Error('Nope'));
+
+    await useAppStore.getState().moveTask('t1', 'in-progress');
+
+    expect(ids('todo')).toEqual(['t1', 't2']);
+    expect(ids('in-progress')).toEqual(['t3']);
+    expect(useAppStore.getState().toast?.message).toBe('Nope');
+  });
+
+  it('does not let a poll that left during the move put the card back', async () => {
+    moveFixture();
+    const old = useAppStore.getState().tasks;
+    let answer!: () => void;
+    vi.mocked(api.moveTask).mockImplementation(() => new Promise((resolve) => { answer = () => resolve({} as never); }));
+    const moving = useAppStore.getState().moveTask('t1', 'in-progress');
+    let pollAnswer!: (v: typeof old) => void;
+    vi.mocked(api.getTasks).mockImplementationOnce(() => new Promise((resolve) => { pollAnswer = resolve; }));
+    const poll = useAppStore.getState().loadBoard();
+    vi.mocked(api.getTasks).mockResolvedValue(useAppStore.getState().tasks);
+
+    answer();
+    await moving;
+    pollAnswer(old);
+    await poll;
+
+    expect(ids('in-progress')).toEqual(['t3', 't1']);
+  });
+
   it('tracks the mutating taskId in mutatingTaskIds during the call, clears it after', async () => {
     useAppStore.setState({ activeSpaceId: 'space-1' });
     let inFlightIds: Set<string> | null = null;

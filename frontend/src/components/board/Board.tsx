@@ -4,7 +4,7 @@
  * ADR-002: replaces renderBoard() + static .board section in legacy app.js.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback } from 'react';
 import type { BoardTasks, Column as ColumnType, Status, Task } from '@/types';
 import { useTasks, useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
@@ -14,6 +14,7 @@ import { ColumnTabBar } from './ColumnTabBar';
 import { BoardEmptyState } from './BoardEmptyState';
 import { Announcer } from '@/components/shared/Announcer';
 import { boardIndex, isInEpic } from '@/utils/issues';
+import { noteDragStart, noteDrop, useCardMotion } from '@/hooks/useCardMotion';
 
 /** The sorted column as the epic filter shows it. Rank math still runs against the full column. */
 function getVisibleColumnTasks(
@@ -123,6 +124,10 @@ export function Board() {
   // MB-1: active column for mobile single-column view. A removed status falls back to the first.
   const [chosenColumn, setActiveColumn] = useState<ColumnType | null>(null);
   const activeColumn = statuses.some((s) => s.id === chosenColumn) ? chosenColumn! : statuses[0]?.id;
+  const mainRef = useRef<HTMLElement>(null);
+  const activeSpaceId = useAppStore((s) => s.activeSpaceId);
+  const epicFilter = useAppStore((s) => s.epicFilter);
+  useCardMotion(mainRef, tasks, `${activeSpaceId}|${epicFilter ?? ''}`);
 
   // PERF: All drag handlers read/write via useDragStore.getState() — no
   // subscription, so Board never re-renders from drag events. Only the two
@@ -132,6 +137,7 @@ export function Board() {
     e.stopPropagation();
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', taskId);
+    noteDragStart(e);
     useDragStore.getState().startDrag(taskId, sourceColumn);
   }, []); // stable — getState() never changes
 
@@ -168,6 +174,7 @@ export function Board() {
       return;
     }
 
+    noteDrop(taskId, e);
     useDragStore.getState().resetDrag();
 
     if (dragSourceColumn === targetColumn) {
@@ -260,7 +267,6 @@ export function Board() {
     );
   }, [reorderTask, reorderTasks]); // stable — Zustand actions never change
 
-  const epicFilter = useAppStore((s) => s.epicFilter);
   const taskCounts = Object.fromEntries(statuses.map((s) => [s.id, getVisibleColumnTasks(tasks[s.id] ?? [], epicFilter, tasks).length]));
 
   // F1/ADR-1: show the onboarding guide when the active space has zero tasks.
@@ -291,6 +297,7 @@ export function Board() {
       <Announcer />
 
       <main
+        ref={mainRef}
         role="main"
         className="flex flex-1 min-h-0 overflow-x-auto overflow-y-hidden"
       >

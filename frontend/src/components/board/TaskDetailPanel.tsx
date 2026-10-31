@@ -272,6 +272,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   // ── Focus trap ───────────────────────────────────────────────────────────
 
+  const shellRef = useRef<HTMLDivElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
   useFocusTrap(panelRef, detailTask !== null);
 
   const closePanelRef = useRef<() => void>(() => {});
@@ -428,7 +430,17 @@ export function TaskDetailPanel(): React.ReactElement | null {
       handleTitleBlur();
       handleSaveDescription();
     }
-    closeDetailPanel();
+    // Without a re-render: the panel has nothing left to do but leave.
+    const leaving = { duration: 120, easing: 'cubic-bezier(0.2, 0, 0, 1)', fill: 'forwards' } as const;
+    const exit = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      ? undefined
+      : shellRef.current?.animate?.([{ opacity: 1, transform: 'scale(1)' }, { opacity: 0, transform: 'scale(0.98)' }], leaving);
+    if (!exit) {
+      closeDetailPanel();
+      return;
+    }
+    backdropRef.current?.animate?.([{ opacity: 1 }, { opacity: 0 }], leaving);
+    exit.finished.catch(() => {}).finally(closeDetailPanel);
   }, [closeDetailPanel, handleTitleBlur, handleSaveDescription]);
 
   closePanelRef.current = () => {
@@ -544,7 +556,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
     <button
       onClick={closePanel}
       aria-label="Close issue detail"
-      className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.90] transition-all duration-[150ms] ease-spring flex-shrink-0"
+      className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.90] transition-ui duration-[150ms] ease-default flex-shrink-0"
     >
       <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
         close
@@ -559,12 +571,12 @@ export function TaskDetailPanel(): React.ReactElement | null {
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 z-[105] bg-black/30 dark:bg-black/72 backdrop-blur-[10px]" aria-hidden="true" onClick={closePanel} />
+      <div ref={backdropRef} className="fixed inset-0 z-[105] bg-black/30 dark:bg-black/72 animate-backdrop-in" aria-hidden="true" onClick={closePanel} />
 
       {/* Centering wrapper */}
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 pointer-events-none">
         {/* ── Outer bezel shell — gradient ring creates the machined-hardware frame ── */}
-        <div className="pointer-events-auto w-full max-w-[1200px] h-[min(90vh,840px)] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-black/[0.07] to-transparent dark:from-white/[0.10] dark:to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.22)] dark:shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-modal-dialog-in">
+        <div ref={shellRef} className="pointer-events-auto w-full max-w-[1200px] h-[min(90vh,840px)] flex flex-col p-[2px] rounded-[18px] bg-gradient-to-b from-black/[0.07] to-transparent dark:from-white/[0.10] dark:to-white/[0.03] shadow-[0_56px_140px_rgba(0,0,0,0.22)] dark:shadow-[0_56px_140px_rgba(0,0,0,0.55)] animate-scale-in">
           {/* ── Inner content card ─────────────────────────────────────────────────── */}
           <div
             ref={panelRef}
@@ -620,7 +632,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 key={tab}
                 type="button"
                 onClick={() => setMobileTab(tab)}
-                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-all duration-[200ms] ease-spring focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
+                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-ui duration-[200ms] ease-default focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
                   mobileTab === tab
                     ? 'text-text-primary border-b-2 border-primary -mb-px bg-primary/[0.04]'
                     : 'text-text-secondary hover:text-text-primary hover:bg-surface-elevated/30'
@@ -637,7 +649,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
             {/* ── LEFT: title · description · comments ──────────────── */}
             <div className={`min-w-0 overflow-y-auto px-4 md:px-14 pt-5 md:pt-7 pb-8 flex flex-col gap-6 md:flex-1 ${mobileTab === 'content' ? 'flex-1' : 'hidden md:flex'}`}>
               {/* Title — textarea wraps long titles instead of truncating */}
-              <div className="animate-fade-in-up [animation-delay:50ms]">
+              <div>
               <textarea
                 id="detail-title"
                 ref={titleInputRef}
@@ -652,7 +664,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 }}
                 aria-label="Issue title"
                 readOnly={!canEdit}
-                className="w-full bg-transparent border-b border-transparent hover:border-border/40 focus:border-primary/50 text-[26px] font-semibold text-text-primary placeholder:text-text-disabled/50 focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-40 disabled:cursor-not-allowed transition-[border-color] duration-[220ms] ease-spring"
+                className="w-full bg-transparent border-b border-transparent hover:border-border/40 focus:border-primary/50 text-[26px] font-semibold text-text-primary placeholder:text-text-tertiary/50 focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-40 disabled:cursor-not-allowed transition-[border-color] duration-[220ms] ease-default"
                 placeholder="Issue title"
               />
               </div>
@@ -660,7 +672,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               {column && !isEpic && <TaskRunPanel task={issue} column={column} spaceId={activeSpaceId} />}
 
               {/* Description */}
-              <div className="flex flex-col gap-1.5 animate-fade-in-up [animation-delay:110ms]">
+              <div className="flex flex-col gap-1.5">
                 <label htmlFor="detail-description" className="text-[10px] font-semibold text-text-tertiary uppercase tracking-[0.10em]">
                   Description
                 </label>
@@ -672,7 +684,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   onBlur={handleSaveDescription}
                   readOnly={!canEdit}
                   rows={1}
-                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-disabled/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[1.5rem] transition-[border-color] duration-[220ms] ease-spring"
+                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-tertiary/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[1.5rem] transition-[border-color] duration-[220ms] ease-default"
                   placeholder="Add a description…"
                 />
               </div>
@@ -680,7 +692,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
               <ChildIssues key={issue.id} task={issue} spaceId={activeSpaceId} />
 
               {/* Comments and history */}
-              <div className="border-t border-border/30 pt-4 animate-fade-in-up [animation-delay:170ms]">
+              <div className="border-t border-border/30 pt-4">
                 <div role="tablist" aria-label="Issue activity" className="flex gap-4 border-b border-border/40 mb-4">
                   {(['comments', 'history'] as const).map((tab) => (
                     <button
@@ -893,7 +905,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                             rel="noopener noreferrer"
                             data-testid="attachment-row"
                             aria-label={`Open link ${att.name} in new tab`}
-                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary transition-all duration-[200ms] ease-spring group"
+                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary transition-ui duration-[200ms] ease-default group"
                           >
                             <span className="material-symbols-outlined text-[15px] leading-none text-primary flex-shrink-0" aria-hidden="true">link</span>
                             <span className="font-mono text-xs text-text-primary truncate flex-1">{att.name}</span>
@@ -906,7 +918,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                             onClick={() => handleAttachmentClick(index, att.name)}
                             disabled={loadingAttachmentIndex === index}
                             aria-label={`Open attachment ${att.name}`}
-                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-wait transition-all duration-[200ms] ease-spring text-left group"
+                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-wait transition-ui duration-[200ms] ease-default text-left group"
                           >
                             <span className={`material-symbols-outlined text-[15px] leading-none flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin text-text-disabled' : att.name.toLowerCase().endsWith('.md') ? 'text-primary' : 'text-text-secondary'}`} aria-hidden="true">
                               {loadingAttachmentIndex === index ? 'progress_activity' : att.name.toLowerCase().endsWith('.md') ? 'description' : att.type === 'file' ? 'folder' : 'attach_file'}

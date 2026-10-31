@@ -83,7 +83,7 @@ export function ContextMenu({ open, anchorRect, items, onSelect, onClose, alignE
             onClose();
             onSelect(item.id);
           }}
-          className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors duration-150
+          className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors duration-fast
             ${item.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
             ${item.danger && !item.disabled ? 'text-error hover:bg-error/[0.08]' : 'text-text-primary hover:bg-surface-variant'}
           `}

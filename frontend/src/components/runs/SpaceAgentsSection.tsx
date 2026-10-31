@@ -11,7 +11,7 @@ import { HarnessIcon } from './HarnessIcon';
 
 const CLAUDE_MODELS = ['sonnet', 'opus', 'haiku'];
 
-const FIELD = 'w-full px-2 py-1 rounded-lg bg-surface-variant border border-border text-xs text-text-primary placeholder:text-text-disabled focus:outline-hidden focus:border-primary transition-colors duration-fast';
+const FIELD = 'w-full px-2 py-1 rounded-lg bg-surface-variant border border-border text-xs text-text-primary placeholder:text-text-tertiary focus:outline-hidden focus:border-primary transition-colors duration-fast';
 
 interface SpaceAgentsSectionProps {
   agents: SpaceAgents;

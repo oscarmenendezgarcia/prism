@@ -96,7 +96,7 @@ export function ChildIssues({ task, spaceId }: ChildIssuesProps) {
             if (e.key === 'Enter') { e.preventDefault(); void add(); }
             if (e.key === 'Escape') { e.stopPropagation(); setTitle(''); setAdding(false); }
           }}
-          className="w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary placeholder:text-text-disabled/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60"
+          className="w-full px-3 py-2 rounded-lg bg-surface/60 border border-border/40 text-sm text-text-primary placeholder:text-text-tertiary/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60"
         />
       ) : (
         <Button

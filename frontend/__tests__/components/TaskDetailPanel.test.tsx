@@ -735,12 +735,12 @@ describe('TaskDetailPanel — attachments section', () => {
 // ---------------------------------------------------------------------------
 
 describe('TaskDetailPanel — centered modal layout', () => {
-  it('renders a centered modal with animate-modal-dialog-in entrance', () => {
+  it('renders a centered modal with animate-scale-in entrance', () => {
     useAppStore.setState({ detailTask: TASK } as any);
     const { container } = render(<TaskDetailPanel />);
 
-    // animate-modal-dialog-in is on the outer bezel wrapper (parent of the dialog)
-    const bezel = container.querySelector('.animate-modal-dialog-in');
+    // animate-scale-in is on the outer bezel wrapper (parent of the dialog)
+    const bezel = container.querySelector('.animate-scale-in');
     expect(bezel).toBeInTheDocument();
     // Slide-over animation is NOT used anywhere
     expect(container.querySelector('.animate-slide-in-right')).toBeNull();

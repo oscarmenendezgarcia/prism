@@ -189,7 +189,7 @@ function AddCommentForm({ onSubmit, onRequestChanges, disabled }: AddCommentForm
         rows={1}
         placeholder="Write a comment..."
         aria-label="Write a comment"
-        className="flex-1 min-w-0 bg-surface-elevated border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-disabled resize-none focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
+        className="flex-1 min-w-0 bg-surface-elevated border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-tertiary resize-none focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed transition-ui duration-fast"
       />
     </div>
     {onRequestChanges && (
@@ -258,7 +258,7 @@ function AnswerForm({ questionId, questionAuthor, onAnswer, disabled }: AnswerFo
         rows={1}
         placeholder={`Write an answer…`}
         aria-label={`Answer to question from ${questionAuthor}`}
-        className="flex-1 min-w-0 bg-surface border border-warning/25 rounded-lg px-3 py-2 text-[13px] text-text-primary placeholder:text-text-disabled resize-none focus:outline-none focus:ring-1 focus:ring-warning/50 focus:border-warning/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-fast"
+        className="flex-1 min-w-0 bg-surface border border-warning/25 rounded-lg px-3 py-2 text-[13px] text-text-primary placeholder:text-text-tertiary resize-none focus:outline-none focus:ring-1 focus:ring-warning/50 focus:border-warning/50 disabled:opacity-50 disabled:cursor-not-allowed transition-ui duration-fast"
       />
       <Button
         variant="primary"

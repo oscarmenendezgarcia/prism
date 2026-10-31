@@ -20,7 +20,7 @@ const TITLE_ID          = 'space-modal-title';
 const KEY_PATTERN       = /^[A-Z][A-Z0-9]{1,9}$/;
 
 const inputClass =
-  'w-full bg-surface border border-border rounded-lg px-4 py-3 text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all duration-fast text-sm';
+  'w-full bg-surface border border-border rounded-lg px-4 py-3 text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-ui duration-fast text-sm';
 
 export function SpaceModal() {
   const spaceModal = useAppStore((s) => s.spaceModal);
