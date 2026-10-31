@@ -362,7 +362,7 @@ function createAccounts(db) {
         stmts.touchToken.run(new Date(now).toISOString(), personal.id);
       }
       const person = publicUser(user);
-      return { ...person, role: personal.access === 'read' ? 'viewer' : person.role, viaToken: true };
+      return { ...person, role: personal.access === 'read' ? 'viewer' : person.role, ...(personal.access === 'read' && { readOnly: true }), viaToken: true };
     }
     const run = stmts.findRunToken.get(tokenHash);
     if (!run || Date.parse(run.expires_at) <= now) return null;

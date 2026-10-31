@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import * as api from '@/api/client';
@@ -226,6 +227,27 @@ describe('FilterBar', () => {
     expect(useAppStore.getState().filters).toEqual({ q: 'pay' });
   });
 
+  it('opens one panel at a time, also by keyboard', async () => {
+    render(<FilterBar />);
+    fireEvent.click(screen.getByTestId('filter-button'));
+    await screen.findByTestId('filter-panel');
+    fireEvent.click(screen.getByTestId('saved-filters-button'));
+    await screen.findByTestId('saved-filters-panel');
+    expect(screen.queryByTestId('filter-panel')).toBeNull();
+    fireEvent.click(screen.getByTestId('filter-button'));
+    await screen.findByTestId('filter-panel');
+    expect(screen.queryByTestId('saved-filters-panel')).toBeNull();
+  });
+
+  it('a filter by what no longer exists says so, and can be removed', () => {
+    useAppStore.setState({ filters: { epic: ['gone'], status: ['removed'] }, epics: [], loadBoard: vi.fn(async () => {}) });
+    render(<FilterBar />);
+    expect(screen.getByTestId('filter-token-epic').textContent).toContain('Deleted epic');
+    expect(screen.getByTestId('filter-token-status').textContent).toContain('Deleted status');
+    fireEvent.click(screen.getByLabelText('Remove filter Epic'));
+    expect(useAppStore.getState().filters).toEqual({ status: ['removed'] });
+  });
+
   it('Clear removes them all', () => {
     useAppStore.setState({ filters: { q: 'x', status: ['todo'] }, loadBoard: vi.fn(async () => {}) });
     render(<FilterBar />);
@@ -244,6 +266,12 @@ describe('FilterBar', () => {
   });
 });
 
+/** As the bar holds it. */
+function Saved() {
+  const [open, setOpen] = useState(false);
+  return <SavedFilters open={open} onOpenChange={setOpen} />;
+}
+
 describe('SavedFilters', () => {
   const saved = (fields: Partial<SavedFilter>): SavedFilter => ({
     id: 'f1', name: 'Urgent', shared: false, filters: { priority: ['urgent'] }, mine: true, canChange: true, ...fields,
@@ -260,7 +288,7 @@ describe('SavedFilters', () => {
 
   it('applies one, and shows when it is what is on', async () => {
     vi.mocked(api.getSavedFilters).mockResolvedValue([saved({})]);
-    render(<SavedFilters />);
+    render(<Saved />);
     await openPanel();
     fireEvent.click(await screen.findByRole('button', { name: 'Urgent' }));
     expect(useAppStore.getState().filters).toEqual({ priority: ['urgent'] });
@@ -271,14 +299,14 @@ describe('SavedFilters', () => {
   it('values in another order are the same filter', async () => {
     useAppStore.setState({ filters: { status: ['b', 'a'] } });
     vi.mocked(api.getSavedFilters).mockResolvedValue([saved({ name: 'AB', filters: { status: ['a', 'b'] } })]);
-    render(<SavedFilters />);
+    render(<Saved />);
     await waitFor(() => expect(screen.getByTestId('saved-filters-button').textContent).toContain('AB'));
   });
 
   it('saves what is on, for the team if asked', async () => {
     useAppStore.setState({ filters: { q: 'pay' } });
     vi.mocked(api.createSavedFilter).mockResolvedValue(saved({}));
-    render(<SavedFilters />);
+    render(<Saved />);
     await openPanel();
     fireEvent.click(screen.getByTestId('save-filter'));
     fireEvent.change(await screen.findByTestId('saved-filter-name'), { target: { value: ' Mine ' } });
@@ -289,7 +317,7 @@ describe('SavedFilters', () => {
   });
 
   it('with nothing on, there is nothing to save, and it says how', async () => {
-    render(<SavedFilters />);
+    render(<Saved />);
     const panel = await openPanel();
     expect(screen.queryByTestId('save-filter')).toBeNull();
     expect(panel.textContent).toContain('Choose some filters');
@@ -298,7 +326,7 @@ describe('SavedFilters', () => {
   it('a refused name stays in the dialog, with the reason', async () => {
     useAppStore.setState({ filters: { q: 'pay' } });
     vi.mocked(api.createSavedFilter).mockRejectedValue(new Error('You already have a filter called "Mine"'));
-    render(<SavedFilters />);
+    render(<Saved />);
     await openPanel();
     fireEvent.click(screen.getByTestId('save-filter'));
     fireEvent.change(await screen.findByTestId('saved-filter-name'), { target: { value: 'Mine' } });
@@ -310,7 +338,7 @@ describe('SavedFilters', () => {
   it('whoever can only read saves only for themselves', async () => {
     useAuthStore.setState({ status: { user: { role: 'viewer' } } } as never);
     useAppStore.setState({ filters: { q: 'pay' } });
-    render(<SavedFilters />);
+    render(<Saved />);
     await openPanel();
     fireEvent.click(screen.getByTestId('save-filter'));
     await screen.findByTestId('saved-filter-name');
@@ -320,20 +348,20 @@ describe('SavedFilters', () => {
   it('renames', async () => {
     vi.mocked(api.getSavedFilters).mockResolvedValue([saved({})]);
     vi.mocked(api.updateSavedFilter).mockResolvedValue(saved({ name: 'New' }));
-    render(<SavedFilters />);
+    render(<Saved />);
     await openPanel();
     fireEvent.click(await screen.findByLabelText('Rename Urgent'));
     const input = await screen.findByTestId('saved-filter-name');
     expect(input).toHaveValue('Urgent');
     fireEvent.change(input, { target: { value: 'New' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(api.updateSavedFilter).toHaveBeenCalledWith('s', 'f1', { name: 'New' }));
+    await waitFor(() => expect(api.updateSavedFilter).toHaveBeenCalledWith('s', 'f1', { name: 'New', shared: false }));
   });
 
   it('asks before deleting one, and says if it is the team\'s', async () => {
     vi.mocked(api.getSavedFilters).mockResolvedValue([saved({ shared: true })]);
     vi.mocked(api.deleteSavedFilter).mockResolvedValue({ deleted: true, id: 'f1' });
-    render(<SavedFilters />);
+    render(<Saved />);
     await openPanel();
     fireEvent.click(await screen.findByLabelText('Delete Urgent'));
     expect(api.deleteSavedFilter).not.toHaveBeenCalled();
@@ -344,16 +372,89 @@ describe('SavedFilters', () => {
 
   it('one that cannot be changed offers no way to', async () => {
     vi.mocked(api.getSavedFilters).mockResolvedValue([saved({ shared: true, mine: false, canChange: false })]);
-    render(<SavedFilters />);
+    render(<Saved />);
     await openPanel();
     await screen.findByRole('button', { name: /Urgent/ });
     expect(screen.queryByLabelText('Rename Urgent')).toBeNull();
     expect(screen.queryByLabelText('Delete Urgent')).toBeNull();
   });
 
+  it('of two that say the same, shows the one chosen', async () => {
+    vi.mocked(api.getSavedFilters).mockResolvedValue([saved({ id: 'a', name: 'First' }), saved({ id: 'b', name: 'Second' })]);
+    render(<Saved />);
+    await openPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Second' }));
+    await waitFor(() => expect(screen.getByTestId('saved-filters-button').textContent).toContain('Second'));
+    expect(screen.getByTestId('saved-filters-button')).toHaveFocus();
+  });
+
+  it('what matches one of the team can still be kept as your own', async () => {
+    useAppStore.setState({ filters: { priority: ['urgent'] } });
+    vi.mocked(api.getSavedFilters).mockResolvedValue([saved({ shared: true, mine: false, canChange: false })]);
+    render(<Saved />);
+    await openPanel();
+    await screen.findByRole('button', { name: /^Urgent/ });
+    expect(screen.getByTestId('save-filter')).toBeInTheDocument();
+  });
+
+  it('the owner can share one they kept', async () => {
+    vi.mocked(api.getSavedFilters).mockResolvedValue([saved({})]);
+    vi.mocked(api.updateSavedFilter).mockResolvedValue(saved({ shared: true }));
+    render(<Saved />);
+    await openPanel();
+    fireEvent.click(await screen.findByLabelText('Rename Urgent'));
+    fireEvent.click(await screen.findByTestId('saved-filter-team'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateSavedFilter).toHaveBeenCalledWith('s', 'f1', { name: 'Urgent', shared: true }));
+  });
+
+  it('an admin only renames one of someone else', async () => {
+    vi.mocked(api.getSavedFilters).mockResolvedValue([saved({ shared: true, mine: false, canChange: true })]);
+    vi.mocked(api.updateSavedFilter).mockResolvedValue(saved({ name: 'New' }));
+    render(<Saved />);
+    await openPanel();
+    fireEvent.click(await screen.findByLabelText('Rename Urgent'));
+    expect(screen.queryByTestId('saved-filter-team')).toBeNull();
+    fireEvent.change(await screen.findByTestId('saved-filter-name'), { target: { value: 'New' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateSavedFilter).toHaveBeenCalledWith('s', 'f1', { name: 'New' }));
+  });
+
+  it('the dialog says what it is for', async () => {
+    useAppStore.setState({ filters: { q: 'pay' } });
+    render(<Saved />);
+    await openPanel();
+    fireEvent.click(screen.getByTestId('save-filter'));
+    expect(await screen.findByRole('dialog', { name: 'Save filter' })).toBeInTheDocument();
+  });
+
+  it('says so when they could not be loaded, rather than that there are none', async () => {
+    vi.mocked(api.getSavedFilters).mockRejectedValue(new Error('down'));
+    render(<Saved />);
+    const panel = await openPanel();
+    await waitFor(() => expect(panel.textContent).toContain('could not be loaded'));
+  });
+
+  it('an answer from before a deletion does not bring it back', async () => {
+    let early: (value: SavedFilter[]) => void = () => {};
+    vi.mocked(api.getSavedFilters).mockResolvedValueOnce([saved({})]);
+    vi.mocked(api.deleteSavedFilter).mockResolvedValue({ deleted: true, id: 'f1' });
+    render(<Saved />);
+    await waitFor(() => expect(api.getSavedFilters).toHaveBeenCalledTimes(1));
+    vi.mocked(api.getSavedFilters).mockReturnValueOnce(new Promise((resolve) => { early = resolve; }));
+    await openPanel();
+    vi.mocked(api.getSavedFilters).mockResolvedValue([]);
+    await waitFor(() => expect(screen.getByLabelText('Delete Urgent')).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText('Delete Urgent'));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Urgent' })).toBeNull());
+    await act(async () => { early([saved({})]); });
+    expect(screen.queryByRole('button', { name: 'Urgent' })).toBeNull();
+  });
+
   it('those of another space do not stay when moving to one', async () => {
     vi.mocked(api.getSavedFilters).mockResolvedValue([saved({})]);
-    render(<SavedFilters />);
+    render(<Saved />);
     await openPanel();
     await screen.findByRole('button', { name: 'Urgent' });
     vi.mocked(api.getSavedFilters).mockResolvedValue([]);

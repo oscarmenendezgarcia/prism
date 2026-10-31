@@ -506,15 +506,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (request < boardApplied) return;
       boardApplied = request;
       const { data, etag } = fresh;
-      // An epic that is gone would leave the board empty, with nothing to clear the filter.
       const { filters } = get();
-      const epics = filters.epic?.filter((id) => id === '' || data.epics.some((e) => e.id === id));
-      if (epics && epics.length !== filters.epic?.length) {
-        boardEtag = null;
-        set({ filters: cleanFilters({ ...filters, epic: epics }), columnLimits: {}, includedIds: [] });
-        void get().loadBoard();
-        return;
-      }
       boardEtag = etag;
       const statuses = Object.entries(data.columns);
       const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);

@@ -84,6 +84,8 @@ function leastRole(method, urlPath) {
  */
 function mayRequest(user, method, urlPath) {
   if (user.run) return runMayRequest(user.run, method, urlPath);
+  // Whatever a viewer may write of their own, a token for reading may not.
+  if (user.readOnly && method !== 'GET' && method !== 'HEAD') return false;
   if (user.viaToken && ACCOUNT_ROUTES.test(urlPath)) return false;
   return RANK[user.role] >= RANK[leastRole(method, urlPath)];
 }

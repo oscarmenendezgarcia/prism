@@ -123,9 +123,9 @@ export function FilterPanel({ onClose, anchorRef }: FilterPanelProps) {
     ...AGENT_IDS.map((agent) => ({ id: agent, label: AGENT_NAMES[agent] })),
   ];
   // A value chosen before, or in a link, stays visible until someone removes it.
-  const withChosen = (options: Option[], chosen: string[] | undefined): Option[] => [
+  const withChosen = (options: Option[], chosen: string[] | undefined, gone?: string): Option[] => [
     ...options,
-    ...(chosen ?? []).filter((id) => !options.some((o) => o.id === id)).map((id) => ({ id, label: id })),
+    ...(chosen ?? []).filter((id) => !options.some((o) => o.id === id)).map((id) => ({ id, label: gone ?? id })),
   ];
   const update = (change: Partial<IssueFilters>) => setFilters({ ...useAppStore.getState().filters, ...change });
 
@@ -135,7 +135,7 @@ export function FilterPanel({ onClose, anchorRef }: FilterPanelProps) {
       role="dialog"
       aria-label="Filter issues"
       data-testid="filter-panel"
-      className="fixed sm:absolute inset-x-2 sm:inset-x-auto top-28 sm:top-9 sm:left-0 z-40 sm:w-[36rem] max-h-[70vh] overflow-y-auto p-3 rounded-lg border border-border bg-surface-elevated shadow-lg"
+      className="fixed sm:absolute inset-x-2 sm:inset-x-auto top-[9.5rem] sm:top-9 sm:left-0 z-40 sm:w-[36rem] max-h-[calc(100vh-10rem)] sm:max-h-[70vh] overflow-y-auto p-3 rounded-lg border border-border bg-surface-elevated shadow-lg"
     >
       {/* On a phone there are no tokens to remove. */}
       {hasFilters(filters) && (
@@ -164,7 +164,7 @@ export function FilterPanel({ onClose, anchorRef }: FilterPanelProps) {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3">
         <Choices
           title="Status"
-          options={withChosen(statuses.map((s) => ({ id: s.id, label: s.name })), filters.status)}
+          options={withChosen(statuses.map((s) => ({ id: s.id, label: s.name })), filters.status, 'Deleted status')}
           chosen={filters.status}
           onChange={(status) => update({ status })}
         />
@@ -183,7 +183,7 @@ export function FilterPanel({ onClose, anchorRef }: FilterPanelProps) {
         />
         <Choices
           title="Epic"
-          options={[{ id: '', label: 'No epic' }, ...[...epics].sort((a, b) => a.title.localeCompare(b.title)).map((e) => ({ id: e.id, label: e.title }))]}
+          options={withChosen([{ id: '', label: 'No epic' }, ...[...epics].sort((a, b) => a.title.localeCompare(b.title)).map((e) => ({ id: e.id, label: e.title }))], filters.epic, 'Deleted epic')}
           chosen={filters.epic}
           onChange={(epic) => update({ epic })}
         />

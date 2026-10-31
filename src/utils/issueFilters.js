@@ -11,6 +11,7 @@ const VALID_TYPES = ['feature', 'bug', 'tech-debt', 'chore', 'epic'];
 const VALID_PRIORITIES = ['urgent', 'high', 'medium', 'low'];
 const VALID_DUE = ['overdue', 'week', 'none'];
 const MAX_VALUE = 200;
+const MAX_QUERY = 8000;
 const MAX_VALUES = 200;
 const MAX_TEXT = 200;
 
@@ -84,6 +85,8 @@ function validSavedFilters(value) {
   const parsed = parseIssueFilters(qs, { types: VALID_TYPES, priorities: VALID_PRIORITIES });
   if (parsed.error) return parsed;
   if (!isFiltering(parsed.filters)) return { error: 'filters must filter by something' };
+  // Past a size, the server refuses the query before anyone reads it.
+  if (qs.toString().length > MAX_QUERY) return { error: 'filters are too long to use' };
   return parsed;
 }
 

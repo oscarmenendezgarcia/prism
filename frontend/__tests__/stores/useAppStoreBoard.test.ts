@@ -225,14 +225,12 @@ describe('the epic filter', () => {
     expect(useAppStore.getState().tasks.todo[0].id).toBe('in');
   });
 
-  it('goes away with its epic, and the board comes back whole', async () => {
-    useAppStore.setState({ filters: { epic: ['gone'] } });
-    vi.mocked(api.getBoard).mockResolvedValueOnce(boardAnswer({ todo: [] }, { etag: '"gone"', epics: [] }));
-    vi.mocked(api.getBoard).mockResolvedValueOnce(boardAnswer({ todo: [card('a')] }, { etag: '"all"', epics: [] }));
+  it('stays when its epic is gone, rather than show more than was asked for', async () => {
+    useAppStore.setState({ filters: { epic: ['gone'], priority: ['urgent'] } });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [] }, { etag: '"gone"', epics: [] }));
     await useAppStore.getState().loadBoard();
-    expect(useAppStore.getState().filters).toEqual({});
-    await vi.waitFor(() => expect(useAppStore.getState().tasks.todo?.[0]?.id).toBe('a'));
-    expect(vi.mocked(api.getBoard).mock.lastCall?.[1]).toMatchObject({ filters: {}, etag: null });
+    expect(useAppStore.getState().filters).toEqual({ epic: ['gone'], priority: ['urgent'] });
+    expect(api.getBoard).toHaveBeenCalledTimes(1);
   });
 });
 

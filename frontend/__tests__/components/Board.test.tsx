@@ -312,29 +312,21 @@ describe('Board — epic filter', () => {
     expect(screen.getAllByRole('tabpanel').length).toBeGreaterThan(0);
   });
 
-  // Nothing else clears a filter by an epic that is gone, and the board would stay empty.
-  it('deleting the last epic while filtered to it leaves a way back to the issues', async () => {
-    const after = { todo: [issue('c', 'Loose issue')], 'in-progress': [], done: [] };
+  it('deleting the epic it is filtered to keeps the filter, which can be removed from the bar', async () => {
+    const after = { todo: [], 'in-progress': [], done: [] };
     vi.mocked(api.deleteTask).mockResolvedValue({ deleted: true, id: 'e1' });
     vi.mocked(api.getBoard).mockResolvedValue(boardAnswer(after));
-    useAppStore.setState({ tasks: { ...after, todo: [issue('e1', 'Epic One', undefined, 'epic'), ...after.todo] }, filters: { epic: ['e1'] } });
+    useAppStore.setState({ tasks: { ...after, todo: [issue('e1', 'Epic One', undefined, 'epic')] }, filters: { epic: ['e1'] } });
     render(<Board />);
     await act(() => useAppStore.getState().deleteTask('e1'));
-    expect(screen.queryAllByTestId('task-card').length).toBeGreaterThan(0);
+    expect(useAppStore.getState().filters).toEqual({ epic: ['e1'] });
+    expect(screen.queryByText(/create your first|get started/i)).toBeNull();
   });
 });
 
 // ─── Polling ─────────────────────────────────────────────────────────────────
 
 describe('Board — polling', () => {
-  it('drops the filter when its epic stops being one', async () => {
-    const was = { id: 'e', key: 'K-1', title: 'E', type: 'epic', createdAt: '', updatedAt: '' };
-    useAppStore.setState({ tasks: { todo: [was], 'in-progress': [], done: [] } as never, filters: { epic: ['e'] } });
-    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
-    await act(() => useAppStore.getState().loadBoard());
-    expect(useAppStore.getState().filters).toEqual({});
-  });
-
   it('turns a card overdue when the day changes, though the issue did not', async () => {
     const yesterday = new Date(Date.now() - 864e5);
     const pad = (n: number) => String(n).padStart(2, '0');

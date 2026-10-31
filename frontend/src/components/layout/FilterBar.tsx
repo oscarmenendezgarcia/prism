@@ -31,11 +31,11 @@ function useTokens(filters: IssueFilters): { field: FieldName; name: string; val
     if (values && values.length > 0) tokens.push({ field, name, value: values.join(', ') });
   };
   if (filters.q) tokens.push({ field: 'q', name: 'Text', value: filters.q });
-  add('status', 'Status', filters.status?.map((id) => statuses.find((s) => s.id === id)?.name ?? id));
+  add('status', 'Status', filters.status?.map((id) => statuses.find((s) => s.id === id)?.name ?? 'Deleted status'));
   add('assignee', 'Assignee', filters.assignee?.map((name) => (name === '' ? 'Unassigned' : assigneeLabel(name))));
   add('type', 'Type', filters.type?.map((id) => TYPES.find((t) => t.id === id)?.label ?? id));
   add('priority', 'Priority', filters.priority?.map((id) => PRIORITIES.find((p) => p.id === id)?.label ?? id));
-  add('epic', 'Epic', filters.epic?.map((id) => (id === '' ? 'No epic' : epics.find((e) => e.id === id)?.title ?? id)));
+  add('epic', 'Epic', filters.epic?.map((id) => (id === '' ? 'No epic' : epics.find((e) => e.id === id)?.title ?? 'Deleted epic')));
   add('label', 'Label', filters.label);
   if (filters.due) tokens.push({ field: 'due', name: 'Due', value: DUE_OPTIONS.find((o) => o.id === filters.due)?.label ?? filters.due });
   return tokens;
@@ -48,7 +48,8 @@ export function FilterBar() {
   const setFilters = useAppStore((s) => s.setFilters);
   const columnTotals = useAppStore((s) => s.columnTotals);
   const listTotal = useListStore((s) => s.total);
-  const [open, setOpen] = useState(false);
+  // One at a time, by mouse or by keyboard: they take the same place on a phone.
+  const [open, setOpen] = useState<'filter' | 'saved' | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const tokens = useTokens(filters);
@@ -84,8 +85,8 @@ export function FilterBar() {
         <button
           ref={buttonRef}
           type="button"
-          onClick={() => setOpen((was) => !was)}
-          aria-expanded={open}
+          onClick={() => setOpen((was) => (was === 'filter' ? null : 'filter'))}
+          aria-expanded={open === 'filter'}
           aria-haspopup="dialog"
           data-testid="filter-button"
           className={`flex items-center gap-1 h-7 px-2 rounded-md border text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-colors duration-fast ${
@@ -97,10 +98,10 @@ export function FilterBar() {
           <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">filter_list</span>
           Filter{count > 0 && <span> · {count}</span>}
         </button>
-        {open && <FilterPanel onClose={() => setOpen(false)} anchorRef={buttonRef} />}
+        {open === 'filter' && <FilterPanel onClose={() => setOpen(null)} anchorRef={buttonRef} />}
       </div>
 
-      <SavedFilters />
+      <SavedFilters open={open === 'saved'} onOpenChange={(now) => setOpen(now ? 'saved' : null)} />
 
       <div className="hidden sm:flex flex-1 min-w-0 items-center gap-1.5 overflow-x-auto [scrollbar-width:none]">
         {tokens.map(({ field, name, value }) => (

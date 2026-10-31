@@ -2,11 +2,11 @@
  * Filters kept for later: choose one to apply it, and save, rename or delete them.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { IssueFilters, SavedFilter } from '@/types';
 import * as api from '@/api/client';
 import { Button } from '@/components/shared/Button';
-import { Modal } from '@/components/shared/Modal';
+import { Modal, ModalTitle } from '@/components/shared/Modal';
 import { useAppStore } from '@/stores/useAppStore';
 import { useCanEdit } from '@/stores/useAuthStore';
 import { cleanFilters, hasFilters } from '@/utils/issueFilters';
@@ -24,9 +24,10 @@ function sameFilters(a: IssueFilters, b: IssueFilters): boolean {
 }
 
 /** A name, and for a new one who can see it. */
-function SaveDialog({ title, initialName, showShared, busy, error, onSave, onClose }: {
+function SaveDialog({ title, initialName, initialShared, showShared, busy, error, onSave, onClose }: {
   title: string;
   initialName: string;
+  initialShared: boolean;
   showShared: boolean;
   busy: boolean;
   error: string | null;
@@ -34,9 +35,11 @@ function SaveDialog({ title, initialName, showShared, busy, error, onSave, onClo
   onClose: () => void;
 }) {
   const [name, setName] = useState(initialName);
-  const [shared, setShared] = useState(false);
+  const [shared, setShared] = useState(initialShared);
+  const labelId = useId();
   return (
-    <Modal open onClose={onClose} title={title} maxWidth="max-w-sm">
+    <Modal open onClose={onClose} labelId={labelId} maxWidth="max-w-sm">
+      <div className="px-4 pt-4"><ModalTitle id={labelId}>{title}</ModalTitle></div>
       <form
         className="flex flex-col gap-3 p-4"
         onSubmit={(e) => {
@@ -79,14 +82,15 @@ function SaveDialog({ title, initialName, showShared, busy, error, onSave, onClo
   );
 }
 
-export function SavedFilters() {
+export function SavedFilters({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const activeSpaceId = useAppStore((s) => s.activeSpaceId);
   const filters = useAppStore((s) => s.filters);
   const setFilters = useAppStore((s) => s.setFilters);
   const showToast = useAppStore((s) => s.showToast);
   const canEdit = useCanEdit();
   const [saved, setSaved] = useState<SavedFilter[]>([]);
-  const [open, setOpen] = useState(false);
+  const [loadState, setLoadState] = useState<'loading' | 'loaded' | 'failed'>('loading');
+  const [appliedId, setAppliedId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<{ renaming?: SavedFilter } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -96,27 +100,33 @@ export function SavedFilters() {
   const spaceRef = useRef(activeSpaceId);
   spaceRef.current = activeSpaceId;
 
+  const requests = useRef(0);
+
   const load = useCallback(async () => {
+    const request = ++requests.current;
     const asked = spaceRef.current;
     try {
       const found = await api.getSavedFilters(asked);
-      if (spaceRef.current === asked) setSaved(found);
+      // Only the last one asked: an earlier answer could bring back what was just deleted.
+      if (request !== requests.current) return;
+      setSaved(found);
+      setLoadState('loaded');
     } catch {
-      // Only what was already there is out of date. The next opening tries again.
+      if (request === requests.current) setLoadState('failed');
     }
   }, []);
 
-  useEffect(() => { setSaved([]); void load(); }, [activeSpaceId, load]);
+  useEffect(() => { setSaved([]); setLoadState('loading'); setAppliedId(null); void load(); }, [activeSpaceId, load]);
 
   useEffect(() => {
     if (!open) return;
     void load();
     const onPointer = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(e.target as Node)) onOpenChange(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      setOpen(false);
+      onOpenChange(false);
       buttonRef.current?.focus();
     };
     document.addEventListener('pointerdown', onPointer);
@@ -125,7 +135,7 @@ export function SavedFilters() {
       document.removeEventListener('pointerdown', onPointer);
       document.removeEventListener('keydown', onKey);
     };
-  }, [open, load]);
+  }, [open, load, onOpenChange]);
 
   const closeDialog = () => {
     setDialog(null);
@@ -137,7 +147,8 @@ export function SavedFilters() {
     setBusy(true);
     setError(null);
     try {
-      if (dialog?.renaming) await api.updateSavedFilter(activeSpaceId, dialog.renaming.id, { name });
+      const { renaming } = dialog ?? {};
+      if (renaming) await api.updateSavedFilter(activeSpaceId, renaming.id, renaming.mine ? { name, shared } : { name });
       else await api.createSavedFilter(activeSpaceId, { name, shared, filters });
       closeDialog();
       showToast(dialog?.renaming ? 'Filter renamed' : 'Filter saved');
@@ -145,6 +156,7 @@ export function SavedFilters() {
     } catch (err) {
       // In the dialog, which stays open with what was typed.
       setError((err as Error).message);
+      void load();
     } finally {
       setBusy(false);
     }
@@ -156,6 +168,7 @@ export function SavedFilters() {
       await api.deleteSavedFilter(activeSpaceId, one.id);
       showToast('Filter deleted');
       setDeleting(null);
+      buttonRef.current?.focus();
       await load();
     } catch (err) {
       showToast((err as Error).message, 'error');
@@ -165,7 +178,9 @@ export function SavedFilters() {
     }
   };
 
-  const current = saved.find((one) => sameFilters(one.filters, filters));
+  // Which one was chosen, if two say the same. Otherwise the first that says this.
+  const matching = saved.filter((one) => sameFilters(one.filters, filters));
+  const current = matching.find((one) => one.id === appliedId) ?? matching[0];
   const filtering = hasFilters(filters);
 
   return (
@@ -173,7 +188,7 @@ export function SavedFilters() {
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => { setOpen((was) => !was); setDeleting(null); }}
+        onClick={() => { onOpenChange(!open); setDeleting(null); }}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={current ? `Saved filters: ${current.name}` : 'Saved filters'}
@@ -193,11 +208,13 @@ export function SavedFilters() {
           role="dialog"
           aria-label="Saved filters"
           data-testid="saved-filters-panel"
-          className="fixed sm:absolute inset-x-2 sm:inset-x-auto top-28 sm:top-9 sm:left-0 z-40 sm:w-72 max-h-[70vh] overflow-y-auto p-1 rounded-lg border border-border bg-surface-elevated shadow-lg"
+          className="fixed sm:absolute inset-x-2 sm:inset-x-auto top-[9.5rem] sm:top-9 sm:left-0 z-40 sm:w-72 max-h-[calc(100vh-10rem)] sm:max-h-[70vh] overflow-y-auto p-1 rounded-lg border border-border bg-surface-elevated shadow-lg"
         >
-          {saved.length === 0 && (
+          {saved.length === 0 && loadState !== 'loading' && (
             <p className="px-2 py-3 text-xs text-text-secondary">
-              {filtering ? 'None yet. Save the filters you have on.' : 'None yet. Choose some filters, then save them here.'}
+              {loadState === 'failed'
+                ? 'They could not be loaded.'
+                : filtering ? 'None yet. Save the filters you have on.' : 'None yet. Choose some filters, then save them here.'}
             </p>
           )}
           <ul>
@@ -208,14 +225,14 @@ export function SavedFilters() {
                     <span className="flex-1 min-w-0 text-xs text-text-primary">
                       Delete “{one.name}”{one.shared ? ' for the whole team' : ''}?
                     </span>
-                    <Button variant="ghost" size="sm" onClick={() => setDeleting(null)}>Keep</Button>
+                    <Button autoFocus variant="ghost" size="sm" onClick={() => { setDeleting(null); buttonRef.current?.focus(); }}>Keep</Button>
                     <Button variant="danger" size="sm" disabled={busy} onClick={() => void onDelete(one)}>Delete</Button>
                   </div>
                 ) : (
                   <>
                     <button
                       type="button"
-                      onClick={() => { setFilters(one.filters); setOpen(false); }}
+                      onClick={() => { setFilters(one.filters); setAppliedId(one.id); onOpenChange(false); buttonRef.current?.focus(); }}
                       className={`flex flex-1 min-w-0 items-center gap-1.5 h-8 pl-2 text-left text-xs rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 ${one === current ? 'font-medium text-primary' : 'text-text-primary'}`}
                     >
                       <span className="truncate">{one.name}</span>
@@ -226,7 +243,7 @@ export function SavedFilters() {
                         <button
                           type="button"
                           aria-label={`Rename ${one.name}`}
-                          onClick={() => { setOpen(false); setDialog({ renaming: one }); }}
+                          onClick={() => { onOpenChange(false); setError(null); setDialog({ renaming: one }); }}
                           className="flex items-center justify-center w-7 h-7 flex-shrink-0 rounded text-text-secondary hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                         >
                           <span className="material-symbols-outlined text-base leading-none" aria-hidden="true">edit</span>
@@ -246,10 +263,10 @@ export function SavedFilters() {
               </li>
             ))}
           </ul>
-          {filtering && !current && (
+          {filtering && (
             <button
               type="button"
-              onClick={() => { setOpen(false); setDialog({}); }}
+              onClick={() => { onOpenChange(false); setError(null); setDialog({}); }}
               data-testid="save-filter"
               className="flex items-center gap-1.5 w-full h-8 mt-1 px-2 rounded border-t border-border-subtle text-left text-xs font-medium text-primary hover:bg-surface-variant focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
             >
@@ -262,9 +279,10 @@ export function SavedFilters() {
 
       {dialog && (
         <SaveDialog
-          title={dialog.renaming ? 'Rename filter' : 'Save filter'}
+          title={dialog.renaming ? 'Edit filter' : 'Save filter'}
           initialName={dialog.renaming?.name ?? ''}
-          showShared={!dialog.renaming && canEdit}
+          initialShared={dialog.renaming?.shared ?? false}
+          showShared={canEdit && (!dialog.renaming || dialog.renaming.mine)}
           busy={busy}
           error={error}
           onSave={(name, shared) => void onSave(name, shared)}

@@ -64,7 +64,7 @@ async function team() {
   return {
     api, repo, space, dataDir, server,
     admin: { cookie: admin.cookie, id: admin.json.user.id, name: 'Ana López' },
-    member, viewer,
+    member, viewer, join,
     async close() {
       server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));
@@ -617,6 +617,52 @@ describe('saved filters', () => {
     const first = await Promise.all(Array.from({ length: 99 }, (_, i) => save('admin', { name: `Many ${i}` })));
     assert.ok(first.every((res) => res.status === 201));
     assert.equal((await save('admin', { name: 'One more' })).status, 400);
+  });
+
+  test('a token for reading writes nothing, not even what a viewer may', async () => {
+    const { json: mine } = await save('member', { name: 'Token target', shared: true });
+    const token = await t.api('POST', '/api/v1/tokens', { cookie: t.member.cookie, body: { name: 'read', access: 'read', days: 30 } });
+    assert.equal(token.status, 201, JSON.stringify(token.json));
+    const headers = { authorization: `Bearer ${token.json.secret}` };
+    assert.equal((await t.api('GET', url(), { headers })).status, 200);
+    assert.equal((await t.api('POST', url(), { headers, body: { name: 'T', filters: FILTERS } })).status, 403);
+    assert.equal((await t.api('PUT', url(`/${mine.id}`), { headers, body: { name: 'T' } })).status, 403);
+    assert.equal((await t.api('DELETE', url(`/${mine.id}`), { headers })).status, 403);
+  });
+
+  test('an admin renames or deletes one of someone else, and no more', async () => {
+    const { json: shared } = await save('member', { name: 'Owned', shared: true });
+    const asAdmin = (body) => t.api('PUT', url(`/${shared.id}`), { cookie: t.admin.cookie, body });
+    assert.equal((await asAdmin({ shared: false })).status, 403);
+    assert.equal((await asAdmin({ filters: { q: 'other' } })).status, 403);
+    assert.equal((await asAdmin({ name: 'Owned too' })).status, 200);
+  });
+
+  test('a rename by an admin does not give the owner two of one name', async () => {
+    await save('member', { name: 'Alpha' });
+    const { json: beta } = await save('member', { name: 'Beta', shared: true });
+    assert.equal((await t.api('PUT', url(`/${beta.id}`), { cookie: t.admin.cookie, body: { name: 'ALPHA' } })).status, 409);
+  });
+
+  test('whoever can no longer share loses the filters of the team to the admins', async () => {
+    const dani = await t.join('Dani', 'member');
+    const made = await t.api('POST', url(), { cookie: dani.cookie, body: { name: 'Dani team', filters: FILTERS, shared: true } });
+    const own = await t.api('POST', url(), { cookie: dani.cookie, body: { name: 'Dani own', filters: FILTERS } });
+    assert.equal((await t.api('PATCH', `/api/v1/users/${dani.id}`, { cookie: t.admin.cookie, body: { role: 'viewer' } })).status, 200);
+    assert.equal((await t.api('PUT', url(`/${made.json.id}`), { cookie: dani.cookie, body: { filters: { q: 'x' } } })).status, 403);
+    assert.equal((await t.api('DELETE', url(`/${made.json.id}`), { cookie: dani.cookie })).status, 403);
+    assert.equal((await t.api('PUT', url(`/${own.json.id}`), { cookie: dani.cookie, body: { name: 'Still mine' } })).status, 200);
+    assert.equal((await t.api('DELETE', url(`/${made.json.id}`), { cookie: t.admin.cookie })).status, 200);
+  });
+
+  test('sharing again what is shared is not sharing', async () => {
+    const { json: shared } = await save('member', { name: 'Twice', shared: true });
+    assert.equal((await t.api('PUT', url(`/${shared.id}`), { cookie: t.member.cookie, body: { name: 'Twice 2', shared: true } })).status, 200);
+  });
+
+  test('what would be too long to use cannot be saved', async () => {
+    const label = Array.from({ length: 80 }, (_, i) => `${i}${'x'.repeat(195)}`);
+    assert.equal((await save('member', { name: 'Long', filters: { label } })).status, 400);
   });
 
   test('an agent reads them and changes none', () => {
