@@ -14,6 +14,7 @@ vi.mock('../../src/api/client', () => ({
   getBoard: vi.fn(),
   getTaskForPanel: vi.fn(),
   moveTask: vi.fn(),
+  reorderTask: vi.fn(),
   updateTask: vi.fn(),
   createComment: vi.fn(),
   updateComment: vi.fn(),
@@ -437,5 +438,83 @@ describe('comments', () => {
     await useAppStore.getState().answerQuestion('a', 'q', 'This one');
     expect(useAppStore.getState().tasks.todo[0].pendingQuestions).toBe(0);
     expect(useAppStore.getState().detailTask?.comments?.map((c) => c.id)).toEqual(['q', 'r']);
+  });
+});
+
+describe('a write that fails', () => {
+  const inSpaceA = () => {
+    useAppStore.setState({ tasks: { todo: [card('a', { title: 'Before', rank: 1000 }), card('b', { rank: 2000 })] }, columnTotals: { todo: 2 } });
+  };
+  /** Have a version of the board, as after any poll. */
+  const haveVersion = async () => {
+    vi.mocked(api.getBoard).mockResolvedValueOnce(boardAnswer({ todo: [card('a', { title: 'Before', rank: 1000 }), card('b', { rank: 2000 })], done: [] }, { etag: '"one"' }));
+    await useAppStore.getState().loadBoard();
+    expect(useAppStore.getState().boardVersion).toBe('"one"');
+  };
+  const nextPollEtag = async () => {
+    vi.mocked(api.getBoard).mockResolvedValue(null);
+    await useAppStore.getState().loadBoard();
+    return lastQuery()?.etag;
+  };
+  const inSpaceB = () => {
+    useAppStore.getState().setActiveSpace('b-space');
+    useAppStore.setState({ tasks: { todo: [card('other')] } });
+  };
+
+  it('a save does not bring back the cards of the space it was made in', async () => {
+    inSpaceA();
+    let fail: (err: Error) => void = () => {};
+    vi.mocked(api.updateTask).mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+    const saving = useAppStore.getState().updateTask('a', { title: 'New' });
+    inSpaceB();
+    const there = useAppStore.getState().tasks;
+    fail(new Error('No'));
+    await saving;
+    expect(useAppStore.getState().tasks).toEqual(there);
+    expect(useAppStore.getState().tasks.todo[0].id).toBe('other');
+  });
+
+  it('a save rolls back its own card, and leaves what arrived for the others', async () => {
+    inSpaceA();
+    let fail: (err: Error) => void = () => {};
+    vi.mocked(api.updateTask).mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+    const saving = useAppStore.getState().updateTask('a', { title: 'New' });
+    expect(useAppStore.getState().tasks.todo[0].title).toBe('New');
+    useAppStore.setState({ tasks: { todo: [useAppStore.getState().tasks.todo[0], card('b', { title: 'Changed since', rank: 2000 })] } });
+    fail(new Error('No'));
+    await saving;
+    expect(useAppStore.getState().tasks.todo.map((t) => t.title)).toEqual(['Before', 'Changed since']);
+  });
+
+  it.each([
+    ['a save', () => { vi.mocked(api.updateTask).mockRejectedValue(new Error('No')); return useAppStore.getState().updateTask('a', { title: 'New' }); }],
+    ['a move', () => { vi.mocked(api.moveTask).mockRejectedValue(new Error('No')); return useAppStore.getState().moveTask('a', 'done'); }],
+    ['a reorder', () => { vi.mocked(api.reorderTask).mockRejectedValue(new Error('No')); return useAppStore.getState().reorderTask('a', 'todo', 5000); }],
+  ])('%s forgets the version of the board, so that the next poll corrects it', async (_name, write) => {
+    await haveVersion();
+    await write();
+    expect(await nextPollEtag()).toBeNull();
+  });
+
+  it('a reorder does not bring back the column of the space it was made in', async () => {
+    inSpaceA();
+    let fail: (err: Error) => void = () => {};
+    vi.mocked(api.reorderTask).mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+    const reordering = useAppStore.getState().reorderTask('a', 'todo', 5000);
+    inSpaceB();
+    fail(new Error('No'));
+    await reordering;
+    expect(useAppStore.getState().tasks.todo.map((t) => t.id)).toEqual(['other']);
+  });
+
+  it('a reorder puts back the rank of its own card only', async () => {
+    inSpaceA();
+    let fail: (err: Error) => void = () => {};
+    vi.mocked(api.reorderTask).mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+    const reordering = useAppStore.getState().reorderTask('a', 'todo', 5000);
+    useAppStore.setState({ tasks: { todo: [card('b', { title: 'Changed since', rank: 2000 }), card('a', { title: 'Before', rank: 5000 })] } });
+    fail(new Error('No'));
+    await reordering;
+    expect(useAppStore.getState().tasks.todo.map((t) => `${t.id}:${t.title}`)).toEqual(['a:Before', 'b:Changed since']);
   });
 });

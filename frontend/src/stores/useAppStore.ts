@@ -291,6 +291,13 @@ function cardFields(card: Task): Partial<Task> {
   return { epic, parentKey, progress, pendingQuestions, pendingQuestionText };
 }
 
+/** A column with these ranks put back, in the order they give. */
+function withRanks(list: Task[], ranks: Map<string, number | undefined>): Task[] {
+  return list
+    .map((t) => (ranks.has(t.id) ? { ...t, rank: ranks.get(t.id) } : t))
+    .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt));
+}
+
 /** Comments are only for the panel: a card has their count. */
 function withoutComments({ comments: _comments, ...task }: Task): Task {
   return task;
@@ -609,6 +616,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       showToast(`Moved to ${target?.name ?? statusId}`);
       await loadBoard();
     } catch (err) {
+      // What is on screen may no longer be what the version says: the next poll has to bring it.
+      boardEtag = null;
       if (movedInFlight) movesInFlight -= 1;
       // Only this card, and only here: the columns may have changed since, or this may be another space.
       if (moved && get().activeSpaceId === activeSpaceId) {
@@ -657,8 +666,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (updates.length === 0) return;
     const { activeSpaceId, tasks, showToast } = get();
     const taskIds = updates.map((u) => u.id);
-    // Snapshot the entire column for all-or-nothing rollback.
-    const prevColumnTasks = [...(own(tasks, column) ?? [])];
+    // The ranks of the whole batch, for all-or-nothing rollback.
+    const prevRanks = new Map((own(tasks, column) ?? []).filter((t) => taskIds.includes(t.id)).map((t) => [t.id, t.rank]));
     const rankById = new Map(updates.map((u) => [u.id, u.rank]));
     // Optimistic update: apply all new ranks locally in one commit and re-sort.
     const updated = (own(tasks, column) ?? []).map((t) =>
@@ -676,8 +685,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await api.reorderTasks(activeSpaceId, updates);
     } catch (err) {
-      // Full-batch rollback — restore the pre-batch column snapshot verbatim.
-      set({ tasks: { ...get().tasks, [column]: prevColumnTasks } });
+      // Full-batch rollback, of this batch, in the space it was made in.
+      boardEtag = null;
+      if (get().activeSpaceId === activeSpaceId) {
+        set({ tasks: { ...get().tasks, [column]: withRanks(own(get().tasks, column) ?? [], prevRanks) } });
+      }
       showToast((err as Error).message, 'error');
     } finally {
       set({ isMutating: false, mutatingTaskIds: removeMutatingIds(get().mutatingTaskIds, taskIds) });
@@ -686,8 +698,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   reorderTask: async (taskId: string, column: Column, newRank: number) => {
     const { activeSpaceId, tasks, showToast } = get();
-    // Snapshot for rollback
-    const prevColumnTasks = [...(own(tasks, column) ?? [])];
+    // For rollback
+    const prevRank = new Map((own(tasks, column) ?? []).filter((t) => t.id === taskId).map((t) => [t.id, t.rank]));
     // Optimistic update: set new rank and re-sort
     const updated = (own(tasks, column) ?? []).map((t) =>
       t.id === taskId ? { ...t, rank: newRank } : t
@@ -703,8 +715,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await api.reorderTask(activeSpaceId, taskId, newRank);
     } catch (err) {
-      // Rollback on failure
-      set({ tasks: { ...get().tasks, [column]: prevColumnTasks } });
+      // Rollback of this card, in the space it was moved in.
+      boardEtag = null;
+      if (get().activeSpaceId === activeSpaceId) {
+        set({ tasks: { ...get().tasks, [column]: withRanks(own(get().tasks, column) ?? [], prevRank) } });
+      }
       showToast((err as Error).message, 'error');
     } finally {
       set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });
@@ -888,9 +903,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (err) {
       // Roll back optimistic changes on error. Only what was changed: the rest may have arrived
       // since, such as the whole description. A panel closed meanwhile stays closed.
+      // What is on screen may no longer be what the version says: the next poll has to bring it.
+      boardEtag = null;
+      const sameSpace = get().activeSpaceId === activeSpaceId;
+      const cardBefore = boardIndex(tasks).byId.get(taskId);
       const open = get().detailTask;
       let restored = open;
-      if (open && open.id === taskId && detailTask?.id === taskId) {
+      if (sameSpace && open && open.id === taskId && detailTask?.id === taskId) {
         const fields = { ...open } as Record<string, unknown>;
         for (const field of Object.keys(patch)) {
           if (field in detailTask) fields[field] = (detailTask as unknown as Record<string, unknown>)[field];
@@ -898,7 +917,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
         restored = fields as unknown as Task;
       }
-      set({ tasks, detailTask: restored });
+      set({
+        detailTask: restored,
+        ...(sameSpace && cardBefore && { tasks: mapBoard(get().tasks, (t) => (t.id === taskId ? cardBefore : t)) }),
+      });
       const { code, details } = err as { code?: string; details?: Omit<EditConflict, 'taskId' | 'mine' | 'key' | 'base'> };
       if (code === 'EDIT_CONFLICT' && details) {
         // Nothing is lost: what they wrote waits for them to choose.
