@@ -7,6 +7,7 @@ import * as api from '../../src/api/client';
 vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(),
   getTasks: vi.fn(),
+  getColumnTotals: vi.fn(),
   createTask: vi.fn(),
   moveTask: vi.fn(),
   deleteTask: vi.fn(),
@@ -16,7 +17,7 @@ vi.mock('../../src/api/client', () => ({
   getAttachmentContent: vi.fn(),
 }));
 
-const mockGetTasks = vi.mocked(api.getTasks);
+const mockGetTotals = vi.mocked(api.getColumnTotals);
 
 const SPACE = { id: 'space-1', name: 'My Space', createdAt: '', updatedAt: '' };
 
@@ -50,7 +51,7 @@ describe('DeleteSpaceDialog — closed state', () => {
 
 describe('DeleteSpaceDialog — open state', () => {
   it('renders the space name in the title', async () => {
-    mockGetTasks.mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    mockGetTotals.mockResolvedValue({ todo: 0, 'in-progress': 0, done: 0 });
     openDialog();
     render(<DeleteSpaceDialog />);
 
@@ -58,7 +59,7 @@ describe('DeleteSpaceDialog — open state', () => {
   });
 
   it('renders the irreversible warning text', async () => {
-    mockGetTasks.mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    mockGetTotals.mockResolvedValue({ todo: 0, 'in-progress': 0, done: 0 });
     openDialog();
     render(<DeleteSpaceDialog />);
 
@@ -68,7 +69,7 @@ describe('DeleteSpaceDialog — open state', () => {
   });
 
   it('renders Cancel and Delete buttons', async () => {
-    mockGetTasks.mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    mockGetTotals.mockResolvedValue({ todo: 0, 'in-progress': 0, done: 0 });
     openDialog();
     render(<DeleteSpaceDialog />);
 
@@ -79,11 +80,7 @@ describe('DeleteSpaceDialog — open state', () => {
 
 describe('DeleteSpaceDialog — task count display', () => {
   it('shows task count banner when tasks exist', async () => {
-    mockGetTasks.mockResolvedValue({
-      todo: [{ id: 't1', title: 'T1', type: 'chore', createdAt: '', updatedAt: '' }],
-      'in-progress': [],
-      done: [{ id: 't2', title: 'T2', type: 'chore', createdAt: '', updatedAt: '' }],
-    });
+    mockGetTotals.mockResolvedValue({ todo: 1, 'in-progress': 0, done: 1 });
     openDialog();
     render(<DeleteSpaceDialog />);
 
@@ -93,11 +90,7 @@ describe('DeleteSpaceDialog — task count display', () => {
   });
 
   it('shows singular "task" when count is 1', async () => {
-    mockGetTasks.mockResolvedValue({
-      todo: [{ id: 't1', title: 'T1', type: 'chore', createdAt: '', updatedAt: '' }],
-      'in-progress': [],
-      done: [],
-    });
+    mockGetTotals.mockResolvedValue({ todo: 1, 'in-progress': 0, done: 0 });
     openDialog();
     render(<DeleteSpaceDialog />);
 
@@ -106,25 +99,33 @@ describe('DeleteSpaceDialog — task count display', () => {
     });
   });
 
+  it('gets the count from the totals, without downloading the space', async () => {
+    mockGetTotals.mockResolvedValue({ todo: 4000, 'in-progress': 200, done: 6000 });
+    openDialog();
+    render(<DeleteSpaceDialog />);
+    await waitFor(() => expect(screen.getByText(/10200/)).toBeInTheDocument());
+    expect(api.getTasks).not.toHaveBeenCalled();
+  });
+
   it('does not show task count banner when space has no tasks', async () => {
-    mockGetTasks.mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    mockGetTotals.mockResolvedValue({ todo: 0, 'in-progress': 0, done: 0 });
     openDialog();
     render(<DeleteSpaceDialog />);
 
     // Wait for the API call to resolve
     await waitFor(() => {
-      expect(mockGetTasks).toHaveBeenCalled();
+      expect(mockGetTotals).toHaveBeenCalled();
     });
     expect(screen.queryByText(/will be deleted/i)).not.toBeInTheDocument();
   });
 
   it('does not show task count banner when task fetch fails', async () => {
-    mockGetTasks.mockRejectedValue(new Error('Network error'));
+    mockGetTotals.mockRejectedValue(new Error('Network error'));
     openDialog();
     render(<DeleteSpaceDialog />);
 
     await waitFor(() => {
-      expect(mockGetTasks).toHaveBeenCalled();
+      expect(mockGetTotals).toHaveBeenCalled();
     });
     expect(screen.queryByText(/will be deleted/i)).not.toBeInTheDocument();
   });
@@ -132,7 +133,7 @@ describe('DeleteSpaceDialog — task count display', () => {
 
 describe('DeleteSpaceDialog — Cancel action', () => {
   it('Cancel button calls closeDeleteSpaceDialog', async () => {
-    mockGetTasks.mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    mockGetTotals.mockResolvedValue({ todo: 0, 'in-progress': 0, done: 0 });
     const mockClose = vi.fn();
     useAppStore.setState({
       deleteSpaceDialog: { open: true, spaceId: 'space-1' },
@@ -149,7 +150,7 @@ describe('DeleteSpaceDialog — Cancel action', () => {
 
 describe('DeleteSpaceDialog — Delete action', () => {
   it('calls deleteSpace store action on confirm', async () => {
-    mockGetTasks.mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    mockGetTotals.mockResolvedValue({ todo: 0, 'in-progress': 0, done: 0 });
     const mockDeleteSpace = vi.fn().mockResolvedValue(undefined);
     const mockClose = vi.fn();
     useAppStore.setState({
@@ -168,7 +169,7 @@ describe('DeleteSpaceDialog — Delete action', () => {
   });
 
   it('shows Deleting... label while submitting', async () => {
-    mockGetTasks.mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    mockGetTotals.mockResolvedValue({ todo: 0, 'in-progress': 0, done: 0 });
     // Never resolves so we stay in submitting state
     const mockDeleteSpace = vi.fn().mockReturnValue(new Promise(() => {}));
     useAppStore.setState({
@@ -186,7 +187,7 @@ describe('DeleteSpaceDialog — Delete action', () => {
   });
 
   it('disables both buttons while submitting', async () => {
-    mockGetTasks.mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    mockGetTotals.mockResolvedValue({ todo: 0, 'in-progress': 0, done: 0 });
     const mockDeleteSpace = vi.fn().mockReturnValue(new Promise(() => {}));
     useAppStore.setState({
       deleteSpaceDialog: { open: true, spaceId: 'space-1' },
@@ -204,7 +205,7 @@ describe('DeleteSpaceDialog — Delete action', () => {
   });
 
   it('re-enables submit button when deleteSpace throws', async () => {
-    mockGetTasks.mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    mockGetTotals.mockResolvedValue({ todo: 0, 'in-progress': 0, done: 0 });
     const mockDeleteSpace = vi.fn().mockRejectedValue(new Error('API error'));
     const mockClose = vi.fn();
     useAppStore.setState({

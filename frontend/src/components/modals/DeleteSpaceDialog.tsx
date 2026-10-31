@@ -31,8 +31,8 @@ export function DeleteSpaceDialog() {
     setTaskCount(null);
     setSubmitting(false);
 
-    api.getTasks(spaceId).then((data) => {
-      setTaskCount(Object.values(data).flat().length);
+    api.getColumnTotals(spaceId).then((totals) => {
+      setTaskCount(Object.values(totals).reduce((sum, n) => sum + n, 0));
     }).catch(() => setTaskCount(null));
   }, [isOpen, spaceId]);
 

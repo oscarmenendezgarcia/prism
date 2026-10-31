@@ -248,6 +248,10 @@ export const getBoard = (
   return getIfChanged<BoardResponse>(`/spaces/${spaceId}/board${query}`, etag);
 };
 
+/** How many cards each status of a space has, without bringing any of them. */
+export const getColumnTotals = async (spaceId: string): Promise<Record<string, number>> =>
+  (await apiFetch<{ totals: Record<string, number> }>(`/spaces/${spaceId}/board?totals=1`)).totals;
+
 /** An issue in full, for the detail panel: cards only have the beginning of a description. */
 export const getTaskForPanel = (spaceId: string, taskId: string, etag?: string | null): Promise<Fresh<Task>> =>
   getIfChanged<Task>(`/spaces/${spaceId}/tasks/${taskId}?view=panel`, etag);

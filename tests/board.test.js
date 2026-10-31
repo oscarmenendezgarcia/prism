@@ -562,6 +562,21 @@ describe('GET /spaces/:id/board', () => {
     });
   });
 
+  describe('?totals=1', () => {
+    test('says how many cards each status has, and nothing more', async () => {
+      const id = await newSpace('Totals');
+      const { statuses } = (await json(port, 'GET', `/api/v1/spaces/${id}`)).json;
+      await json(port, 'POST', `/api/v1/spaces/${id}/tasks`, { title: 'A', type: 'epic', description: 'd'.repeat(5000) });
+      await json(port, 'POST', `/api/v1/spaces/${id}/tasks`, { title: 'B', type: 'chore' });
+      const res = await json(port, 'GET', `/api/v1/spaces/${id}/board?totals=1`);
+      assert.deepEqual(Object.keys(res.json), ['totals']);
+      assert.deepEqual(Object.keys(res.json.totals), statuses.map((s) => s.id));
+      assert.equal(res.json.totals[statuses[0].id], 2);
+      assert.equal(res.json.totals[statuses[1].id], 0);
+      assert.ok(res.body.length < 300, `${res.body.length} bytes`);
+    });
+  });
+
   describe('lookups for what is not on the board', () => {
     test('?parent= lists the issues under one, in order, with its counts', async () => {
       const { statuses } = (await json(port, 'GET', `/api/v1/spaces/${spaceId}`)).json;

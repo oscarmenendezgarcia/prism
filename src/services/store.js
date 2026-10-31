@@ -1729,6 +1729,14 @@ function createStore(dataDir) {
     return { columns, epics };
   }
 
+  /** How many cards each status of a space has. */
+  function getColumnTotals(spaceId) {
+    const counts = new Map(stmts.boardCounts.all({ space: spaceId }).map((row) => [row.status_id, row.n]));
+    const totals = Object.create(null);
+    for (const status of stmts.getStatuses.all(spaceId)) totals[status.id] = counts.get(status.id) ?? 0;
+    return totals;
+  }
+
   /** What the detail panel needs of an issue beyond the issue itself. */
   function getTaskForPanel(spaceId, taskId) {
     const task = getTask(spaceId, taskId);
@@ -2032,6 +2040,7 @@ function createStore(dataDir) {
     getTaskByKey,
     getChildren,
     getBoard,
+    getColumnTotals,
     getTaskForPanel,
     getChildrenPage,
     getTasksByIds,

@@ -427,11 +427,13 @@ function createApp(spaceId, store) {
   /**
    * GET /spaces/:id/board — the cards on screen and what they show.
    * Query: limits=<statusId>:<n>,... to show more of a column; epic=<id> to only show that epic;
-   * include=<id>,... for cards to bring even past the limit of their column.
+   * include=<id>,... for cards to bring even past the limit of their column;
+   * totals=1 for just how many cards each status has.
    */
   function handleGetBoard(req, res) {
     try {
       const qs = new URL(req.url, 'http://x').searchParams;
+      if (qs.get('totals') === '1') return sendJSON(res, 200, { totals: store.getColumnTotals(spaceId) });
       // Keyed by what users name their statuses, which can be "constructor" or "__proto__".
       const limits = Object.create(null);
       for (const part of (qs.get('limits') ?? '').split(',').filter(Boolean)) {

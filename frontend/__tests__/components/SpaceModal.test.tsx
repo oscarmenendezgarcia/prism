@@ -3,11 +3,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SpaceModal } from '../../src/components/modals/SpaceModal';
 import { useAppStore } from '../../src/stores/useAppStore';
-import { getTasks, updateSpaceHooks, updateSpaceStatuses, validateDirectory } from '../../src/api/client';
+import { getColumnTotals, getTasks, updateSpaceHooks, updateSpaceStatuses, validateDirectory } from '../../src/api/client';
 import type { Space } from '../../src/types';
 
 vi.mock('../../src/api/client', () => ({
-  getSpaces: vi.fn(), getTasks: vi.fn().mockResolvedValue({}), createTask: vi.fn(), moveTask: vi.fn(),
+  getSpaces: vi.fn(), getTasks: vi.fn().mockResolvedValue({}), getColumnTotals: vi.fn().mockResolvedValue({}), createTask: vi.fn(), moveTask: vi.fn(),
   deleteTask: vi.fn(), createSpace: vi.fn(), renameSpace: vi.fn(), deleteSpace: vi.fn(),
   getAttachmentContent: vi.fn(),
   validateDirectory: vi.fn().mockImplementation(async (p: string) => ({ path: p, isValid: true, isGitRepo: true })),
@@ -370,9 +370,10 @@ describe('SpaceModal', () => {
     });
 
     it('asks where the issues go only for a removed status that has some, and sends the answer', async () => {
-      vi.mocked(getTasks).mockResolvedValueOnce({ todo: [], doing: [{ id: 't' }] } as any);
+      vi.mocked(getColumnTotals).mockResolvedValueOnce({ todo: 0, doing: 1 });
       const { renameSpace } = openRename();
-      await waitFor(() => expect(getTasks).toHaveBeenCalledWith('s1'));
+      await waitFor(() => expect(getColumnTotals).toHaveBeenCalledWith('s1'));
+      expect(getTasks).not.toHaveBeenCalled();
       await screen.findByLabelText('Status name 1');
 
       fireEvent.click(screen.getByRole('button', { name: 'Remove Todo' }));

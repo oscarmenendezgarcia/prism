@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getBoard, getChildren, getTaskForPanel, getTasksByIds, apiFetch, getSpaces, createSpace, getTasks, createTask, moveTask, deleteTask, getAttachmentContent, createComment, updateComment, answerQuestion } from '../../src/api/client';
+import { getColumnTotals, getBoard, getChildren, getTaskForPanel, getTasksByIds, apiFetch, getSpaces, createSpace, getTasks, createTask, moveTask, deleteTask, getAttachmentContent, createComment, updateComment, answerQuestion } from '../../src/api/client';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -135,6 +135,14 @@ describe('getTaskForPanel', () => {
   it('keeps the code of a 404, which is how a deleted issue is told from a failure', async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 404, headers: new Headers(), json: async () => ({ error: { code: 'TASK_NOT_FOUND', message: 'Gone' } }) });
     await expect(getTaskForPanel('s', 't1')).rejects.toMatchObject({ status: 404, code: 'TASK_NOT_FOUND' });
+  });
+});
+
+describe('getColumnTotals', () => {
+  it('asks only for the totals', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => ({ totals: { todo: 3 } }) });
+    await expect(getColumnTotals('s')).resolves.toEqual({ todo: 3 });
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/v1/spaces/s/board?totals=1');
   });
 });
 

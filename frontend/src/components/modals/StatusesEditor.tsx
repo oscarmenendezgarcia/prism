@@ -2,6 +2,7 @@
  * Space settings: the statuses of its board. Saved with the rest by the modal's Save button.
  */
 
+import { own } from '@/utils/issues';
 import React, { useRef } from 'react';
 import { Button } from '@/components/shared/Button';
 import type { Status, StatusCategory } from '@/types';
@@ -104,10 +105,10 @@ export function StatusesEditor({ rows, onChange, counts, removed, moves, onRemov
         </div>
       ))}
 
-      {removed.filter((s) => (counts[s.id] ?? 0) > 0).map((status) => (
+      {removed.filter((s) => (own(counts, s.id) ?? 0) > 0).map((status) => (
         <label key={status.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-warning/10 text-xs text-text-primary" data-testid="status-move">
           <span className="flex-1">
-            «{status.name}» is being removed. Move its {counts[status.id]} issue{counts[status.id] === 1 ? '' : 's'} to
+            «{status.name}» is being removed. Move its {own(counts, status.id)} issue{counts[status.id] === 1 ? '' : 's'} to
           </span>
           <select
             value={moves[status.id] ?? ''}

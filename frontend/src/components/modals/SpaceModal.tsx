@@ -6,7 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { EMPTY_SPACE_HOOKS, readSpaceHooks, SpaceHookSection } from '@/components/runs/SpaceHookSection';
 import { SpaceAgentsSection } from '@/components/runs/SpaceAgentsSection';
-import { getTasks, updateSpaceAgents, updateSpaceHooks, updateSpaceStatuses, validateDirectory } from '@/api/client';
+import { getColumnTotals, updateSpaceAgents, updateSpaceHooks, updateSpaceStatuses, validateDirectory } from '@/api/client';
 import type { SpaceAgents, SpaceHooks, Status } from '@/types';
 import { defaultFinishStatus } from '@/utils/issues';
 import { StatusesEditor, StatusRow, toStatusRows } from './StatusesEditor';
@@ -69,8 +69,8 @@ export function SpaceModal() {
       setStatusError('');
       setFinishStatus(space?.finishStatusId);
       if (mode === 'rename' && space) {
-        getTasks(space.id)
-          .then((board) => setCounts(Object.fromEntries(Object.entries(board).map(([id, list]) => [id, list.length]))))
+        getColumnTotals(space.id)
+          .then(setCounts)
           .catch(() => {}); // The server still refuses to lose issues.
       }
       setSubmitting(false);
