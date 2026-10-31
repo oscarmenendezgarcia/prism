@@ -38,7 +38,7 @@ function resetStore() {
     spaceModal: null,
     deleteSpaceDialog: null,
     toast: null,
-    epicFilter: null,
+    filters: {},
   });
 }
 
@@ -67,9 +67,9 @@ describe('setActiveSpace', () => {
   });
 
   it('resets the epic filter when switching space', () => {
-    useAppStore.setState({ epicFilter: 'epic-1' });
+    useAppStore.setState({ filters: { epic: ['epic-1'] } });
     useAppStore.getState().setActiveSpace('space-456');
-    expect(useAppStore.getState().epicFilter).toBeNull();
+    expect(useAppStore.getState().filters).toEqual({});
   });
 
   it('drops the board of the old space when switching, and keeps it when the space is the same', () => {
@@ -84,14 +84,14 @@ describe('setActiveSpace', () => {
 
 describe('epic filter', () => {
   it('setting it stores the epic', () => {
-    useAppStore.getState().setEpicFilter('epic-1');
-    expect(useAppStore.getState().epicFilter).toBe('epic-1');
+    useAppStore.getState().setFilters({ epic: ['epic-1'] });
+    expect(useAppStore.getState().filters).toEqual({ epic: ['epic-1'] });
   });
 
   it('null clears it', () => {
-    useAppStore.setState({ epicFilter: 'epic-1' });
-    useAppStore.getState().setEpicFilter(null);
-    expect(useAppStore.getState().epicFilter).toBeNull();
+    useAppStore.setState({ filters: { epic: ['epic-1'] } });
+    useAppStore.getState().setFilters({});
+    expect(useAppStore.getState().filters).toEqual({});
   });
 });
 
@@ -149,7 +149,7 @@ describe('loadBoard', () => {
     await useAppStore.getState().loadBoard();
 
     expect(useAppStore.getState().tasks).toEqual(board);
-    expect(api.getBoard).toHaveBeenCalledWith('space-1', { limits: {}, epic: null, include: [], etag: null });
+    expect(api.getBoard).toHaveBeenCalledWith('space-1', { limits: {}, filters: {}, include: [], etag: null });
   });
 
   it('shows error toast on failure', async () => {

@@ -96,12 +96,17 @@ describe('getBoard', () => {
     expect(mockFetch.mock.calls[0][0]).toBe('/api/v1/spaces/space-1/board');
   });
 
-  it('asks for the limits and the epic given', async () => {
+  it('asks for the limits and the filters given', async () => {
     mockFetch.mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => ({ columns: {}, epics: [] }) });
-    await getBoard('space-1', { limits: { todo: 200, done: 150 }, epic: 'e1' });
+    await getBoard('space-1', { limits: { todo: 200, done: 150 }, filters: { epic: ['e1'], status: ['todo', 'done'], assignee: [''], due: 'overdue', q: 'pay' } });
     const url = new URL(mockFetch.mock.calls[0][0], 'http://x');
     expect(url.searchParams.get('limits')).toBe('todo:200,done:150');
     expect(url.searchParams.get('epic')).toBe('e1');
+    expect(url.searchParams.getAll('status')).toEqual(['todo', 'done']);
+    expect(url.searchParams.getAll('assignee')).toEqual(['']);
+    expect(url.searchParams.get('due')).toBe('overdue');
+    expect(url.searchParams.get('today')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(url.searchParams.get('q')).toBe('pay');
   });
 
   it('asks by id for what the limit would hide', async () => {

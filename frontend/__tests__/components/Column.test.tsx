@@ -34,7 +34,7 @@ function renderColumn(status: Status, columnTasks: Task[] = [], props: Partial<R
 
 describe('Column', () => {
   beforeEach(() => {
-    useAppStore.setState({ epicFilter: null, tasks: {}, spaces: [], columnTotals: {}, columnLimits: {} });
+    useAppStore.setState({ filters: {}, tasks: {}, spaces: [], columnTotals: {}, columnLimits: {} });
   });
 
   it('renders column title for todo', () => {
@@ -92,7 +92,7 @@ describe('Column', () => {
   });
 
   it('shows what it was given whatever the epic filter: the server already applied it', () => {
-    useAppStore.setState({ epicFilter: 'e1', columnTotals: { todo: 2 } });
+    useAppStore.setState({ filters: { epic: ['e1'] }, columnTotals: { todo: 2 } });
     renderColumn(TODO, tasks);
     expect(screen.getByText('First task')).toBeInTheDocument();
     expect(screen.getByText('Second task')).toBeInTheDocument();

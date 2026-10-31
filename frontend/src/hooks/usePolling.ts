@@ -6,16 +6,18 @@
 
 import { useEffect } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
+import { useListStore } from '@/stores/useListStore';
 
 const POLL_INTERVAL_MS = 3000;
 
 export function usePolling(): void {
   useEffect(() => {
     const id = setInterval(() => {
-      const { isMutating, loadBoard, refreshSpaces } = useAppStore.getState();
+      const { isMutating, loadBoard, refreshSpaces, view } = useAppStore.getState();
       if (!isMutating) {
         loadBoard();
         refreshSpaces();
+        if (view === 'list') void useListStore.getState().refresh();
       }
     }, POLL_INTERVAL_MS);
 

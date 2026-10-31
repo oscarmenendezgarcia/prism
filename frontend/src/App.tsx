@@ -11,7 +11,9 @@
 import React, { useEffect } from 'react';
 import { Header } from '@/components/layout/Header';
 import { SpaceTabs } from '@/components/layout/SpaceTabs';
-import { EpicBar } from '@/components/board/EpicBar';
+import { SpaceSettingsButton } from '@/components/layout/SpaceSettingsButton';
+import { FilterBar } from '@/components/layout/FilterBar';
+import { IssueList } from '@/components/list/IssueList';
 import { Board } from '@/components/board/Board';
 import { TaskDetailPanel } from '@/components/board/TaskDetailPanel';
 import { CreateTaskModal } from '@/components/modals/CreateTaskModal';
@@ -27,6 +29,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import { usePolling } from '@/hooks/usePolling';
 import { useTaskRunsPolling } from '@/hooks/useTaskRunsPolling';
 import { getIssue } from '@/api/client';
+import { readLocation, writeLocation } from '@/utils/issueFilters';
 
 /** React Error Boundary to prevent white-screen crashes. */
 class ErrorBoundary extends React.Component<
@@ -75,8 +78,14 @@ function AppContent() {
   const isGlobalSearchOpen     = useAppStore((s) => s.isGlobalSearchOpen);
   const openGlobalSearch       = useAppStore((s) => s.openGlobalSearch);
   const closeGlobalSearch      = useAppStore((s) => s.closeGlobalSearch);
+  const view                   = useAppStore((s) => s.view);
 
   useEffect(() => {
+    // A link keeps the space, the view, the filters and the order.
+    const { space, view: linkedView, filters, sort } = readLocation(window.location.search);
+    if (space) useAppStore.getState().setActiveSpace(space);
+    useAppStore.setState({ view: linkedView, filters, listSort: sort });
+
     void (async () => {
       await loadSpaces();
       // A link to an issue, such as /?issue=WEB-142. Old keys keep working.
@@ -96,6 +105,13 @@ function AppContent() {
       }
     })();
   }, [loadSpaces]);
+
+  // The address follows what is on screen, so that it can be shared at any moment.
+  useEffect(() => useAppStore.subscribe((s, before) => {
+    if (s.view === before.view && s.filters === before.filters && s.listSort === before.listSort && s.activeSpaceId === before.activeSpaceId) return;
+    const query = writeLocation(window.location.search, { space: s.activeSpaceId, view: s.view, filters: s.filters, sort: s.listSort });
+    window.history.replaceState(null, '', `${window.location.pathname}${query}`);
+  }), []);
 
   // Global ⌘K / Ctrl+K keyboard shortcut — opens GlobalSearchModal.
   // Does NOT fire when focus is already inside a text input / textarea /
@@ -135,10 +151,11 @@ function AppContent() {
       <div className="flex-1 overflow-hidden flex flex-col">
         <div className="flex items-stretch flex-shrink-0">
           <div className="flex-1 min-w-0"><SpaceTabs /></div>
-          <EpicBar />
+          <SpaceSettingsButton />
         </div>
+        <FilterBar />
         <div className="flex-1 overflow-hidden relative">
-          <Board />
+          {view === 'list' ? <IssueList /> : <Board />}
         </div>
       </div>
 

@@ -4,7 +4,12 @@
  * ADR-002: all endpoints unchanged, only typed wrappers added.
  */
 
+import { appendFilters } from '@/utils/issueFilters';
 import type {
+  BulkChanges,
+  IssueFilters,
+  IssuesPage,
+  ListSort,
   Space,
   Task,
   BoardResponse,
@@ -231,18 +236,18 @@ async function getIfChanged<T>(path: string, etag: string | null | undefined): P
  * What the board shows of a space: the first cards of each column, or the last of a done one.
  *
  * @param query.limits How many cards of a status, where it is not the default.
- * @param query.epic   Only what is in this epic.
+ * @param query.filters Only what matches.
  * @param query.include Cards to bring even past the limit of their column.
  * @param query.etag   The version the caller has: if it is still current, the answer is null.
  */
 export const getBoard = (
   spaceId: string,
-  { limits = {}, epic = null, include = [], etag }: { limits?: Record<string, number>; epic?: string | null; include?: string[]; etag?: string | null } = {},
+  { limits = {}, filters = {}, include = [], etag }: { limits?: Record<string, number>; filters?: IssueFilters; include?: string[]; etag?: string | null } = {},
 ): Promise<Fresh<BoardResponse>> => {
   const params = new URLSearchParams();
   const overrides = Object.entries(limits).map(([statusId, n]) => `${statusId}:${n}`).join(',');
   if (overrides) params.set('limits', overrides);
-  if (epic) params.set('epic', epic);
+  appendFilters(params, filters);
   if (include.length > 0) params.set('include', include.join(','));
   const query = params.size > 0 ? `?${params}` : '';
   return getIfChanged<BoardResponse>(`/spaces/${spaceId}/board${query}`, etag);
@@ -255,6 +260,35 @@ export const getColumnTotals = async (spaceId: string): Promise<Record<string, n
 /** An issue in full, for the detail panel: cards only have the beginning of a description. */
 export const getTaskForPanel = (spaceId: string, taskId: string, etag?: string | null): Promise<Fresh<Task>> =>
   getIfChanged<Task>(`/spaces/${spaceId}/tasks/${taskId}?view=panel`, etag);
+
+/** A page of the issues that match, in this order. Null if it is still what `etag` says. */
+export const getIssues = (
+  spaceId: string,
+  { filters = {}, sort, offset, limit, etag }: { filters?: IssueFilters; sort: ListSort; offset: number; limit: number; etag?: string | null },
+): Promise<Fresh<IssuesPage>> => {
+  const params = new URLSearchParams({ sort: sort.field, dir: sort.dir, offset: String(offset), limit: String(limit) });
+  appendFilters(params, filters);
+  return getIfChanged<IssuesPage>(`/spaces/${spaceId}/issues?${params}`, etag);
+};
+
+/** The ids of the first issues that match, up to what can be changed at once. */
+export const getIssueIds = (spaceId: string, { filters = {}, sort }: { filters?: IssueFilters; sort: ListSort }): Promise<{ ids: string[]; total: number }> => {
+  const params = new URLSearchParams({ fields: 'id', sort: sort.field, dir: sort.dir });
+  appendFilters(params, filters);
+  return apiFetch(`/spaces/${spaceId}/issues?${params}`);
+};
+
+/** The labels in use in a space. */
+export const getLabels = async (spaceId: string): Promise<string[]> =>
+  (await apiFetch<{ labels: string[] }>(`/spaces/${spaceId}/issues/labels`)).labels;
+
+/** Change several issues: all of them or none. */
+export const updateIssues = (spaceId: string, ids: string[], changes: BulkChanges): Promise<{ updated: number }> =>
+  apiFetch(`/spaces/${spaceId}/tasks/bulk`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids, changes }),
+  });
 
 /** The issues under one, without their descriptions, and how many there are and are done. */
 export const getChildren = (spaceId: string, parentId: string, limit: number): Promise<{ tasks: Task[]; done: number; total: number }> =>

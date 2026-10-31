@@ -231,6 +231,44 @@ export interface BoardResponse {
   epics: BoardEpic[];
 }
 
+/** Board or list. */
+export type ViewName = 'board' | 'list';
+
+/** What a list or a board shows. Values of a field are any of them, and fields apply together. */
+export interface IssueFilters {
+  status?: string[];
+  /** Names of people or agents. An empty one means unassigned. */
+  assignee?: string[];
+  type?: TaskType[];
+  priority?: Priority[];
+  /** Ids of epics. An empty one means in none. */
+  epic?: string[];
+  label?: string[];
+  due?: 'overdue' | 'week' | 'none';
+  q?: string;
+}
+
+export type ListSortField = 'key' | 'title' | 'status' | 'priority' | 'assignee' | 'type' | 'epic' | 'estimate' | 'due' | 'updated' | 'created';
+
+export interface ListSort {
+  field: ListSortField;
+  dir: 'asc' | 'desc';
+}
+
+export interface IssuesPage {
+  tasks: Task[];
+  total: number;
+}
+
+/** Changes to several issues at once. An empty assigned unassigns. */
+export interface BulkChanges {
+  statusId?: string;
+  assigned?: string;
+  priority?: Priority;
+  addLabels?: string[];
+  removeLabels?: string[];
+}
+
 /** One change in an issue's history. */
 export interface HistoryEntry {
   id: number;

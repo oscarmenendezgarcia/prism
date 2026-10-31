@@ -11,6 +11,9 @@ import * as api from '@/api/client';
 import { useTaskRunStore } from '@/stores/useTaskRunStore';
 import { updateSpace as apiUpdateSpace } from '@/api/client';
 import type {
+  IssueFilters,
+  ListSort,
+  ViewName,
   Space,
   Task,
   BoardEpic,
@@ -29,6 +32,7 @@ import type {
 } from '@/types';
 import { safeStorage } from '@/utils/safeStorage';
 import { boardIndex, keepUnchanged, localToday, mapBoard, own } from '@/utils/issues';
+import { DEFAULT_SORT, cleanFilters, hasFilters } from '@/utils/issueFilters';
 
 /** Key used to persist the active space across page reloads. */
 const ACTIVE_SPACE_KEY = 'prism-active-space';
@@ -235,8 +239,15 @@ interface AppState {
   // ── Epic filter ───────────────────────────────────────────────────────────
 
   /** Id of the epic the board shows (null = show all). */
-  epicFilter: string | null;
-  setEpicFilter: (epicId: string | null) => void;
+  /** What the board and the list show. */
+  filters: IssueFilters;
+  setFilters: (filters: IssueFilters) => void;
+  /** Whether the space shows as a board or a list. */
+  view: ViewName;
+  setView: (view: ViewName) => void;
+  /** The order of the list. */
+  listSort: ListSort;
+  setListSort: (sort: ListSort) => void;
 
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 
@@ -269,8 +280,10 @@ let detailRequests = 0;
 let detailWrites = 0;
 let detailWritesInFlight = 0;
 
-const boardQueryKey = (s: { epicFilter: string | null; columnLimits: Record<string, number>; includedIds: string[] }) =>
-  JSON.stringify([s.epicFilter, s.columnLimits, s.includedIds]);
+const boardQueryKey = (s: { filters: IssueFilters; columnLimits: Record<string, number>; includedIds: string[] }) =>
+  JSON.stringify([s.filters, s.columnLimits, s.includedIds]);
+
+const filterScope = (filters: IssueFilters) => (hasFilters(filters) ? JSON.stringify(filters) : '');
 
 /** Questions open on an issue, as a card shows them, from its comments. */
 function questionsOf(comments: Comment[] | undefined): Pick<Task, 'pendingQuestions' | 'pendingQuestionText'> {
@@ -332,7 +345,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // An epic of the old space would hide every card in the new one.
     boardEtag = null;
     set({
-      activeSpaceId: id, epicFilter: null, columnLimits: {}, includedIds: [],
+      activeSpaceId: id, filters: {}, columnLimits: {}, includedIds: [],
       ...(id !== get().activeSpaceId && {
         tasks: emptyBoard(), columnTotals: {}, columnBounds: {}, epics: [], boardScope: `${id}|`, boardVersion: null,
       }),
@@ -472,7 +485,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const asked = get();
       const queryKey = boardQueryKey(asked);
       const request = ++boardRequests;
-      const fresh = await api.getBoard(activeSpaceId, { limits: asked.columnLimits, epic: asked.epicFilter, include: asked.includedIds, etag: boardEtag });
+      const fresh = await api.getBoard(activeSpaceId, { limits: asked.columnLimits, filters: asked.filters, include: asked.includedIds, etag: boardEtag });
       // The user may have moved to another space while this was on its way.
       if (get().activeSpaceId !== activeSpaceId) return;
       // From before a save, it would undo it on the screen until the next one.
@@ -494,10 +507,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       boardApplied = request;
       const { data, etag } = fresh;
       // An epic that is gone would leave the board empty, with nothing to clear the filter.
-      const { epicFilter } = get();
-      if (epicFilter !== null && !data.epics.some((e) => e.id === epicFilter)) {
+      const { filters } = get();
+      const epics = filters.epic?.filter((id) => id === '' || data.epics.some((e) => e.id === id));
+      if (epics && epics.length !== filters.epic?.length) {
         boardEtag = null;
-        set({ epicFilter: null, columnLimits: {}, includedIds: [] });
+        set({ filters: cleanFilters({ ...filters, epic: epics }), columnLimits: {}, includedIds: [] });
         void get().loadBoard();
         return;
       }
@@ -512,7 +526,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         columnTotals: same(now.columnTotals, totals) ? now.columnTotals : totals,
         columnBounds: same(now.columnBounds, bounds) ? now.columnBounds : bounds,
         epics: same(now.epics, data.epics) ? now.epics : data.epics,
-        boardScope: `${activeSpaceId}|${epicFilter ?? ''}`,
+        boardScope: `${activeSpaceId}|${filterScope(filters)}`,
         boardVersion: etag,
         ...(today !== now.today && { today }),
       });
@@ -986,16 +1000,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  // ── Epic filter ───────────────────────────────────────────────────────────
+  // ── Filters and views ─────────────────────────────────────────────────────
 
-  epicFilter:    null,
-  setEpicFilter: (epicId) => {
-    if (epicId === get().epicFilter) return;
+  filters: {},
+  setFilters: (next) => {
+    const filters = cleanFilters(next);
+    if (JSON.stringify(filters) === JSON.stringify(get().filters)) return;
     // The server filters, and what it sent was for the other filter.
     boardEtag = null;
-    set({ epicFilter: epicId, columnLimits: {}, includedIds: [] });
+    set({ filters, columnLimits: {}, includedIds: [] });
     void get().loadBoard();
   },
+
+  view: 'board',
+  setView: (view) => set({ view }),
+
+  listSort: DEFAULT_SORT,
+  setListSort: (listSort) => set({ listSort }),
 
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 

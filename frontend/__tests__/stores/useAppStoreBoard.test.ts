@@ -174,9 +174,9 @@ describe('Show more', () => {
 
   it('starts again on changing the epic filter', async () => {
     await useAppStore.getState().showMoreCards('todo');
-    useAppStore.getState().setEpicFilter('e1');
+    useAppStore.getState().setFilters({ epic: ['e1'] });
     expect(useAppStore.getState().columnLimits).toEqual({});
-    expect(lastQuery()).toMatchObject({ limits: {}, epic: 'e1', include: [] });
+    expect(lastQuery()).toMatchObject({ limits: {}, filters: { epic: ['e1'] }, include: [] });
   });
 
   it('ignores an answer for fewer cards that arrives after', async () => {
@@ -195,8 +195,8 @@ describe('the epic filter', () => {
   it('is asked of the server, forgetting the version of the other filter', async () => {
     vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [] }, { etag: '"all"', epics: [epic('e1')] }));
     await useAppStore.getState().loadBoard();
-    useAppStore.getState().setEpicFilter('e1');
-    expect(lastQuery()).toMatchObject({ epic: 'e1', etag: null });
+    useAppStore.getState().setFilters({ epic: ['e1'] });
+    expect(lastQuery()).toMatchObject({ filters: { epic: ['e1'] }, etag: null });
   });
 
   it('keeps showing the cards until the new ones arrive, and says what they are of then', async () => {
@@ -205,11 +205,11 @@ describe('the epic filter', () => {
     expect(useAppStore.getState().boardScope).toBe('s|');
     let answer: (v: ReturnType<typeof boardAnswer>) => void = () => {};
     vi.mocked(api.getBoard).mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
-    useAppStore.getState().setEpicFilter('e1');
+    useAppStore.getState().setFilters({ epic: ['e1'] });
     expect(useAppStore.getState().tasks.todo[0].id).toBe('a');
     expect(useAppStore.getState().boardScope).toBe('s|');
     answer(boardAnswer({ todo: [card('in')] }, { epics: [epic('e1')] }));
-    await vi.waitFor(() => expect(useAppStore.getState().boardScope).toBe('s|e1'));
+    await vi.waitFor(() => expect(useAppStore.getState().boardScope).toBe('s|{"epic":["e1"]}'));
     expect(useAppStore.getState().tasks.todo[0].id).toBe('in');
   });
 
@@ -218,7 +218,7 @@ describe('the epic filter', () => {
     vi.mocked(api.getBoard).mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
     const poll = useAppStore.getState().loadBoard();
     vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [card('in')] }, { epics: [epic('e1')] }));
-    useAppStore.getState().setEpicFilter('e1');
+    useAppStore.getState().setFilters({ epic: ['e1'] });
     await vi.waitFor(() => expect(useAppStore.getState().tasks.todo?.[0]?.id).toBe('in'));
     answer(boardAnswer({ todo: [card('all')] }, { epics: [epic('e1')] }));
     await poll;
@@ -226,13 +226,13 @@ describe('the epic filter', () => {
   });
 
   it('goes away with its epic, and the board comes back whole', async () => {
-    useAppStore.setState({ epicFilter: 'gone' });
+    useAppStore.setState({ filters: { epic: ['gone'] } });
     vi.mocked(api.getBoard).mockResolvedValueOnce(boardAnswer({ todo: [] }, { etag: '"gone"', epics: [] }));
     vi.mocked(api.getBoard).mockResolvedValueOnce(boardAnswer({ todo: [card('a')] }, { etag: '"all"', epics: [] }));
     await useAppStore.getState().loadBoard();
-    expect(useAppStore.getState().epicFilter).toBeNull();
+    expect(useAppStore.getState().filters).toEqual({});
     await vi.waitFor(() => expect(useAppStore.getState().tasks.todo?.[0]?.id).toBe('a'));
-    expect(vi.mocked(api.getBoard).mock.lastCall?.[1]).toMatchObject({ epic: null, etag: null });
+    expect(vi.mocked(api.getBoard).mock.lastCall?.[1]).toMatchObject({ filters: {}, etag: null });
   });
 });
 
@@ -565,7 +565,7 @@ describe('a card moved or created where the limit would hide it', () => {
 
   it('forgets them on changing the epic filter', () => {
     useAppStore.getState().keepOnBoard('a');
-    useAppStore.getState().setEpicFilter('e1');
+    useAppStore.getState().setFilters({ epic: ['e1'] });
     expect(useAppStore.getState().includedIds).toEqual([]);
     expect(lastQuery()?.include).toEqual([]);
   });

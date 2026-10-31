@@ -65,7 +65,7 @@ function setBoard(overrides: Partial<ReturnType<typeof useAppStore.getState>> = 
       ],
     }],
     isMutating: false,
-    epicFilter: null,
+    filters: {},
     reorderTask: vi.fn(),
     ...overrides,
   } as never);
@@ -196,7 +196,7 @@ describe('Board — keyboard reorder', () => {
         todo: [mkTask('a', 1000, 'e1'), mkTask('c', 3000, 'e1')],
         'in-progress': [], done: [mkTask('e1', 1000, undefined, 'epic')],
       },
-      epicFilter: 'e1',
+      filters: { epic: ['e1'] },
       reorderTask,
     });
     render(<Board />);
@@ -212,7 +212,7 @@ describe('Board — keyboard reorder', () => {
         todo: [mkTask('a', 1000, 'e1')],
         'in-progress': [], done: [mkTask('e1', 1000, undefined, 'epic')],
       },
-      epicFilter: 'e1',
+      filters: { epic: ['e1'] },
       reorderTask,
     });
     render(<Board />);

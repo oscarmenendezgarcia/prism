@@ -46,7 +46,7 @@ beforeEach(() => {
     tasks: EMPTY_TASKS,
     activeSpaceId: 'space-1',
     spaces: [SPACE],
-    epicFilter: null,
+    filters: {},
     moveTask: vi.fn(),
     openCreateModal: vi.fn(),
   });
@@ -300,13 +300,13 @@ describe('Board — epic filter', () => {
   });
 
   it('filters nothing itself: what the server sent is what shows', () => {
-    useAppStore.setState({ tasks: { todo: [issue('c', 'Not in the epic')], 'in-progress': [], done: [] }, epicFilter: 'e1' });
+    useAppStore.setState({ tasks: { todo: [issue('c', 'Not in the epic')], 'in-progress': [], done: [] }, filters: { epic: ['e1'] } });
     render(<Board />);
     expect(screen.getAllByTestId('task-card')).toHaveLength(1);
   });
 
   it('an epic with nothing to show is not an empty board', () => {
-    useAppStore.setState({ tasks: { todo: [], 'in-progress': [], done: [] }, columnTotals: { todo: 0, 'in-progress': 0, done: 0 }, epicFilter: 'e1' });
+    useAppStore.setState({ tasks: { todo: [], 'in-progress': [], done: [] }, columnTotals: { todo: 0, 'in-progress': 0, done: 0 }, filters: { epic: ['e1'] } });
     render(<Board />);
     expect(screen.queryByText('Your board is empty')).not.toBeInTheDocument();
     expect(screen.getAllByRole('tabpanel').length).toBeGreaterThan(0);
@@ -318,7 +318,7 @@ describe('Board — epic filter', () => {
     const after = { todo: [issue('c', 'Loose issue')], 'in-progress': [], done: [] };
     vi.mocked(api.deleteTask).mockResolvedValue({ deleted: true, id: 'e1' });
     vi.mocked(api.getBoard).mockResolvedValue(boardAnswer(after));
-    useAppStore.setState({ tasks: { ...after, todo: [issue('e1', 'Epic One', undefined, 'epic'), ...after.todo] }, epicFilter: 'e1' });
+    useAppStore.setState({ tasks: { ...after, todo: [issue('e1', 'Epic One', undefined, 'epic'), ...after.todo] }, filters: { epic: ['e1'] } });
     render(<Board />);
     await act(() => useAppStore.getState().deleteTask('e1'));
     expect(screen.queryAllByTestId('task-card').length).toBeGreaterThan(0);
@@ -330,10 +330,10 @@ describe('Board — epic filter', () => {
 describe('Board — polling', () => {
   it('drops the filter when its epic stops being one', async () => {
     const was = { id: 'e', key: 'K-1', title: 'E', type: 'epic', createdAt: '', updatedAt: '' };
-    useAppStore.setState({ tasks: { todo: [was], 'in-progress': [], done: [] } as never, epicFilter: 'e' });
+    useAppStore.setState({ tasks: { todo: [was], 'in-progress': [], done: [] } as never, filters: { epic: ['e'] } });
     vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
     await act(() => useAppStore.getState().loadBoard());
-    expect(useAppStore.getState().epicFilter).toBeNull();
+    expect(useAppStore.getState().filters).toEqual({});
   });
 
   it('turns a card overdue when the day changes, though the issue did not', async () => {

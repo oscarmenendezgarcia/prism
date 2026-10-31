@@ -14,6 +14,7 @@ import { ColumnTabBar } from './ColumnTabBar';
 import { BoardEmptyState } from './BoardEmptyState';
 import { Announcer } from '@/components/shared/Announcer';
 import { own } from '@/utils/issues';
+import { hasFilters } from '@/utils/issueFilters';
 import { noteDragStart, noteDrop, useCardMotion } from '@/hooks/useCardMotion';
 
 /**
@@ -121,7 +122,7 @@ export function Board() {
   const [chosenColumn, setActiveColumn] = useState<ColumnType | null>(null);
   const activeColumn = statuses.some((s) => s.id === chosenColumn) ? chosenColumn! : statuses[0]?.id;
   const mainRef = useRef<HTMLElement>(null);
-  const epicFilter = useAppStore((s) => s.epicFilter);
+  const filters = useAppStore((s) => s.filters);
   // What the cards are of, which is not yet what was asked for until they arrive.
   const boardScope = useAppStore((s) => s.boardScope);
   useCardMotion(mainRef, tasks, boardScope);
@@ -252,9 +253,9 @@ export function Board() {
   const taskCounts = Object.fromEntries(statuses.map((s) => [s.id, own(columnTotals, s.id) ?? own(tasks, s.id)?.length ?? 0]));
 
   // F1/ADR-1: show the onboarding guide when the active space has zero tasks.
-  // No persistence — visibility is derived purely from store state. An epic with nothing to
+  // No persistence — visibility is derived purely from store state. A filter with nothing to
   // show says nothing about the space.
-  const isBoardEmpty = epicFilter === null
+  const isBoardEmpty = !hasFilters(filters)
     && Object.values(tasks).every((list) => list.length === 0)
     && Object.values(columnTotals).every((total) => total === 0);
 
