@@ -265,6 +265,52 @@ describe('moveTask', () => {
     expect(useAppStore.getState().toast?.message).toBe('Nope');
   });
 
+  it('undoes only its own card, keeping what else changed in those columns', async () => {
+    moveFixture();
+    let fail!: (e: Error) => void;
+    vi.mocked(api.moveTask).mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+    const moving = useAppStore.getState().moveTask('t1', 'in-progress');
+    const now = useAppStore.getState().tasks;
+    useAppStore.setState({ tasks: { ...now, todo: [], done: [now.todo[0]] } });
+
+    fail(new Error('Nope'));
+    await moving;
+
+    expect(ids('todo')).toEqual(['t1']);
+    expect(ids('done')).toEqual(['t2']);
+    expect(ids('in-progress')).toEqual(['t3']);
+  });
+
+  it('leaves the board alone when the move fails after changing space', async () => {
+    moveFixture();
+    let fail!: (e: Error) => void;
+    vi.mocked(api.moveTask).mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+    const moving = useAppStore.getState().moveTask('t1', 'in-progress');
+    const other = { todo: [], 'in-progress': [], done: [] };
+    useAppStore.setState({ activeSpaceId: 'space-2', tasks: other });
+
+    fail(new Error('Nope'));
+    await moving;
+
+    expect(useAppStore.getState().tasks).toBe(other);
+  });
+
+  it('ignores a poll that starts and answers while the move is on its way', async () => {
+    moveFixture();
+    const old = useAppStore.getState().tasks;
+    let answer!: () => void;
+    vi.mocked(api.moveTask).mockImplementation(() => new Promise((resolve) => { answer = () => resolve({} as never); }));
+    const moving = useAppStore.getState().moveTask('t1', 'in-progress');
+    vi.mocked(api.getTasks).mockResolvedValueOnce(old);
+
+    await useAppStore.getState().loadBoard();
+
+    expect(ids('in-progress')).toEqual(['t3', 't1']);
+    vi.mocked(api.getTasks).mockResolvedValue(useAppStore.getState().tasks);
+    answer();
+    await moving;
+  });
+
   it('does not let a poll that left during the move put the card back', async () => {
     moveFixture();
     const old = useAppStore.getState().tasks;

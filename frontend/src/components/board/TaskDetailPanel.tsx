@@ -274,6 +274,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const shellRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  const closingRef = useRef(false);
   useFocusTrap(panelRef, detailTask !== null);
 
   const closePanelRef = useRef<() => void>(() => {});
@@ -430,6 +431,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
       handleTitleBlur();
       handleSaveDescription();
     }
+    if (closingRef.current) return;
+    const closingId = useAppStore.getState().detailTask?.id;
     // Without a re-render: the panel has nothing left to do but leave.
     const leaving = { duration: 120, easing: 'cubic-bezier(0.2, 0, 0, 1)', fill: 'forwards' } as const;
     const exit = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -439,8 +442,18 @@ export function TaskDetailPanel(): React.ReactElement | null {
       closeDetailPanel();
       return;
     }
-    backdropRef.current?.animate?.([{ opacity: 1 }, { opacity: 0 }], leaving);
-    exit.finished.catch(() => {}).finally(closeDetailPanel);
+    closingRef.current = true;
+    const backdropExit = backdropRef.current?.animate?.([{ opacity: 1 }, { opacity: 0 }], leaving);
+    exit.finished.catch(() => {}).finally(() => {
+      closingRef.current = false;
+      if (useAppStore.getState().detailTask?.id === closingId) {
+        closeDetailPanel();
+      } else {
+        // Another issue opened on the way out: this panel stays, showing it.
+        exit.cancel();
+        backdropExit?.cancel();
+      }
+    });
   }, [closeDetailPanel, handleTitleBlur, handleSaveDescription]);
 
   closePanelRef.current = () => {
@@ -556,7 +569,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
     <button
       onClick={closePanel}
       aria-label="Close issue detail"
-      className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.90] transition-ui duration-[150ms] ease-default flex-shrink-0"
+      className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-variant hover:text-text-primary focus:outline-hidden focus:ring-2 focus:ring-primary active:scale-[0.90] transition-ui duration-fast ease-default flex-shrink-0"
     >
       <span className="material-symbols-outlined text-[18px] leading-none" aria-hidden="true">
         close
@@ -632,7 +645,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 key={tab}
                 type="button"
                 onClick={() => setMobileTab(tab)}
-                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-ui duration-[200ms] ease-default focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
+                className={`flex-1 py-2.5 text-xs font-medium capitalize transition-ui duration-fast ease-default focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary ${
                   mobileTab === tab
                     ? 'text-text-primary border-b-2 border-primary -mb-px bg-primary/[0.04]'
                     : 'text-text-secondary hover:text-text-primary hover:bg-surface-elevated/30'
@@ -664,7 +677,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 }}
                 aria-label="Issue title"
                 readOnly={!canEdit}
-                className="w-full bg-transparent border-b border-transparent hover:border-border/40 focus:border-primary/50 text-[26px] font-semibold text-text-primary placeholder:text-text-tertiary/50 focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-40 disabled:cursor-not-allowed transition-[border-color] duration-[220ms] ease-default"
+                className="w-full bg-transparent border-b border-transparent hover:border-border/40 focus:border-primary/50 text-[26px] font-semibold text-text-primary placeholder:text-text-tertiary/50 focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-40 disabled:cursor-not-allowed transition-[border-color] duration-fast ease-default"
                 placeholder="Issue title"
               />
               </div>
@@ -684,7 +697,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   onBlur={handleSaveDescription}
                   readOnly={!canEdit}
                   rows={1}
-                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-tertiary/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[1.5rem] transition-[border-color] duration-[220ms] ease-default"
+                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-tertiary/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[1.5rem] transition-[border-color] duration-fast ease-default"
                   placeholder="Add a description…"
                 />
               </div>
@@ -905,7 +918,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                             rel="noopener noreferrer"
                             data-testid="attachment-row"
                             aria-label={`Open link ${att.name} in new tab`}
-                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary transition-ui duration-[200ms] ease-default group"
+                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary transition-ui duration-fast ease-default group"
                           >
                             <span className="material-symbols-outlined text-[15px] leading-none text-primary flex-shrink-0" aria-hidden="true">link</span>
                             <span className="font-mono text-xs text-text-primary truncate flex-1">{att.name}</span>
@@ -918,7 +931,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                             onClick={() => handleAttachmentClick(index, att.name)}
                             disabled={loadingAttachmentIndex === index}
                             aria-label={`Open attachment ${att.name}`}
-                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-wait transition-ui duration-[200ms] ease-default text-left group"
+                            className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-surface/50 border border-border/35 hover:bg-surface-variant hover:border-primary/30 hover:translate-x-0.5 focus:outline-hidden focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-wait transition-ui duration-fast ease-default text-left group"
                           >
                             <span className={`material-symbols-outlined text-[15px] leading-none flex-shrink-0 ${loadingAttachmentIndex === index ? 'animate-spin text-text-disabled' : att.name.toLowerCase().endsWith('.md') ? 'text-primary' : 'text-text-secondary'}`} aria-hidden="true">
                               {loadingAttachmentIndex === index ? 'progress_activity' : att.name.toLowerCase().endsWith('.md') ? 'description' : att.type === 'file' ? 'folder' : 'attach_file'}

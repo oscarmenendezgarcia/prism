@@ -15,8 +15,8 @@ import { useDragStore } from '@/stores/useDragStore';
 const MOVE_MS = 220;
 const ENTER_MS = 160;
 const EASE = 'cubic-bezier(0.2, 0, 0, 1)';
-/** A drop whose board takes longer than this to change no longer looks like its cause. */
-const DROP_TTL_MS = 5000;
+/** The board changes at once on a drop. If it did not, the card landed where it was. */
+const DROP_TTL_MS = 300;
 const CARD_SELECTOR = '[data-testid="task-card"]';
 
 interface Seen {
@@ -75,10 +75,12 @@ function fly(el: HTMLElement, id: string, from: { left: number; top: number }, t
 
   const options = { duration: MOVE_MS, easing: EASE };
   const landsHidden = top !== to.top;
+  // A done card is dimmed: it must not brighten for the trip.
+  const opacity = Number(getComputedStyle(el).opacity) || 1;
   copy.animate(
     [
-      { transform: `translate(${from.left - to.left}px, ${from.top - top}px)`, opacity: 1 },
-      { transform: 'none', opacity: landsHidden ? 0 : 1 },
+      { transform: `translate(${from.left - to.left}px, ${from.top - top}px)`, opacity },
+      { transform: 'none', opacity: landsHidden ? 0 : opacity },
     ],
     options,
   ).finished.catch(() => {}).finally(() => {

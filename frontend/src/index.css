@@ -127,6 +127,10 @@
   --duration-fast: 100ms;
   --duration-base: 160ms;
   --duration-slow: 220ms;
+  /* What makes duration-fast and the others exist as classes in Tailwind v4. */
+  --transition-duration-fast: 100ms;
+  --transition-duration-base: 160ms;
+  --transition-duration-slow: 220ms;
   --ease-default:  cubic-bezier(0.2, 0, 0, 1);
   --default-transition-duration: 100ms;
   --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
@@ -427,7 +431,7 @@ html.dark {
 
 /* Names what changes instead of `all`, which would also animate layout and repaint for it. */
 @utility transition-ui {
-  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform, translate, scale, rotate;
   transition-duration: var(--duration-fast);
   transition-timing-function: var(--ease-default);
 }

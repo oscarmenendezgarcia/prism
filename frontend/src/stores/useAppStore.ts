@@ -234,6 +234,7 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Saves of an issue so far, to tell a board read before one from one read after. */
 let savesStarted = 0;
+let movesInFlight = 0;
 
 export const useAppStore = create<AppState>((set, get) => ({
   // ── Spaces ──────────────────────────────────────────────────────────────
@@ -375,6 +376,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (get().activeSpaceId !== activeSpaceId) return;
       // From before a save, it would undo it on the screen until the next one.
       if (savesStarted !== startedAt) return;
+      // Started during a move, and answered before the server applied it.
+      if (movesInFlight > 0) return;
       // An epic that is gone would leave the board empty, with nothing to clear the filter.
       const { epicFilter } = get();
       const epicGone = epicFilter !== null && !allTasks(data).some((t) => t.id === epicFilter && t.type === 'epic');
@@ -424,6 +427,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const moved = source && source !== statusId ? tasks[source].find((t) => t.id === taskId) : undefined;
 
     savesStarted += 1;
+    movesInFlight += 1;
+    let movedInFlight = true;
     set({
       isMutating: true,
       mutatingTaskIds: addMutatingId(get().mutatingTaskIds, taskId),
@@ -448,10 +453,24 @@ export const useAppStore = create<AppState>((set, get) => ({
       await api.moveTask(activeSpaceId, taskId, statusId);
       // A poll that left while this was on its way still carries the old column.
       savesStarted += 1;
+      movesInFlight -= 1;
+      movedInFlight = false;
       showToast(`Moved to ${target?.name ?? statusId}`);
       await loadBoard();
     } catch (err) {
-      if (moved) set({ tasks: { ...get().tasks, [source!]: tasks[source!], [statusId]: tasks[statusId] ?? [] } });
+      if (movedInFlight) movesInFlight -= 1;
+      // Only this card, and only here: the columns may have changed since, or this may be another space.
+      if (moved && get().activeSpaceId === activeSpaceId) {
+        const now = get().tasks;
+        set({
+          tasks: {
+            ...now,
+            [statusId]: (now[statusId] ?? []).filter((t) => t.id !== taskId),
+            [source!]: [...(now[source!] ?? []).filter((t) => t.id !== taskId), moved]
+              .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt)),
+          },
+        });
+      }
       showToast((err as Error).message, 'error');
     } finally {
       set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });

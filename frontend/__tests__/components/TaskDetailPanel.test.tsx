@@ -5,7 +5,7 @@
  * keyboard accessibility (Escape), and focus management.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TaskDetailPanel } from '../../src/components/board/TaskDetailPanel';
 import { useAppStore } from '../../src/stores/useAppStore';
@@ -807,6 +807,40 @@ describe('TaskDetailPanel — centered modal layout', () => {
 
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(closeDetailPanel).toHaveBeenCalled();
+  });
+
+  describe('leaving with an animation', () => {
+    let finish: () => void;
+    let cancel: ReturnType<typeof vi.fn>;
+    beforeEach(() => {
+      cancel = vi.fn();
+      const finished = new Promise<void>((resolve) => { finish = resolve; });
+      HTMLElement.prototype.animate = vi.fn(() => ({ finished, cancel })) as never;
+    });
+    afterEach(() => { delete (HTMLElement.prototype as Partial<HTMLElement>).animate; });
+    const settle = () => act(async () => { finish(); await new Promise((r) => setTimeout(r)); });
+
+    it('closes once, when the animation ends, however many times it is asked', async () => {
+      const closeDetailPanel = vi.fn();
+      useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
+      render(<TaskDetailPanel />);
+      fireEvent.keyDown(document, { key: 'Escape' });
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(closeDetailPanel).not.toHaveBeenCalled();
+      await settle();
+      expect(closeDetailPanel).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not close an issue that opened on the way out', async () => {
+      const closeDetailPanel = vi.fn();
+      useAppStore.setState({ detailTask: TASK, closeDetailPanel } as any);
+      render(<TaskDetailPanel />);
+      fireEvent.keyDown(document, { key: 'Escape' });
+      act(() => { useAppStore.setState({ detailTask: TASK_WITH_ATTACHMENTS } as any); });
+      await settle();
+      expect(closeDetailPanel).not.toHaveBeenCalled();
+      expect(cancel).toHaveBeenCalled();
+    });
   });
 
   it('BUG-003: Escape key does NOT close panel when MarkdownModal is open', () => {
