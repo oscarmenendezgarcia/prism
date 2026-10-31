@@ -34,6 +34,8 @@ interface DependsOnSectionProps {
   taskId: string;
   dependsOn: string[];
   disabled?: boolean;
+  /** The issue is not here yet, so what it depends on is not known. */
+  loading?: boolean;
   /** Called after a successful update so the parent can refresh. */
   onUpdated: (newDependsOn: string[]) => void;
 }
@@ -43,6 +45,7 @@ export function DependsOnSection({
   taskId,
   dependsOn,
   disabled = false,
+  loading = false,
   onUpdated,
 }: DependsOnSectionProps) {
   const tasks = useAppStore((s) => s.tasks);
@@ -201,7 +204,7 @@ export function DependsOnSection({
 
       {/* Dep list */}
       {dependsOn.length === 0 ? (
-        <p className="text-[12px] text-text-disabled italic">No dependencies</p>
+        <p className="text-[12px] text-text-disabled italic">{loading ? 'Loading…' : 'No dependencies'}</p>
       ) : (
         <ul className="flex flex-col gap-1" aria-label="Dependencies">
           {dependsOn.map((depId) => {

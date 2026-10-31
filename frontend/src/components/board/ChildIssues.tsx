@@ -18,10 +18,12 @@ const CHILDREN_MAX = 1000;
 interface ChildIssuesProps {
   task: Task;
   spaceId: string;
+  /** The whole issue is not here yet: it can be read, and nothing added to it. */
+  readOnly?: boolean;
 }
 
-export function ChildIssues({ task, spaceId }: ChildIssuesProps) {
-  const canEdit = useCanEdit();
+export function ChildIssues({ task, spaceId, readOnly = false }: ChildIssuesProps) {
+  const canEdit = useCanEdit() && !readOnly;
   const boardVersion = useAppStore((s) => s.boardVersion);
   const openDetailPanel = useAppStore((s) => s.openDetailPanel);
   const loadBoard = useAppStore((s) => s.loadBoard);

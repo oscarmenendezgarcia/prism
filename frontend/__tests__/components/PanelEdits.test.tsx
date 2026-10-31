@@ -258,12 +258,10 @@ describe('a description the board only has the beginning of', () => {
     expect(api.updateTask).not.toHaveBeenCalled();
   });
 
-  it('is never written back cut short, even by saving something else first', async () => {
+  it('is never written back cut short, even by a save of something else while it loads', async () => {
     const arrive = whole();
     open();
-    fireEvent.change(title(), { target: { value: 'New title' } });
-    fireEvent.blur(title());
-    await waitFor(() => expect(api.updateTask).toHaveBeenCalledTimes(1));
+    await act(async () => { await useAppStore.getState().updateTask('t1', { priority: 'high' }); });
     expect(vi.mocked(api.updateTask).mock.calls[0][2]).not.toHaveProperty('description');
     await arrive();
     await waitFor(() => expect(description().value).toBe(FULL));
@@ -416,5 +414,107 @@ describe('the panel, for an issue that may not be on the board', () => {
     act(() => useAppStore.getState().openDetailPanel(TASK));
     expect(await screen.findByText('From the whole issue')).toBeInTheDocument();
     expect(screen.getByTestId('attachments-section')).toBeInTheDocument();
+  });
+});
+
+describe('an issue opened knowing little more than its name', () => {
+  const STUB = { id: 'p1', key: 'WEB-2', title: 'Parent', type: 'chore', createdAt: '', updatedAt: '' } as Task;
+  const WHOLE = {
+    ...STUB, type: 'feature', statusId: 'todo', category: 'todo', priority: 'high', assigned: 'Bea', labels: ['ui', 'urgent'],
+    dependsOn: ['d1'], dueDate: '2030-01-02', estimate: 5, description: 'All of it',
+  } as Task;
+  const STATUSES = [{ id: 'todo', name: 'Todo', category: 'todo' as const }, { id: 'done', name: 'Done', category: 'done' as const }];
+  const field = (label: RegExp) => screen.getByLabelText(label) as HTMLInputElement;
+  const lockable = () => [
+    field(/^status$/i), field(/^priority$/i), field(/^type$/i), field(/^assignee$/i), field(/^epic$/i),
+    screen.getByLabelText('Add a label'), field(/^due date/i), field(/^estimate$/i),
+  ];
+
+  function open(answer: () => Promise<{ data: Task; etag: string } | null>) {
+    vi.spyOn(api, 'getTaskForPanel').mockImplementation(answer);
+    vi.spyOn(api, 'getChildren').mockResolvedValue({ tasks: [], done: 0, total: 0 });
+    vi.spyOn(api, 'getTasksByIds').mockResolvedValue({ tasks: [], total: 0 });
+    useAppStore.setState({
+      activeSpaceId: 's', tasks: { todo: [] }, detailTask: null, detailLoaded: false, detailFailed: false, epics: [], editConflict: null, conflictQueue: [], resumedEdit: null,
+      mutatingTaskIds: new Set(), spaces: [{ id: 's', name: 'S', statuses: STATUSES, createdAt: '', updatedAt: '' }],
+      showToast: vi.fn(), loadBoard: vi.fn().mockResolvedValue(undefined),
+    } as never);
+    render(<TaskDetailPanel />);
+    act(() => useAppStore.getState().openDetailPanel(STUB));
+  }
+  const never = () => new Promise<null>(() => {});
+
+  it('has every field it does not really hold disabled until the whole issue arrives', async () => {
+    let arrive: (v: { data: Task; etag: string }) => void = () => {};
+    open(() => new Promise((resolve) => { arrive = resolve; }));
+    for (const el of lockable()) expect(el).toBeDisabled();
+    expect(title().readOnly).toBe(true);
+    expect(description().readOnly).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Add dependency' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('add-child-issue')).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/comment/i)).not.toBeInTheDocument();
+
+    await act(async () => { arrive({ data: WHOLE, etag: '"v"' }); });
+    for (const el of lockable()) expect(el).toBeEnabled();
+    expect(field(/^priority$/i).value).toBe('high');
+    expect(field(/^type$/i).value).toBe('feature');
+    expect(field(/^estimate$/i).value).toBe('5');
+    expect(field(/^due date/i).value).toBe('2030-01-02');
+    expect(screen.getByText('ui')).toBeInTheDocument();
+    expect(screen.getByTestId('dep-item')).toBeInTheDocument();
+    expect(title().readOnly).toBe(false);
+  });
+
+  it('does not say it has no dependencies or comments when it does not know yet', () => {
+    open(never);
+    expect(screen.queryByText('No dependencies')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Loading…').length).toBeGreaterThan(0);
+  });
+
+  it('saves nothing from any of them meanwhile, whatever event reaches them', () => {
+    open(never);
+    fireEvent.change(field(/^priority$/i), { target: { value: 'urgent' } });
+    fireEvent.change(field(/^type$/i), { target: { value: 'bug' } });
+    fireEvent.change(field(/^status$/i), { target: { value: 'done' } });
+    fireEvent.change(field(/^epic$/i), { target: { value: 'e' } });
+    fireEvent.change(field(/^assignee$/i), { target: { value: 'Bea' } });
+    fireEvent.change(field(/^estimate$/i), { target: { value: '9' } });
+    fireEvent.blur(field(/^estimate$/i));
+    fireEvent.change(field(/^due date/i), { target: { value: '2031-01-01' } });
+    fireEvent.blur(field(/^due date/i));
+    fireEvent.change(screen.getByLabelText('Add a label'), { target: { value: 'x' } });
+    fireEvent.blur(screen.getByLabelText('Add a label'));
+    fireEvent.change(title(), { target: { value: 'New name' } });
+    fireEvent.blur(title());
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(api.updateTask).not.toHaveBeenCalled();
+    expect(useAppStore.getState().detailTask?.labels).toBeUndefined();
+  });
+
+  it('if it cannot be fetched, says so and keeps them disabled, until it can', async () => {
+    let fails = true;
+    open(async () => {
+      if (fails) throw new Error('Network');
+      return { data: WHOLE, etag: '"v"' };
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not be loaded/i);
+    for (const el of lockable()) expect(el).toBeDisabled();
+    expect(api.updateTask).not.toHaveBeenCalled();
+
+    fails = false;
+    await act(async () => { await useAppStore.getState().refreshDetail(); });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    for (const el of lockable()) expect(el).toBeEnabled();
+  });
+
+  it('the parent link of a sub-task opens it in that state, with its real labels unharmed', async () => {
+    const SUB = { ...TASK, id: 's1', parentId: 'p1', parent: { id: 'p1', key: 'WEB-2', title: 'Parent', type: 'feature' } } as Task;
+    open(never);
+    act(() => useAppStore.setState({ detailTask: SUB, detailLoaded: true } as never));
+    fireEvent.click(screen.getByTestId('parent-link'));
+    expect(useAppStore.getState().detailTask?.id).toBe('p1');
+    expect(useAppStore.getState().detailLoaded).toBe(false);
+    expect(screen.getByLabelText('Add a label')).toBeDisabled();
+    expect(api.updateTask).not.toHaveBeenCalled();
   });
 });

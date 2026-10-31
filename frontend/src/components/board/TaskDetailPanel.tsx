@@ -34,7 +34,7 @@ import { DependsOnSection } from '@/components/board/DependsOnSection';
 import { formatTimestamp } from '@/utils/formatTimestamp';
 import { formatRelativeTime } from '@/utils/formatRelativeTime';
 import * as api from '@/api/client';
-import type { Comment, ModelCliTool, Priority, Task, TaskType } from '@/types';
+import type { Comment, ModelCliTool, Priority, Task, TaskType, UpdateTaskPayload } from '@/types';
 import { agentIsOn } from '@/utils/agents';
 
 // ---------------------------------------------------------------------------
@@ -145,6 +145,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const patchComment         = useAppStore((s) => s.patchComment);
   const answerQuestion       = useAppStore((s) => s.answerQuestion);
   const detailLoaded         = useAppStore((s) => s.detailLoaded);
+  const detailFailed         = useAppStore((s) => s.detailFailed);
   const allEpics             = useAppStore((s) => s.epics);
   const moveTask             = useAppStore((s) => s.moveTask);
   const statuses             = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId)?.statuses) ?? [];
@@ -330,7 +331,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const taskRunView = useTaskRunStore((s) => (detailTask ? s.views[detailTask.id] : undefined));
 
+  // What opened the panel may be a card or just a name, so nothing is editable until the whole
+  // issue is here: a field that only looks empty would replace what it really holds.
   const handleTitleBlur = useCallback(() => {
+    if (!detailLoaded) return;
     const trimmed = localTitle.trim();
     if (!detailTask || trimmed === savedTitle.current.trim()) return;
     if (!trimmed) {
@@ -339,18 +343,18 @@ export function TaskDetailPanel(): React.ReactElement | null {
       return;
     }
     void updateTask(detailTask.id, { title: trimmed, base: { title: savedTitle.current } });
-  }, [detailTask, localTitle, updateTask]);
+  }, [detailTask, detailLoaded, localTitle, updateTask]);
 
   const handleAssignedChange = useCallback((assigned: string) => {
-    if (!detailTask) return;
+    if (!detailTask || !detailLoaded) return;
     setLocalAssigned(assigned);
     if (assigned === savedAssigned.current) return;
     savedAssigned.current = assigned;
     updateTask(detailTask.id, { assigned });
-  }, [detailTask, updateTask]);
+  }, [detailTask, detailLoaded, updateTask]);
 
   const handleEstimateBlur = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
-    if (!detailTask) return;
+    if (!detailTask || !detailLoaded) return;
     const saved = useAppStore.getState().detailTask?.estimate ?? null;
     const text = localEstimate.trim();
     const estimate = text === '' ? null : Number(text);
@@ -361,14 +365,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
       return;
     }
     if (estimate !== saved) updateTask(detailTask.id, { estimate });
-  }, [detailTask, localEstimate, updateTask]);
+  }, [detailTask, detailLoaded, localEstimate, updateTask]);
 
   // On leaving the field: while typing a date, each digit can already make a valid one.
   const handleDueDateBlur = useCallback(() => {
-    if (!detailTask) return;
+    if (!detailTask || !detailLoaded) return;
     const dueDate = localDueDate || null;
     if (dueDate !== (useAppStore.getState().detailTask?.dueDate ?? null)) updateTask(detailTask.id, { dueDate });
-  }, [detailTask, localDueDate, updateTask]);
+  }, [detailTask, detailLoaded, localDueDate, updateTask]);
 
   const handleSaveDescription = useCallback(() => {
     if (!detailTask) return;
@@ -556,6 +560,10 @@ export function TaskDetailPanel(): React.ReactElement | null {
     && !hasOpenQuestion
     && detailTask?.assigned === taskRunView.cliTool
     && agentIsOn(activeSpace, taskRunView.cliTool as ModelCliTool);
+  const saveIssue = (patch: UpdateTaskPayload) => {
+    if (detailLoaded) void updateTask(issue.id, patch);
+  };
+
   // ── Shared sub-elements ──────────────────────────────────────────────────
 
   const closeButton = (
@@ -669,10 +677,15 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   }
                 }}
                 aria-label="Issue title"
-                readOnly={!canEdit}
+                readOnly={!canEdit || !detailLoaded}
                 className="w-full bg-transparent border-b border-transparent hover:border-border/40 focus:border-primary/50 text-[26px] font-semibold text-text-primary placeholder:text-text-tertiary/50 focus:outline-none leading-snug pb-1 min-h-[2rem] resize-none overflow-y-hidden disabled:opacity-40 disabled:cursor-not-allowed transition-[border-color] duration-fast ease-default"
                 placeholder="Issue title"
               />
+              {detailFailed && (
+                <p role="alert" className="mt-1 text-xs text-error">
+                  This issue could not be loaded, so it cannot be edited yet. Trying again…
+                </p>
+              )}
               </div>
 
               {column && !isEpic && <TaskRunPanel task={issue} column={column} spaceId={activeSpaceId} />}
@@ -696,7 +709,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 />
               </div>
 
-              <ChildIssues key={issue.id} task={issue} spaceId={activeSpaceId} />
+              <ChildIssues key={issue.id} task={issue} spaceId={activeSpaceId} readOnly={!detailLoaded} />
 
               {/* Comments and history */}
               <div className="border-t border-border/30 pt-4">
@@ -724,7 +737,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   <IssueHistory spaceId={activeSpaceId} taskId={detailTask.id} version={`${issue.updatedAt}|${issue.category}`} />
                 ) : (
               <div data-testid="comments-panel">
-                <CommentsSection
+                {!detailLoaded ? <p className="text-[12px] text-text-disabled italic">Loading…</p> : <CommentsSection
                   spaceId={activeSpaceId}
                   taskId={detailTask.id}
                   comments={comments}
@@ -732,7 +745,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   onCommentUpdated={handleCommentUpdated}
                   onAnswerQuestion={handleAnswerQuestion}
                   onRequestChanges={canRequestChanges ? handleRequestChanges : undefined}
-                />
+                />}
               </div>
                 )}
               </div>
@@ -742,14 +755,14 @@ export function TaskDetailPanel(): React.ReactElement | null {
             <div className={`flex-shrink-0 border-border/40 bg-surface-elevated/25 overflow-y-auto px-4 pt-3 pb-6 flex flex-col md:w-[300px] md:border-l ${mobileTab === 'details' ? 'flex-1' : 'hidden md:flex'}`}>
 
               {/* A viewer sees every field and can change none, but can open the attachments below. */}
-              <fieldset disabled={!canEdit} className="contents">
+              <fieldset disabled={!canEdit || !detailLoaded} className="contents">
               {/* Status */}
               <div className={SIDE_FIELD}>
                 <label htmlFor="detail-status" className={SIDE_LABEL}>Status</label>
                 <select
                   id="detail-status"
                   value={issue.statusId ?? ''}
-                  onChange={(e) => moveTask(issue.id, e.target.value)}
+                  onChange={(e) => { if (detailLoaded) void moveTask(issue.id, e.target.value); }}
                   className={DETAIL_FIELD_CLASS}
                 >
                   {statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -762,7 +775,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <select
                   id="detail-priority"
                   value={issue.priority ?? 'medium'}
-                  onChange={(e) => updateTask(issue.id, { priority: e.target.value as Priority })}
+                  onChange={(e) => saveIssue({ priority: e.target.value as Priority })}
                   className={DETAIL_FIELD_CLASS}
                 >
                   {PRIORITIES.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -775,7 +788,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                 <select
                   id="detail-type"
                   value={issue.type}
-                  onChange={(e) => updateTask(issue.id, { type: e.target.value as TaskType })}
+                  onChange={(e) => saveIssue({ type: e.target.value as TaskType })}
                   className={DETAIL_FIELD_CLASS}
                 >
                   {TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
@@ -811,7 +824,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                       type="button"
                       aria-label="Make it an issue of its own"
                       title="Make it an issue of its own"
-                      onClick={() => updateTask(issue.id, { parentId: null })}
+                      onClick={() => saveIssue({ parentId: null })}
                       className="flex-shrink-0 text-text-disabled hover:text-error disabled:opacity-40 transition-colors duration-fast"
                     >
                       <span className="material-symbols-outlined text-[14px] leading-none" aria-hidden="true">close</span>
@@ -824,7 +837,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   <select
                     id="detail-epic"
                     value={issue.parentId ?? ''}
-                    onChange={(e) => updateTask(issue.id, { parentId: e.target.value || null })}
+                    onChange={(e) => saveIssue({ parentId: e.target.value || null })}
                     className={DETAIL_FIELD_CLASS}
                   >
                     <option value="">None</option>
@@ -841,7 +854,7 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   labels={issue.labels ?? []}
                   inputClassName={DETAIL_INPUT_CLASS}
                   chipsClassName="pl-3 pt-1.5"
-                  onChange={(labels) => updateTask(issue.id, { labels })}
+                  onChange={(labels) => saveIssue({ labels })}
                 />
               </div>
 
@@ -888,7 +901,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   spaceId={activeSpaceId}
                   taskId={detailTask.id}
                   dependsOn={localDependsOn}
-                  disabled={column === 'done'}
+                  disabled={column === 'done' || !detailLoaded}
+                  loading={!detailLoaded}
                   onUpdated={(newDeps) => {
                     setLocalDependsOn(newDeps);
                     // Refresh board so isBlocked is recalculated for all tasks

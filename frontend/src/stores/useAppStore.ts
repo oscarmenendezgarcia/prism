@@ -181,6 +181,8 @@ interface AppState {
    * beginning of the description, or something less, and its description must not be saved.
    */
   detailLoaded: boolean;
+  /** It could not be fetched. It stays not loaded, and the next poll tries again. */
+  detailFailed: boolean;
 
   /** Open the detail panel for the given task, and get it in full. */
   openDetailPanel: (task: Task) => void;
@@ -782,6 +784,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   detailTask: null,
   detailLoaded: false,
+  detailFailed: false,
 
   openDetailPanel: (task: Task) => {
     // Already open: what it has is at least as complete as what this brings, which may be a card.
@@ -790,13 +793,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
     detailEtag = null;
-    set({ detailTask: task, detailLoaded: false });
+    set({ detailTask: task, detailLoaded: false, detailFailed: false });
     void get().refreshDetail();
   },
 
   closeDetailPanel: () => {
     detailEtag = null;
-    set({ detailTask: null, detailLoaded: false });
+    set({ detailTask: null, detailLoaded: false, detailFailed: false });
   },
 
   refreshDetail: async () => {
@@ -812,10 +815,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       // From before a write finished. Whoever wrote asks again when done.
       if (detailWrites !== writesAtStart || detailWritesInFlight > 0) return;
       detailEtag = fresh.etag;
-      set({ detailTask: fresh.data, detailLoaded: true });
+      set({ detailTask: fresh.data, detailLoaded: true, detailFailed: false });
     } catch (err) {
-      // Anything else, and the next poll tries again: the panel goes on waiting.
-      if ((err as { code?: string }).code !== 'TASK_NOT_FOUND' || isStale()) return;
+      if (isStale()) return;
+      // Anything else, and the next poll tries again: the panel goes on waiting, and says so.
+      if ((err as { code?: string }).code !== 'TASK_NOT_FOUND') {
+        if (!get().detailLoaded) set({ detailFailed: true });
+        return;
+      }
       get().showToast(`${detailTask.key ?? 'This issue'} was deleted`, 'info');
       get().closeDetailPanel();
     }
