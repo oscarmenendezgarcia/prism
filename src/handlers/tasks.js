@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { CATEGORIES }                       = require('../constants');
-const { sendJSON, sendError, parseBody, readActor } = require('../utils/http');
+const { sendJSON, sendJSONWithETag, sendError, parseBody, readActor } = require('../utils/http');
 const { agentIsOn, isAgentId } = require('../utils/agents');
 const { isReadableAttachment } = require('../utils/attachments');
 const taskRunner                           = require('../services/taskRunner');
@@ -22,6 +22,11 @@ const taskRunner                           = require('../services/taskRunner');
 // Validation constraints
 // ---------------------------------------------------------------------------
 
+/** The most cards of a column a board can ask for at once. */
+const BOARD_MAX_LIMIT      = 2000;
+const DEFAULT_CHILDREN     = 200;
+const MAX_CHILDREN         = 1000;
+const MAX_IDS              = 100;
 const VALID_TYPES          = ['feature', 'bug', 'tech-debt', 'chore', 'epic'];
 const VALID_PRIORITIES     = ['urgent', 'high', 'medium', 'low'];
 const TITLE_MAX_LEN        = 200;
@@ -412,9 +417,60 @@ function createApp(spaceId, store) {
   // Route handlers
   // -------------------------------------------------------------------------
 
+  /** An issue for a list, where the description, the attachments and the rest would only weigh. */
+  function listedTask({ description: _d, attachments: _a, pipeline: _p, stageModels: _s, ...task }) {
+    return task;
+  }
+
+  /**
+   * GET /spaces/:id/board — the cards on screen and what they show.
+   * Query: limits=<statusId>:<n>,... to show more of a column; epic=<id> to only show that epic.
+   */
+  function handleGetBoard(req, res) {
+    try {
+      const qs = new URL(req.url, 'http://x').searchParams;
+      const limits = {};
+      for (const part of (qs.get('limits') ?? '').split(',').filter(Boolean)) {
+        const separator = part.lastIndexOf(':');
+        const n = Number(part.slice(separator + 1));
+        if (separator < 1 || !Number.isInteger(n) || n < 0) {
+          return sendError(res, 400, 'VALIDATION_ERROR', `Invalid limit '${part}'. Must be <statusId>:<n>`);
+        }
+        limits[part.slice(0, separator)] = Math.min(n, BOARD_MAX_LIMIT);
+      }
+      sendJSONWithETag(req, res, serializeBoard(store.getBoard(spaceId, { limits, epicId: qs.get('epic') || null })));
+    } catch (err) {
+      console.error('GET board error:', err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to read the board');
+    }
+  }
+
+  function serializeBoard({ columns, epics }) {
+    return {
+      columns: Object.fromEntries(Object.entries(columns).map(([statusId, column]) => [
+        statusId,
+        { ...column, tasks: column.tasks.map(stripAttachmentContent) },
+      ])),
+      epics,
+    };
+  }
+
   function handleGetTasks(req, res) {
     try {
       const qs        = new URL(req.url, 'http://x').searchParams;
+
+      // The issues under one, or some by id: what is not on the board may still be asked about.
+      if (qs.has('parent')) {
+        const limit = Math.min(MAX_CHILDREN, Math.max(1, parseInt(qs.get('limit'), 10) || DEFAULT_CHILDREN));
+        const { tasks, done, total } = store.getChildrenPage(spaceId, qs.get('parent'), limit);
+        return sendJSON(res, 200, { tasks: tasks.map(listedTask), done, total });
+      }
+      if (qs.has('ids')) {
+        const ids = qs.get('ids').split(',').filter(Boolean).slice(0, MAX_IDS);
+        const tasks = store.getTasksByIds(spaceId, ids).map(listedTask);
+        return sendJSON(res, 200, { tasks, total: tasks.length });
+      }
+
       const colFilter  = qs.get('status') || qs.get('column') || null;
       const category   = qs.get('category') || null;
       const assigned   = qs.get('assigned') || null;
@@ -880,6 +936,12 @@ function createApp(spaceId, store) {
 
   function handleGetTask(req, res, taskId) {
     try {
+      // For the detail panel, which asks again while it is open.
+      if (new URL(req.url, 'http://x').searchParams.get('view') === 'panel') {
+        const issue = store.getTaskForPanel(spaceId, taskId);
+        if (!issue) return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
+        return sendJSONWithETag(req, res, stripAttachmentContent(issue));
+      }
       const task = store.getTask(spaceId, taskId);
       if (!task) {
         return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${taskId}' not found`);
@@ -1281,7 +1343,7 @@ function createApp(spaceId, store) {
   // ensureDataFiles is a no-op — schema is applied when the Store is opened.
   function ensureDataFiles() {}
 
-  return { router, ensureDataFiles };
+  return { router, handleGetBoard, ensureDataFiles };
 }
 
 module.exports = {

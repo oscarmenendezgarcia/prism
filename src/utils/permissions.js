@@ -47,7 +47,7 @@ function runMayRequest(run, method, urlPath) {
   const own = [run.taskId, run.taskKey].filter(Boolean).some((ref) => path === `${space}/tasks/${ref}` || path.startsWith(`${space}/tasks/${ref}/`));
 
   if (method === 'GET') {
-    return path === '/api/v1/spaces' || path === space || path === `${space}/tasks` || path.startsWith(`${space}/tasks/`);
+    return path === '/api/v1/spaces' || path === space || path === `${space}/board` || path === `${space}/tasks` || path.startsWith(`${space}/tasks/`);
   }
   if (!own) return false;
   const rest = path.slice(path.indexOf('/tasks/') + '/tasks/'.length).split('/').slice(1).join('/');

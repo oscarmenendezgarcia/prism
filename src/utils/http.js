@@ -5,16 +5,76 @@
  * Used across all route handlers in the Prism API server.
  */
 
+const crypto = require('crypto');
+const zlib   = require('zlib');
+
+/** Below this, gzip costs more than it saves. */
+const GZIP_MIN_BYTES = 1024;
+
 /**
- * Write a JSON response with the given HTTP status code.
+ * Whether a request takes gzip. Without a request to go by, as with a stand-in response in a
+ * test, the answer is no.
+ *
+ * @param {import('http').IncomingMessage} [req]
+ * @returns {boolean}
+ */
+function acceptsGzip(req) {
+  const header = req?.headers?.['accept-encoding'];
+  if (typeof header !== 'string') return false;
+  return header.split(',').some((part) => {
+    const [coding, ...params] = part.trim().toLowerCase().split(';').map((s) => s.trim());
+    if (coding !== 'gzip') return false;
+    const q = params.find((param) => param.startsWith('q='));
+    return !q || Number(q.slice(2)) > 0;
+  });
+}
+
+function writeJSON(res, status, payload, headers = {}) {
+  let body = Buffer.from(payload);
+  const out = { 'Content-Type': 'application/json; charset=utf-8', ...headers };
+  if (body.length > GZIP_MIN_BYTES) {
+    out.Vary = 'Accept-Encoding';
+    if (acceptsGzip(res.req)) {
+      body = zlib.gzipSync(body);
+      out['Content-Encoding'] = 'gzip';
+    }
+  }
+  out['Content-Length'] = body.length;
+  res.writeHead(status, out);
+  res.end(body);
+}
+
+/**
+ * Write a JSON response with the given HTTP status code, compressed if the request takes it
+ * and it is worth it.
  */
 function sendJSON(res, status, body) {
-  const payload = JSON.stringify(body);
-  res.writeHead(status, {
-    'Content-Type':   'application/json; charset=utf-8',
-    'Content-Length': Buffer.byteLength(payload),
+  writeJSON(res, status, JSON.stringify(body));
+}
+
+/** Whether an If-None-Match header names this ETag. Proxies may have weakened it on the way. */
+function etagMatches(header, etag) {
+  if (typeof header !== 'string') return false;
+  return header.split(',').some((candidate) => {
+    const tag = candidate.trim().replace(/^W\//, '');
+    return tag === etag || tag === '*';
   });
-  res.end(payload);
+}
+
+/**
+ * Write a JSON response that a client can ask for again without getting it again: its ETag is
+ * the hash of the body, and a request that already has it gets a 304 with no body.
+ */
+function sendJSONWithETag(req, res, body) {
+  const payload = JSON.stringify(body);
+  const etag = `"${crypto.createHash('sha1').update(payload).digest('hex')}"`;
+  const headers = { ETag: etag, 'Cache-Control': 'no-cache' };
+  if (etagMatches(req.headers['if-none-match'], etag)) {
+    res.writeHead(304, { ...headers, Vary: 'Accept-Encoding' });
+    res.end();
+    return;
+  }
+  writeJSON(res, 200, payload, headers);
 }
 
 /**
@@ -91,4 +151,4 @@ function parseBodyWithLimit(req, maxBytes) {
 }
 
 module.exports = {
-  readActor, sendJSON, sendError, parseBody, parseBodyWithLimit };
+  readActor, sendJSON, sendJSONWithETag, sendError, acceptsGzip, parseBody, parseBodyWithLimit };

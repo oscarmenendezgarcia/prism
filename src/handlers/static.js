@@ -8,6 +8,8 @@
 
 const fs   = require('fs');
 const path = require('path');
+const zlib = require('zlib');
+const { acceptsGzip } = require('../utils/http');
 
 /** MIME types for static file serving */
 const MIME_TYPES = {
@@ -23,6 +25,53 @@ const MIME_TYPES = {
 // Vite build output — the only static root.
 // The legacy public/ directory was removed after the React migration.
 const PUBLIC_DIR = path.join(__dirname, '..', '..', 'dist');
+
+/** What is text, and so worth compressing. Images already are. */
+const COMPRESSIBLE = new Set(['.html', '.css', '.js', '.json', '.svg']);
+const GZIP_MIN_BYTES = 1024;
+
+/** Vite names what it builds after its content, in assets/, such as index-xPWE-2Dp.js. */
+const HASHED_ASSET = /^assets\/.+-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/;
+
+/**
+ * Compressed copies of the build, which does not change while it is being served unless
+ * someone rebuilds: then its size or date does.
+ * @type {Map<string, { stamp: string, gzipped: Buffer }>}
+ */
+const gzipCache = new Map();
+
+function gzipped(file, content, stat) {
+  const stamp = `${stat.size}:${stat.mtimeMs}`;
+  const cached = gzipCache.get(file);
+  if (cached?.stamp === stamp) return cached.gzipped;
+  const compressed = zlib.gzipSync(content);
+  gzipCache.set(file, { stamp, gzipped: compressed });
+  return compressed;
+}
+
+/**
+ * Send a file of the build, compressed if the request takes it. What is named after its content
+ * never changes and can be kept for good; anything else has to be asked for again.
+ */
+function sendFile(req, res, file, contentType, relativePath) {
+  const content = fs.readFileSync(file);
+  const ext = path.extname(file).toLowerCase();
+  const headers = {
+    'Content-Type': contentType,
+    'Cache-Control': HASHED_ASSET.test(relativePath) ? 'public, max-age=31536000, immutable' : 'no-cache',
+  };
+  let body = content;
+  if (COMPRESSIBLE.has(ext) && content.length > GZIP_MIN_BYTES) {
+    headers.Vary = 'Accept-Encoding';
+    if (acceptsGzip(req)) {
+      body = gzipped(file, content, fs.statSync(file));
+      headers['Content-Encoding'] = 'gzip';
+    }
+  }
+  headers['Content-Length'] = body.length;
+  res.writeHead(200, headers);
+  res.end(body);
+}
 
 /** Absolute path to the SPA entry point. */
 const INDEX_HTML = path.resolve(PUBLIC_DIR, 'index.html');
@@ -75,9 +124,7 @@ function handleStatic(req, res) {
     // Only fall back if the path has no file extension (i.e. it looks like a route, not an asset).
     const ext = path.extname(urlPath);
     if (!ext) {
-      const content = fs.readFileSync(INDEX_HTML);
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': content.length });
-      return res.end(content);
+      return sendFile(req, res, INDEX_HTML, 'text/html; charset=utf-8', 'index.html');
     }
     const payload = JSON.stringify({ error: { code: 'NOT_FOUND', message: `File '${urlPath}' not found` } });
     res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(payload) });
@@ -88,9 +135,7 @@ function handleStatic(req, res) {
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 
   try {
-    const content = fs.readFileSync(resolved);
-    res.writeHead(200, { 'Content-Type': contentType, 'Content-Length': content.length });
-    res.end(content);
+    sendFile(req, res, resolved, contentType, relativePath);
   } catch (err) {
     console.error(`Static file error for ${resolved}:`, err);
     const payload = JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'Failed to read file' } });

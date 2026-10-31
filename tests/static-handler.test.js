@@ -258,6 +258,67 @@ async function runTests() {
   }
 
   // -------------------------------------------------------------------------
+  suite('Compression and caching');
+  // -------------------------------------------------------------------------
+
+  const zlib = require('zlib');
+  const ASSETS_DIR = path.join(DIST_DIR, 'assets');
+  const HASHED = path.join(ASSETS_DIR, 'statictest-Ab12Cd34.js');
+  const SMALL = path.join(ASSETS_DIR, 'statictestsmall-Ab12Cd34.js');
+  const IMAGE = path.join(ASSETS_DIR, 'statictestimage-Ab12Cd34.png');
+  const BIG_JS = 'console.log("prism");\n'.repeat(500);
+  const indexWasThere = fs.existsSync(INDEX_PATH);
+  if (!indexWasThere) createMinimalIndex();
+  fs.mkdirSync(ASSETS_DIR, { recursive: true });
+  fs.writeFileSync(HASHED, BIG_JS);
+  fs.writeFileSync(SMALL, '1;');
+  fs.writeFileSync(IMAGE, Buffer.alloc(4096, 1));
+  const get = (url, headers) => {
+    const res = makeMockRes();
+    handleStatic({ url, headers }, res);
+    return res;
+  };
+
+  try {
+    await test('should_gzip_a_large_text_asset_when_the_request_takes_it', () => {
+      const res = get('/assets/statictest-Ab12Cd34.js', { 'accept-encoding': 'gzip, br' });
+      assertEqual(res.statusCode, 200, 'status');
+      assertEqual(res.headers['Content-Encoding'], 'gzip', 'encoding');
+      assertEqual(res.headers.Vary, 'Accept-Encoding', 'vary');
+      assertEqual(res.headers['Content-Length'], res.body.length, 'length is of what travels');
+      assertEqual(zlib.gunzipSync(res.body).toString(), BIG_JS, 'body');
+    });
+
+    await test('should_serve_it_plain_when_the_request_does_not', () => {
+      const res = get('/assets/statictest-Ab12Cd34.js', {});
+      assertEqual(res.headers['Content-Encoding'], undefined, 'encoding');
+      assertEqual(res.headers.Vary, 'Accept-Encoding', 'vary');
+      assertEqual(res.body.toString(), BIG_JS, 'body');
+    });
+
+    await test('should_compress_again_when_the_file_changed', () => {
+      get('/assets/statictest-Ab12Cd34.js', { 'accept-encoding': 'gzip' });
+      fs.writeFileSync(HASHED, `${BIG_JS}// a longer build\n`);
+      const res = get('/assets/statictest-Ab12Cd34.js', { 'accept-encoding': 'gzip' });
+      assertEqual(zlib.gunzipSync(res.body).toString(), `${BIG_JS}// a longer build\n`, 'body');
+    });
+
+    await test('should_not_compress_small_files_or_images', () => {
+      assertEqual(get('/assets/statictestsmall-Ab12Cd34.js', { 'accept-encoding': 'gzip' }).headers['Content-Encoding'], undefined, 'small');
+      assertEqual(get('/assets/statictestimage-Ab12Cd34.png', { 'accept-encoding': 'gzip' }).headers['Content-Encoding'], undefined, 'image');
+    });
+
+    await test('should_keep_hashed_assets_for_good_and_ask_again_for_index', () => {
+      assert(get('/assets/statictest-Ab12Cd34.js', {}).headers['Cache-Control'].includes('immutable'), 'hashed asset');
+      assertEqual(get('/', {}).headers['Cache-Control'], 'no-cache', 'index');
+      assertEqual(get('/some/route', {}).headers['Cache-Control'], 'no-cache', 'SPA route');
+    });
+  } finally {
+    for (const file of [HASHED, SMALL, IMAGE]) fs.rmSync(file, { force: true });
+    if (!indexWasThere) fs.rmSync(INDEX_PATH, { force: true });
+  }
+
+  // -------------------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------------------
   console.log(`\n${passed} passed, ${failed} failed`);

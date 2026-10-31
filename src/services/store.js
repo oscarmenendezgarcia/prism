@@ -117,6 +117,11 @@ CREATE TRIGGER IF NOT EXISTS tasks_fts_update AFTER UPDATE ON tasks BEGIN
 END;
 `;
 
+/** How many cards a column shows until asked for more, and how much of a description a card gets. */
+const BOARD_DEFAULT_LIMIT = 100;
+const BOARD_DONE_LIMIT = 50;
+const BOARD_DESCRIPTION_CHARS = 400;
+
 const ISSUE_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS statuses (
   space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
@@ -162,6 +167,10 @@ CREATE INDEX IF NOT EXISTS idx_history_task  ON task_history(task_id, id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(space_id, status_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent  ON tasks(parent_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_number ON tasks(space_id, number);
+-- The board reads each column from either end, and counts what hangs from each card.
+CREATE INDEX IF NOT EXISTS idx_tasks_board         ON tasks(space_id, status_id, rank, created_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_parent_column ON tasks(parent_id, column);
+CREATE INDEX IF NOT EXISTS idx_tasks_epics         ON tasks(space_id) WHERE type = 'epic';
 `;
 
 // ---------------------------------------------------------------------------
@@ -634,6 +643,13 @@ function createStore(dataDir) {
   // ---------------------------------------------------------------------------
 
   const TASK_SELECT = 'SELECT t.*, s.key AS space_key FROM tasks t JOIN spaces s ON s.id = t.space_id';
+  // Who shows when the board is filtered to an epic: the epic, its issues, and their sub-tasks.
+  const EPIC_MEMBERS = `WITH members(id) AS (
+    SELECT @epic
+    UNION SELECT id FROM tasks WHERE parent_id = @epic AND type != 'epic'
+    UNION SELECT c.id FROM tasks c JOIN tasks p ON c.parent_id = p.id
+           WHERE p.parent_id = @epic AND p.type != 'epic' AND c.type != 'epic'
+  )`;
 
   const stmts = {
     listSpaces:    db.prepare('SELECT * FROM spaces ORDER BY pinned DESC, pinned_rank ASC, created_at ASC'),
@@ -728,6 +744,55 @@ function createStore(dataDir) {
        ORDER BY rank
        LIMIT ?
     `),
+
+    // ── the board ────────────────────────────────────────────────────────────
+    boardFirst: db.prepare(
+      `${TASK_SELECT} WHERE t.space_id = @space AND t.status_id = @status
+       ORDER BY t.rank ASC, t.created_at ASC, t.rowid ASC LIMIT @limit`
+    ),
+    boardLast: db.prepare(
+      `${TASK_SELECT} WHERE t.space_id = @space AND t.status_id = @status
+       ORDER BY t.rank DESC, t.created_at DESC, t.rowid DESC LIMIT @limit`
+    ),
+    boardCounts: db.prepare(
+      'SELECT t.status_id AS status_id, COUNT(*) AS n FROM tasks t WHERE t.space_id = @space GROUP BY t.status_id'
+    ),
+    epicFirst: db.prepare(
+      `${EPIC_MEMBERS} ${TASK_SELECT} WHERE t.space_id = @space AND t.status_id = @status AND t.id IN (SELECT id FROM members)
+       ORDER BY t.rank ASC, t.created_at ASC, t.rowid ASC LIMIT @limit`
+    ),
+    epicLast: db.prepare(
+      `${EPIC_MEMBERS} ${TASK_SELECT} WHERE t.space_id = @space AND t.status_id = @status AND t.id IN (SELECT id FROM members)
+       ORDER BY t.rank DESC, t.created_at DESC, t.rowid DESC LIMIT @limit`
+    ),
+    epicCounts: db.prepare(
+      `${EPIC_MEMBERS} SELECT t.status_id AS status_id, COUNT(*) AS n FROM tasks t
+       WHERE t.space_id = @space AND t.id IN (SELECT id FROM members) GROUP BY t.status_id`
+    ),
+    spaceEpics: db.prepare(
+      `${TASK_SELECT} WHERE t.space_id = ? AND t.type = 'epic' ORDER BY t.number ASC, t.rowid ASC`
+    ),
+    parentsOf: db.prepare(
+      'SELECT id, type, title, number, parent_id FROM tasks WHERE id IN (SELECT value FROM json_each(?))'
+    ),
+    progressOf: db.prepare(`
+      SELECT parent_id, COUNT(*) AS total, SUM(column = 'done') AS done
+        FROM tasks WHERE parent_id IN (SELECT value FROM json_each(?)) GROUP BY parent_id
+    `),
+    doneAmong: db.prepare(
+      "SELECT id FROM tasks WHERE space_id = ? AND column = 'done' AND id IN (SELECT value FROM json_each(?))"
+    ),
+    openQuestionsOf: db.prepare(`
+      SELECT task_id, text FROM comments
+       WHERE task_id IN (SELECT value FROM json_each(?)) AND type = 'question' AND resolved = 0
+       ORDER BY created_at ASC, rowid ASC
+    `),
+    childrenPage: db.prepare(
+      `${TASK_SELECT} WHERE t.space_id = ? AND t.parent_id = ? ORDER BY t.number ASC LIMIT ?`
+    ),
+    tasksByIds: db.prepare(
+      `${TASK_SELECT} WHERE t.space_id = ? AND t.id IN (SELECT value FROM json_each(?)) ORDER BY t.number ASC`
+    ),
 
     // ── keys and statuses ────────────────────────────────────────────────────
     getStatuses: db.prepare('SELECT * FROM statuses WHERE space_id = ? ORDER BY position ASC'),
@@ -1461,6 +1526,175 @@ function createStore(dataDir) {
     return deriveBlockedStatus(tasks);
   }
 
+  // ---------------------------------------------------------------------------
+  // The board: what is on screen, and no more than that
+  // ---------------------------------------------------------------------------
+
+  /** Whether each dependency blocks, by the rule of deriveBlockedStatus, for many issues at once. */
+  function doneAmong(spaceId, ids) {
+    if (ids.length === 0) return new Set();
+    return new Set(stmts.doneAmong.all(spaceId, JSON.stringify(ids)).map((row) => row.id));
+  }
+
+  function blockedFields(task, doneIds) {
+    const deps = task.dependsOn ?? [];
+    if (deps.length === 0) return {};
+    const blockedByCount = deps.filter((id) => !doneIds.has(id)).length;
+    return { isBlocked: blockedByCount > 0, blockedByCount };
+  }
+
+  function rowsById(ids) {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) return new Map();
+    return new Map(stmts.parentsOf.all(JSON.stringify(unique)).map((row) => [row.id, row]));
+  }
+
+  function progressById(ids) {
+    if (ids.length === 0) return new Map();
+    return new Map(stmts.progressOf.all(JSON.stringify(ids)).map((row) => [row.parent_id, { done: row.done, total: row.total }]));
+  }
+
+  /**
+   * What a card shows that is not its own: its epic, its parent, how far along its children
+   * are, whether it is blocked, and its open questions. In a few indexed look-ups, whatever the
+   * size of the space. Same logic as epicOf and parentIssueOf in frontend/src/utils/issues.ts.
+   */
+  function withCardFields(spaceId, spaceKey, tasks) {
+    const ids = tasks.map((task) => task.id);
+    const parents = rowsById(tasks.map((task) => task.parentId).filter(Boolean));
+    const grandparents = rowsById(
+      [...parents.values()].filter((row) => row.type !== 'epic' && row.parent_id).map((row) => row.parent_id)
+    );
+    const progress = progressById(ids);
+    const doneIds = doneAmong(spaceId, [...new Set(tasks.flatMap((task) => task.dependsOn ?? []))]);
+    const questions = new Map();
+    if (ids.length > 0) {
+      for (const row of stmts.openQuestionsOf.all(JSON.stringify(ids))) {
+        const seen = questions.get(row.task_id);
+        if (seen) seen.count += 1;
+        else questions.set(row.task_id, { count: 1, first: row.text });
+      }
+    }
+
+    return tasks.map((task) => {
+      const parent = task.parentId ? parents.get(task.parentId) : undefined;
+      const grandparent = parent?.parent_id ? grandparents.get(parent.parent_id) : undefined;
+      let epic = null;
+      if (task.type !== 'epic' && parent) {
+        if (parent.type === 'epic') epic = { id: parent.id, title: parent.title };
+        else if (grandparent?.type === 'epic') epic = { id: grandparent.id, title: grandparent.title };
+      }
+      const question = questions.get(task.id);
+      return {
+        ...task,
+        epic,
+        parentKey: parent && parent.type !== 'epic' && spaceKey && parent.number != null ? `${spaceKey}-${parent.number}` : null,
+        progress: progress.get(task.id) ?? { done: 0, total: 0 },
+        ...blockedFields(task, doneIds),
+        pendingQuestions: question?.count ?? 0,
+        ...(question && { pendingQuestionText: question.first.slice(0, BOARD_DESCRIPTION_CHARS) }),
+      };
+    });
+  }
+
+  /** A description short enough for a card, which says so when it is not all of it. */
+  function withCardDescription(task) {
+    const { description } = task;
+    if (typeof description !== 'string' || description.length <= BOARD_DESCRIPTION_CHARS) return task;
+    // Not through the middle of a character that takes two code units.
+    const lastCode = description.charCodeAt(BOARD_DESCRIPTION_CHARS - 1);
+    const end = lastCode >= 0xd800 && lastCode <= 0xdbff ? BOARD_DESCRIPTION_CHARS - 1 : BOARD_DESCRIPTION_CHARS;
+    return { ...task, description: description.slice(0, end), descriptionTruncated: true };
+  }
+
+  /**
+   * The cards a board shows and what it takes to show them, without reading the rest of the
+   * space. Not-done columns show their first cards, and done ones their most recent, always
+   * in rank order.
+   *
+   * @param {string} spaceId
+   * @param {{ limits?: Record<string, number>, epicId?: string|null }} [options]
+   *   limits: how many cards of a status, instead of the default. epicId: only what is in it.
+   * @returns {{ columns: Record<string, { tasks: object[], total: number, rankBefore?: number, rankAfter?: number }>, epics: object[] }}
+   *   rankBefore and rankAfter: the ranks of the cards next to what was loaded, when there are
+   *   any, so that a card dropped at the end of what is loaded lands there.
+   */
+  function getBoard(spaceId, { limits = {}, epicId = null } = {}) {
+    const statuses = stmts.getStatuses.all(spaceId).map(rowToStatus);
+    const spaceKey = stmts.getSpace.get(spaceId)?.key ?? null;
+    const filtered = epicId !== null;
+    // Anything else is not an epic of this space, and nothing is in it.
+    const noEpic = filtered && stmts.getTask.get(spaceId, epicId)?.type !== 'epic';
+    const params = { space: spaceId, ...(filtered && { epic: epicId }) };
+
+    const counts = new Map();
+    if (!noEpic) {
+      for (const row of (filtered ? stmts.epicCounts : stmts.boardCounts).all(params)) counts.set(row.status_id, row.n);
+    }
+
+    const columns = {};
+    const windows = [];
+    for (const status of statuses) {
+      const total = counts.get(status.id) ?? 0;
+      const fromEnd = status.category === 'done';
+      const limit = limits[status.id] ?? (fromEnd ? BOARD_DONE_LIMIT : BOARD_DEFAULT_LIMIT);
+      const query = fromEnd ? (filtered ? stmts.epicLast : stmts.boardLast) : (filtered ? stmts.epicFirst : stmts.boardFirst);
+      // One more than was asked for says where the next card is.
+      const rows = total === 0 ? [] : query.all({ ...params, status: status.id, limit: limit + 1 });
+      const beyond = rows.length > limit ? rows.pop() : null;
+      if (fromEnd) rows.reverse();
+      columns[status.id] = {
+        tasks: [],
+        total,
+        ...(beyond && { [fromEnd ? 'rankBefore' : 'rankAfter']: beyond.rank ?? 0 }),
+      };
+      windows.push({ statusId: status.id, tasks: rows.map(rowToTask) });
+    }
+
+    const cards = withCardFields(spaceId, spaceKey, windows.flatMap((w) => w.tasks));
+    let next = 0;
+    for (const { statusId, tasks } of windows) {
+      columns[statusId].tasks = cards.slice(next, next + tasks.length).map(withCardDescription);
+      next += tasks.length;
+    }
+
+    const epicRows = stmts.spaceEpics.all(spaceId);
+    const epicProgress = progressById(epicRows.map((row) => row.id));
+    const epics = epicRows.map((row) => ({
+      id: row.id,
+      key: row.number != null && spaceKey ? `${spaceKey}-${row.number}` : null,
+      title: row.title,
+      statusId: row.status_id ?? row.column,
+      category: row.column,
+      ...(epicProgress.get(row.id) ?? { done: 0, total: 0 }),
+    }));
+
+    return { columns, epics };
+  }
+
+  /** What the detail panel needs of an issue beyond the issue itself. */
+  function getTaskForPanel(spaceId, taskId) {
+    const task = getTask(spaceId, taskId);
+    if (!task) return null;
+    const parent = task.parentId ? stmts.getTask.get(spaceId, task.parentId) : null;
+    return {
+      ...task,
+      ...blockedFields(task, doneAmong(spaceId, task.dependsOn ?? [])),
+      ...(parent && { parent: { id: parent.id, key: rowToTask(parent).key, title: parent.title, type: parent.type } }),
+    };
+  }
+
+  /** The issues under this one, in order, and how many there are and are done. */
+  function getChildrenPage(spaceId, parentId, limit) {
+    const { done, total } = progressById([parentId]).get(parentId) ?? { done: 0, total: 0 };
+    return { tasks: stmts.childrenPage.all(spaceId, parentId, limit).map(rowToTask), done, total };
+  }
+
+  /** Issues of a space by id, in any column. Those that are not there are left out. */
+  function getTasksByIds(spaceId, ids) {
+    return stmts.tasksByIds.all(spaceId, JSON.stringify(ids)).map(rowToTask);
+  }
+
   function deleteTask(spaceId, taskId, { actor } = {}) {
     const doDelete = db.transaction(() => {
       if (!stmts.getTask.get(spaceId, taskId)) return false;
@@ -1711,6 +1945,10 @@ function createStore(dataDir) {
     getTaskById,
     getTaskByKey,
     getChildren,
+    getBoard,
+    getTaskForPanel,
+    getChildrenPage,
+    getTasksByIds,
     checkHierarchy,
     getHistory,
     insertTask,
