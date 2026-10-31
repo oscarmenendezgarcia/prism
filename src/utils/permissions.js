@@ -20,6 +20,7 @@ const RULES = [
   ['DELETE',         new RegExp(`^${TASKS}$`), 'admin'],
   ['POST',           new RegExp(`^${TASKS}$`), 'member'],
   ['PATCH',          new RegExp(`^${TASKS}/rank$`), 'member'],
+  ['PATCH',          new RegExp(`^${TASKS}/bulk$`), 'member'],
   ['PUT DELETE',     new RegExp(`^${ISSUE}$`), 'member'],
   ['PUT',            new RegExp(`^${ISSUE}/move$`), 'member'],
   ['PATCH',          new RegExp(`^${ISSUE}/rank$`), 'member'],
@@ -47,7 +48,7 @@ function runMayRequest(run, method, urlPath) {
   const own = [run.taskId, run.taskKey].filter(Boolean).some((ref) => path === `${space}/tasks/${ref}` || path.startsWith(`${space}/tasks/${ref}/`));
 
   if (method === 'GET') {
-    return path === '/api/v1/spaces' || path === space || path === `${space}/board` || path === `${space}/tasks` || path.startsWith(`${space}/tasks/`);
+    return path === '/api/v1/spaces' || path === space || path === `${space}/board` || path === `${space}/issues` || path === `${space}/issues/labels` || path === `${space}/tasks` || path.startsWith(`${space}/tasks/`);
   }
   if (!own) return false;
   const rest = path.slice(path.indexOf('/tasks/') + '/tasks/'.length).split('/').slice(1).join('/');

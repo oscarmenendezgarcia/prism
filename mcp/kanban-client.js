@@ -171,6 +171,23 @@ export async function listTasks(filters = {}) {
 }
 
 /**
+ * Find issues of a space by what they are, in any order, a page at a time.
+ *
+ * @param {object} query - spaceId, then status, assignee, type, priority, epic and label as
+ *   lists (any of them; an empty assignee or epic means none), due, q, sort, dir, offset, limit.
+ * @returns {Promise<{ tasks: object[], total: number }>}
+ */
+export async function findIssues({ spaceId, ...query } = {}) {
+  const qs = new URLSearchParams();
+  for (const [field, value] of Object.entries(query)) {
+    if (value === undefined) continue;
+    for (const one of Array.isArray(value) ? value : [value]) qs.append(field, String(one));
+  }
+  const queryString = qs.size > 0 ? `?${qs}` : '';
+  return request('GET', `/spaces/${spaceId ?? 'default'}/issues${queryString}`);
+}
+
+/**
  * Get a single task by ID or key, such as WEB-142, searching all statuses.
  *
  * When spaceId is provided the search is limited to that space.

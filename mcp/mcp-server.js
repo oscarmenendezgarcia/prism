@@ -24,6 +24,7 @@ import { z } from 'zod';
 
 import {
   listTasks,
+  findIssues,
   getTask,
   createTask,
   updateTask,
@@ -212,6 +213,31 @@ server.tool(
     const effectiveAssigned = assigned ?? filters?.assigned;
     return listTasks({ column: effectiveColumn, assigned: effectiveAssigned, limit, cursor, spaceId });
   })
+);
+
+// ---------------------------------------------------------------------------
+// Tool: kanban_find_issues
+// ---------------------------------------------------------------------------
+
+server.tool(
+  'kanban_find_issues',
+  'Find issues of a space by what they are, and get a page of them in the order asked for. Values of a field are any of them, and fields apply together. An empty assignee or epic means having none.',
+  {
+    status:   z.array(z.string()).optional().describe('Status ids.'),
+    assignee: z.array(z.string()).optional().describe('Names of people or agents.'),
+    type:     z.array(z.string()).optional().describe('Issue types.'),
+    priority: z.array(z.enum(['urgent', 'high', 'medium', 'low'])).optional(),
+    epic:     z.array(z.string()).optional().describe('Epic ids.'),
+    label:    z.array(z.string()).optional(),
+    due:      z.enum(['overdue', 'week', 'none']).optional().describe('Overdue, due in the next seven days, or without a date.'),
+    q:        z.string().optional().describe('Text in the title, or a key such as WEB-142.'),
+    sort:     z.enum(['key', 'title', 'status', 'priority', 'assignee', 'type', 'epic', 'estimate', 'due', 'updated', 'created']).optional().describe('Defaults to key.'),
+    dir:      z.enum(['asc', 'desc']).optional().describe('Defaults to desc.'),
+    offset:   z.number().int().min(0).optional(),
+    limit:    z.number().int().min(1).max(200).optional().describe('Defaults to 100.'),
+    spaceId:  spaceIdSchema,
+  },
+  withTiming('kanban_find_issues', async (query) => findIssues(query))
 );
 
 // ---------------------------------------------------------------------------
@@ -560,6 +586,6 @@ const transport = new StdioServerTransport();
 
 log('INFO', `Starting ${SERVER_NAME} v${SERVER_VERSION}`);
 log('INFO', `Kanban API URL: ${KANBAN_API_URL}`);
-log('INFO', 'Tools registered: kanban_list_tasks, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_search_tasks, kanban_add_comment, kanban_answer_comment');
+log('INFO', 'Tools registered: kanban_list_tasks, kanban_find_issues, kanban_get_task, kanban_create_task, kanban_update_task, kanban_move_task, kanban_delete_task, kanban_clear_board, kanban_list_spaces, kanban_create_space, kanban_rename_space, kanban_delete_space, kanban_search_tasks, kanban_add_comment, kanban_answer_comment');
 
 await server.connect(transport);

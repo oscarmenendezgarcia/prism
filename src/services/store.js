@@ -19,6 +19,7 @@ const crypto = require('crypto');
 const Database = require('better-sqlite3');
 const { ACCOUNTS_SQL, API_TOKENS_SQL, createAccounts } = require('./accounts');
 const { agentFromOldName } = require('../utils/agents');
+const { FILTER_JOINS, isFiltering, issueConditions, issueOrder, nextLabels } = require('../utils/issueFilters');
 
 const DEFAULT_PRIORITY = 'medium';
 
@@ -643,13 +644,14 @@ function createStore(dataDir) {
   // ---------------------------------------------------------------------------
 
   const TASK_SELECT = 'SELECT t.*, s.key AS space_key FROM tasks t JOIN spaces s ON s.id = t.space_id';
-  // Who shows when the board is filtered to an epic: the epic, its issues, and their sub-tasks.
-  const EPIC_MEMBERS = `WITH members(id) AS (
-    SELECT @epic
-    UNION SELECT id FROM tasks WHERE parent_id = @epic AND type != 'epic'
-    UNION SELECT c.id FROM tasks c JOIN tasks p ON c.parent_id = p.id
-           WHERE p.parent_id = @epic AND p.type != 'epic' AND c.type != 'epic'
-  )`;
+  // SQLite only folds the case of ASCII, and "Ñandú" must find "ñandú".
+  db.function('prism_lower', { deterministic: true }, (text) => (text === null ? null : String(text).toLowerCase()));
+  /** What filters ask for depends on which fields are used, and there are few combinations. */
+  const prepared = new Map();
+  function prepareOnce(sql) {
+    if (!prepared.has(sql)) prepared.set(sql, db.prepare(sql));
+    return prepared.get(sql);
+  }
 
   const stmts = {
     listSpaces:    db.prepare('SELECT * FROM spaces ORDER BY pinned DESC, pinned_rank ASC, created_at ASC'),
@@ -761,18 +763,6 @@ function createStore(dataDir) {
     boardCounts: db.prepare(
       'SELECT t.status_id AS status_id, COUNT(*) AS n FROM tasks t WHERE t.space_id = @space GROUP BY t.status_id'
     ),
-    epicFirst: db.prepare(
-      `${EPIC_MEMBERS} ${TASK_SELECT} WHERE t.space_id = @space AND t.status_id = @status AND t.id IN (SELECT id FROM members)
-       ORDER BY t.rank ASC, t.created_at ASC, t.rowid ASC LIMIT @limit`
-    ),
-    epicLast: db.prepare(
-      `${EPIC_MEMBERS} ${TASK_SELECT} WHERE t.space_id = @space AND t.status_id = @status AND t.id IN (SELECT id FROM members)
-       ORDER BY t.rank DESC, t.created_at DESC, t.rowid DESC LIMIT @limit`
-    ),
-    epicCounts: db.prepare(
-      `${EPIC_MEMBERS} SELECT t.status_id AS status_id, COUNT(*) AS n FROM tasks t
-       WHERE t.space_id = @space AND t.id IN (SELECT id FROM members) GROUP BY t.status_id`
-    ),
     spaceEpics: db.prepare(
       `${TASK_SELECT} WHERE t.space_id = ? AND t.type = 'epic' ORDER BY t.number ASC, t.rowid ASC`
     ),
@@ -794,8 +784,9 @@ function createStore(dataDir) {
     childrenPage: db.prepare(
       `${TASK_SELECT} WHERE t.space_id = ? AND t.parent_id = ? ORDER BY t.number ASC LIMIT ?`
     ),
-    epicMembersAmong: db.prepare(
-      `${EPIC_MEMBERS} SELECT id FROM members WHERE id IN (SELECT value FROM json_each(@ids))`
+    labelsInUse: db.prepare(
+      `SELECT DISTINCT l.value AS value FROM tasks t, json_each(t.labels) l
+        WHERE t.space_id = ? AND t.labels IS NOT NULL ORDER BY l.value COLLATE NOCASE`
     ),
     tasksByIds: db.prepare(
       `${TASK_SELECT} WHERE t.space_id = ? AND t.id IN (SELECT value FROM json_each(?)) ORDER BY t.number ASC`
@@ -1650,31 +1641,34 @@ function createStore(dataDir) {
    * in rank order.
    *
    * @param {string} spaceId
-   * @param {{ limits?: Record<string, number>, epicId?: string|null, include?: string[] }} [options]
-   *   limits: how many cards of a status, instead of the default. epicId: only what is in it.
+   * @param {{ limits?: Record<string, number>, filters?: object, include?: string[] }} [options]
+   *   limits: how many cards of a status, instead of the default. filters: see issueFilters.js.
    *   include: cards to bring wherever they are, as long as they would show: what someone just
    *   moved must not vanish past the limit. They are not added to the total.
    * @returns {{ columns: Record<string, { tasks: object[], total: number, rankBefore?: number, rankAfter?: number }>, epics: object[] }}
    *   rankBefore and rankAfter: the ranks of the cards next to what was loaded, when there are
    *   any, so that a card dropped at the end of what is loaded lands there.
    */
-  function getBoard(spaceId, { limits = {}, epicId = null, include = [] } = {}) {
+  function getBoard(spaceId, { limits = {}, filters = {}, include = [] } = {}) {
     const statuses = stmts.getStatuses.all(spaceId).map(rowToStatus);
     const spaceKey = stmts.getSpace.get(spaceId)?.key ?? null;
-    const filtered = epicId !== null;
-    // Anything else is not an epic of this space, and nothing is in it.
-    const noEpic = filtered && stmts.getTask.get(spaceId, epicId)?.type !== 'epic';
-    const params = { space: spaceId, ...(filtered && { epic: epicId }) };
+    const filtered = isFiltering(filters);
+    const { sql: conditions, params: filterParams } = issueConditions(filters);
+    const matching = `AND t.id IN (SELECT t.id FROM tasks t ${FILTER_JOINS} WHERE t.space_id = @space ${conditions})`;
+    const params = { space: spaceId, ...filterParams };
 
     const counts = new Map();
-    if (!noEpic) {
-      for (const row of (filtered ? stmts.epicCounts : stmts.boardCounts).all(params)) counts.set(row.status_id, row.n);
-    }
+    const countQuery = filtered
+      ? prepareOnce(`SELECT t.status_id AS status_id, COUNT(*) AS n FROM tasks t WHERE t.space_id = @space ${matching} GROUP BY t.status_id`)
+      : stmts.boardCounts;
+    for (const row of countQuery.all(params)) counts.set(row.status_id, row.n);
 
     const included = new Map();
-    if (include.length > 0 && !noEpic) {
+    if (include.length > 0) {
       const ids = JSON.stringify(include);
-      const allowed = filtered ? new Set(stmts.epicMembersAmong.all({ epic: epicId, ids }).map((row) => row.id)) : null;
+      const allowed = filtered
+        ? new Set(prepareOnce(`SELECT t.id AS id FROM tasks t WHERE t.space_id = @space ${matching} AND t.id IN (SELECT value FROM json_each(@ids))`).all({ ...params, ids }).map((row) => row.id))
+        : null;
       for (const row of stmts.tasksByIds.all(spaceId, ids)) {
         if (allowed && !allowed.has(row.id)) continue;
         if (!included.has(row.status_id)) included.set(row.status_id, []);
@@ -1689,7 +1683,9 @@ function createStore(dataDir) {
       const total = counts.get(status.id) ?? 0;
       const fromEnd = status.category === 'done';
       const limit = Object.hasOwn(limits, status.id) ? limits[status.id] : (fromEnd ? BOARD_DONE_LIMIT : BOARD_DEFAULT_LIMIT);
-      const query = fromEnd ? (filtered ? stmts.epicLast : stmts.boardLast) : (filtered ? stmts.epicFirst : stmts.boardFirst);
+      const query = !filtered ? (fromEnd ? stmts.boardLast : stmts.boardFirst) : prepareOnce(
+        `${TASK_SELECT} WHERE t.space_id = @space AND t.status_id = @status ${matching} ORDER BY ${fromEnd ? 't.rank DESC, t.created_at DESC, t.rowid DESC' : 't.rank ASC, t.created_at ASC, t.rowid ASC'} LIMIT @limit`
+      );
       // One more than was asked for says where the next card is.
       const rows = total === 0 ? [] : query.all({ ...params, status: status.id, limit: limit + 1 });
       const beyond = rows.length > limit ? rows.pop() : null;
@@ -1727,6 +1723,79 @@ function createStore(dataDir) {
     }));
 
     return { columns, epics };
+  }
+
+  /**
+   * A page of the issues that match some filters, with what a row of a list shows.
+   *
+   * @param {string} spaceId
+   * @param {{ filters?: object, sort?: string, descending?: boolean, offset?: number, limit?: number }} options
+   * @returns {{ tasks: object[], total: number }}
+   */
+  function listIssues(spaceId, { filters = {}, sort = 'key', descending = true, offset = 0, limit = 100 } = {}) {
+    const { sql, params } = issueConditions(filters);
+    const tables = `FROM tasks t ${FILTER_JOINS} WHERE t.space_id = @space ${sql}`;
+    const { total } = prepareOnce(`SELECT COUNT(*) AS total ${tables}`).get({ space: spaceId, ...params });
+    const rows = prepareOnce(`
+      SELECT t.*, s.key AS space_key FROM tasks t
+        JOIN spaces s ON s.id = t.space_id
+        LEFT JOIN statuses st ON st.space_id = t.space_id AND st.id = t.status_id
+        ${FILTER_JOINS}
+       WHERE t.space_id = @space ${sql}
+       ${issueOrder(sort, descending)} LIMIT @limit OFFSET @offset
+    `).all({ space: spaceId, ...params, limit, offset });
+    return { tasks: withCardFields(spaceId, stmts.getSpace.get(spaceId)?.key ?? null, rows.map(rowToTask)), total };
+  }
+
+  /** The ids of the first issues that match some filters, in their order, and how many there are. */
+  function listIssueIds(spaceId, { filters = {}, sort = 'key', descending = true, limit = 500 } = {}) {
+    const { sql, params } = issueConditions(filters);
+    const { total } = prepareOnce(`SELECT COUNT(*) AS total FROM tasks t ${FILTER_JOINS} WHERE t.space_id = @space ${sql}`).get({ space: spaceId, ...params });
+    const ids = prepareOnce(`
+      SELECT t.id AS id FROM tasks t
+        LEFT JOIN statuses st ON st.space_id = t.space_id AND st.id = t.status_id
+        ${FILTER_JOINS}
+       WHERE t.space_id = @space ${sql}
+       ${issueOrder(sort, descending)} LIMIT @limit
+    `).all({ space: spaceId, ...params, limit }).map((row) => row.id);
+    return { ids, total };
+  }
+
+  /** The labels in use in a space, in alphabetical order. */
+  function listLabels(spaceId) {
+    return stmts.labelsInUse.all(spaceId).map((row) => row.value);
+  }
+
+  /**
+   * Change several issues at once: all of them or none. Each change goes to its history.
+   * Moves as moveTask does, and leaves alone what already is as asked.
+   *
+   * @param {string} spaceId
+   * @param {string[]} ids All must exist: the caller has checked.
+   * @param {{ statusId?: string, assigned?: string, priority?: string, addLabels?: string[], removeLabels?: string[] }} changes
+   * @returns {{ updated: number }} How many issues changed.
+   */
+  function updateIssues(spaceId, ids, changes, { actor } = {}) {
+    return db.transaction(() => {
+      let updated = 0;
+      for (const id of ids) {
+        const before = getTask(spaceId, id);
+        const patch = {};
+        if (changes.priority !== undefined && before.priority !== changes.priority) patch.priority = changes.priority;
+        if (changes.assigned !== undefined && (before.assigned ?? '') !== changes.assigned) patch.assigned = changes.assigned || undefined;
+        if (changes.addLabels || changes.removeLabels) {
+          const labels = nextLabels(before.labels, changes);
+          if (JSON.stringify(labels) !== JSON.stringify(before.labels ?? [])) patch.labels = labels.length > 0 ? labels : undefined;
+        }
+        const moved = changes.statusId !== undefined && before.statusId !== changes.statusId;
+        if (moved) moveTask(spaceId, id, changes.statusId, { actor });
+        if (Object.keys(patch).length > 0) {
+          updateTask(spaceId, id, { ...patch, updatedAt: new Date().toISOString() }, { actor });
+        }
+        if (moved || Object.keys(patch).length > 0) updated += 1;
+      }
+      return { updated };
+    })();
   }
 
   /** How many cards each status of a space has. */
@@ -2040,6 +2109,10 @@ function createStore(dataDir) {
     getTaskByKey,
     getChildren,
     getBoard,
+    listIssues,
+    listIssueIds,
+    listLabels,
+    updateIssues,
     getColumnTotals,
     getTaskForPanel,
     getChildrenPage,

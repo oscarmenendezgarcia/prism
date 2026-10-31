@@ -17,6 +17,7 @@ const { sendJSON, sendJSONWithETag, sendError, parseBody, readActor } = require(
 const { agentIsOn, isAgentId } = require('../utils/agents');
 const { isReadableAttachment } = require('../utils/attachments');
 const taskRunner                           = require('../services/taskRunner');
+const { SORTS, nextLabels, parseIssueFilters } = require('../utils/issueFilters');
 
 // ---------------------------------------------------------------------------
 // Validation constraints
@@ -25,6 +26,10 @@ const taskRunner                           = require('../services/taskRunner');
 /** The most cards of a column a board can ask for at once. */
 const BOARD_MAX_LIMIT      = 2000;
 const BOARD_MAX_INCLUDE    = 20;
+/** A page of a list, and what can be selected or changed at once. */
+const LIST_DEFAULT_LIMIT   = 100;
+const LIST_MAX_LIMIT       = 200;
+const BULK_MAX_ISSUES      = 500;
 const ISSUE_ID             = /^[A-Za-z0-9_-]{1,100}$/;
 const DEFAULT_CHILDREN     = 200;
 const MAX_CHILDREN         = 1000;
@@ -426,7 +431,7 @@ function createApp(spaceId, store) {
 
   /**
    * GET /spaces/:id/board — the cards on screen and what they show.
-   * Query: limits=<statusId>:<n>,... to show more of a column; epic=<id> to only show that epic;
+   * Query: limits=<statusId>:<n>,... to show more of a column; the filters of a list;
    * include=<id>,... for cards to bring even past the limit of their column;
    * totals=1 for just how many cards each status has.
    */
@@ -451,10 +456,144 @@ function createApp(spaceId, store) {
       if (!include.every((id) => ISSUE_ID.test(id))) {
         return sendError(res, 400, 'VALIDATION_ERROR', 'include must be a list of issue ids');
       }
-      sendJSONWithETag(req, res, serializeBoard(store.getBoard(spaceId, { limits, epicId: qs.get('epic') || null, include })));
+      const parsed = parseFilters(qs);
+      if (parsed.error) return sendError(res, 400, 'VALIDATION_ERROR', parsed.error);
+      sendJSONWithETag(req, res, serializeBoard(store.getBoard(spaceId, { limits, filters: parsed.filters, include })));
     } catch (err) {
       console.error('GET board error:', err);
       sendError(res, 500, 'INTERNAL_ERROR', 'Failed to read the board');
+    }
+  }
+
+  function parseFilters(qs) {
+    return parseIssueFilters(qs, { types: VALID_TYPES, priorities: VALID_PRIORITIES });
+  }
+
+  /**
+   * GET /spaces/:id/issues — a page of the issues that match, in any order.
+   * Query: status, assignee, type, priority, epic and label, repeated for any of several
+   * (an empty assignee or epic means none); due=overdue|week|none, with today=YYYY-MM-DD for
+   * the day of whoever asks; q for text in the title or a key; sort, dir=asc|desc, offset, limit.
+   * fields=id for only the ids of the first issues, up to what can be changed at once.
+   */
+  function handleGetIssues(req, res) {
+    try {
+      const qs = new URL(req.url, 'http://x').searchParams;
+      const parsed = parseFilters(qs);
+      if (parsed.error) return sendError(res, 400, 'VALIDATION_ERROR', parsed.error);
+      const sort = qs.get('sort') ?? 'key';
+      if (!Object.hasOwn(SORTS, sort)) {
+        return sendError(res, 400, 'VALIDATION_ERROR', `Invalid sort '${sort}'. Must be one of: ${Object.keys(SORTS).join(', ')}`);
+      }
+      const dir = qs.get('dir') ?? 'desc';
+      if (dir !== 'asc' && dir !== 'desc') return sendError(res, 400, 'VALIDATION_ERROR', "dir must be 'asc' or 'desc'");
+      const descending = dir === 'desc';
+      if (qs.get('fields') === 'id') {
+        return sendJSON(res, 200, store.listIssueIds(spaceId, { filters: parsed.filters, sort, descending, limit: BULK_MAX_ISSUES }));
+      }
+      const offset = qs.has('offset') ? Number(qs.get('offset')) : 0;
+      const limit = qs.has('limit') ? Number(qs.get('limit')) : LIST_DEFAULT_LIMIT;
+      if (!Number.isInteger(offset) || offset < 0) return sendError(res, 400, 'VALIDATION_ERROR', 'offset must be a whole number from 0');
+      if (!Number.isInteger(limit) || limit < 1 || limit > LIST_MAX_LIMIT) {
+        return sendError(res, 400, 'VALIDATION_ERROR', `limit must be a whole number from 1 to ${LIST_MAX_LIMIT}`);
+      }
+      const { tasks, total } = store.listIssues(spaceId, { filters: parsed.filters, sort, descending, offset, limit });
+      sendJSONWithETag(req, res, { tasks: tasks.map(listedTask), total });
+    } catch (err) {
+      console.error('GET issues error:', err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to list issues');
+    }
+  }
+
+  /** GET /spaces/:id/issues/labels — the labels in use, to filter by them. */
+  function handleGetLabels(req, res) {
+    try {
+      sendJSON(res, 200, { labels: store.listLabels(spaceId) });
+    } catch (err) {
+      console.error('GET labels error:', err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to list labels');
+    }
+  }
+
+  /**
+   * PATCH /spaces/:id/tasks/bulk — change several issues: all of them or none.
+   * Body: { ids, changes: { statusId?, assigned?, priority?, addLabels?, removeLabels? } }.
+   * What stops one stops them all, and the answer says which it was.
+   */
+  async function handleUpdateIssues(req, res) {
+    let body;
+    try {
+      body = await parseBody(req);
+    } catch (err) {
+      if (err.message === 'PAYLOAD_TOO_LARGE') {
+        return sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds 512 KB limit');
+      }
+      return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+    }
+
+    const { ids, changes } = body ?? {};
+    if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === 'string')) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'ids must be a list of issue ids');
+    }
+    if (ids.length > BULK_MAX_ISSUES) {
+      return sendError(res, 400, 'VALIDATION_ERROR', `ids must not exceed ${BULK_MAX_ISSUES} issues`);
+    }
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'changes must be an object');
+    }
+    const BULK_FIELDS = ['statusId', 'assigned', 'priority', 'addLabels', 'removeLabels'];
+    const unknown = Object.keys(changes).filter((field) => !BULK_FIELDS.includes(field));
+    if (unknown.length > 0) return sendError(res, 400, 'VALIDATION_ERROR', `Cannot change: ${unknown.join(', ')}`);
+    if (Object.keys(changes).length === 0) {
+      return sendError(res, 400, 'VALIDATION_ERROR', `At least one of the following fields is required: ${BULK_FIELDS.join(', ')}`);
+    }
+
+    const errors = [];
+    if ('priority' in changes) errors.push(...validateIssueFields({ priority: changes.priority }));
+    for (const field of ['addLabels', 'removeLabels']) {
+      if (field in changes) errors.push(...validateIssueFields({ labels: changes[field] }).map((e) => e.replace(/^(each )?labels?/, field)));
+    }
+    if ('assigned' in changes && typeof changes.assigned !== 'string') errors.push('assigned must be a string');
+    const statuses = store.getStatuses(spaceId);
+    const target = 'statusId' in changes ? statuses.find((s) => s.id === changes.statusId) : null;
+    if ('statusId' in changes && !target) errors.push(`statusId must be one of: ${statuses.map((s) => s.id).join(', ')}`);
+    if (errors.length > 0) return sendError(res, 400, 'VALIDATION_ERROR', errors.join('; '));
+
+    const assigned = changes.assigned?.trim();
+    const clean = {
+      ...('statusId' in changes && { statusId: changes.statusId }),
+      ...('assigned' in changes && { assigned }),
+      ...('priority' in changes && { priority: changes.priority }),
+      ...('addLabels' in changes && { addLabels: cleanLabels(changes.addLabels) }),
+      ...('removeLabels' in changes && { removeLabels: cleanLabels(changes.removeLabels) }),
+    };
+
+    try {
+      const unique = [...new Set(ids)];
+      const issues = store.getTasksByIds(spaceId, unique);
+      if (issues.length !== unique.length) {
+        const found = new Set(issues.map((issue) => issue.id));
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${unique.find((id) => !found.has(id))}' not found`);
+      }
+      const finishStatusId = store.getSpace(spaceId).finishStatusId;
+      const guarded = target && (target.category !== 'in-progress' || target.id === finishStatusId);
+      for (const issue of issues) {
+        const name = issue.key ?? issue.id;
+        if (assigned) {
+          const problem = assigneeProblem(req, store, spaceId, assigned, issue.assigned);
+          if (problem) return sendError(res, 400, 'VALIDATION_ERROR', problem);
+        }
+        if (guarded && issue.statusId !== target.id && taskRunner.hasActiveRun(issue.id)) {
+          return sendError(res, 409, 'TASK_RUN_ACTIVE', `An agent is running ${name}. Stop it before moving the card.`);
+        }
+        if (clean.addLabels && nextLabels(issue.labels, clean).length > LABELS_MAX_COUNT) {
+          return sendError(res, 400, 'VALIDATION_ERROR', `${name} would have more than ${LABELS_MAX_COUNT} labels`);
+        }
+      }
+      sendJSON(res, 200, store.updateIssues(spaceId, unique, clean, { actor: readActor(req) }));
+    } catch (err) {
+      console.error('PATCH tasks/bulk error:', err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to change the issues');
     }
   }
 
@@ -1342,6 +1481,10 @@ function createApp(spaceId, store) {
       return handlePatchAttachments(req, res, attachmentsMatch[1]);
     }
 
+    if (method === 'PATCH' && taskPath === '/tasks/bulk') {
+      return handleUpdateIssues(req, res);
+    }
+
     // Batch rank update — must be matched before TASK_SINGLE_ROUTE would eat `/tasks/rank`.
     if (method === 'PATCH' && taskPath === '/tasks/rank') {
       return handleRankTasksBatch(req, res);
@@ -1381,7 +1524,7 @@ function createApp(spaceId, store) {
   // ensureDataFiles is a no-op — schema is applied when the Store is opened.
   function ensureDataFiles() {}
 
-  return { router, handleGetBoard, ensureDataFiles };
+  return { router, handleGetBoard, handleGetIssues, handleGetLabels, ensureDataFiles };
 }
 
 module.exports = {

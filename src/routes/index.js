@@ -50,6 +50,7 @@ const ISSUE_KEY_IN_PATH     = /^\/api\/v1(?:\/spaces\/([^/]+))?\/tasks\/([A-Za-z
 const ISSUE_ROUTE           = /^\/api\/v1\/issues\/([^/]+)$/;
 const SPACE_STATUSES_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/statuses$/;
 const SPACE_BOARD_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/board$/;
+const SPACE_ISSUES_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)\/issues(\/labels)?$/;
 const SPACES_LIST_ROUTE     = /^\/api\/v1\/spaces$/;
 const SPACES_SINGLE_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)$/;
 // Matches /api/v1/spaces/:spaceId/tasks and everything under it.
@@ -219,6 +220,17 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
         return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
       }
       return getApp(spaceBoardMatch[1]).handleGetBoard(req, res);
+    }
+
+    const spaceIssuesMatch = SPACE_ISSUES_ROUTE.exec(urlPath);
+    if (spaceIssuesMatch) {
+      const spaceResult = spaceManager.getSpace(spaceIssuesMatch[1]);
+      if (!spaceResult.ok) return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      if (method !== 'GET') {
+        return sendError(res, 405, 'METHOD_NOT_ALLOWED', `Method '${method}' is not allowed on this route`);
+      }
+      const app = getApp(spaceIssuesMatch[1]);
+      return spaceIssuesMatch[2] ? app.handleGetLabels(req, res) : app.handleGetIssues(req, res);
     }
 
     // -------------------------------------------------------------------------
