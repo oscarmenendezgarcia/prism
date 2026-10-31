@@ -1633,12 +1633,13 @@ function createStore(dataDir) {
       for (const row of (filtered ? stmts.epicCounts : stmts.boardCounts).all(params)) counts.set(row.status_id, row.n);
     }
 
-    const columns = {};
+    // A status is named by its users, and can be called "constructor".
+    const columns = Object.create(null);
     const windows = [];
     for (const status of statuses) {
       const total = counts.get(status.id) ?? 0;
       const fromEnd = status.category === 'done';
-      const limit = limits[status.id] ?? (fromEnd ? BOARD_DONE_LIMIT : BOARD_DEFAULT_LIMIT);
+      const limit = Object.hasOwn(limits, status.id) ? limits[status.id] : (fromEnd ? BOARD_DONE_LIMIT : BOARD_DEFAULT_LIMIT);
       const query = fromEnd ? (filtered ? stmts.epicLast : stmts.boardLast) : (filtered ? stmts.epicFirst : stmts.boardFirst);
       // One more than was asked for says where the next card is.
       const rows = total === 0 ? [] : query.all({ ...params, status: status.id, limit: limit + 1 });

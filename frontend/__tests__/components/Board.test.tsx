@@ -390,6 +390,18 @@ describe('Board — a space with more cards than are loaded', () => {
     expect(tabs).toEqual(['Todo4210', 'In Progress0', 'Done7']);
   });
 
+  it('draws a status named constructor with no cards loaded', () => {
+    useAppStore.setState({
+      spaces: [{ id: 'default', name: 'S', statuses: [{ id: 'constructor', name: 'constructor', category: 'todo' }, { id: 'todo', name: 'Todo', category: 'todo' }], createdAt: '', updatedAt: '' }],
+      activeSpaceId: 'default',
+      tasks: { todo: [card('a', 1000)] },
+      columnTotals: { todo: 1 },
+    });
+    render(<Board />);
+    expect(screen.getAllByTestId('task-card')).toHaveLength(1);
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['constructor0', 'Todo1']);
+  });
+
   describe('computeDropRank', () => {
     // A Done column that shows its tail: 5000 is the rank of the last card it does not show.
     const tail = [card('x', 6000), card('y', 7000), card('z', 8000)];

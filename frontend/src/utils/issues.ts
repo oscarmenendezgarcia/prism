@@ -25,6 +25,14 @@ export const TYPES: { id: TaskType; label: string }[] = [
 
 export const typeOf = (id: TaskType) => TYPES.find((t) => t.id === id) ?? TYPES[2];
 
+/**
+ * What a map keyed by status holds for a status. Users name statuses, and one called
+ * "constructor" must not find what every object inherits.
+ */
+export function own<T>(map: Record<string, T>, key: string): T | undefined {
+  return Object.hasOwn(map, key) ? map[key] : undefined;
+}
+
 export function allTasks(board: BoardTasks): Task[] {
   return Object.values(board).flat();
 }
@@ -64,18 +72,17 @@ export function localToday(): string {
 export function keepUnchanged(old: BoardTasks, fresh: BoardTasks): BoardTasks {
   const oldById = boardIndex(old).byId;
   const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-  const board: BoardTasks = {};
-  for (const [statusId, tasks] of Object.entries(fresh)) {
+  const columns = Object.entries(fresh).map(([statusId, tasks]): [string, Task[]] => {
     const list = tasks.map((task) => {
       const seen = oldById.get(task.id);
       return seen && same(seen, task) ? seen : task;
     });
-    const before = old[statusId];
-    board[statusId] = before?.length === list.length && list.every((t, i) => t === before[i]) ? before : list;
-  }
-  const keys = Object.keys(board);
-  const unchanged = keys.length === Object.keys(old).length && keys.every((k, i) => board[k] === old[k] && Object.keys(old)[i] === k);
-  return unchanged ? old : board;
+    const before = own(old, statusId);
+    return [statusId, before?.length === list.length && list.every((t, i) => t === before[i]) ? before : list];
+  });
+  const oldKeys = Object.keys(old);
+  const unchanged = columns.length === oldKeys.length && columns.every(([k, list], i) => oldKeys[i] === k && list === old[k]);
+  return unchanged ? old : Object.fromEntries(columns);
 }
 
 /**

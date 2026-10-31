@@ -11,7 +11,7 @@ import { MAX_COLUMN_LIMIT, useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { TaskCard } from './TaskCard';
 import { EmptyState } from './EmptyState';
-import { statusDotClass } from '@/utils/issues';
+import { own, statusDotClass } from '@/utils/issues';
 
 interface ColumnProps {
   column: ColumnType;
@@ -40,8 +40,8 @@ export const Column = memo(function Column({ column, status, statuses = [], task
   // active state changes (2 re-renders max per drag move: prev col + next col).
   const isDragOver    = useDragStore((s) => s.dragOverColumn === column && s.draggedTaskId !== null);
   // What the column really has: not all of it is loaded, and the server applies the epic filter.
-  const total         = useAppStore((s) => s.columnTotals[column]) ?? tasks.length;
-  const limit         = useAppStore((s) => s.columnLimits[column]) ?? 0;
+  const total         = useAppStore((s) => own(s.columnTotals, column)) ?? tasks.length;
+  const limit         = useAppStore((s) => own(s.columnLimits, column)) ?? 0;
   const showMoreCards = useAppStore((s) => s.showMoreCards);
   const [loadingMore, setLoadingMore] = useState(false);
 

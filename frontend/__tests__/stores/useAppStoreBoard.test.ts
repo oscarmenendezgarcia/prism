@@ -141,6 +141,12 @@ describe('Show more', () => {
     expect(lastQuery()?.limits).toEqual({ todo: 300 });
   });
 
+  it('raises from what is loaded for a status named constructor, not from what it inherits', async () => {
+    useAppStore.setState({ tasks: JSON.parse('{"constructor":[]}'), columnTotals: JSON.parse('{"constructor":5}') });
+    await useAppStore.getState().showMoreCards('constructor');
+    expect(Object.entries(lastQuery()?.limits ?? {})).toEqual([['constructor', 100]]);
+  });
+
   it('counts from what a done column shows, which is less', async () => {
     await useAppStore.getState().showMoreCards('done');
     expect(lastQuery()?.limits).toEqual({ done: 150 });
@@ -229,6 +235,18 @@ describe('the epic filter', () => {
 });
 
 describe('moving a card', () => {
+  it('counts right into a status named constructor, which has no total yet', async () => {
+    useAppStore.setState({ tasks: { todo: [card('a')] }, columnTotals: { todo: 1 } });
+    vi.mocked(api.moveTask).mockRejectedValue(new Error('No'));
+    let during: unknown;
+    vi.mocked(api.moveTask).mockImplementation(async () => {
+      during = (useAppStore.getState().columnTotals as Record<string, unknown>).constructor;
+      throw new Error('No');
+    });
+    await useAppStore.getState().moveTask('a', 'constructor');
+    expect(during).toBe(1);
+  });
+
   beforeEach(() => {
     useAppStore.setState({
       tasks: { todo: [card('a')], done: [card('z', { statusId: 'done', category: 'done', rank: 9000 })] },

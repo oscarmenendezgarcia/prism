@@ -98,6 +98,22 @@ describe('Column', () => {
     expect(screen.getByText('Second task')).toBeInTheDocument();
   });
 
+  describe('a status named like something every object inherits', () => {
+    const CONSTRUCTOR: Status = { id: 'constructor', name: 'constructor', category: 'in-progress' };
+
+    it('counts what it was given while no total is known', () => {
+      render(<Column column="constructor" status={CONSTRUCTOR} tasks={tasks} />);
+      expect(screen.getByText(String(tasks.length))).toBeInTheDocument();
+    });
+
+    it('still offers to show more, with no limit raised yet', () => {
+      useAppStore.setState({ columnTotals: JSON.parse('{"constructor":500}') });
+      render(<Column column="constructor" status={CONSTRUCTOR} tasks={tasks} />);
+      expect(screen.getByText('500')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Show more' })).toBeInTheDocument();
+    });
+  });
+
   describe('a column with more cards than are loaded', () => {
     it('counts all of them in the header', () => {
       useAppStore.setState({ columnTotals: { todo: 4210 } });

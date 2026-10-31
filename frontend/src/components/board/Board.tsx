@@ -13,6 +13,7 @@ import { Column } from './Column';
 import { ColumnTabBar } from './ColumnTabBar';
 import { BoardEmptyState } from './BoardEmptyState';
 import { Announcer } from '@/components/shared/Announcer';
+import { own } from '@/utils/issues';
 import { noteDragStart, noteDrop, useCardMotion } from '@/hooks/useCardMotion';
 
 /**
@@ -113,6 +114,7 @@ export function computeDropRank(
 }
 
 const NO_STATUSES: Status[] = [];
+const NO_TASKS: Task[] = [];
 
 export function Board() {
   const tasks = useTasks();
@@ -182,9 +184,9 @@ export function Board() {
     if (dragSourceColumn === targetColumn) {
       // Same column → reorder
       const { tasks: board, columnBounds } = useAppStore.getState();
-      const columnTasks = board[targetColumn] ?? [];
+      const columnTasks = own(board, targetColumn) ?? [];
       const { newRank, needsRebalance, rebalancedTasks } = computeDropRank(
-        columnTasks, taskId, dragOverTaskId, insertBefore, columnBounds[targetColumn],
+        columnTasks, taskId, dragOverTaskId, insertBefore, own(columnBounds, targetColumn),
       );
 
       if (needsRebalance && rebalancedTasks) {
@@ -228,7 +230,7 @@ export function Board() {
     const state = useAppStore.getState();
     if (state.isMutating) return;
 
-    const columnTasks = state.tasks[targetColumn] ?? [];
+    const columnTasks = own(state.tasks, targetColumn) ?? [];
     const task = columnTasks.find((t) => t.id === taskId);
     if (!task) return;
 
@@ -245,7 +247,7 @@ export function Board() {
     }
 
     const { newRank, needsRebalance, rebalancedTasks } = computeDropRank(
-      columnTasks, taskId, resolved.neighborId, /* insertBefore */ direction === 'up', state.columnBounds[targetColumn],
+      columnTasks, taskId, resolved.neighborId, /* insertBefore */ direction === 'up', own(state.columnBounds, targetColumn),
     );
 
     if (needsRebalance && rebalancedTasks) {
@@ -268,7 +270,7 @@ export function Board() {
     );
   }, [reorderTask, reorderTasks]); // stable — Zustand actions never change
 
-  const taskCounts = Object.fromEntries(statuses.map((s) => [s.id, columnTotals[s.id] ?? tasks[s.id]?.length ?? 0]));
+  const taskCounts = Object.fromEntries(statuses.map((s) => [s.id, own(columnTotals, s.id) ?? own(tasks, s.id)?.length ?? 0]));
 
   // F1/ADR-1: show the onboarding guide when the active space has zero tasks.
   // No persistence — visibility is derived purely from store state. An epic with nothing to
@@ -319,7 +321,7 @@ export function Board() {
               column={col}
               status={statuses.find((s) => s.id === col)}
               statuses={statuses}
-              tasks={tasks[col] || []}
+              tasks={own(tasks, col) ?? NO_TASKS}
               onDragStart={handleDragStart}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}

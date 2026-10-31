@@ -28,7 +28,7 @@ import type {
   EditConflict,
 } from '@/types';
 import { safeStorage } from '@/utils/safeStorage';
-import { boardIndex, keepUnchanged, localToday, mapBoard } from '@/utils/issues';
+import { boardIndex, keepUnchanged, localToday, mapBoard, own } from '@/utils/issues';
 
 /** Key used to persist the active space across page reloads. */
 const ACTIVE_SPACE_KEY = 'prism-active-space';
@@ -526,7 +526,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   showMoreCards: async (column) => {
     const { columnLimits, tasks, loadBoard } = get();
-    const limit = Math.min(MAX_COLUMN_LIMIT, (columnLimits[column] ?? tasks[column]?.length ?? 0) + SHOW_MORE_STEP);
+    const limit = Math.min(MAX_COLUMN_LIMIT, (own(columnLimits, column) ?? own(tasks, column)?.length ?? 0) + SHOW_MORE_STEP);
     set({ columnLimits: { ...columnLimits, [column]: limit } });
     await loadBoard();
   },
@@ -582,19 +582,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       ...(moved && {
         columnTotals: {
           ...totals,
-          [source!]: (totals[source!] ?? tasks[source!].length) - 1,
-          [statusId]: (totals[statusId] ?? tasks[statusId]?.length ?? 0) + 1,
+          [source!]: (own(totals, source!) ?? tasks[source!].length) - 1,
+          [statusId]: (own(totals, statusId) ?? own(tasks, statusId)?.length ?? 0) + 1,
         },
         tasks: {
           ...tasks,
           [source!]: tasks[source!].filter((t) => t.id !== taskId),
           [statusId]: [
-            ...(tasks[statusId] ?? []),
+            ...(own(tasks, statusId) ?? []),
             {
               ...moved,
               statusId,
               category: target?.category ?? moved.category,
-              rank: Math.max(0, ...(tasks[statusId] ?? []).map((t) => t.rank ?? 0)) + 1000,
+              rank: Math.max(0, ...(own(tasks, statusId) ?? []).map((t) => t.rank ?? 0)) + 1000,
             },
           ],
         },
@@ -616,14 +616,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         set({
           tasks: {
             ...now,
-            [statusId]: (now[statusId] ?? []).filter((t) => t.id !== taskId),
-            [source!]: [...(now[source!] ?? []).filter((t) => t.id !== taskId), moved]
+            [statusId]: (own(now, statusId) ?? []).filter((t) => t.id !== taskId),
+            [source!]: [...(own(now, source!) ?? []).filter((t) => t.id !== taskId), moved]
               .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt)),
           },
           columnTotals: {
             ...get().columnTotals,
-            [source!]: (get().columnTotals[source!] ?? 0) + 1,
-            [statusId]: Math.max(0, (get().columnTotals[statusId] ?? 0) - 1),
+            [source!]: (own(get().columnTotals, source!) ?? 0) + 1,
+            [statusId]: Math.max(0, (own(get().columnTotals, statusId) ?? 0) - 1),
           },
         });
       }
@@ -658,10 +658,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activeSpaceId, tasks, showToast } = get();
     const taskIds = updates.map((u) => u.id);
     // Snapshot the entire column for all-or-nothing rollback.
-    const prevColumnTasks = [...(tasks[column] ?? [])];
+    const prevColumnTasks = [...(own(tasks, column) ?? [])];
     const rankById = new Map(updates.map((u) => [u.id, u.rank]));
     // Optimistic update: apply all new ranks locally in one commit and re-sort.
-    const updated = (tasks[column] ?? []).map((t) =>
+    const updated = (own(tasks, column) ?? []).map((t) =>
       rankById.has(t.id) ? { ...t, rank: rankById.get(t.id)! } : t
     );
     updated.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt));
@@ -687,9 +687,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   reorderTask: async (taskId: string, column: Column, newRank: number) => {
     const { activeSpaceId, tasks, showToast } = get();
     // Snapshot for rollback
-    const prevColumnTasks = [...(tasks[column] ?? [])];
+    const prevColumnTasks = [...(own(tasks, column) ?? [])];
     // Optimistic update: set new rank and re-sort
-    const updated = (tasks[column] ?? []).map((t) =>
+    const updated = (own(tasks, column) ?? []).map((t) =>
       t.id === taskId ? { ...t, rank: newRank } : t
     );
     updated.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt));

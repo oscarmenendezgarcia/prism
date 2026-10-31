@@ -156,6 +156,59 @@ describe('GET /spaces/:id/board', () => {
     });
   });
 
+  describe('a status named like something every object inherits', () => {
+    let id;
+    before(async () => {
+      id = await newSpace('Inherited');
+      const { statuses } = (await json(port, 'GET', `/api/v1/spaces/${id}`)).json;
+      await json(port, 'PUT', `/api/v1/spaces/${id}/statuses`, {
+        statuses: [...statuses, { name: 'constructor', category: 'in-progress' }], moves: {},
+      });
+      for (const title of ['A', 'B', 'C']) {
+        const task = (await json(port, 'POST', `/api/v1/spaces/${id}/tasks`, { title, type: 'chore' })).json;
+        await json(port, 'PUT', `/api/v1/spaces/${id}/tasks/${task.id}/move`, { to: 'constructor' });
+      }
+    });
+
+    test('has the default limit, not what it inherits', async () => {
+      const res = await json(port, 'GET', `/api/v1/spaces/${id}/board`);
+      assert.equal(res.status, 200, JSON.stringify(res.json));
+      assert.equal(res.json.columns.constructor.tasks.length, 3);
+      assert.equal(res.json.columns.constructor.total, 3);
+    });
+
+    test('takes a limit of its own', async () => {
+      const res = await json(port, 'GET', `/api/v1/spaces/${id}/board?limits=constructor:2`);
+      assert.equal(res.json.columns.constructor.tasks.length, 2);
+      assert.equal(res.json.columns.constructor.rankAfter > 0, true);
+    });
+
+    test('a limit for __proto__ changes nothing for anyone', async () => {
+      const res = await json(port, 'GET', `/api/v1/spaces/${id}/board?limits=__proto__:1`);
+      assert.equal(res.status, 200);
+      assert.equal(res.json.columns.constructor.tasks.length, 3);
+      assert.equal(res.json.columns.todo.total, 0);
+    });
+
+    test('a column called __proto__ comes out as a column', () => {
+      const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prism-board-proto-'));
+      const store = createStore(dataDir);
+      try {
+        const at = new Date(0).toISOString();
+        store.upsertSpace({ id: 'p', name: 'P', createdAt: at, updatedAt: at });
+        store.setStatuses('p', [{ id: '__proto__', name: 'Proto', category: 'todo' }]);
+        store.insertTask({ id: 'x', title: 'X', type: 'chore', rank: 1000, createdAt: at, updatedAt: at }, 'p', '__proto__');
+        const { columns } = store.getBoard('p');
+        assert.equal(Object.hasOwn(columns, '__proto__'), true);
+        assert.equal(columns.__proto__.total, 1);
+        assert.equal(columns.__proto__.tasks[0].id, 'x');
+      } finally {
+        store.close();
+        fs.rmSync(dataDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('epic filter', () => {
     let id;
     let epic;

@@ -183,6 +183,18 @@ describe('dates', () => {
 });
 
 describe('keepUnchanged', () => {
+  it('keeps a column called __proto__ as a column, not as the prototype', () => {
+    const fresh = JSON.parse('{"__proto__":[{"id":"a","title":"A","type":"chore","createdAt":"","updatedAt":""}]}');
+    const board = keepUnchanged({}, fresh);
+    expect(Object.keys(board)).toEqual(['__proto__']);
+    expect(Object.getPrototypeOf(board)).toBe(Object.prototype);
+  });
+
+  it('does not take what an object inherits for the old column', () => {
+    const fresh = { constructor: [] } as unknown as BoardTasks;
+    expect(keepUnchanged({}, fresh).constructor).toEqual([]);
+  });
+
   const issue = (id: string, title = id) => ({ id, title, type: 'feature', createdAt: '', updatedAt: '' }) as Task;
 
   it('returns the old board when a poll brings the same thing', () => {

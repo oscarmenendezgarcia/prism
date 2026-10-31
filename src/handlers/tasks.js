@@ -429,7 +429,8 @@ function createApp(spaceId, store) {
   function handleGetBoard(req, res) {
     try {
       const qs = new URL(req.url, 'http://x').searchParams;
-      const limits = {};
+      // Keyed by what users name their statuses, which can be "constructor" or "__proto__".
+      const limits = Object.create(null);
       for (const part of (qs.get('limits') ?? '').split(',').filter(Boolean)) {
         const separator = part.lastIndexOf(':');
         const n = Number(part.slice(separator + 1));
