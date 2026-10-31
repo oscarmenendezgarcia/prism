@@ -4,13 +4,14 @@
  * ADR-003 §8.3: bg-transparent, rounded-lg, col.* tokens replace hardcoded hex.
  */
 
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import type { Task, Column as ColumnType, Status } from '@/types';
-import { useAppStore } from '@/stores/useAppStore';
+import { Button } from '@/components/shared/Button';
+import { MAX_COLUMN_LIMIT, useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { TaskCard } from './TaskCard';
 import { EmptyState } from './EmptyState';
-import { boardIndex, isInEpic, statusDotClass } from '@/utils/issues';
+import { statusDotClass } from '@/utils/issues';
 
 interface ColumnProps {
   column: ColumnType;
@@ -38,13 +39,20 @@ export const Column = memo(function Column({ column, status, statuses = [], task
   // Subscribe to column-level drag-over — re-renders only when this column's
   // active state changes (2 re-renders max per drag move: prev col + next col).
   const isDragOver    = useDragStore((s) => s.dragOverColumn === column && s.draggedTaskId !== null);
-  const epicFilter    = useAppStore((s) => s.epicFilter);
-  const board         = useAppStore((s) => s.tasks);
+  // What the column really has: not all of it is loaded, and the server applies the epic filter.
+  const total         = useAppStore((s) => s.columnTotals[column]) ?? tasks.length;
+  const limit         = useAppStore((s) => s.columnLimits[column]) ?? 0;
+  const showMoreCards = useAppStore((s) => s.showMoreCards);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  // Filter tasks to the epic, if one is chosen.
-  const visibleTasks = epicFilter !== null
-    ? tasks.filter((t) => isInEpic(t, epicFilter, boardIndex(board)))
-    : tasks;
+  const handleShowMore = async () => {
+    setLoadingMore(true);
+    try {
+      await showMoreCards(column);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -90,7 +98,7 @@ export const Column = memo(function Column({ column, status, statuses = [], task
           className="ml-2 px-2 py-0.5 text-xs font-mono bg-surface-elevated rounded-full text-text-secondary tabular-nums"
           aria-live="polite"
         >
-          {visibleTasks.length}
+          {total}
         </span>
       </div>
 
@@ -99,10 +107,10 @@ export const Column = memo(function Column({ column, status, statuses = [], task
         role="list"
         className="flex-1 p-3 flex flex-col gap-2 overflow-y-auto"
       >
-        {visibleTasks.length === 0 ? (
+        {tasks.length === 0 ? (
           <EmptyState column={status?.category ?? 'todo'} />
         ) : (
-          visibleTasks.map((task, cardIndex) => (
+          tasks.map((task, cardIndex) => (
             <TaskCard
               key={task.id}
               task={task}
@@ -112,9 +120,23 @@ export const Column = memo(function Column({ column, status, statuses = [], task
               onDragOverTask={onDragOverTask}
               onKeyboardReorder={onKeyboardReorder}
               isFirstInList={cardIndex === 0}
-              isLastInList={cardIndex === visibleTasks.length - 1}
+              isLastInList={cardIndex === tasks.length - 1}
             />
           ))
+        )}
+        {tasks.length < total && limit < MAX_COLUMN_LIMIT && (
+          <div role="listitem" className="shrink-0 flex justify-center">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={loadingMore}
+              onClick={() => { void handleShowMore(); }}
+              data-testid="show-more-cards"
+            >
+              Show more
+            </Button>
+          </div>
         )}
       </div>
     </section>

@@ -5,7 +5,7 @@
  */
 
 import React, { useRef, useState, useCallback } from 'react';
-import type { BoardTasks, Column as ColumnType, Status, Task } from '@/types';
+import type { Column as ColumnType, Status, Task } from '@/types';
 import { useTasks, useAppStore } from '@/stores/useAppStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { useAnnouncer } from '@/stores/useAnnouncer';
@@ -13,22 +13,10 @@ import { Column } from './Column';
 import { ColumnTabBar } from './ColumnTabBar';
 import { BoardEmptyState } from './BoardEmptyState';
 import { Announcer } from '@/components/shared/Announcer';
-import { boardIndex, isInEpic } from '@/utils/issues';
 import { noteDragStart, noteDrop, useCardMotion } from '@/hooks/useCardMotion';
 
-/** The sorted column as the epic filter shows it. Rank math still runs against the full column. */
-function getVisibleColumnTasks(
-  columnTasks: Task[],
-  epicFilter: string | null,
-  board: BoardTasks,
-): Task[] {
-  if (epicFilter === null) return columnTasks;
-  const index = boardIndex(board);
-  return columnTasks.filter((t) => isInEpic(t, epicFilter, index));
-}
-
 /**
- * Resolve the keyboard-reorder neighbor for a card, honouring the epic filter.
+ * Resolve the keyboard-reorder neighbor for a card among those loaded.
  * At the first or last visible card of the column there is none.
  */
 export function resolveKeyboardNeighbor(
@@ -58,33 +46,42 @@ export function resolveKeyboardNeighbor(
   return { ok: true, neighborId: visible[neighborIdx].id, visibleIndex: idx, visibleCount };
 }
 
-function computeDropRank(
-  tasks: import('@/types').Task[],
+/**
+ * The rank for a card dropped among those loaded. Past either end of them there may be cards
+ * that are not loaded, and the drop has to land before those: a Done column shows its last
+ * cards, so the first one shown is not the first of the column, and rank 0 would send the
+ * card out of sight. `bounds` says where those cards are.
+ */
+export function computeDropRank(
+  tasks: Task[],
   draggedId: string,
   overTaskId: string | null,
   insertBefore: boolean,
-): { newRank: number; needsRebalance: boolean; rebalancedTasks?: import('@/types').Task[] } {
+  bounds: { rankBefore?: number; rankAfter?: number } = {},
+): { newRank: number; needsRebalance: boolean; rebalancedTasks?: Task[] } {
   const withoutDragged = tasks.filter((t) => t.id !== draggedId);
+  const floor = bounds.rankBefore ?? 0;
+  const ceiling = bounds.rankAfter ?? Infinity;
 
-  let prevRank = 0;
-  let nextRank = Infinity;
+  let prevRank = floor;
+  let nextRank = ceiling;
 
   if (overTaskId === null) {
-    prevRank = withoutDragged.at(-1)?.rank ?? 0;
-    nextRank = Infinity;
+    prevRank = withoutDragged.at(-1)?.rank ?? floor;
+    nextRank = ceiling;
   } else {
     const overIdx = withoutDragged.findIndex((t) => t.id === overTaskId);
     if (overIdx === -1) {
-      prevRank = withoutDragged.at(-1)?.rank ?? 0;
-      nextRank = Infinity;
+      prevRank = withoutDragged.at(-1)?.rank ?? floor;
+      nextRank = ceiling;
     } else if (insertBefore) {
-      prevRank = overIdx > 0 ? (withoutDragged[overIdx - 1]?.rank ?? 0) : 0;
-      nextRank = withoutDragged[overIdx]?.rank ?? Infinity;
+      prevRank = overIdx > 0 ? (withoutDragged[overIdx - 1]?.rank ?? 0) : floor;
+      nextRank = withoutDragged[overIdx]?.rank ?? ceiling;
     } else {
       prevRank = withoutDragged[overIdx]?.rank ?? 0;
       nextRank = overIdx + 1 < withoutDragged.length
-        ? (withoutDragged[overIdx + 1]?.rank ?? Infinity)
-        : Infinity;
+        ? (withoutDragged[overIdx + 1]?.rank ?? ceiling)
+        : ceiling;
     }
   }
 
@@ -104,7 +101,10 @@ function computeDropRank(
     if (insertAt < 0) insertAt = reinserted.length;
     const dragged = tasks.find((t) => t.id === draggedId);
     if (dragged) reinserted.splice(insertAt, 0, dragged);
-    const rebalancedTasks = reinserted.map((t, i) => ({ ...t, rank: (i + 1) * 1000.0 }));
+    // Between the cards around those loaded, or the rebalance would move them out of what shows.
+    const room = (ceiling - floor) / (reinserted.length + 1);
+    const step = room >= 0.001 && room < 1000.0 ? room : 1000.0;
+    const rebalancedTasks = reinserted.map((t, i) => ({ ...t, rank: floor + (i + 1) * step }));
     const draggedNewRank = rebalancedTasks.find((t) => t.id === draggedId)?.rank ?? newRank;
     return { newRank: draggedNewRank, needsRebalance: true, rebalancedTasks };
   }
@@ -121,13 +121,15 @@ export function Board() {
   const reorderTasks = useAppStore((s) => s.reorderTasks);
   const openCreateModal = useAppStore((s) => s.openCreateModal);
   const statuses = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId)?.statuses) ?? NO_STATUSES;
+  const columnTotals = useAppStore((s) => s.columnTotals);
   // MB-1: active column for mobile single-column view. A removed status falls back to the first.
   const [chosenColumn, setActiveColumn] = useState<ColumnType | null>(null);
   const activeColumn = statuses.some((s) => s.id === chosenColumn) ? chosenColumn! : statuses[0]?.id;
   const mainRef = useRef<HTMLElement>(null);
-  const activeSpaceId = useAppStore((s) => s.activeSpaceId);
   const epicFilter = useAppStore((s) => s.epicFilter);
-  useCardMotion(mainRef, tasks, `${activeSpaceId}|${epicFilter ?? ''}`);
+  // What the cards are of, which is not yet what was asked for until they arrive.
+  const boardScope = useAppStore((s) => s.boardScope);
+  useCardMotion(mainRef, tasks, boardScope);
 
   // PERF: All drag handlers read/write via useDragStore.getState() — no
   // subscription, so Board never re-renders from drag events. Only the two
@@ -179,9 +181,10 @@ export function Board() {
 
     if (dragSourceColumn === targetColumn) {
       // Same column → reorder
-      const columnTasks = useAppStore.getState().tasks[targetColumn] ?? [];
+      const { tasks: board, columnBounds } = useAppStore.getState();
+      const columnTasks = board[targetColumn] ?? [];
       const { newRank, needsRebalance, rebalancedTasks } = computeDropRank(
-        columnTasks, taskId, dragOverTaskId, insertBefore
+        columnTasks, taskId, dragOverTaskId, insertBefore, columnBounds[targetColumn],
       );
 
       if (needsRebalance && rebalancedTasks) {
@@ -233,9 +236,7 @@ export function Board() {
     const title = task.title;
     const announce = useAnnouncer.getState().announce;
 
-    const resolved = resolveKeyboardNeighbor(
-      getVisibleColumnTasks(columnTasks, state.epicFilter, state.tasks), taskId, direction,
-    );
+    const resolved = resolveKeyboardNeighbor(columnTasks, taskId, direction);
 
     if (!resolved.ok) {
       const edge = direction === 'up' ? 'top' : 'bottom';
@@ -244,7 +245,7 @@ export function Board() {
     }
 
     const { newRank, needsRebalance, rebalancedTasks } = computeDropRank(
-      columnTasks, taskId, resolved.neighborId, /* insertBefore */ direction === 'up',
+      columnTasks, taskId, resolved.neighborId, /* insertBefore */ direction === 'up', state.columnBounds[targetColumn],
     );
 
     if (needsRebalance && rebalancedTasks) {
@@ -267,11 +268,14 @@ export function Board() {
     );
   }, [reorderTask, reorderTasks]); // stable — Zustand actions never change
 
-  const taskCounts = Object.fromEntries(statuses.map((s) => [s.id, getVisibleColumnTasks(tasks[s.id] ?? [], epicFilter, tasks).length]));
+  const taskCounts = Object.fromEntries(statuses.map((s) => [s.id, columnTotals[s.id] ?? tasks[s.id]?.length ?? 0]));
 
   // F1/ADR-1: show the onboarding guide when the active space has zero tasks.
-  // No persistence — visibility is derived purely from store state.
-  const isBoardEmpty = Object.values(tasks).every((list) => list.length === 0);
+  // No persistence — visibility is derived purely from store state. An epic with nothing to
+  // show says nothing about the space.
+  const isBoardEmpty = epicFilter === null
+    && Object.values(tasks).every((list) => list.length === 0)
+    && Object.values(columnTotals).every((total) => total === 0);
 
   if (isBoardEmpty) {
     return (

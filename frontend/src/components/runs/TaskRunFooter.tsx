@@ -85,10 +85,10 @@ export function TaskRunFooter({ task, column, spaceId }: TaskRunFooterProps) {
   if (!view) return null;
 
   if (view.status === 'question') {
-    const question = task.comments?.find((c) => c.type === 'question' && !c.resolved);
+    const question = task.pendingQuestionText;
     return (
       <div className="flex flex-col gap-2 mt-3 w-full" data-testid="run-footer">
-        {question && <p className="text-xs text-warning leading-snug line-clamp-3">{question.text}</p>}
+        {question && <p className="text-xs text-warning leading-snug line-clamp-3">{question}</p>}
         <div className="flex items-center gap-2">
           <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); openDetailPanel(task); }}>Answer</Button>
           <span className="flex-1" />

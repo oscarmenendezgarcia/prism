@@ -26,7 +26,7 @@ import { LabelsInput } from '@/components/shared/LabelsInput';
 import { AssigneeSelect } from '@/components/shared/AssigneeSelect';
 import { ChildIssues } from '@/components/board/ChildIssues';
 import { IssueHistory } from '@/components/board/IssueHistory';
-import { allTasks, boardIndex, isOverdue, parentIssueOf, PRIORITIES, TYPES } from '@/utils/issues';
+import { isOverdue, parentIssueOf, PRIORITIES, TYPES } from '@/utils/issues';
 import { CommentsSection } from '@/components/board/CommentsSection';
 import { TaskRunPanel } from '@/components/runs/TaskRunPanel';
 import { useTaskRunStore } from '@/stores/useTaskRunStore';
@@ -78,20 +78,6 @@ async function copyToClipboard(text: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/**
- * The panel's copy has what the user just did, the board's what the agent did. Either
- * can be a moment behind, so a comment shows once, in its most recent version.
- */
-function mergeComments(board: Comment[] | undefined, panel: Comment[] | undefined): Comment[] {
-  const stamp = (c: Comment) => c.updatedAt ?? c.createdAt;
-  const byId = new Map<string, Comment>();
-  for (const c of [...(board ?? []), ...(panel ?? [])]) {
-    const seen = byId.get(c.id);
-    if (!seen || stamp(c) > stamp(seen)) byId.set(c.id, c);
-  }
-  return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-}
 
 // ---------------------------------------------------------------------------
 // Focus trap hook
@@ -158,7 +144,8 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const addComment           = useAppStore((s) => s.addComment);
   const patchComment         = useAppStore((s) => s.patchComment);
   const answerQuestion       = useAppStore((s) => s.answerQuestion);
-  const tasks                = useAppStore((s) => s.tasks);
+  const detailLoaded         = useAppStore((s) => s.detailLoaded);
+  const allEpics             = useAppStore((s) => s.epics);
   const moveTask             = useAppStore((s) => s.moveTask);
   const statuses             = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId)?.statuses) ?? [];
   const openDetailPanel      = useAppStore((s) => s.openDetailPanel);
@@ -170,6 +157,9 @@ export function TaskDetailPanel(): React.ReactElement | null {
   const activeSpaceId        = useAppStore((s) => s.activeSpaceId);
 
   const isOpen = detailTask !== null;
+  // A card only has the beginning of the description, and what is on screen until the whole
+  // issue arrives must never be saved: it would cut the description short for good.
+  const descriptionReady = detailLoaded && !detailTask?.descriptionTruncated;
 
   // Keeps "Created 5 min ago" true while the panel stays open.
   const [, setClockTick] = useState(0);
@@ -319,16 +309,22 @@ export function TaskDetailPanel(): React.ReactElement | null {
     if (focused?.id !== 'detail-due') setLocalDueDate(task.dueDate ?? '');
   }, [isMutating]);
 
-  // Deleted elsewhere: nothing here can be saved any more.
-  const onBoard = !!detailTask && boardIndex(tasks).byId.has(detailTask.id);
-  const wasOnBoard = useRef(false);
+  // The whole issue arrived, and it may say more than what it was opened with.
   useEffect(() => {
-    if (wasOnBoard.current && !onBoard && detailTask) {
-      showToast(`${detailTask.key ?? 'This issue'} was deleted`, 'info');
-      closeDetailPanel();
-    }
-    wasOnBoard.current = onBoard;
-  }, [onBoard]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!detailLoaded) return;
+    const task = useAppStore.getState().detailTask;
+    if (!task) return;
+    const focused = document.activeElement;
+    if (focused?.id !== 'detail-assigned') { setLocalAssigned(task.assigned ?? ''); savedAssigned.current = task.assigned ?? ''; }
+    if (focused?.id !== 'detail-estimate') setLocalEstimate(task.estimate != null ? String(task.estimate) : '');
+    if (focused?.id !== 'detail-due') setLocalDueDate(task.dueDate ?? '');
+  }, [detailLoaded]);
+
+  // Who else it waits for can change from elsewhere, and nothing here edits it as text.
+  const liveDependsOn = (detailTask?.dependsOn ?? []).join(',');
+  useEffect(() => {
+    setLocalDependsOn(liveDependsOn ? liveDependsOn.split(',') : []);
+  }, [liveDependsOn]);
 
   // ── Save helpers ─────────────────────────────────────────────────────────
 
@@ -376,18 +372,18 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   const handleSaveDescription = useCallback(() => {
     if (!detailTask) return;
+    if (!descriptionReady) return;
     const description = localDescription.trim();
     // Only what was written counts: what others changed meanwhile must not be undone by leaving.
     if (description === descriptionBase.current.trim()) return;
     void updateTask(detailTask.id, { description, base: { description: descriptionBase.current } });
-  }, [detailTask, localDescription, updateTask]);
+  }, [detailTask, localDescription, updateTask, descriptionReady]);
 
   // What someone is writing is theirs until it is saved: nothing that arrives may replace it,
   // and a save that fails leaves it there. Text nobody has touched follows the issue as others
   // change it. While a save is on its way the board already shows it, which proves nothing.
-  const liveIssue = detailTask ? boardIndex(tasks).byId.get(detailTask.id) : undefined;
-  const liveTitle = liveIssue?.title;
-  const liveDescription = liveIssue?.description ?? '';
+  const liveTitle = detailTask?.title;
+  const liveDescription = detailTask?.description ?? '';
   useEffect(() => {
     if (liveTitle === undefined || isMutating) return;
     const untouched = localTitle.trim() === savedTitle.current.trim();
@@ -397,13 +393,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
     }
   }, [liveTitle, isMutating]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!liveIssue || isMutating) return;
+    if (!descriptionReady || isMutating) return;
     const untouched = localDescription.trim() === descriptionBase.current.trim();
     if (untouched || localDescription.trim() === liveDescription.trim()) {
       descriptionBase.current = liveDescription;
       if (localDescription !== liveDescription) setLocalDescription(liveDescription);
     }
-  }, [liveDescription, isMutating]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [liveDescription, isMutating, descriptionReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // After a conflict: back to the text they chose.
   const resumedEdit = useAppStore((s) => s.resumedEdit);
@@ -545,19 +541,16 @@ export function TaskDetailPanel(): React.ReactElement | null {
 
   if (!detailTask) return null;
 
-  // Comments can arrive from the agent while the panel is open, through board polling.
-  // The board has the fresh copy: this one is from when the panel opened, or last saved.
-  const index = boardIndex(tasks);
-  const boardTask = index.byId.get(detailTask.id);
-  const issue: Task = boardTask ?? detailTask;
+  // Kept up to date by the store while the panel is open, loaded on the board or not.
+  const issue: Task = detailTask;
   const column = issue.category;
   const isEpic = issue.type === 'epic';
-  const parentIssue = parentIssueOf(issue, index);
-  const epics = allTasks(tasks).filter((t) => t.type === 'epic' && t.id !== issue.id);
-  const boardComments = boardTask?.comments;
-  const comments = mergeComments(boardComments, detailTask.comments);
+  const parentIssue = parentIssueOf(issue);
+  const epics = allEpics.filter((epic) => epic.id !== issue.id);
+  const comments = detailTask.comments ?? [];
   const hasOpenQuestion = comments.some((c) => c.type === 'question' && !c.resolved);
   const canRequestChanges = !!taskRunView
+    && detailLoaded
     && column !== 'todo'
     && ['failed', 'stopped', 'done'].includes(taskRunView.status)
     && !hasOpenQuestion
@@ -695,10 +688,11 @@ export function TaskDetailPanel(): React.ReactElement | null {
                   value={localDescription}
                   onChange={(e) => setLocalDescription(e.target.value)}
                   onBlur={handleSaveDescription}
-                  readOnly={!canEdit}
+                  readOnly={!canEdit || !descriptionReady}
+                  aria-busy={!descriptionReady}
                   rows={1}
-                  className="w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-tertiary/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[1.5rem] transition-[border-color] duration-fast ease-default"
-                  placeholder="Add a description…"
+                  className={`w-full px-0 py-0 bg-transparent border-b border-transparent hover:border-border/25 focus:border-primary/35 font-sans text-[14px] text-text-secondary leading-relaxed placeholder:text-text-tertiary/40 focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed resize-none [overflow-y:hidden] min-h-[1.5rem] transition-[border-color] duration-fast ease-default ${descriptionReady ? '' : 'opacity-60 cursor-progress'}`}
+                  placeholder={descriptionReady ? 'Add a description…' : 'Loading…'}
                 />
               </div>
 
@@ -800,13 +794,13 @@ export function TaskDetailPanel(): React.ReactElement | null {
               </div>
 
               {/* Epic, or the issue this is a sub-task of */}
-              {!isEpic && (parentIssue ? (
+              {!isEpic && parentIssue !== undefined && (parentIssue ? (
                 <div className={SIDE_FIELD}>
                   <span className={SIDE_LABEL}>Sub-task of</span>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => openDetailPanel(parentIssue)}
+                      onClick={() => openDetailPanel({ type: 'chore', createdAt: '', updatedAt: '', ...parentIssue })}
                       data-testid="parent-link"
                       className="flex-1 min-w-0 text-left text-sm text-text-primary truncate hover:text-primary focus:outline-hidden focus:ring-2 focus:ring-primary rounded-sm"
                     >

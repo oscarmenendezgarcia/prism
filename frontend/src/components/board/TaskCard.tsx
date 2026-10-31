@@ -19,7 +19,7 @@ import { useCanDelete, useCanEdit } from '@/stores/useAuthStore';
 import { useTaskRunStore } from '@/stores/useTaskRunStore';
 import { useDragStore } from '@/stores/useDragStore';
 import { Badge } from '@/components/shared/Badge';
-import { boardIndex, epicOf, formatDueDate, isOverdue, parentIssueOf, priorityOf, progressOf, typeOf } from '@/utils/issues';
+import { formatDueDate, isOverdue, priorityOf, typeOf } from '@/utils/issues';
 import { plainText } from '@/utils/plainText';
 import { getGradient, getInitials } from '@/utils/avatar';
 import { agentOf, assigneeLabel } from '@/utils/agents';
@@ -72,11 +72,11 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const canEdit           = useCanEdit();
   const canDelete         = useCanDelete(task);
   const statuses          = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId)?.statuses);
-  // Only what this card shows, so that polling does not re-render every card.
-  const epicTitle         = useAppStore((s) => epicOf(task, boardIndex(s.tasks))?.title);
-  const parentKey         = useAppStore((s) => parentIssueOf(task, boardIndex(s.tasks))?.key);
-  const doneChildren      = useAppStore((s) => progressOf(task.id, boardIndex(s.tasks)).done);
-  const totalChildren     = useAppStore((s) => progressOf(task.id, boardIndex(s.tasks)).total);
+  // The server works these out: the issues they depend on may not be loaded.
+  const epicTitle         = task.epic?.title;
+  const parentKey         = task.parentKey ?? undefined;
+  const doneChildren      = task.progress?.done ?? 0;
+  const totalChildren     = task.progress?.total ?? 0;
 
   const isDragging = useDragStore((s) => s.draggedTaskId === task.id);
   const isDragOverThis = useDragStore((s) => s.dragOverTaskId === task.id);
@@ -92,8 +92,7 @@ export const TaskCard = memo(function TaskCard({ task, column, onDragStart, onDr
   const leftStatus = idx > 0 ? statuses![idx - 1] : undefined;
   const rightStatus = idx >= 0 && idx < statuses!.length - 1 ? statuses![idx + 1] : undefined;
 
-  const pendingQuestions =
-    task.comments?.filter((c) => c.type === 'question' && !c.resolved).length ?? 0;
+  const pendingQuestions = task.pendingQuestions ?? 0;
 
   const priority = priorityOf(task.priority);
   const type = typeOf(task.type);

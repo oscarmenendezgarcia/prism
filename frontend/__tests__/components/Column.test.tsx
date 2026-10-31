@@ -1,6 +1,6 @@
 import type React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Column } from '../../src/components/board/Column';
 import { useAppStore } from '../../src/stores/useAppStore';
 import type { Status, Task } from '../../src/types';
@@ -34,7 +34,7 @@ function renderColumn(status: Status, columnTasks: Task[] = [], props: Partial<R
 
 describe('Column', () => {
   beforeEach(() => {
-    useAppStore.setState({ epicFilter: null, tasks: {}, spaces: [] });
+    useAppStore.setState({ epicFilter: null, tasks: {}, spaces: [], columnTotals: {}, columnLimits: {} });
   });
 
   it('renders column title for todo', () => {
@@ -91,14 +91,40 @@ describe('Column', () => {
     expect(screen.getByText('Nothing here')).toBeInTheDocument();
   });
 
-  it('counts and shows only the issues of the chosen epic', () => {
-    const epic: Task = { id: 'e1', title: 'Epic', type: 'epic', createdAt: '', updatedAt: '' };
-    const inEpic: Task = { ...tasks[0], parentId: 'e1' };
-    useAppStore.setState({ epicFilter: 'e1', tasks: { todo: [inEpic, tasks[1]], other: [epic] } });
-    renderColumn(TODO, [inEpic, tasks[1]]);
+  it('shows what it was given whatever the epic filter: the server already applied it', () => {
+    useAppStore.setState({ epicFilter: 'e1', columnTotals: { todo: 2 } });
+    renderColumn(TODO, tasks);
     expect(screen.getByText('First task')).toBeInTheDocument();
-    expect(screen.queryByText('Second task')).not.toBeInTheDocument();
-    expect(screen.getByText('1')).toBeInTheDocument();
+    expect(screen.getByText('Second task')).toBeInTheDocument();
+  });
+
+  describe('a column with more cards than are loaded', () => {
+    it('counts all of them in the header', () => {
+      useAppStore.setState({ columnTotals: { todo: 4210 } });
+      renderColumn(TODO, tasks);
+      expect(screen.getByText('4210')).toBeInTheDocument();
+    });
+
+    it('offers to show more, which asks the store for it', async () => {
+      const showMoreCards = vi.fn().mockResolvedValue(undefined);
+      useAppStore.setState({ columnTotals: { todo: 3 }, showMoreCards } as never);
+      renderColumn(TODO, tasks);
+      fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
+      expect(showMoreCards).toHaveBeenCalledWith('todo');
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Show more' })).toBeEnabled());
+    });
+
+    it('offers nothing when all are loaded', () => {
+      useAppStore.setState({ columnTotals: { todo: tasks.length } });
+      renderColumn(TODO, tasks);
+      expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+    });
+
+    it('offers nothing once the limit reaches what the server allows', () => {
+      useAppStore.setState({ columnTotals: { todo: 9000 }, columnLimits: { todo: 2000 } });
+      renderColumn(TODO, tasks);
+      expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+    });
   });
 
   it('renders TaskCards when tasks present', () => {

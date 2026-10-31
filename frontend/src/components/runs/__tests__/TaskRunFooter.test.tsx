@@ -202,10 +202,7 @@ describe('TaskRunFooter', () => {
   });
 
   it('shows an open question with the way to answer it', () => {
-    renderFooter('in-progress', { status: 'question' }, {
-      ...task,
-      comments: [{ id: 'c', author: 'a', text: 'Which one?', type: 'question', resolved: false, createdAt: '' }],
-    } as Task);
+    renderFooter('in-progress', { status: 'question' }, { ...task, pendingQuestions: 1, pendingQuestionText: 'Which one?' } as Task);
     expect(screen.getByText('Which one?')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Answer' })).toBeInTheDocument();
   });

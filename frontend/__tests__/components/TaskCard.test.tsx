@@ -289,7 +289,6 @@ describe('TaskCard — Zone B (attachment count)', () => {
 describe('TaskCard — issue tags', () => {
   const issue = (over: Partial<Task>): Task => ({ ...BASE_TASK, ...over });
   const EPIC = issue({ id: 'epic-1', key: 'WEB-1', title: 'Checkout epic', type: 'epic' });
-  const PARENT = issue({ id: 'parent-1', key: 'WEB-2', title: 'Parent issue', parentId: 'epic-1' });
 
   it('shows the key and the priority', () => {
     render(<TaskCard task={issue({ key: 'WEB-142', priority: 'urgent' })} column="todo" />);
@@ -309,32 +308,33 @@ describe('TaskCard — issue tags', () => {
   });
 
   it('shows the epic of an issue in one', () => {
-    const task = issue({ parentId: 'epic-1' });
-    resetStores({ tasks: { todo: [EPIC, task] } });
+    const task = issue({ parentId: 'epic-1', epic: { id: 'epic-1', title: 'Checkout epic' }, parentKey: null });
     render(<TaskCard task={task} column="todo" />);
     expect(screen.getByTestId('epic-tag')).toHaveTextContent('Checkout epic');
     expect(screen.queryByTestId('parent-tag')).not.toBeInTheDocument();
   });
 
   it('shows the same epic tag in any status', () => {
-    const task = issue({ parentId: 'epic-1', category: 'done' });
-    resetStores({ tasks: { todo: [EPIC], done: [task] } });
+    const task = issue({ parentId: 'epic-1', category: 'done', epic: { id: 'epic-1', title: 'Checkout epic' } });
     render(<TaskCard task={task} column="done" />);
     expect(screen.getByTestId('epic-tag')).toHaveTextContent('Checkout epic');
   });
 
   it('shows the parent and the epic of a sub-task', () => {
-    const task = issue({ parentId: 'parent-1' });
-    resetStores({ tasks: { todo: [EPIC, PARENT, task] } });
+    const task = issue({ parentId: 'parent-1', parentKey: 'WEB-2', epic: { id: 'epic-1', title: 'Checkout epic' } });
     render(<TaskCard task={task} column="todo" />);
     expect(screen.getByTestId('parent-tag')).toHaveTextContent('WEB-2');
     expect(screen.getByTestId('epic-tag')).toHaveTextContent('Checkout epic');
   });
 
   it('shows no epic tag on the epic itself', () => {
-    resetStores({ tasks: { todo: [EPIC] } });
-    render(<TaskCard task={EPIC} column="todo" />);
+    render(<TaskCard task={{ ...EPIC, epic: null }} column="todo" />);
     expect(screen.queryByTestId('epic-tag')).not.toBeInTheDocument();
+  });
+
+  it('counts its open questions from what the server says, having no comments', () => {
+    render(<TaskCard task={issue({ pendingQuestions: 3 })} column="todo" />);
+    expect(screen.getByText(/3/)).toBeInTheDocument();
   });
 
   it('shows the labels', () => {
@@ -345,20 +345,14 @@ describe('TaskCard — issue tags', () => {
   });
 
   it('shows the progress of an epic, and no Run on it', () => {
-    const done = issue({ id: 'c1', parentId: 'epic-1', category: 'done' });
-    const open = issue({ id: 'c2', parentId: 'epic-1', category: 'todo' });
-    resetStores({ tasks: { todo: [EPIC, open], done: [done] } });
-    render(<TaskCard task={{ ...EPIC, category: 'todo' }} column="todo" />);
+    render(<TaskCard task={{ ...EPIC, category: 'todo', progress: { done: 1, total: 2 } }} column="todo" />);
     expect(screen.getByTestId('epic-progress')).toHaveTextContent('50% · 1 of 2 done');
     expect(screen.queryByTestId('subtask-count')).not.toBeInTheDocument();
     expect(screen.queryByTestId('run-footer')).not.toBeInTheDocument();
   });
 
   it('counts the sub-tasks of an issue', () => {
-    const done = issue({ id: 'c1', parentId: 'task-1', category: 'done' });
-    const open = issue({ id: 'c2', parentId: 'task-1', category: 'todo' });
-    resetStores({ tasks: { todo: [BASE_TASK, open], done: [done] } });
-    render(<TaskCard task={BASE_TASK} column="todo" />);
+    render(<TaskCard task={{ ...BASE_TASK, progress: { done: 1, total: 2 } }} column="todo" />);
     expect(screen.getByTestId('subtask-count')).toHaveTextContent('1/2');
     expect(screen.queryByTestId('epic-progress')).not.toBeInTheDocument();
   });

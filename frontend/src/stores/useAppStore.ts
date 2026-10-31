@@ -13,6 +13,7 @@ import { updateSpace as apiUpdateSpace } from '@/api/client';
 import type {
   Space,
   Task,
+  BoardEpic,
   BoardTasks,
   Column,
   CreateTaskPayload,
@@ -27,12 +28,16 @@ import type {
   EditConflict,
 } from '@/types';
 import { safeStorage } from '@/utils/safeStorage';
-import { allTasks, boardIndex, keepUnchanged, localToday, mapBoard } from '@/utils/issues';
+import { boardIndex, keepUnchanged, localToday, mapBoard } from '@/utils/issues';
 
 /** Key used to persist the active space across page reloads. */
 const ACTIVE_SPACE_KEY = 'prism-active-space';
 
 const emptyBoard = (): BoardTasks => ({});
+
+/** How many more cards "Show more" brings, and the most a column can ask the server for. */
+const SHOW_MORE_STEP = 100;
+export const MAX_COLUMN_LIMIT = 2000;
 
 /**
  * Immutable helpers for `mutatingTaskIds`. Always return a fresh Set so
@@ -84,7 +89,22 @@ interface AppState {
   reorderPinnedSpaces: (orderedIds: string[]) => Promise<void>;
 
   // Tasks
+  /** The cards loaded of each column: not all there are. See columnTotals. */
   tasks: BoardTasks;
+  /** How many cards each column really has, with the epic filter on if there is one. */
+  columnTotals: Record<Column, number>;
+  /** The ranks of the cards next to those loaded, for a drop at the end of what is loaded. */
+  columnBounds: Record<Column, { rankBefore?: number; rankAfter?: number }>;
+  /** How many cards a column was asked to show. Only those "Show more" raised. */
+  columnLimits: Record<Column, number>;
+  /** Every epic of the space, loaded or not. */
+  epics: BoardEpic[];
+  /** The space and filter the loaded cards are of, which change later than what was asked for. */
+  boardScope: string;
+  /** Which version of the board the browser has. Changes when anything on it does. */
+  boardVersion: string | null;
+  /** Load more of a column: of a done one, the cards before those it shows. */
+  showMoreCards: (column: Column) => Promise<void>;
   /**
    * Global "any mutation in flight" flag. Used by polling loops to skip a
    * refetch that would clobber optimistic state, and by createTask (which has
@@ -156,8 +176,17 @@ interface AppState {
    */
   detailTask: Task | null;
 
-  /** Open the detail panel for the given task. */
+  /**
+   * Whether detailTask is the issue in full. Until then it may be a card, with only the
+   * beginning of the description, or something less, and its description must not be saved.
+   */
+  detailLoaded: boolean;
+
+  /** Open the detail panel for the given task, and get it in full. */
   openDetailPanel: (task: Task) => void;
+
+  /** Bring the issue open in the panel up to date. If it no longer exists, close the panel. */
+  refreshDetail: () => Promise<void>;
 
   /** Close the detail panel and clear detailTask. */
   closeDetailPanel: () => void;
@@ -182,7 +211,7 @@ interface AppState {
 
   /**
    * Post a new comment on a task.
-   * Optimistically appends to detailTask.comments and the board task's comments.
+   * Appends to detailTask.comments, and updates what the card says about its questions.
    * Throws on API failure (so CommentsSection can show the error).
    */
   addComment: (
@@ -192,7 +221,7 @@ interface AppState {
 
   /**
    * Update an existing comment (resolve / re-open / edit text).
-   * Optimistically updates detailTask.comments and the board task.
+   * Updates detailTask.comments, and what the card says about its questions.
    * Throws on API failure.
    */
   patchComment: (
@@ -236,6 +265,62 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let savesStarted = 0;
 let movesInFlight = 0;
 
+/** The version of the board in `tasks`. Reset whenever `tasks` stops being what it describes. */
+let boardEtag: string | null = null;
+let boardRequests = 0;
+let boardApplied = 0;
+
+/** The same for the issue in the panel, and what stops a read from undoing a write around it. */
+let detailEtag: string | null = null;
+let detailRequests = 0;
+let detailWrites = 0;
+let detailWritesInFlight = 0;
+
+const boardQueryKey = (s: { epicFilter: string | null; columnLimits: Record<string, number> }) =>
+  JSON.stringify([s.epicFilter, s.columnLimits]);
+
+/** Questions open on an issue, as a card shows them, from its comments. */
+function questionsOf(comments: Comment[] | undefined): Pick<Task, 'pendingQuestions' | 'pendingQuestionText'> {
+  const open = (comments ?? []).filter((c) => c.type === 'question' && !c.resolved);
+  return { pendingQuestions: open.length, pendingQuestionText: open[0]?.text };
+}
+
+/** What the server worked out for a card, which an answer about just that issue does not bring. */
+function cardFields(card: Task): Partial<Task> {
+  const { epic, parentKey, progress, pendingQuestions, pendingQuestionText } = card;
+  return { epic, parentKey, progress, pendingQuestions, pendingQuestionText };
+}
+
+/** Comments are only for the panel: a card has their count. */
+function withoutComments({ comments: _comments, ...task }: Task): Task {
+  return task;
+}
+
+/** A write of comments, during which what the panel reads must not undo it. */
+async function writeComment<T>(write: () => Promise<T>, taskId: string): Promise<T> {
+  detailWrites += 1;
+  detailWritesInFlight += 1;
+  try {
+    return await write();
+  } finally {
+    detailWrites += 1;
+    detailWritesInFlight -= 1;
+    const { detailTask, refreshDetail } = useAppStore.getState();
+    if (detailTask?.id === taskId) void refreshDetail();
+  }
+}
+
+/** Change the comments of the issue in the panel, and what its card says about them. */
+function applyToComments(taskId: string, change: (comments: Comment[]) => Comment[]): void {
+  const { detailTask: open, tasks } = useAppStore.getState();
+  if (open?.id !== taskId) return;
+  const comments = change(open.comments ?? []);
+  useAppStore.setState({
+    detailTask: { ...open, comments },
+    tasks: mapBoard(tasks, (t) => (t.id === taskId ? { ...t, ...questionsOf(comments) } : t)),
+  });
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   // ── Spaces ──────────────────────────────────────────────────────────────
 
@@ -245,9 +330,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   setActiveSpace: (id: string) => {
     safeStorage.setItem(ACTIVE_SPACE_KEY, id);
     // An epic of the old space would hide every card in the new one.
+    boardEtag = null;
     set({
-      activeSpaceId: id, epicFilter: null,
-      ...(id !== get().activeSpaceId && { tasks: emptyBoard() }),
+      activeSpaceId: id, epicFilter: null, columnLimits: {},
+      ...(id !== get().activeSpaceId && {
+        tasks: emptyBoard(), columnTotals: {}, columnBounds: {}, epics: [], boardScope: `${id}|`, boardVersion: null,
+      }),
     });
   },
 
@@ -362,6 +450,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Tasks ───────────────────────────────────────────────────────────────
 
   tasks: emptyBoard(),
+  columnTotals: {},
+  columnBounds: {},
+  columnLimits: {},
+  epics: [],
+  boardScope: '',
+  boardVersion: null,
   isMutating: false,
   mutatingTaskIds: new Set<string>(),
 
@@ -371,27 +465,70 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activeSpaceId, showToast } = get();
     try {
       const startedAt = savesStarted;
-      const data = await api.getTasks(activeSpaceId);
+      const asked = get();
+      const queryKey = boardQueryKey(asked);
+      const request = ++boardRequests;
+      const fresh = await api.getBoard(activeSpaceId, { limits: asked.columnLimits, epic: asked.epicFilter, etag: boardEtag });
       // The user may have moved to another space while this was on its way.
       if (get().activeSpaceId !== activeSpaceId) return;
       // From before a save, it would undo it on the screen until the next one.
       if (savesStarted !== startedAt) return;
       // Started during a move, and answered before the server applied it.
       if (movesInFlight > 0) return;
+      // Of another filter, or of fewer cards than are asked for now. Whoever changed that asked again.
+      if (boardQueryKey(get()) !== queryKey) return;
+      const today = localToday();
+      if (!fresh) {
+        // Nothing changed, not even on the screen. Only the day goes on.
+        if (today !== get().today) set({ today });
+        // A card that is not loaded changes without the board finding out.
+        const { detailTask, detailLoaded, tasks } = get();
+        if (detailTask && (!detailLoaded || !boardIndex(tasks).byId.has(detailTask.id))) void get().refreshDetail();
+        return;
+      }
+      if (request < boardApplied) return;
+      boardApplied = request;
+      const { data, etag } = fresh;
       // An epic that is gone would leave the board empty, with nothing to clear the filter.
       const { epicFilter } = get();
-      const epicGone = epicFilter !== null && !allTasks(data).some((t) => t.id === epicFilter && t.type === 'epic');
-      const today = localToday();
-      set({ tasks: keepUnchanged(get().tasks, data), ...(epicGone && { epicFilter: null }), ...(today !== get().today && { today }) });
+      if (epicFilter !== null && !data.epics.some((e) => e.id === epicFilter)) {
+        boardEtag = null;
+        set({ epicFilter: null, columnLimits: {} });
+        void get().loadBoard();
+        return;
+      }
+      boardEtag = etag;
+      const statuses = Object.entries(data.columns);
+      const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+      const totals = Object.fromEntries(statuses.map(([id, column]) => [id, column.total]));
+      const bounds = Object.fromEntries(statuses.map(([id, { rankBefore, rankAfter }]) => [id, { rankBefore, rankAfter }]));
+      const now = get();
+      set({
+        tasks: keepUnchanged(now.tasks, Object.fromEntries(statuses.map(([id, column]) => [id, column.tasks]))),
+        columnTotals: same(now.columnTotals, totals) ? now.columnTotals : totals,
+        columnBounds: same(now.columnBounds, bounds) ? now.columnBounds : bounds,
+        epics: same(now.epics, data.epics) ? now.epics : data.epics,
+        boardScope: `${activeSpaceId}|${epicFilter ?? ''}`,
+        boardVersion: etag,
+        ...(today !== now.today && { today }),
+      });
+      if (get().detailTask) void get().refreshDetail();
       // Someone changed the statuses: the board must show them as they are now.
       const known = get().spaces.find((s) => s.id === activeSpaceId)?.statuses;
-      const columns = Object.keys(data);
+      const columns = Object.keys(data.columns);
       if (known && (columns.length !== known.length || columns.some((id) => !known.some((s) => s.id === id)))) {
         set({ spaces: await api.getSpaces() });
       }
     } catch (err) {
       showToast(`Failed to load tasks: ${(err as Error).message}`, 'error');
     }
+  },
+
+  showMoreCards: async (column) => {
+    const { columnLimits, tasks, loadBoard } = get();
+    const limit = Math.min(MAX_COLUMN_LIMIT, (columnLimits[column] ?? tasks[column]?.length ?? 0) + SHOW_MORE_STEP);
+    set({ columnLimits: { ...columnLimits, [column]: limit } });
+    await loadBoard();
   },
 
   refreshSpaces: async () => {
@@ -425,15 +562,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     const target = spaces.find((s) => s.id === activeSpaceId)?.statuses?.find((s) => s.id === statusId);
     const source = Object.keys(tasks).find((column) => tasks[column]?.some((t) => t.id === taskId));
     const moved = source && source !== statusId ? tasks[source].find((t) => t.id === taskId) : undefined;
+    // The panel shows it too, and it may be the only place that does: not every card is loaded.
+    const { detailTask } = get();
+    const panelBefore = detailTask?.id === taskId ? { statusId: detailTask.statusId, category: detailTask.category } : null;
 
     savesStarted += 1;
     movesInFlight += 1;
+    detailWrites += 1;
+    detailWritesInFlight += 1;
     let movedInFlight = true;
+    const totals = get().columnTotals;
     set({
       isMutating: true,
       mutatingTaskIds: addMutatingId(get().mutatingTaskIds, taskId),
+      ...(detailTask && panelBefore && {
+        detailTask: { ...detailTask, statusId, category: target?.category ?? detailTask.category },
+      }),
       // At once, and last in the column: where the server will put it.
       ...(moved && {
+        columnTotals: {
+          ...totals,
+          [source!]: (totals[source!] ?? tasks[source!].length) - 1,
+          [statusId]: (totals[statusId] ?? tasks[statusId]?.length ?? 0) + 1,
+        },
         tasks: {
           ...tasks,
           [source!]: tasks[source!].filter((t) => t.id !== taskId),
@@ -469,11 +620,21 @@ export const useAppStore = create<AppState>((set, get) => ({
             [source!]: [...(now[source!] ?? []).filter((t) => t.id !== taskId), moved]
               .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt)),
           },
+          columnTotals: {
+            ...get().columnTotals,
+            [source!]: (get().columnTotals[source!] ?? 0) + 1,
+            [statusId]: Math.max(0, (get().columnTotals[statusId] ?? 0) - 1),
+          },
         });
       }
+      const open = get().detailTask;
+      if (panelBefore && open?.id === taskId) set({ detailTask: { ...open, ...panelBefore } });
       showToast((err as Error).message, 'error');
     } finally {
       set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });
+      detailWrites += 1;
+      detailWritesInFlight -= 1;
+      if (get().detailTask?.id === taskId) void get().refreshDetail();
     }
   },
 
@@ -605,13 +766,44 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Task detail panel (ADR-1: task-detail-edit) ───────────────────────────
 
   detailTask: null,
+  detailLoaded: false,
 
   openDetailPanel: (task: Task) => {
-    set({ detailTask: task });
+    // Already open: what it has is at least as complete as what this brings, which may be a card.
+    if (get().detailTask?.id === task.id) {
+      void get().refreshDetail();
+      return;
+    }
+    detailEtag = null;
+    set({ detailTask: task, detailLoaded: false });
+    void get().refreshDetail();
   },
 
   closeDetailPanel: () => {
-    set({ detailTask: null });
+    detailEtag = null;
+    set({ detailTask: null, detailLoaded: false });
+  },
+
+  refreshDetail: async () => {
+    const { activeSpaceId, detailTask, detailLoaded } = get();
+    if (!detailTask) return;
+    const taskId = detailTask.id;
+    const request = ++detailRequests;
+    const writesAtStart = detailWrites;
+    const isStale = () => request !== detailRequests || get().detailTask?.id !== taskId || get().activeSpaceId !== activeSpaceId;
+    try {
+      const fresh = await api.getTaskForPanel(activeSpaceId, taskId, detailLoaded ? detailEtag : null);
+      if (isStale() || !fresh) return;
+      // From before a write finished. Whoever wrote asks again when done.
+      if (detailWrites !== writesAtStart || detailWritesInFlight > 0) return;
+      detailEtag = fresh.etag;
+      set({ detailTask: fresh.data, detailLoaded: true });
+    } catch (err) {
+      // Anything else, and the next poll tries again: the panel goes on waiting.
+      if ((err as { code?: string }).code !== 'TASK_NOT_FOUND' || isStale()) return;
+      get().showToast(`${detailTask.key ?? 'This issue'} was deleted`, 'info');
+      get().closeDetailPanel();
+    }
   },
 
   editConflict: null,
@@ -640,6 +832,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!isOpen) {
         const task = boardIndex(get().tasks).byId.get(taskId);
         if (task) get().openDetailPanel(task);
+        else {
+          // Not among the cards loaded, which says nothing about whether it exists.
+          const { activeSpaceId, showToast } = get();
+          void api.getTaskForPanel(activeSpaceId, taskId).then((fresh) => {
+            if (fresh && get().activeSpaceId === activeSpaceId && !get().detailTask) get().openDetailPanel(fresh.data);
+          }).catch((err: Error) => showToast(err.message, 'error'));
+        }
       }
     }
   },
@@ -647,6 +846,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   updateTask: async (taskId: string, { base, ...patch }: UpdateTaskPayload) => {
     const { activeSpaceId, tasks, detailTask, showToast } = get();
     savesStarted += 1;
+    detailWrites += 1;
+    detailWritesInFlight += 1;
 
     // Optimistic update: apply patch immediately in-place across all statuses.
     const optimisticTasks = mapBoard(tasks, (t) => (t.id === taskId ? { ...t, ...patch } : t));
@@ -666,25 +867,44 @@ export const useAppStore = create<AppState>((set, get) => ({
       const updated = await api.updateTask(activeSpaceId, taskId, { ...patch, ...(base && { base }) });
 
       // Reconcile with server response (authoritative timestamps, etc.).
+      // The response does not derive these, and a poll would flicker them back.
+      const derived = (t: Task): Partial<Task> => ({
+        ...(!('dependsOn' in patch) && { isBlocked: t.isBlocked, blockedByCount: t.blockedByCount }),
+      });
+      const open = get().detailTask;
       set({
-        // The response does not derive these, and a poll would flicker them back.
         tasks: mapBoard(get().tasks, (t) => (t.id === taskId
-          ? { ...updated, ...(!('dependsOn' in patch) && { isBlocked: t.isBlocked, blockedByCount: t.blockedByCount }) }
+          ? { ...withoutComments(updated), ...cardFields(t), ...derived(t) }
           : t)),
-        detailTask: get().detailTask?.id === taskId ? updated : get().detailTask,
+        detailTask: open?.id === taskId
+          ? { ...updated, ...derived(open), ...(!('parentId' in patch) && { parent: open.parent }) }
+          : open,
       });
 
       showToast('Saved');
+      // What a card shows of its place in the hierarchy is the server's to work out.
+      if ('parentId' in patch || 'type' in patch) void get().loadBoard();
       return true;
     } catch (err) {
-      // Roll back optimistic changes on error. A panel closed meanwhile stays closed.
-      set({ tasks, ...(get().detailTask?.id === detailTask?.id && { detailTask }) });
+      // Roll back optimistic changes on error. Only what was changed: the rest may have arrived
+      // since, such as the whole description. A panel closed meanwhile stays closed.
+      const open = get().detailTask;
+      let restored = open;
+      if (open && open.id === taskId && detailTask?.id === taskId) {
+        const fields = { ...open } as Record<string, unknown>;
+        for (const field of Object.keys(patch)) {
+          if (field in detailTask) fields[field] = (detailTask as unknown as Record<string, unknown>)[field];
+          else delete fields[field];
+        }
+        restored = fields as unknown as Task;
+      }
+      set({ tasks, detailTask: restored });
       const { code, details } = err as { code?: string; details?: Omit<EditConflict, 'taskId' | 'mine' | 'key' | 'base'> };
       if (code === 'EDIT_CONFLICT' && details) {
         // Nothing is lost: what they wrote waits for them to choose.
         const { field, theirs, by, at } = details;
         const mine = patch[field as 'title' | 'description'] ?? '';
-        const key = boardIndex(tasks).byId.get(taskId)?.key;
+        const key = boardIndex(tasks).byId.get(taskId)?.key ?? (detailTask?.id === taskId ? detailTask.key : undefined);
         const conflict: EditConflict = { taskId, key, field, mine, theirs, base: base?.[field] ?? '', by, at };
         if (get().editConflict) set({ conflictQueue: [...get().conflictQueue, conflict] });
         else set({ editConflict: conflict });
@@ -695,6 +915,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       return false;
     } finally {
       set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });
+      detailWrites += 1;
+      detailWritesInFlight -= 1;
+      if (get().detailTask?.id === taskId) void get().refreshDetail();
     }
   },
 
@@ -703,18 +926,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   addComment: async (taskId, payload) => {
     const { activeSpaceId, showToast } = get();
     try {
-      const comment = await api.createComment(activeSpaceId, taskId, payload);
-
-      const applyAdd = (t: Task): Task => {
-        if (t.id !== taskId) return t;
-        return { ...t, comments: [...(t.comments ?? []), comment] };
-      };
-
-      const currentTasks = get().tasks;
-      set({
-        tasks: mapBoard(currentTasks, applyAdd),
-        ...(get().detailTask?.id === taskId ? { detailTask: applyAdd(get().detailTask as Task) } : {}),
-      });
+      const comment = await writeComment(() => api.createComment(activeSpaceId, taskId, payload), taskId);
+      applyToComments(taskId, (comments) => [...comments, comment]);
     } catch (err) {
       showToast(`Failed to post comment: ${(err as Error).message}`, 'error');
       throw err;
@@ -724,21 +937,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   patchComment: async (taskId, commentId, patch) => {
     const { activeSpaceId, showToast } = get();
     try {
-      const updated = await api.updateComment(activeSpaceId, taskId, commentId, patch);
-
-      const applyPatch = (t: Task): Task => {
-        if (t.id !== taskId) return t;
-        return {
-          ...t,
-          comments: (t.comments ?? []).map((c) => (c.id === commentId ? updated : c)),
-        };
-      };
-
-      const currentTasks = get().tasks;
-      set({
-        tasks: mapBoard(currentTasks, applyPatch),
-        ...(get().detailTask?.id === taskId ? { detailTask: applyPatch(get().detailTask as Task) } : {}),
-      });
+      const updated = await writeComment(() => api.updateComment(activeSpaceId, taskId, commentId, patch), taskId);
+      applyToComments(taskId, (comments) => comments.map((c) => (c.id === commentId ? updated : c)));
       if (patch.resolved) void useTaskRunStore.getState().load(activeSpaceId); // The agent may be starting again.
     } catch (err) {
       showToast(`Failed to update comment: ${(err as Error).message}`, 'error');
@@ -749,22 +949,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   answerQuestion: async (taskId, questionCommentId, text) => {
     const { activeSpaceId, showToast } = get();
     try {
-      const { question, answer } = await api.answerQuestion(activeSpaceId, taskId, questionCommentId, text);
-
-      const applyAnswer = (t: Task): Task => {
-        if (t.id !== taskId) return t;
-        const comments = (t.comments ?? []).map((c) =>
-          c.id === questionCommentId ? { ...c, ...question } : c,
-        );
-        comments.push(answer);
-        return { ...t, comments };
-      };
-
-      const currentTasks = get().tasks;
-      set({
-        tasks: mapBoard(currentTasks, applyAnswer),
-        ...(get().detailTask?.id === taskId ? { detailTask: applyAnswer(get().detailTask as Task) } : {}),
-      });
+      const { question, answer } = await writeComment(() => api.answerQuestion(activeSpaceId, taskId, questionCommentId, text), taskId);
+      applyToComments(taskId, (comments) => [
+        ...comments.map((c) => (c.id === questionCommentId ? { ...c, ...question } : c)),
+        answer,
+      ]);
       void useTaskRunStore.getState().load(activeSpaceId); // The agent may be starting again.
     } catch (err) {
       showToast(`Failed to answer question: ${(err as Error).message}`, 'error');
@@ -775,7 +964,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   // ── Epic filter ───────────────────────────────────────────────────────────
 
   epicFilter:    null,
-  setEpicFilter: (epicId) => set({ epicFilter: epicId }),
+  setEpicFilter: (epicId) => {
+    if (epicId === get().epicFilter) return;
+    // The server filters, and what it sent was for the other filter.
+    boardEtag = null;
+    set({ epicFilter: epicId, columnLimits: {} });
+    void get().loadBoard();
+  },
 
   // ── Global search (ADR-1: global-search) ─────────────────────────────────
 

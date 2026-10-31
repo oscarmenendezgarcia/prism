@@ -7,22 +7,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import { EpicBar } from '../../src/components/board/EpicBar';
 import { useAppStore } from '../../src/stores/useAppStore';
-import type { Task } from '../../src/types';
+import * as api from '../../src/api/client';
+import type { BoardEpic } from '../../src/types';
 
-vi.mock('../../src/api/client', () => ({ getSpaces: vi.fn(), getTasks: vi.fn() }));
+vi.mock('../../src/api/client', () => ({ getSpaces: vi.fn(), getBoard: vi.fn().mockResolvedValue(null) }));
 
 const SPACE = { id: 's1', name: 'Space', createdAt: '', updatedAt: '' };
 
-const task = (id: string, type: Task['type'] = 'feature', title = id): Task => (
-  { id, key: id.toUpperCase(), title, type, createdAt: '', updatedAt: '' }
+const epic = (id: string, title = id): BoardEpic => (
+  { id, key: id.toUpperCase(), title, statusId: 'todo', category: 'todo', done: 0, total: 0 }
 );
 
-function setTasks(tasks: Record<string, Task[]>) {
-  useAppStore.setState({ tasks });
+function setEpics(epics: BoardEpic[]) {
+  useAppStore.setState({ epics });
 }
 
 beforeEach(() => {
-  useAppStore.setState({ tasks: {}, epicFilter: null, spaces: [SPACE], activeSpaceId: 's1', spaceModal: null });
+  useAppStore.setState({ tasks: {}, epics: [], epicFilter: null, spaces: [SPACE], activeSpaceId: 's1', spaceModal: null });
 });
 
 const filter = () => screen.getByLabelText('Filter by epic') as HTMLSelectElement;
@@ -30,20 +31,20 @@ const options = () => [...filter().options].map((o) => o.textContent);
 
 describe('EpicBar', () => {
   it('has no filter when the board has no epics', () => {
-    setTasks({ todo: [task('t1')] });
+    setEpics([]);
     render(<EpicBar />);
     expect(screen.getByTestId('epic-bar')).toBeInTheDocument();
     expect(screen.queryByLabelText('Filter by epic')).not.toBeInTheDocument();
   });
 
-  it('offers All epics and each epic, sorted across statuses, and no other issue', () => {
-    setTasks({ todo: [task('e1', 'epic', 'Loop'), task('t1', 'feature', 'Not an epic')], doing: [task('e2', 'epic', 'Auth')], done: [task('e3', 'epic', 'Quality')] });
+  it('offers All epics and each epic, sorted, loaded on the board or not', () => {
+    setEpics([epic('e1', 'Loop'), epic('e2', 'Auth'), epic('e3', 'Quality')]);
     render(<EpicBar />);
     expect(options()).toEqual(['All epics', 'Auth', 'Loop', 'Quality']);
   });
 
   it('shows the chosen epic, and marks that a filter is on', () => {
-    setTasks({ todo: [task('e1', 'epic'), task('e2', 'epic')] });
+    setEpics([epic('e1'), epic('e2')]);
     const { rerender } = render(<EpicBar />);
     expect(filter().value).toBe('');
     expect(filter()).not.toHaveClass('text-primary');
@@ -54,18 +55,27 @@ describe('EpicBar', () => {
   });
 
   it('choosing an epic filters by its id', () => {
-    setTasks({ todo: [task('e1', 'epic')] });
+    setEpics([epic('e1')]);
     render(<EpicBar />);
     fireEvent.change(filter(), { target: { value: 'e1' } });
     expect(useAppStore.getState().epicFilter).toBe('e1');
   });
 
   it('choosing All epics clears the filter', () => {
-    setTasks({ todo: [task('e1', 'epic')] });
+    setEpics([epic('e1')]);
     useAppStore.setState({ epicFilter: 'e1' });
     render(<EpicBar />);
     fireEvent.change(filter(), { target: { value: '' } });
     expect(useAppStore.getState().epicFilter).toBeNull();
+  });
+
+  it('asks the server for what is in the epic, and for all of it again', () => {
+    setEpics([epic('e1')]);
+    render(<EpicBar />);
+    fireEvent.change(filter(), { target: { value: 'e1' } });
+    expect(vi.mocked(api.getBoard).mock.lastCall?.[1]).toMatchObject({ epic: 'e1' });
+    fireEvent.change(filter(), { target: { value: '' } });
+    expect(vi.mocked(api.getBoard).mock.lastCall?.[1]).toMatchObject({ epic: null });
   });
 
   it('Space settings opens the settings of the active space', () => {

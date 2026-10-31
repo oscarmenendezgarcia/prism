@@ -1,9 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  keepUnchanged,
-  allTasks, boardIndex, epicOf, formatDueDate, isAwaitingReview, isInEpic, isOverdue, mapBoard,
-  parentIssueOf, priorityOf, progressOf, statusDotClass, typeOf,
-} from '../../src/utils/issues';
+import {keepUnchanged, allTasks, boardIndex, formatDueDate, isAwaitingReview, isOverdue, mapBoard, parentIssueOf, priorityOf, statusDotClass, typeOf } from '../../src/utils/issues';
 import type { BoardTasks, Space, Status, Task } from '../../src/types';
 
 const issue = (id: string, over: Partial<Task> = {}): Task => ({
@@ -48,12 +44,6 @@ describe('boardIndex', () => {
     expect(INDEX.byId.has('nowhere')).toBe(false);
   });
 
-  it('groups the children of each issue across statuses, in the order of their number', () => {
-    expect(INDEX.children.get('epic')?.map((t) => t.id)).toEqual(['b', 'a']);
-    expect(INDEX.children.get('a')?.map((t) => t.id)).toEqual(['sub']);
-    expect(INDEX.children.has('loose')).toBe(false);
-  });
-
   it('is computed once per version of the board', () => {
     expect(boardIndex(BOARD)).toBe(INDEX);
     const next = { ...BOARD, todo: [...BOARD.todo, issue('new')] };
@@ -64,84 +54,29 @@ describe('boardIndex', () => {
   });
 });
 
-describe('epicOf', () => {
-  it('is the parent, for an issue directly in an epic', () => {
-    expect(epicOf(A, INDEX)).toBe(EPIC);
-  });
-
-  it('is the grandparent, for a sub-task', () => {
-    expect(epicOf(SUB, INDEX)).toBe(EPIC);
-  });
-
-  it('is nothing for an epic, even if it has a parent', () => {
-    expect(epicOf(EPIC, INDEX)).toBeNull();
-    expect(epicOf({ ...EPIC, parentId: 'other' }, INDEX)).toBeNull();
-  });
-
-  it('is nothing for an issue with no parent', () => {
-    expect(epicOf(LOOSE, INDEX)).toBeNull();
-  });
-
-  it('is nothing for an issue whose parent is not on the board', () => {
-    expect(epicOf(ORPHAN, INDEX)).toBeNull();
-  });
-
-  it('is nothing for a sub-task of an issue outside any epic', () => {
-    const top = issue('top');
-    const child = issue('child', { parentId: 'top' });
-    expect(epicOf(child, boardIndex({ todo: [top, child] }))).toBeNull();
-  });
-});
-
 describe('parentIssueOf', () => {
+  const base: Task = { id: 't', title: 'T', type: 'feature', createdAt: '', updatedAt: '' };
+
   it('is the issue a sub-task hangs from', () => {
-    expect(parentIssueOf(SUB, INDEX)).toBe(A);
+    const parent = { id: 'p', key: 'WEB-1', title: 'P', type: 'feature' as const };
+    expect(parentIssueOf({ ...base, parentId: 'p', parent })).toBe(parent);
   });
 
   it('is nothing for an issue directly in an epic', () => {
-    expect(parentIssueOf(A, INDEX)).toBeNull();
+    expect(parentIssueOf({ ...base, parentId: 'e', parent: { id: 'e', title: 'E', type: 'epic' } })).toBeNull();
+    expect(parentIssueOf({ ...base, parentId: 'e', parentKey: null })).toBeNull();
   });
 
-  it('is nothing without a parent, or with one not on the board', () => {
-    expect(parentIssueOf(LOOSE, INDEX)).toBeNull();
-    expect(parentIssueOf(ORPHAN, INDEX)).toBeNull();
-  });
-});
-
-describe('progressOf', () => {
-  it('counts the direct children and those in a done category', () => {
-    expect(progressOf('epic', INDEX)).toEqual({ done: 1, total: 2 });
+  it('is nothing without a parent', () => {
+    expect(parentIssueOf(base)).toBeNull();
   });
 
-  it('does not count sub-tasks of its children', () => {
-    // SUB is under a, which is under epic: total stays 2, not 3.
-    expect(progressOf('epic', INDEX).total).toBe(2);
-    expect(progressOf('a', INDEX)).toEqual({ done: 0, total: 1 });
+  it('is what a card knows of it, until the whole issue arrives', () => {
+    expect(parentIssueOf({ ...base, parentId: 'p', parentKey: 'WEB-1' })).toEqual({ id: 'p', key: 'WEB-1', title: '' });
   });
 
-  it('is zero of zero with no children', () => {
-    expect(progressOf('loose', INDEX)).toEqual({ done: 0, total: 0 });
-  });
-});
-
-describe('isInEpic', () => {
-  it('includes the epic itself', () => {
-    expect(isInEpic(EPIC, 'epic', INDEX)).toBe(true);
-  });
-
-  it('includes its issues and their sub-tasks', () => {
-    expect(isInEpic(A, 'epic', INDEX)).toBe(true);
-    expect(isInEpic(SUB, 'epic', INDEX)).toBe(true);
-  });
-
-  it('leaves out other epics and what is in them', () => {
-    expect(isInEpic(OTHER, 'epic', INDEX)).toBe(false);
-    expect(isInEpic(C, 'epic', INDEX)).toBe(false);
-  });
-
-  it('leaves out issues in no epic', () => {
-    expect(isInEpic(LOOSE, 'epic', INDEX)).toBe(false);
-    expect(isInEpic(ORPHAN, 'epic', INDEX)).toBe(false);
+  it('is not known when all there is is the id', () => {
+    expect(parentIssueOf({ ...base, parentId: 'p' })).toBeUndefined();
   });
 });
 

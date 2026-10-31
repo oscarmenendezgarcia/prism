@@ -15,6 +15,7 @@ import * as api from '@/api/client';
 // ── Mock API client ───────────────────────────────────────────────────────────
 vi.mock('@/api/client', () => ({
   apiFetch: vi.fn(),
+  getTasksByIds: vi.fn(),
   updateTask: vi.fn(),
   getSpaces: vi.fn(),
   getTasks: vi.fn(),
@@ -348,5 +349,48 @@ describe('DependsOnSection — read-only mode', () => {
     expect(screen.getByText(/dep-2/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /remove/i })).not.toBeInTheDocument();
+  });
+});
+
+describe('DependsOnSection — a dependency whose card is not loaded', () => {
+  const STATUSES = [
+    { id: 'todo', name: 'Todo', category: 'todo' as const },
+    { id: 'shipped', name: 'Shipped', category: 'done' as const },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAppStore.setState({
+      tasks: { todo: [], shipped: [] },
+      boardVersion: null,
+      spaces: [{ id: SPACE_ID, name: 'S', statuses: STATUSES, createdAt: '', updatedAt: '' }],
+    } as never);
+  });
+
+  it('asks the server, and shows it with its key, title and status', async () => {
+    vi.mocked(api.getTasksByIds).mockResolvedValue({
+      tasks: [{ id: DEP_ID_1, key: 'WEB-9', title: 'Far away', statusId: 'shipped', category: 'done', type: 'chore', createdAt: '', updatedAt: '' }],
+      total: 1,
+    });
+    renderSection({ dependsOn: [DEP_ID_1] });
+    expect(await screen.findByText('Far away')).toBeInTheDocument();
+    expect(screen.getByText('WEB-9')).toBeInTheDocument();
+    expect(screen.getByLabelText('Status: Shipped')).toBeInTheDocument();
+    expect(api.getTasksByIds).toHaveBeenCalledWith(SPACE_ID, [DEP_ID_1]);
+  });
+
+  it('asks nothing for one that is loaded', () => {
+    useAppStore.setState({ tasks: { todo: [{ id: DEP_ID_1, key: 'WEB-1', title: 'Near', statusId: 'todo', category: 'todo', type: 'chore', createdAt: '', updatedAt: '' }] } } as never);
+    renderSection({ dependsOn: [DEP_ID_1] });
+    expect(screen.getByText('Near')).toBeInTheDocument();
+    expect(api.getTasksByIds).not.toHaveBeenCalled();
+  });
+
+  it('shows its id, and can still remove it, if the server does not answer', async () => {
+    vi.mocked(api.getTasksByIds).mockRejectedValue(new Error('Network'));
+    renderSection({ dependsOn: [DEP_ID_1] });
+    await waitFor(() => expect(api.getTasksByIds).toHaveBeenCalled());
+    expect(screen.getByText(DEP_ID_1)).toBeInTheDocument();
+    expect(screen.getByTestId('remove-dep-btn')).toBeInTheDocument();
   });
 });

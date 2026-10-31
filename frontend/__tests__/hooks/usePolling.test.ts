@@ -9,9 +9,12 @@ import { usePolling } from '../../src/hooks/usePolling';
 import { useAppStore } from '../../src/stores/useAppStore';
 
 // Mock the api client used by the store
+import { boardAnswer } from '../helpers/board';
 vi.mock('../../src/api/client', () => ({
   getSpaces: vi.fn(),
   getTasks: vi.fn(),
+  getBoard: vi.fn(),
+  getTaskForPanel: vi.fn().mockResolvedValue(null),
   createSpace: vi.fn(),
   renameSpace: vi.fn(),
   deleteSpace: vi.fn(),
@@ -31,7 +34,7 @@ beforeEach(() => {
     tasks:       { todo: [], 'in-progress': [], done: [] },
     activeSpaceId: 'default',
   });
-  vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+  vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 });
 
 afterEach(() => {
@@ -46,13 +49,13 @@ describe('usePolling', () => {
       vi.advanceTimersByTime(3000);
     });
 
-    expect(api.getTasks).toHaveBeenCalledTimes(1);
+    expect(api.getBoard).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       vi.advanceTimersByTime(3000);
     });
 
-    expect(api.getTasks).toHaveBeenCalledTimes(2);
+    expect(api.getBoard).toHaveBeenCalledTimes(2);
     unmount();
   });
 
@@ -64,7 +67,7 @@ describe('usePolling', () => {
       vi.advanceTimersByTime(3000);
     });
 
-    expect(api.getTasks).not.toHaveBeenCalled();
+    expect(api.getBoard).not.toHaveBeenCalled();
     unmount();
   });
 
@@ -96,7 +99,7 @@ describe('usePolling', () => {
     await act(async () => {
       vi.advanceTimersByTime(3000);
     });
-    expect(api.getTasks).not.toHaveBeenCalled();
+    expect(api.getBoard).not.toHaveBeenCalled();
 
     // Unset isMutating
     act(() => {
@@ -106,7 +109,7 @@ describe('usePolling', () => {
     await act(async () => {
       vi.advanceTimersByTime(3000);
     });
-    expect(api.getTasks).toHaveBeenCalledTimes(1);
+    expect(api.getBoard).toHaveBeenCalledTimes(1);
     unmount();
   });
 });

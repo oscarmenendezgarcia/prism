@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
-import { apiFetch, updateTask } from '@/api/client';
+import { apiFetch, getTasksByIds, updateTask } from '@/api/client';
 import type { Status, StatusCategory, Task } from '@/types';
 
 // Column pill styles
@@ -46,6 +46,7 @@ export function DependsOnSection({
   onUpdated,
 }: DependsOnSectionProps) {
   const tasks = useAppStore((s) => s.tasks);
+  const boardVersion = useAppStore((s) => s.boardVersion);
   const showToast = useAppStore((s) => s.showToast);
   const statuses: Status[] = useAppStore((s) => s.spaces.find((sp) => sp.id === spaceId)?.statuses) ?? [];
 
@@ -56,6 +57,7 @@ export function DependsOnSection({
   const [mutating,     setMutating]     = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const abortRef  = useRef<AbortController | null>(null);
+  const [notLoaded, setNotLoaded] = useState<Task[]>([]);
 
   // Build a task → { title, status } lookup straight from the board's columns —
   // the status is the loop key, so no per-task scan is needed.
@@ -70,6 +72,32 @@ export function DependsOnSection({
         statusName: statuses.find((s) => s.id === statusId)?.name ?? statusId,
       });
     }
+  }
+
+  // A dependency may well not be among the cards loaded, and it still has a name and a status.
+  const missing = dependsOn.filter((id) => !depTaskMap.has(id)).join(',');
+  useEffect(() => {
+    if (!missing) return undefined;
+    let current = true;
+    void (async () => {
+      try {
+        const { tasks: found } = await getTasksByIds(spaceId, missing.split(','));
+        if (current) setNotLoaded(found);
+      } catch {
+        // It shows by its id until the next change of the board.
+      }
+    })();
+    return () => { current = false; };
+  }, [missing, spaceId, boardVersion]);
+  for (const t of notLoaded) {
+    if (depTaskMap.has(t.id)) continue;
+    depTaskMap.set(t.id, {
+      id: t.id,
+      key: t.key,
+      title: t.title,
+      category: t.category ?? 'todo',
+      statusName: statuses.find((s) => s.id === t.statusId)?.name ?? t.statusId ?? '',
+    });
   }
 
   // Focus search input when opened
@@ -254,7 +282,7 @@ export function DependsOnSection({
                       data-testid="search-result-item"
                     >
                       <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full whitespace-nowrap shrink-0 ${COLUMN_PILL_CLASS[known?.category ?? t.category ?? 'todo']}`}>
-                        {known?.statusName ?? t.statusId}
+                        {known?.statusName ?? statuses.find((s) => s.id === t.statusId)?.name ?? t.statusId}
                       </span>
                       <span className="text-xs text-text-primary truncate">
                         {t.key && <span className="font-mono mr-1">{t.key}</span>}

@@ -21,6 +21,10 @@ vi.mock('../../src/api/client', () => ({
   getUsers:          vi.fn().mockResolvedValue([]),
   getSpaces:         vi.fn(),
   getTasks:          vi.fn(),
+  getBoard:          vi.fn().mockResolvedValue(null),
+  getTaskForPanel:   vi.fn().mockResolvedValue(null),
+  getChildren:       vi.fn().mockResolvedValue({ tasks: [], done: 0, total: 0 }),
+  getTasksByIds:     vi.fn().mockResolvedValue({ tasks: [], total: 0 }),
   createTask:        vi.fn(),
   moveTask:          vi.fn(),
   deleteTask:        vi.fn(),
@@ -79,6 +83,8 @@ const TASK_WITH_ATTACHMENTS: Task = {
 function resetStore(overrides: Partial<ReturnType<typeof useAppStore.getState>> = {}) {
   useAppStore.setState({
     detailTask: null,
+    detailLoaded: true,
+    epics: [],
     isMutating: false,
     mutatingTaskIds: new Set<string>(),
     tasks: { todo: [TASK, TASK_WITH_ATTACHMENTS], doing: [], done: [] },
@@ -141,14 +147,35 @@ describe('TaskDetailPanel — render state', () => {
     expect(screen.queryByRole('button', { name: /copy link/i })).not.toBeInTheDocument();
   });
 
-  it('shows what is on the board over the copy it opened with', () => {
-    useAppStore.setState({
-      detailTask: TASK,
-      tasks: { doing: [{ ...TASK, statusId: 'doing', category: 'in-progress', priority: 'high' }] },
-    } as any);
+  it('shows what the whole issue says over the copy it opened with', async () => {
+    vi.mocked(api.getTaskForPanel).mockResolvedValueOnce({
+      data: { ...TASK, statusId: 'doing', category: 'in-progress', priority: 'high' },
+      etag: '"v1"',
+    });
     render(<TaskDetailPanel />);
-    expect(screen.getByLabelText(/^status$/i)).toHaveValue('doing');
+    act(() => useAppStore.getState().openDetailPanel(TASK));
+    await waitFor(() => expect(screen.getByLabelText(/^status$/i)).toHaveValue('doing'));
     expect(screen.getByLabelText(/^priority$/i)).toHaveValue('high');
+  });
+
+  it('follows the issue while it is open, when the board finds out it changed', async () => {
+    vi.mocked(api.getTaskForPanel).mockResolvedValue({ data: TASK, etag: '"v1"' });
+    render(<TaskDetailPanel />);
+    act(() => useAppStore.getState().openDetailPanel(TASK));
+    await waitFor(() => expect(useAppStore.getState().detailLoaded).toBe(true));
+    vi.mocked(api.getTaskForPanel).mockResolvedValue({ data: { ...TASK, priority: 'urgent' }, etag: '"v2"' });
+    await act(async () => { await useAppStore.getState().refreshDetail(); });
+    expect(screen.getByLabelText(/^priority$/i)).toHaveValue('urgent');
+  });
+
+  it('follows the epics of the space, none of which need be loaded', () => {
+    useAppStore.setState({
+      tasks: { todo: [TASK] },
+      epics: [{ id: 'far', key: 'WEB-9', title: 'A long way down', statusId: 'done', category: 'done', done: 0, total: 0 }],
+    } as any);
+    useAppStore.setState({ detailTask: TASK } as any);
+    render(<TaskDetailPanel />);
+    expect(Array.from(screen.getByLabelText(/^epic$/i).querySelectorAll('option')).map((o) => o.textContent)).toEqual(['None', 'A long way down']);
   });
 
   it('shows a relative timestamp in the header with created/updated in the tooltip', () => {
@@ -299,6 +326,7 @@ describe('TaskDetailPanel — issue fields', () => {
   }
 
   const EPIC: Task = { ...TASK, id: 'epic-1', key: 'WEB-1', title: 'Checkout', type: 'epic' };
+  const BOARD_EPIC = { id: 'epic-1', key: 'WEB-1', title: 'Checkout', statusId: 'todo', category: 'todo', done: 0, total: 0 };
 
   it('saves the priority, showing medium when it has none', () => {
     const { updateTask } = open();
@@ -309,16 +337,18 @@ describe('TaskDetailPanel — issue fields', () => {
   });
 
   it('puts the issue in an epic and takes it out', () => {
-    const inEpic = { ...TASK, parentId: 'epic-1' };
-    const { updateTask } = open(inEpic, { todo: [inEpic, EPIC] });
+    const inEpic = { ...TASK, parentId: 'epic-1', parentKey: null };
+    useAppStore.setState({ epics: [BOARD_EPIC] } as any);
+    const { updateTask } = open(inEpic, { todo: [inEpic] });
     const select = screen.getByLabelText(/^epic$/i);
     expect(select).toHaveValue('epic-1');
     fireEvent.change(select, { target: { value: '' } });
     expect(updateTask).toHaveBeenCalledWith(TASK.id, { parentId: null });
   });
 
-  it('offers the epics of the board, none other', () => {
-    const { updateTask } = open(TASK, { todo: [TASK, EPIC, { ...TASK, id: 'other', title: 'Not an epic' }] });
+  it('offers the epics of the space, none other', () => {
+    useAppStore.setState({ epics: [BOARD_EPIC] } as any);
+    const { updateTask } = open(TASK, { todo: [TASK] });
     const select = screen.getByLabelText(/^epic$/i);
     expect(Array.from(select.querySelectorAll('option')).map((o) => o.textContent)).toEqual(['None', 'Checkout']);
     fireEvent.change(select, { target: { value: 'epic-1' } });
@@ -326,12 +356,12 @@ describe('TaskDetailPanel — issue fields', () => {
   });
 
   it('shows the parent of a sub-task instead of an epic, which opens it, and lets it go', () => {
-    const parent: Task = { ...TASK, id: 'p1', key: 'WEB-2', title: 'Parent issue' };
-    const sub: Task = { ...TASK, id: 's1', key: 'WEB-3', parentId: 'p1' };
-    const { updateTask, openDetailPanel } = open(sub, { todo: [parent, sub] });
+    const sub: Task = { ...TASK, id: 's1', key: 'WEB-3', parentId: 'p1', parent: { id: 'p1', key: 'WEB-2', title: 'Parent issue', type: 'feature' } };
+    const { updateTask, openDetailPanel } = open(sub, { todo: [sub] });
     expect(screen.queryByLabelText(/^epic$/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('parent-link')).toHaveTextContent('WEB-2Parent issue');
     fireEvent.click(screen.getByTestId('parent-link'));
-    expect(openDetailPanel).toHaveBeenCalledWith(parent);
+    expect(openDetailPanel).toHaveBeenCalledWith(expect.objectContaining({ id: 'p1', key: 'WEB-2' }));
     fireEvent.click(screen.getByRole('button', { name: 'Make it an issue of its own' }));
     expect(updateTask).toHaveBeenCalledWith('s1', { parentId: null });
   });
@@ -370,11 +400,18 @@ describe('TaskDetailPanel — issue fields', () => {
     expect(updateTask).toHaveBeenCalledWith(TASK.id, { dueDate: null });
   });
 
-  it('closes, saying so, when the issue is deleted elsewhere', () => {
+  it('closes, saying so, when the issue is deleted elsewhere', async () => {
     open(TASK, { todo: [TASK] });
-    act(() => { useAppStore.setState({ tasks: { todo: [] } } as any); });
+    vi.mocked(api.getTaskForPanel).mockRejectedValueOnce(Object.assign(new Error('Gone'), { code: 'TASK_NOT_FOUND' }));
+    await act(async () => { await useAppStore.getState().refreshDetail(); });
     expect(useAppStore.getState().detailTask).toBeNull();
     expect(useAppStore.getState().toast?.message).toContain('deleted');
+  });
+
+  it('stays open when its card is simply not among those loaded', () => {
+    open(TASK, { todo: [TASK] });
+    act(() => { useAppStore.setState({ tasks: { todo: [] } } as any); });
+    expect(useAppStore.getState().detailTask?.id).toBe(TASK.id);
   });
 
   it('Escape saves the field being edited as it closes', () => {
@@ -479,7 +516,7 @@ describe('TaskDetailPanel — comments and history', () => {
     fireEvent.click(screen.getByTestId('activity-tab-history'));
     await waitFor(() => expect(api.getTaskHistory).toHaveBeenCalledTimes(1));
     act(() => {
-      useAppStore.setState({ tasks: { doing: [{ ...TASK, statusId: 'doing', updatedAt: '2026-04-01T00:00:00.000Z' }] } } as any);
+      useAppStore.setState({ detailTask: { ...TASK, statusId: 'doing', updatedAt: '2026-04-01T00:00:00.000Z' } } as any);
     });
     await waitFor(() => expect(api.getTaskHistory).toHaveBeenCalledTimes(2));
   });

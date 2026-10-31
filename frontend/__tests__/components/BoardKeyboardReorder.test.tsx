@@ -188,11 +188,12 @@ describe('Board — keyboard reorder', () => {
     );
   });
 
-  it('the epic filter narrows the neighbor: a hidden card is jumped over', () => {
+  it('the epic filter narrows the neighbor: a card outside it, not loaded, is jumped over', () => {
     const reorderTask = vi.fn();
     setBoard({
+      // Between ranks 1000 and 3000 there is a card of another epic, which the server did not send.
       tasks: {
-        todo: [mkTask('a', 1000, 'e1'), mkTask('b', 2000), mkTask('c', 3000, 'e1')],
+        todo: [mkTask('a', 1000, 'e1'), mkTask('c', 3000, 'e1')],
         'in-progress': [], done: [mkTask('e1', 1000, undefined, 'epic')],
       },
       epicFilter: 'e1',
@@ -200,16 +201,15 @@ describe('Board — keyboard reorder', () => {
     });
     render(<Board />);
     fireEvent.keyDown(findCard('a'), { key: 'ArrowDown', altKey: true });
-    // After c, the last of the whole column: rank math runs against the full column.
     expect(reorderTask).toHaveBeenCalledWith('a', 'todo', 4000);
     expect(useAnnouncer.getState().message).toBe('Task "Task a" moved to position 2 of 2 in Todo.');
   });
 
-  it('the last card the epic filter shows is at the bottom, with a hidden one below it', () => {
+  it('the last card the epic filter shows is at the bottom', () => {
     const reorderTask = vi.fn();
     setBoard({
       tasks: {
-        todo: [mkTask('a', 1000, 'e1'), mkTask('b', 2000)],
+        todo: [mkTask('a', 1000, 'e1')],
         'in-progress': [], done: [mkTask('e1', 1000, undefined, 'epic')],
       },
       epicFilter: 'e1',

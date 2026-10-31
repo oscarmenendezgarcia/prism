@@ -2,13 +2,18 @@
  * The issues under this one: an epic's issues, or an issue's sub-tasks.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import * as api from '@/api/client';
 import { Button } from '@/components/shared/Button';
-import { useAppStore, useTasks } from '@/stores/useAppStore';
+import { useAppStore } from '@/stores/useAppStore';
 import { useCanEdit } from '@/stores/useAuthStore';
-import { boardIndex, parentIssueOf, progressOf, statusDotClass } from '@/utils/issues';
+import { parentIssueOf, statusDotClass } from '@/utils/issues';
 import type { Task } from '@/types';
+
+/** How many of them show, and how many more each "Show more" brings: an epic can have thousands. */
+const CHILDREN_STEP = 200;
+/** The most the server gives at once. */
+const CHILDREN_MAX = 1000;
 
 interface ChildIssuesProps {
   task: Task;
@@ -17,7 +22,7 @@ interface ChildIssuesProps {
 
 export function ChildIssues({ task, spaceId }: ChildIssuesProps) {
   const canEdit = useCanEdit();
-  const board = useTasks();
+  const boardVersion = useAppStore((s) => s.boardVersion);
   const openDetailPanel = useAppStore((s) => s.openDetailPanel);
   const loadBoard = useAppStore((s) => s.loadBoard);
   const showToast = useAppStore((s) => s.showToast);
@@ -26,14 +31,34 @@ export function ChildIssues({ task, spaceId }: ChildIssuesProps) {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
   const [saving, setSaving] = useState(false);
+  const [limit, setLimit] = useState(CHILDREN_STEP);
+  const [added, setAdded] = useState(0);
+  const [list, setList] = useState<{ tasks: Task[]; done: number; total: number } | null>(null);
 
-  const index = boardIndex(board);
-  // A sub-task cannot have sub-tasks of its own.
-  if (parentIssueOf(task, index)) return null;
+  // A sub-task cannot have sub-tasks of its own. Nor something not known to be anything else.
+  const canHaveChildren = parentIssueOf(task) === null;
+
+  // Again whenever the board changes, which is how a child's change gets here.
+  useEffect(() => {
+    if (!canHaveChildren) return undefined;
+    let current = true;
+    void (async () => {
+      try {
+        const page = await api.getChildren(spaceId, task.id, limit);
+        if (current && page) setList(page);
+      } catch {
+        // The next change of the board tries again.
+      }
+    })();
+    return () => { current = false; };
+  }, [canHaveChildren, spaceId, task.id, limit, boardVersion, added]);
+
+  if (!canHaveChildren) return null;
 
   const isEpic = task.type === 'epic';
-  const children = index.children.get(task.id) ?? [];
-  const { done, total } = progressOf(task.id, index);
+  const children = list?.tasks ?? [];
+  const done = list?.done ?? 0;
+  const total = list?.total ?? 0;
   if (!canEdit && children.length === 0) return null;
 
   const add = async () => {
@@ -43,6 +68,7 @@ export function ChildIssues({ task, spaceId }: ChildIssuesProps) {
     try {
       await api.createTask(spaceId, { title: trimmed, type: isEpic ? 'feature' : 'chore', parentId: task.id });
       setTitle('');
+      setAdded((n) => n + 1);
       await loadBoard();
     } catch (err) {
       showToast((err as Error).message, 'error');
@@ -80,6 +106,18 @@ export function ChildIssues({ task, spaceId }: ChildIssuesProps) {
           </button>
         );
       })}
+      {children.length < total && limit < CHILDREN_MAX && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setLimit((n) => n + CHILDREN_STEP)}
+          data-testid="show-more-children"
+          className="self-start -ml-2"
+        >
+          Show more
+        </Button>
+      )}
       {!canEdit ? null : adding ? (
         <input
           type="text"

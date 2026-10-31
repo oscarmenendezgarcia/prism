@@ -130,10 +130,10 @@ describe('CreateTaskModal', () => {
   });
 
   describe('issue fields', () => {
-    const EPIC = { id: 'e1', title: 'Checkout', type: 'epic' as const, createdAt: '', updatedAt: '' };
+    const EPIC = { id: 'e1', key: 'WEB-1', title: 'Checkout', statusId: 'todo', category: 'todo' as const, done: 0, total: 0 };
 
     function openWith(mockCreateTask: ReturnType<typeof vi.fn>) {
-      useAppStore.setState({ createModalOpen: true, createTask: mockCreateTask, tasks: { todo: [EPIC] } } as any);
+      useAppStore.setState({ createModalOpen: true, createTask: mockCreateTask, epics: [EPIC] } as any);
       render(<CreateTaskModal />);
       fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'T' } });
     }
@@ -173,11 +173,8 @@ describe('CreateTaskModal', () => {
       expect(mockCreateTask.mock.calls[0][0].parentId).toBeUndefined();
     });
 
-    it('lists only the epics of the board', () => {
-      useAppStore.setState({
-        createModalOpen: true,
-        tasks: { todo: [EPIC, { id: 't', title: 'Not an epic', type: 'chore', createdAt: '', updatedAt: '' }] },
-      } as any);
+    it('lists the epics of the space, even with none of them loaded', () => {
+      useAppStore.setState({ createModalOpen: true, tasks: { todo: [] }, epics: [EPIC] } as any);
       render(<CreateTaskModal />);
       const options = Array.from(screen.getByLabelText(/^epic$/i).querySelectorAll('option')).map((o) => o.textContent);
       expect(options).toEqual(['None', 'Checkout']);

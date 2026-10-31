@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Mock the API client before importing the store ───────────────────────────
+import { boardAnswer } from '../helpers/board';
 vi.mock('../../src/api/client', () => ({
   getSpaces:            vi.fn(),
   createSpace:          vi.fn(),
@@ -13,6 +14,8 @@ vi.mock('../../src/api/client', () => ({
   deleteSpace:          vi.fn(),
   updateSpace:          vi.fn(),
   getTasks:             vi.fn(),
+  getBoard: vi.fn(),
+  getTaskForPanel: vi.fn().mockResolvedValue(null),
   createTask:           vi.fn(),
   moveTask:             vi.fn(),
   deleteTask:           vi.fn(),
@@ -98,12 +101,12 @@ describe('loadSpaces', () => {
       { id: 'default', name: 'General', createdAt: '', updatedAt: '' },
     ];
     vi.mocked(api.getSpaces).mockResolvedValue(mockSpaces);
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     await useAppStore.getState().loadSpaces();
 
     expect(useAppStore.getState().spaces).toEqual(mockSpaces);
-    expect(api.getTasks).toHaveBeenCalledWith('default');
+    expect(vi.mocked(api.getBoard).mock.calls[0][0]).toBe('default');
   });
 
   it('falls back to first space when active space no longer exists', async () => {
@@ -112,7 +115,7 @@ describe('loadSpaces', () => {
     ];
     useAppStore.setState({ activeSpaceId: 'deleted-space' });
     vi.mocked(api.getSpaces).mockResolvedValue(mockSpaces);
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     await useAppStore.getState().loadSpaces();
 
@@ -129,6 +132,11 @@ describe('loadSpaces', () => {
 });
 
 describe('loadBoard', () => {
+  beforeEach(() => {
+    // An ETag of an earlier test would be sent along.
+    useAppStore.getState().setActiveSpace(useAppStore.getState().activeSpaceId);
+  });
+
   it('fetches tasks for active space and updates store', async () => {
     useAppStore.setState({ activeSpaceId: 'space-1' });
     const board = {
@@ -136,27 +144,27 @@ describe('loadBoard', () => {
       'in-progress': [],
       done: [],
     };
-    vi.mocked(api.getTasks).mockResolvedValue(board);
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer(board));
 
     await useAppStore.getState().loadBoard();
 
     expect(useAppStore.getState().tasks).toEqual(board);
-    expect(api.getTasks).toHaveBeenCalledWith('space-1');
+    expect(api.getBoard).toHaveBeenCalledWith('space-1', { limits: {}, epic: null, etag: null });
   });
 
   it('shows error toast on failure', async () => {
-    vi.mocked(api.getTasks).mockRejectedValue(new Error('API down'));
+    vi.mocked(api.getBoard).mockRejectedValue(new Error('API down'));
     await useAppStore.getState().loadBoard();
     expect(useAppStore.getState().toast?.type).toBe('error');
   });
 
   it('ignores a board that arrives after the user moved to another space', async () => {
-    let resolve!: (board: Record<string, never[]>) => void;
-    vi.mocked(api.getTasks).mockReturnValue(new Promise((r) => { resolve = r; }));
+    let resolve!: (board: ReturnType<typeof boardAnswer>) => void;
+    vi.mocked(api.getBoard).mockReturnValue(new Promise((r) => { resolve = r; }));
     useAppStore.setState({ activeSpaceId: 'space-1', tasks: {} });
     const loading = useAppStore.getState().loadBoard();
     useAppStore.setState({ activeSpaceId: 'space-2' });
-    resolve({ late: [] });
+    resolve(boardAnswer({ late: [] }));
     await loading;
     expect(useAppStore.getState().tasks).toEqual({});
   });
@@ -164,7 +172,7 @@ describe('loadBoard', () => {
   it('reloads the spaces when the board has a status it does not know', async () => {
     const fresh = [{ id: 'space-1', name: 'S', statuses: [...STATUSES, { id: 'qa', name: 'QA', category: 'in-progress' as const }], createdAt: '', updatedAt: '' }];
     useAppStore.setState({ activeSpaceId: 'space-1', spaces: [{ id: 'space-1', name: 'S', statuses: STATUSES, createdAt: '', updatedAt: '' }] });
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], qa: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], qa: [] }));
     vi.mocked(api.getSpaces).mockResolvedValue(fresh);
     await useAppStore.getState().loadBoard();
     expect(useAppStore.getState().spaces).toEqual(fresh);
@@ -172,7 +180,7 @@ describe('loadBoard', () => {
 
   it('does not reload the spaces when it knows every status', async () => {
     useAppStore.setState({ activeSpaceId: 'space-1', spaces: [{ id: 'space-1', name: 'S', statuses: STATUSES, createdAt: '', updatedAt: '' }] });
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
     await useAppStore.getState().loadBoard();
     expect(api.getSpaces).not.toHaveBeenCalled();
   });
@@ -182,19 +190,19 @@ describe('createTask', () => {
   it('calls api.createTask, closes modal, reloads board, shows toast', async () => {
     useAppStore.setState({ createModalOpen: true });
     vi.mocked(api.createTask).mockResolvedValue({ id: 'new', title: 'New task', type: 'chore', createdAt: '', updatedAt: '' });
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     await useAppStore.getState().createTask({ title: 'New task', type: 'chore' });
 
     expect(useAppStore.getState().createModalOpen).toBe(false);
     expect(api.createTask).toHaveBeenCalled();
-    expect(api.getTasks).toHaveBeenCalled();
+    expect(api.getBoard).toHaveBeenCalled();
     expect(useAppStore.getState().toast?.type).toBe('success');
   });
 
   it('sets isMutating true during call and false after', async () => {
     vi.mocked(api.createTask).mockResolvedValue({ id: 'x', title: 'T', type: 'chore', createdAt: '', updatedAt: '' });
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     const promise = useAppStore.getState().createTask({ title: 'T', type: 'chore' });
     // isMutating should be true synchronously right after start
@@ -220,13 +228,13 @@ describe('moveTask', () => {
       from: 'todo',
       to: 'in-progress',
     });
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     await useAppStore.getState().moveTask('t1', 'in-progress');
 
     expect(api.moveTask).toHaveBeenCalledWith('space-1', 't1', 'in-progress');
     expect(useAppStore.getState().toast?.message).toBe('Moved to In Progress');
-    expect(api.getTasks).toHaveBeenCalled();
+    expect(api.getBoard).toHaveBeenCalled();
   });
 
   const moveFixture = () => {
@@ -243,7 +251,7 @@ describe('moveTask', () => {
     moveFixture();
     let answer!: () => void;
     vi.mocked(api.moveTask).mockImplementation(() => new Promise((resolve) => { answer = () => resolve({} as never); }));
-    vi.mocked(api.getTasks).mockResolvedValue(useAppStore.getState().tasks);
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer(useAppStore.getState().tasks));
 
     const moving = useAppStore.getState().moveTask('t1', 'in-progress');
 
@@ -301,12 +309,12 @@ describe('moveTask', () => {
     let answer!: () => void;
     vi.mocked(api.moveTask).mockImplementation(() => new Promise((resolve) => { answer = () => resolve({} as never); }));
     const moving = useAppStore.getState().moveTask('t1', 'in-progress');
-    vi.mocked(api.getTasks).mockResolvedValueOnce(old);
+    vi.mocked(api.getBoard).mockResolvedValueOnce(boardAnswer(old));
 
     await useAppStore.getState().loadBoard();
 
     expect(ids('in-progress')).toEqual(['t3', 't1']);
-    vi.mocked(api.getTasks).mockResolvedValue(useAppStore.getState().tasks);
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer(useAppStore.getState().tasks));
     answer();
     await moving;
   });
@@ -317,14 +325,14 @@ describe('moveTask', () => {
     let answer!: () => void;
     vi.mocked(api.moveTask).mockImplementation(() => new Promise((resolve) => { answer = () => resolve({} as never); }));
     const moving = useAppStore.getState().moveTask('t1', 'in-progress');
-    let pollAnswer!: (v: typeof old) => void;
-    vi.mocked(api.getTasks).mockImplementationOnce(() => new Promise((resolve) => { pollAnswer = resolve; }));
+    let pollAnswer!: (v: ReturnType<typeof boardAnswer>) => void;
+    vi.mocked(api.getBoard).mockImplementationOnce(() => new Promise((resolve) => { pollAnswer = resolve; }));
     const poll = useAppStore.getState().loadBoard();
-    vi.mocked(api.getTasks).mockResolvedValue(useAppStore.getState().tasks);
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer(useAppStore.getState().tasks));
 
     answer();
     await moving;
-    pollAnswer(old);
+    pollAnswer(boardAnswer(old));
     await poll;
 
     expect(ids('in-progress')).toEqual(['t3', 't1']);
@@ -342,7 +350,7 @@ describe('moveTask', () => {
         to: 'in-progress',
       };
     });
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     await useAppStore.getState().moveTask('t1', 'in-progress');
 
@@ -363,7 +371,7 @@ describe('moveTask', () => {
         to: 'in-progress',
       };
     });
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     await useAppStore.getState().moveTask('t1', 'in-progress');
 
@@ -386,7 +394,7 @@ describe('moveTask', () => {
       from: 'in-progress',
       to: 'todo',
     });
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     await useAppStore.getState().moveTask('t1', 'todo');
 
@@ -398,7 +406,7 @@ describe('deleteTask', () => {
   it('calls api.deleteTask, shows toast, reloads board', async () => {
     useAppStore.setState({ activeSpaceId: 'space-1' });
     vi.mocked(api.deleteTask).mockResolvedValue({ deleted: true, id: 't1' });
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     await useAppStore.getState().deleteTask('t1');
 
@@ -530,7 +538,7 @@ describe('pinSpace', () => {
       id: 's1', name: 'Alpha', pinned: true, pinnedRank: 2, createdAt: '', updatedAt: '',
     });
     vi.mocked(api.getSpaces).mockResolvedValue(SAMPLE_SPACES);
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1' });
 
@@ -547,7 +555,7 @@ describe('pinSpace', () => {
       id: 's1', name: 'A', pinned: true, pinnedRank: 0, createdAt: '', updatedAt: '',
     });
     vi.mocked(api.getSpaces).mockResolvedValue(noPinned);
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     useAppStore.setState({ spaces: noPinned, activeSpaceId: 's1' });
 
@@ -563,7 +571,7 @@ describe('pinSpace', () => {
     ];
     vi.mocked(api.updateSpace).mockResolvedValue(updatedSpaces[0] as any);
     vi.mocked(api.getSpaces).mockResolvedValue(updatedSpaces);
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1' });
 
@@ -588,7 +596,7 @@ describe('unpinSpace', () => {
       id: 's2', name: 'Beta', pinned: false, createdAt: '', updatedAt: '',
     });
     vi.mocked(api.getSpaces).mockResolvedValue(SAMPLE_SPACES);
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's2' });
 
@@ -602,7 +610,7 @@ describe('unpinSpace', () => {
       id: 's2', name: 'Beta', pinned: false, createdAt: '', updatedAt: '',
     });
     vi.mocked(api.getSpaces).mockResolvedValue(SAMPLE_SPACES);
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's2' });
 
@@ -641,7 +649,7 @@ describe('reorderPinnedSpaces', () => {
   it('calls updateSpace for each id with its new rank', async () => {
     vi.mocked(api.updateSpace).mockResolvedValue({} as any);
     vi.mocked(api.getSpaces).mockResolvedValue(SAMPLE_SPACES);
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1' });
 
@@ -654,7 +662,7 @@ describe('reorderPinnedSpaces', () => {
   it('calls loadSpaces after all updates resolve', async () => {
     vi.mocked(api.updateSpace).mockResolvedValue({} as any);
     vi.mocked(api.getSpaces).mockResolvedValue(SAMPLE_SPACES);
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [], 'in-progress': [], done: [] });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
 
     useAppStore.setState({ spaces: SAMPLE_SPACES, activeSpaceId: 's1' });
 

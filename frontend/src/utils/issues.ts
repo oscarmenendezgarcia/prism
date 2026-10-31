@@ -36,23 +36,17 @@ export function mapBoard(board: BoardTasks, fn: (task: Task) => Task): BoardTask
 
 export interface BoardIndex {
   byId: Map<string, Task>;
-  children: Map<string, Task[]>;
 }
 
 const indexes = new WeakMap<BoardTasks, BoardIndex>();
 
-/** Look-ups over the board, computed once per version of it. */
+/** Look-ups over the cards loaded, computed once per version of them. Not the whole space. */
 export function boardIndex(board: BoardTasks): BoardIndex {
   const cached = indexes.get(board);
   if (cached) return cached;
   const byId = new Map<string, Task>();
-  const children = new Map<string, Task[]>();
-  for (const task of allTasks(board)) {
-    byId.set(task.id, task);
-    if (task.parentId) children.set(task.parentId, [...(children.get(task.parentId) ?? []), task]);
-  }
-  for (const list of children.values()) list.sort((a, b) => (a.number ?? 0) - (b.number ?? 0));
-  const index = { byId, children };
+  for (const task of allTasks(board)) byId.set(task.id, task);
+  const index = { byId };
   indexes.set(board, index);
   return index;
 }
@@ -84,31 +78,15 @@ export function keepUnchanged(old: BoardTasks, fresh: BoardTasks): BoardTasks {
   return unchanged ? old : board;
 }
 
-/** The epic an issue is in, directly or through its parent. */
-export function epicOf(task: Task, index: BoardIndex): Task | null {
-  if (task.type === 'epic' || !task.parentId) return null;
-  const parent = index.byId.get(task.parentId);
-  if (!parent) return null;
-  if (parent.type === 'epic') return parent;
-  const grandparent = parent.parentId ? index.byId.get(parent.parentId) : null;
-  return grandparent?.type === 'epic' ? grandparent : null;
-}
-
-/** The issue this one is a sub-task of, if it is one. */
-export function parentIssueOf(task: Task, index: BoardIndex): Task | null {
-  const parent = task.parentId ? index.byId.get(task.parentId) : null;
-  return parent && parent.type !== 'epic' ? parent : null;
-}
-
-/** How many issues directly under this one are done. */
-export function progressOf(taskId: string, index: BoardIndex): { done: number; total: number } {
-  const children = index.children.get(taskId) ?? [];
-  return { done: children.filter((c) => c.category === 'done').length, total: children.length };
-}
-
-/** Whether an issue shows when the board is filtered to an epic. */
-export function isInEpic(task: Task, epicId: string, index: BoardIndex): boolean {
-  return task.id === epicId || epicOf(task, index)?.id === epicId;
+/**
+ * Where an issue open in the panel hangs from. Undefined while that is not known yet: an issue
+ * opened from a list has a parent, and nothing that says what it is.
+ */
+export function parentIssueOf(task: Task): { id: string; key?: string; title: string } | null | undefined {
+  if (task.parent) return task.parent.type === 'epic' ? null : task.parent;
+  if (!task.parentId) return null;
+  if (task.parentKey) return { id: task.parentId, key: task.parentKey, title: '' };
+  return task.parentKey === null ? null : undefined;
 }
 
 /** The dot of a status. An in-progress status after the first is one step further along. */

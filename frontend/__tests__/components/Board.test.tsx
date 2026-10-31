@@ -8,13 +8,14 @@ import { Profiler } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import { Board } from '../../src/components/board/Board';
-import { EpicBar } from '../../src/components/board/EpicBar';
+import { computeDropRank } from '../../src/components/board/Board';
+import { boardAnswer } from '../helpers/board';
 import { useAppStore } from '../../src/stores/useAppStore';
 import { useDragStore } from '../../src/stores/useDragStore';
 import * as api from '../../src/api/client';
 
 vi.mock('../../src/api/client', () => ({
-  getSpaces: vi.fn(), getTasks: vi.fn(), createTask: vi.fn(), moveTask: vi.fn(),
+  getSpaces: vi.fn(), getTasks: vi.fn(), getBoard: vi.fn(), getTaskForPanel: vi.fn().mockResolvedValue(null), createTask: vi.fn(), moveTask: vi.fn(),
   deleteTask: vi.fn(), createSpace: vi.fn(), renameSpace: vi.fn(), deleteSpace: vi.fn(),
   getAttachmentContent: vi.fn(),
 }));
@@ -298,19 +299,17 @@ describe('Board — epic filter', () => {
     expect(screen.getAllByTestId('task-card')).toHaveLength(6);
   });
 
-  it('choosing an epic in the bar leaves it, its issues and their sub-tasks', () => {
-    useAppStore.setState({ tasks: BOARD });
-    render(<><EpicBar /><Board /></>);
-    fireEvent.change(screen.getByLabelText('Filter by epic'), { target: { value: 'e1' } });
-    const cards = screen.getAllByTestId('task-card').map((c) => c.getAttribute('data-id'));
-    expect(cards.sort()).toEqual(['a', 'e1', 's']);
+  it('filters nothing itself: what the server sent is what shows', () => {
+    useAppStore.setState({ tasks: { todo: [issue('c', 'Not in the epic')], 'in-progress': [], done: [] }, epicFilter: 'e1' });
+    render(<Board />);
+    expect(screen.getAllByTestId('task-card')).toHaveLength(1);
   });
 
-  it('All epics brings everything back', () => {
-    useAppStore.setState({ tasks: BOARD, epicFilter: 'e1' });
-    render(<><EpicBar /><Board /></>);
-    fireEvent.change(screen.getByLabelText('Filter by epic'), { target: { value: '' } });
-    expect(screen.getAllByTestId('task-card')).toHaveLength(6);
+  it('an epic with nothing to show is not an empty board', () => {
+    useAppStore.setState({ tasks: { todo: [], 'in-progress': [], done: [] }, columnTotals: { todo: 0, 'in-progress': 0, done: 0 }, epicFilter: 'e1' });
+    render(<Board />);
+    expect(screen.queryByText('Your board is empty')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('tabpanel').length).toBeGreaterThan(0);
   });
 
   // Fails today: nothing clears epicFilter when its epic goes, and the bar hides its filter
@@ -318,7 +317,7 @@ describe('Board — epic filter', () => {
   it('deleting the last epic while filtered to it leaves a way back to the issues', async () => {
     const after = { todo: [issue('c', 'Loose issue')], 'in-progress': [], done: [] };
     vi.mocked(api.deleteTask).mockResolvedValue({ deleted: true, id: 'e1' });
-    vi.mocked(api.getTasks).mockResolvedValue(after);
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer(after));
     useAppStore.setState({ tasks: { ...after, todo: [issue('e1', 'Epic One', undefined, 'epic'), ...after.todo] }, epicFilter: 'e1' });
     render(<Board />);
     await act(() => useAppStore.getState().deleteTask('e1'));
@@ -332,7 +331,7 @@ describe('Board — polling', () => {
   it('drops the filter when its epic stops being one', async () => {
     const was = { id: 'e', key: 'K-1', title: 'E', type: 'epic', createdAt: '', updatedAt: '' };
     useAppStore.setState({ tasks: { todo: [was], 'in-progress': [], done: [] } as never, epicFilter: 'e' });
-    vi.mocked(api.getTasks).mockResolvedValue({ todo: [{ ...was, type: 'feature' }], 'in-progress': [], done: [] } as never);
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer({ todo: [], 'in-progress': [], done: [] }));
     await act(() => useAppStore.getState().loadBoard());
     expect(useAppStore.getState().epicFilter).toBeNull();
   });
@@ -345,7 +344,7 @@ describe('Board — polling', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59));
     useAppStore.setState({ tasks, today: dueDate });
-    vi.mocked(api.getTasks).mockResolvedValue(JSON.parse(JSON.stringify(tasks)));
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer(JSON.parse(JSON.stringify(tasks))));
     render(<Board />);
     expect(screen.getByTestId('due-date')).not.toHaveClass('text-error');
     vi.setSystemTime(new Date(Date.now() + 864e5));
@@ -356,13 +355,90 @@ describe('Board — polling', () => {
 
   it('renders nothing again when a poll brings the same issues', async () => {
     const tasks = { todo: [{ id: 'a', key: 'K-1', title: 'A', type: 'feature', createdAt: '', updatedAt: '' }], 'in-progress': [], done: [] } as never;
-    useAppStore.setState({ tasks });
-    vi.mocked(api.getTasks).mockResolvedValue(JSON.parse(JSON.stringify(tasks)));
+    useAppStore.setState({ tasks, columnTotals: { todo: 1, 'in-progress': 0, done: 0 }, boardScope: `${useAppStore.getState().activeSpaceId}|` });
+    vi.mocked(api.getBoard).mockResolvedValue(boardAnswer(JSON.parse(JSON.stringify(tasks))));
     const onRender = vi.fn();
     render(<Profiler id="board" onRender={onRender}><Board /></Profiler>);
     const before = onRender.mock.calls.length;
     await act(() => useAppStore.getState().loadBoard());
     expect(onRender.mock.calls.length).toBe(before);
     expect(useAppStore.getState().tasks).toBe(tasks);
+  });
+});
+
+// ─── Only some of the cards are loaded ───────────────────────────────────────
+
+describe('Board — a space with more cards than are loaded', () => {
+  const card = (id: string, rank: number) => ({ id, title: id, type: 'feature' as const, rank, createdAt: '', updatedAt: '' });
+
+  it('is not empty because no card happens to be loaded', () => {
+    useAppStore.setState({ tasks: { todo: [], 'in-progress': [], done: [] }, columnTotals: { todo: 5, 'in-progress': 0, done: 0 } });
+    render(<Board />);
+    expect(screen.queryByText('Your board is empty')).not.toBeInTheDocument();
+  });
+
+  it('is empty when the totals say so', () => {
+    useAppStore.setState({ tasks: { todo: [], 'in-progress': [], done: [] }, columnTotals: { todo: 0, 'in-progress': 0, done: 0 } });
+    render(<Board />);
+    expect(screen.getByText('Your board is empty')).toBeInTheDocument();
+  });
+
+  it('the mobile tabs count all there are, not what is loaded', () => {
+    useAppStore.setState({ tasks: { todo: [card('a', 1000)], 'in-progress': [], done: [] }, columnTotals: { todo: 4210, 'in-progress': 0, done: 7 } });
+    render(<Board />);
+    const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
+    expect(tabs).toEqual(['Todo4210', 'In Progress0', 'Done7']);
+  });
+
+  describe('computeDropRank', () => {
+    // A Done column that shows its tail: 5000 is the rank of the last card it does not show.
+    const tail = [card('x', 6000), card('y', 7000), card('z', 8000)];
+
+    it('before the first card shown lands next to it, not among the cards above', () => {
+      expect(computeDropRank(tail, 'z', 'x', true, { rankBefore: 5000 }).newRank).toBe(5500);
+    });
+
+    it('without anything hidden above, between 0 and the first as ever', () => {
+      expect(computeDropRank(tail, 'z', 'x', true).newRank).toBe(3000);
+    });
+
+    // A column that shows its head: 4000 is the rank of the first card it does not show.
+    const head = [card('a', 1000), card('b', 2000), card('c', 3000)];
+
+    it('after the last card shown lands before the first one hidden', () => {
+      expect(computeDropRank(head, 'a', 'c', false, { rankAfter: 4000 }).newRank).toBe(3500);
+      expect(computeDropRank(head, 'a', null, true, { rankAfter: 4000 }).newRank).toBe(3500);
+    });
+
+    it('without anything hidden below, last as ever', () => {
+      expect(computeDropRank(head, 'a', 'c', false).newRank).toBe(4000);
+      expect(computeDropRank(head, 'a', null, true).newRank).toBe(4000);
+    });
+
+    it('among the cards shown, the bounds change nothing', () => {
+      expect(computeDropRank(head, 'c', 'a', false, { rankAfter: 4000 }).newRank).toBe(1500);
+    });
+
+    const crowded = [card('a', 6000), card('b', 6000.0004), card('c', 6000.0008), card('d', 7000)];
+
+    it('a rebalance stays where the cards are, in a column that shows its tail', () => {
+      const { needsRebalance, rebalancedTasks } = computeDropRank(crowded, 'd', 'b', true, { rankBefore: 5000 });
+      expect(needsRebalance).toBe(true);
+      expect(rebalancedTasks!.map((t) => t.id)).toEqual(['a', 'd', 'b', 'c']);
+      expect(rebalancedTasks!.map((t) => t.rank)).toEqual([6000, 7000, 8000, 9000]);
+    });
+
+    it('a rebalance stays above the cards below, in a column that shows its head', () => {
+      const { rebalancedTasks } = computeDropRank(crowded, 'd', 'b', true, { rankBefore: 5000, rankAfter: 5400 });
+      const ranks = rebalancedTasks!.map((t) => t.rank as number);
+      expect(ranks[0]).toBeGreaterThan(5000);
+      expect(ranks[3]).toBeLessThan(5400);
+      expect([...ranks].sort((a, b) => a - b)).toEqual(ranks);
+    });
+
+    it('a rebalance with nothing hidden counts in thousands, as ever', () => {
+      const { rebalancedTasks } = computeDropRank(crowded, 'd', 'b', true);
+      expect(rebalancedTasks!.map((t) => t.rank)).toEqual([1000, 2000, 3000, 4000]);
+    });
   });
 });

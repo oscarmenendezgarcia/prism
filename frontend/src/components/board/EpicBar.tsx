@@ -2,21 +2,18 @@
  * End of the spaces row: filter the board to an epic, and open the space's settings.
  */
 
-import { useAppStore, useTasks } from '@/stores/useAppStore';
+import { useAppStore } from '@/stores/useAppStore';
 import { useIsAdmin } from '@/stores/useAuthStore';
-import { allTasks } from '@/utils/issues';
 
 export function EpicBar() {
-  const tasks = useTasks();
+  const allEpics = useAppStore((s) => s.epics);
   const epicFilter = useAppStore((s) => s.epicFilter);
   const setEpicFilter = useAppStore((s) => s.setEpicFilter);
   const openSpaceModal = useAppStore((s) => s.openSpaceModal);
   const isAdmin = useIsAdmin();
   const space = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId));
 
-  const epics = allTasks(tasks)
-    .filter((t) => t.type === 'epic')
-    .sort((a, b) => a.title.localeCompare(b.title));
+  const epics = [...allEpics].sort((a, b) => a.title.localeCompare(b.title));
 
   return (
     <div

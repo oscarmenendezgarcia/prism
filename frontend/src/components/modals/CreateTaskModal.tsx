@@ -8,8 +8,8 @@ import { Modal, ModalHeader, ModalTitle, ModalBody, ModalFooter } from '@/compon
 import { Button } from '@/components/shared/Button';
 import { LabelsInput } from '@/components/shared/LabelsInput';
 import { AssigneeSelect } from '@/components/shared/AssigneeSelect';
-import { useAppStore, useTasks } from '@/stores/useAppStore';
-import { allTasks, PRIORITIES, TYPES } from '@/utils/issues';
+import { useAppStore } from '@/stores/useAppStore';
+import { PRIORITIES, TYPES } from '@/utils/issues';
 import type { CreateTaskPayload, Priority, TaskType } from '@/types';
 
 const TITLE_MAX = 200;
@@ -24,7 +24,7 @@ export function CreateTaskModal() {
   const open = useAppStore((s) => s.createModalOpen);
   const closeModal = useAppStore((s) => s.closeCreateModal);
   const createTask = useAppStore((s) => s.createTask);
-  const epics = allTasks(useTasks()).filter((t) => t.type === 'epic');
+  const epics = useAppStore((s) => s.epics);
 
   const [title, setTitle] = useState('');
   const [type, setType] = useState<TaskType | ''>('');
