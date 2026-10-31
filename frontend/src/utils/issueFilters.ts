@@ -4,10 +4,12 @@
  */
 
 import type { IssueFilters, ListSort, ListSortField, ViewName } from '@/types';
-import { localToday } from '@/utils/issues';
+import { PRIORITIES, TYPES, localToday } from '@/utils/issues';
 
 const LIST_FIELDS = ['status', 'assignee', 'type', 'priority', 'epic', 'label'] as const;
 const DUE = ['overdue', 'week', 'none'] as const;
+/** What the server takes as text. */
+const TEXT_MAX = 200;
 const SORT_FIELDS: ListSortField[] = ['key', 'title', 'status', 'priority', 'assignee', 'type', 'epic', 'estimate', 'due', 'updated', 'created'];
 
 export const DEFAULT_SORT: ListSort = { field: 'key', dir: 'desc' };
@@ -49,10 +51,13 @@ export function readLocation(search: string): { space?: string; view: ViewName; 
   for (const field of LIST_FIELDS) {
     if (params.has(field)) (filters[field] as string[]) = params.getAll(field);
   }
+  // The server would refuse these, on every poll, and nothing on screen would say why.
+  filters.type = filters.type?.filter((id) => TYPES.some((t) => t.id === id));
+  filters.priority = filters.priority?.filter((id) => PRIORITIES.some((p) => p.id === id));
   const due = params.get('due') as IssueFilters['due'];
   if (due && DUE.includes(due)) filters.due = due;
   const q = params.get('q');
-  if (q) filters.q = q;
+  if (q) filters.q = q.slice(0, TEXT_MAX);
   const field = params.get('sort') as ListSortField | null;
   const dir = params.get('dir');
   return {

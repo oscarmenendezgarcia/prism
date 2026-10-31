@@ -16,11 +16,12 @@ interface AssigneeSelectProps {
   'aria-label'?: string;
   /** Nobody chosen yet, with this in their place, which is not the same as unassigned. */
   placeholder?: string;
+  disabled?: boolean;
 }
 
 const NOT_CHOSEN = '\u0000';
 
-export function AssigneeSelect({ id, value, onChange, className, 'aria-label': ariaLabel, placeholder }: AssigneeSelectProps) {
+export function AssigneeSelect({ id, value, onChange, className, 'aria-label': ariaLabel, placeholder, disabled }: AssigneeSelectProps) {
   const people = useAuthStore((s) => s.people);
   const loadPeople = useAuthStore((s) => s.loadPeople);
   const space = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId));
@@ -32,7 +33,7 @@ export function AssigneeSelect({ id, value, onChange, className, 'aria-label': a
   const elsewhere = !!value && !agentOf(value) && !active.some((p) => p.name === value);
 
   return (
-    <select id={id} value={placeholder ? NOT_CHOSEN : value} onChange={(e) => onChange(e.target.value)} className={className} aria-label={ariaLabel}>
+    <select id={id} value={placeholder ? NOT_CHOSEN : value} onChange={(e) => onChange(e.target.value)} className={className} aria-label={ariaLabel} disabled={disabled}>
       {placeholder && <option value={NOT_CHOSEN} disabled>{placeholder}</option>}
       <option value="">Unassigned</option>
       {elsewhere && <option value={value}>{value} (no account)</option>}

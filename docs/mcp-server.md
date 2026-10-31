@@ -29,6 +29,7 @@ All tool names are prefixed `kanban_` and available as `mcp__prism__kanban_*` in
 | `kanban_move_task` | `id`, `to` | `spaceId` | Move to a status of the space, by id. Defaults: `todo`, `in-progress`, `in-review`, `done` |
 | `kanban_delete_task` | `id` | `spaceId` | Delete a task |
 | `kanban_clear_board` | — | `spaceId` | Delete all tasks in a space |
+| `kanban_find_issues` | — | `status`, `assignee`, `type`, `priority`, `epic`, `label` (lists; an empty `assignee` or `epic` means none), `due` (`overdue`, `week`, `none`), `q`, `sort`, `dir`, `offset`, `limit` (def 100, max 200), `spaceId` | Find issues by what they are, in the order asked for. Returns `{ tasks, total }` |
 | `kanban_search_tasks` | `q` | `limit` (def 20, max 50) | Full-text search (FTS5/BM25) across **all spaces** — title + description. Returns `{ task, spaceId, spaceName, column }` per hit. Prefer this over iterating `kanban_get_task` when you don't know the spaceId. |
 
 ### Space tools

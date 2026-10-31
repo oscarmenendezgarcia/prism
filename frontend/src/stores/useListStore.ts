@@ -36,12 +36,16 @@ interface ListState {
   changeSelected: (changes: BulkChanges) => Promise<boolean>;
 }
 
+/** Goes up after a write: what was asked for before it says nothing of what there is now. */
+let generation = 0;
+
 const queryKey = () => {
   const { activeSpaceId, filters, listSort } = useAppStore.getState();
-  return JSON.stringify([activeSpaceId, filters, listSort]);
+  return JSON.stringify([activeSpaceId, filters, listSort, generation]);
 };
 
 let etags = new Map<number, string | null>();
+let loadedSpace: string | null = null;
 let shownPages: [number, number] = [0, 0];
 /** Waiting for the first answer of a new query, which then replaces all the rows. */
 let replacing = false;
@@ -86,8 +90,9 @@ export const useListStore = create<ListState>((set, get) => {
         }
       } catch (err) {
         if (queryKey() !== key) return;
-        // With nothing to show it says so. Otherwise the next poll tries again.
-        if (get().total === null) set({ failed: true });
+        // What is on screen is of another query, and saying nothing would pass it off as this one.
+        if (replacing || get().total === null) set({ rows: {}, total: null, failed: true });
+        // Otherwise it is only out of date, and the next poll tries again.
         else console.warn('[list]', (err as Error).message);
       } finally {
         inFlight.delete(flight);
@@ -119,7 +124,11 @@ export const useListStore = create<ListState>((set, get) => {
       etags = new Map();
       shownPages = [0, 0];
       replacing = true;
-      set({ selected: new Set<string>(), failed: false });
+      // Of another space, a row would open or change something that is not here.
+      const { activeSpaceId } = useAppStore.getState();
+      const otherSpace = loadedSpace !== null && loadedSpace !== activeSpaceId;
+      loadedSpace = activeSpaceId;
+      set({ selected: new Set<string>(), failed: false, ...(otherSpace && { rows: {}, total: null }) });
       void loadPage(0);
     },
 
@@ -163,11 +172,25 @@ export const useListStore = create<ListState>((set, get) => {
       try {
         const { updated } = await api.updateIssues(activeSpaceId, ids, changes);
         showToast(updated === 0 ? 'Nothing to change' : `${updated} ${updated === 1 ? 'issue' : 'issues'} changed`);
-        set({ selected: new Set<string>() });
+        // Whatever was ticked while this was on its way stays ticked.
+        const left = new Set(get().selected);
+        ids.forEach((id) => left.delete(id));
+        set({ selected: left });
+        generation += 1;
         await Promise.all([get().refresh(), loadBoard()]);
         return true;
       } catch (err) {
-        showToast((err as Error).message, 'error');
+        const { code, details } = err as { code?: string; details?: { missing?: string[] } };
+        const missing = code === 'TASK_NOT_FOUND' ? details?.missing : undefined;
+        if (missing && missing.length > 0) {
+          // Someone deleted them. Without this every retry would fail, over issues nobody can see.
+          const left = new Set(get().selected);
+          missing.forEach((id) => left.delete(id));
+          set({ selected: left });
+          showToast(`Nothing changed: ${missing.length} of the selected ${missing.length === 1 ? 'issue no longer exists' : 'issues no longer exist'}, and ${missing.length === 1 ? 'it was' : 'they were'} unselected`, 'error');
+        } else {
+          showToast((err as Error).message, 'error');
+        }
         return false;
       }
     },

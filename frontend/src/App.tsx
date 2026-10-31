@@ -83,11 +83,13 @@ function AppContent() {
   useEffect(() => {
     // A link keeps the space, the view, the filters and the order.
     const { space, view: linkedView, filters, sort } = readLocation(window.location.search);
-    if (space) useAppStore.getState().setActiveSpace(space);
-    useAppStore.setState({ view: linkedView, filters, listSort: sort });
+    // Not kept as the last space used until it is known to exist.
+    useAppStore.setState({ ...(space && { activeSpaceId: space }), view: linkedView, filters, listSort: sort });
 
     void (async () => {
       await loadSpaces();
+      const now = useAppStore.getState();
+      if (space && now.spaces.length > 0 && now.activeSpaceId !== space) now.showToast('The space in that link does not exist', 'error');
       // A link to an issue, such as /?issue=WEB-142. Old keys keep working.
       const params = new URLSearchParams(window.location.search);
       const key = params.get('issue');

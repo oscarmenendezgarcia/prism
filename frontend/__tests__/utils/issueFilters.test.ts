@@ -55,10 +55,14 @@ describe('the address of the page', () => {
   });
 
   it('leaves out what it cannot make sense of', () => {
-    const read = readLocation('?view=gantt&due=soon&sort=rowid&dir=sideways');
+    const read = readLocation(`?view=gantt&due=soon&sort=rowid&dir=sideways&type=bogus&priority=huge`);
     expect(read.view).toBe('board');
     expect(read.filters).toEqual({});
     expect(read.sort).toEqual(DEFAULT_SORT);
+  });
+
+  it('cuts text the server would refuse', () => {
+    expect(readLocation(`?q=${'x'.repeat(300)}`).filters.q).toHaveLength(200);
   });
 
   it('a filter needs its space to mean the same in another browser', () => {

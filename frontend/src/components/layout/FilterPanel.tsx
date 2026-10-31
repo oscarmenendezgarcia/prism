@@ -84,6 +84,21 @@ export function FilterPanel({ onClose, anchorRef }: FilterPanelProps) {
     if ((now.q ?? '') !== debouncedText.trim()) apply({ ...now, q: debouncedText });
   }, [debouncedText]);
 
+  // Its token removed while this is open: the box must not bring it back.
+  useEffect(() => {
+    if ((filters.q ?? '') !== debouncedText.trim()) setText(filters.q ?? '');
+    // Only when the filter changes: what is being typed is ahead of it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.q]);
+
+  // Closed right after typing: what was typed still counts.
+  const typed = useRef(text);
+  typed.current = text;
+  useEffect(() => () => {
+    const { filters: now, setFilters: apply } = useAppStore.getState();
+    if ((now.q ?? '') !== typed.current.trim()) apply({ ...now, q: typed.current });
+  }, []);
+
   useEffect(() => {
     const onPointer = (e: PointerEvent) => {
       const target = e.target as Node;
@@ -122,21 +137,19 @@ export function FilterPanel({ onClose, anchorRef }: FilterPanelProps) {
       data-testid="filter-panel"
       className="fixed sm:absolute inset-x-2 sm:inset-x-auto top-28 sm:top-9 sm:left-0 z-40 sm:w-[36rem] max-h-[70vh] overflow-y-auto p-3 rounded-lg border border-border bg-surface-elevated shadow-lg"
     >
+      {/* On a phone there are no tokens to remove. */}
+      {hasFilters(filters) && (
+        <button
+          type="button"
+          onClick={() => { setText(''); setFilters({}); }}
+          data-testid="filter-clear-panel"
+          className="sm:hidden float-right text-xs text-primary"
+        >
+          Clear all
+        </button>
+      )}
       <label className="block mb-3">
-        <span className="flex items-center justify-between mb-1 text-[11px] font-medium text-text-secondary">
-          Text
-          {/* On a phone there are no tokens to remove. */}
-          {hasFilters(filters) && (
-            <button
-              type="button"
-              onClick={() => { setText(''); setFilters({}); }}
-              data-testid="filter-clear-panel"
-              className="sm:hidden text-xs text-primary"
-            >
-              Clear all
-            </button>
-          )}
-        </span>
+        <span className="block mb-1 text-[11px] font-medium text-text-secondary">Text</span>
         <input
           ref={textRef}
           type="text"

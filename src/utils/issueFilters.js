@@ -82,9 +82,10 @@ function anyOf(column, values, name, params, encode = (v) => v) {
  * The conditions of these filters, over FILTER_JOINS.
  *
  * @param {object} filters
+ * @param {string|null} [spaceKey] A key with another prefix is not of this space.
  * @returns {{ sql: string, params: object }} sql is a list of `AND ...`, or empty.
  */
-function issueConditions(filters = {}) {
+function issueConditions(filters = {}, spaceKey = null) {
   const params = {};
   const conditions = [];
   if (filters.status) conditions.push(anyOf('t.status_id', filters.status, 'fStatus', params));
@@ -112,7 +113,8 @@ function issueConditions(filters = {}) {
   }
   if (filters.q) {
     params.fText = `%${filters.q.toLowerCase().replace(/[\\%_]/g, '\\$&')}%`;
-    const number = /^(?:[A-Za-z][A-Za-z0-9]*-)?(\d+)$/.exec(filters.q)?.[1];
+    const key = /^(?:([A-Za-z][A-Za-z0-9]*)-)?(\d+)$/.exec(filters.q);
+    const number = key && (!key[1] || key[1].toUpperCase() === spaceKey) ? key[2] : null;
     if (number) params.fNumber = Number(number);
     conditions.push(`(prism_lower(t.title) LIKE @fText ESCAPE '\\'${number ? ' OR t.number = @fNumber' : ''})`);
   }

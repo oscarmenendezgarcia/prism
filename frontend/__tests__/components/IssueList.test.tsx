@@ -94,7 +94,7 @@ describe('IssueList', () => {
     expect(useAppStore.getState().filters).toEqual({});
   });
 
-  it('changes what is selected, right away for a few', async () => {
+  it('asks before changing what is selected, and goes on only if told', async () => {
     answer([issue(1), issue(2)]);
     vi.mocked(api.updateIssues).mockResolvedValue({ updated: 1 });
     render(<IssueList />);
@@ -102,21 +102,34 @@ describe('IssueList', () => {
     fireEvent.click(screen.getByLabelText('Select WEB-2'));
     expect(screen.getByTestId('bulk-count').textContent).toBe('1 selected');
     fireEvent.change(screen.getByTestId('bulk-priority'), { target: { value: 'urgent' } });
+    expect(api.updateIssues).not.toHaveBeenCalled();
+    expect(screen.getByTestId('bulk-confirm').textContent).toContain('set priority to Urgent');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(api.updateIssues).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByTestId('bulk-priority'), { target: { value: 'urgent' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change 1 issue' }));
     await waitFor(() => expect(api.updateIssues).toHaveBeenCalledWith('s', ['t2'], { priority: 'urgent' }));
     await waitFor(() => expect(screen.queryByTestId('bulk-bar')).toBeNull());
+    expect(screen.getByTestId('select-all')).toHaveFocus();
   });
 
-  it('asks first for many', async () => {
-    answer([issue(1)]);
+  it('an issue that shows in two pages for a moment leaves no row behind', async () => {
+    answer([issue(1), issue(2)]);
+    render(<IssueList />);
+    await screen.findAllByTestId('issue-row');
+    const a = issue(1); const b = issue(2);
+    act(() => useListStore.setState({ rows: { 0: a, 1: b, 2: b }, total: 3 }));
+    act(() => useListStore.setState({ rows: { 0: issue(9), 1: a, 2: b }, total: 3 }));
+    expect(screen.getAllByTestId('issue-row').map((r) => r.textContent?.slice(0, 5))).toEqual(['WEB-9', 'WEB-1', 'WEB-2']);
+  });
+
+  it('says how long the list is to whoever cannot see it', async () => {
+    answer([issue(1)], 10000);
     render(<IssueList />);
     await screen.findByTestId('issue-row');
-    act(() => useListStore.setState({ selected: new Set(Array.from({ length: 25 }, (_, i) => `x${i}`)) }));
-    fireEvent.change(screen.getByTestId('bulk-status'), { target: { value: 'done' } });
-    expect(api.updateIssues).not.toHaveBeenCalled();
-    expect(screen.getByTestId('bulk-confirm').textContent).toContain('move to Done');
-    vi.mocked(api.updateIssues).mockResolvedValue({ updated: 25 });
-    fireEvent.click(screen.getByRole('button', { name: 'Change 25 issues' }));
-    await waitFor(() => expect(api.updateIssues).toHaveBeenCalled());
+    expect(screen.getByRole('table')).toHaveAttribute('aria-rowcount', '10001');
+    expect(screen.getByTestId('issue-row')).toHaveAttribute('aria-rowindex', '2');
   });
 
   it('unassigning is a choice of its own', async () => {
@@ -126,6 +139,7 @@ describe('IssueList', () => {
     await screen.findByTestId('issue-row');
     fireEvent.click(screen.getByLabelText('Select WEB-1'));
     fireEvent.change(screen.getByLabelText('Change assignee'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Change 1 issue' }));
     await waitFor(() => expect(api.updateIssues).toHaveBeenCalledWith('s', ['t1'], { assigned: '' }));
   });
 });
@@ -177,6 +191,34 @@ describe('FilterBar', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByTestId('filter-panel')).toBeNull();
     expect(screen.getByTestId('filter-button')).toHaveFocus();
+  });
+
+  it('the caption of the text is not a way to clear everything', async () => {
+    useAppStore.setState({ filters: { q: 'x' }, loadBoard: vi.fn(async () => {}) });
+    render(<FilterBar />);
+    fireEvent.click(screen.getByTestId('filter-button'));
+    fireEvent.click(await screen.findByText('Text', { selector: 'span.block' }));
+    expect(useAppStore.getState().filters).toEqual({ q: 'x' });
+    expect(screen.getByLabelText('Text')).toBe(screen.getByTestId('filter-text'));
+  });
+
+  it('removing the text while the panel is open does not bring it back on closing', async () => {
+    useAppStore.setState({ filters: { q: 'x' }, loadBoard: vi.fn(async () => {}) });
+    render(<FilterBar />);
+    fireEvent.click(screen.getByTestId('filter-button'));
+    await screen.findByTestId('filter-panel');
+    fireEvent.click(screen.getByLabelText('Remove filter Text'));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(useAppStore.getState().filters).toEqual({});
+  });
+
+  it('what was typed counts even if the panel closes at once', async () => {
+    useAppStore.setState({ loadBoard: vi.fn(async () => {}) });
+    render(<FilterBar />);
+    fireEvent.click(screen.getByTestId('filter-button'));
+    fireEvent.change(await screen.findByTestId('filter-text'), { target: { value: 'pay' } });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(useAppStore.getState().filters).toEqual({ q: 'pay' });
   });
 
   it('Clear removes them all', () => {

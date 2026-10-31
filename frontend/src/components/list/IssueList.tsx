@@ -52,6 +52,7 @@ function Assignee({ name }: { name?: string }) {
 
 interface RowProps {
   task: Task;
+  position: number;
   statuses: Status[];
   selectable: boolean;
   selected: boolean;
@@ -59,13 +60,14 @@ interface RowProps {
   onOpen: (task: Task) => void;
 }
 
-const Row = memo(function Row({ task, statuses, selectable, selected, onToggle, onOpen }: RowProps) {
+const Row = memo(function Row({ task, position, statuses, selectable, selected, onToggle, onOpen }: RowProps) {
   const status = statuses.find((s) => s.id === task.statusId);
   const priority = priorityOf(task.priority);
   const overdue = isOverdue(task);
   return (
     <tr
       data-testid="issue-row"
+      aria-rowindex={position + 2}
       onClick={() => onOpen(task)}
       className={`h-11 border-b border-border-subtle cursor-pointer transition-colors duration-fast ${selected ? 'bg-primary/10' : 'hover:bg-surface-variant'}`}
     >
@@ -209,20 +211,25 @@ export function IssueList() {
   });
 
   const visible: React.ReactNode[] = [];
+  // Pages arrive one at a time, and an issue can be in two of them for a moment if others were
+  // added or deleted. Twice with one key, React would leave a row behind for good.
+  const seen = new Set<string>();
   for (let at = first; at < last; at++) {
-    const task = rows[at];
-    visible.push(task
-      ? <Row key={task.id} task={task} statuses={statuses} selectable={canEdit} selected={selected.has(task.id)} onToggle={toggleSelected} onOpen={openDetailPanel} />
+    const task = !failed ? rows[at] : undefined;
+    const repeated = task !== undefined && seen.has(task.id);
+    if (task) seen.add(task.id);
+    visible.push(task && !repeated
+      ? <Row key={task.id} task={task} position={at} statuses={statuses} selectable={canEdit} selected={selected.has(task.id)} onToggle={toggleSelected} onOpen={openDetailPanel} />
       : <PlaceholderRow key={`loading-${at}`} selectable={canEdit} />);
   }
 
   return (
     <main role="main" className="relative h-full bg-surface">
       <div ref={scrollerRef} onScroll={onScroll} data-testid="issue-list" className="h-full overflow-auto">
-        <table className="w-full table-fixed border-collapse">
+        <table aria-rowcount={count + 1} className="w-full table-fixed border-collapse">
           <caption className="sr-only">Issues</caption>
           <thead className="sticky top-0 z-10 bg-surface-elevated">
-            <tr className="h-9 border-b border-border">
+            <tr aria-rowindex={1} className="h-9 border-b border-border">
               {canEdit && (
                 <th scope="col" className="w-10 pl-4 text-left">
                   <input
@@ -269,6 +276,8 @@ export function IssueList() {
           </tbody>
         </table>
 
+        {/* So that the last rows can be seen with the bar over them. */}
+        {someSelected && <div className="h-28" aria-hidden="true" />}
         {failed && (
           <p role="alert" className="p-8 text-center text-sm text-error">The list could not be loaded. It will try again in a moment.</p>
         )}
@@ -281,7 +290,7 @@ export function IssueList() {
           </div>
         )}
       </div>
-      {canEdit && someSelected && <BulkBar />}
+      {canEdit && someSelected && <BulkBar onDone={() => allRef.current?.focus()} />}
     </main>
   );
 }

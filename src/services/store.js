@@ -1653,7 +1653,7 @@ function createStore(dataDir) {
     const statuses = stmts.getStatuses.all(spaceId).map(rowToStatus);
     const spaceKey = stmts.getSpace.get(spaceId)?.key ?? null;
     const filtered = isFiltering(filters);
-    const { sql: conditions, params: filterParams } = issueConditions(filters);
+    const { sql: conditions, params: filterParams } = issueConditions(filters, spaceKey);
     const matching = `AND t.id IN (SELECT t.id FROM tasks t ${FILTER_JOINS} WHERE t.space_id = @space ${conditions})`;
     const params = { space: spaceId, ...filterParams };
 
@@ -1733,7 +1733,7 @@ function createStore(dataDir) {
    * @returns {{ tasks: object[], total: number }}
    */
   function listIssues(spaceId, { filters = {}, sort = 'key', descending = true, offset = 0, limit = 100 } = {}) {
-    const { sql, params } = issueConditions(filters);
+    const { sql, params } = issueConditions(filters, stmts.getSpace.get(spaceId)?.key ?? null);
     const tables = `FROM tasks t ${FILTER_JOINS} WHERE t.space_id = @space ${sql}`;
     const { total } = prepareOnce(`SELECT COUNT(*) AS total ${tables}`).get({ space: spaceId, ...params });
     const rows = prepareOnce(`
@@ -1749,7 +1749,7 @@ function createStore(dataDir) {
 
   /** The ids of the first issues that match some filters, in their order, and how many there are. */
   function listIssueIds(spaceId, { filters = {}, sort = 'key', descending = true, limit = 500 } = {}) {
-    const { sql, params } = issueConditions(filters);
+    const { sql, params } = issueConditions(filters, stmts.getSpace.get(spaceId)?.key ?? null);
     const { total } = prepareOnce(`SELECT COUNT(*) AS total FROM tasks t ${FILTER_JOINS} WHERE t.space_id = @space ${sql}`).get({ space: spaceId, ...params });
     const ids = prepareOnce(`
       SELECT t.id AS id FROM tasks t

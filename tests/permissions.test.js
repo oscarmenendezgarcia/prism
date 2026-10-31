@@ -104,6 +104,7 @@ describe('every route, with every role', () => {
     ['GET', '/api/v1/users', 'viewer'], ['PATCH', '/api/v1/users/u', 'admin'], ['POST', '/api/v1/users/u/reset-link', 'admin'],
     ['GET', '/api/v1/assignees/unlinked', 'admin'], ['POST', '/api/v1/users/u/claim-assignee', 'admin'],
     ['GET', '/api/v1/invites', 'admin'], ['POST', '/api/v1/invites', 'admin'], ['DELETE', '/api/v1/invites/i', 'admin'],
+    ['GET', `/api/v1/spaces/x/issues`, 'viewer'], ['GET', `/api/v1/spaces/x/issues/labels`, 'viewer'], ['PATCH', '/api/v1/spaces/x/tasks/bulk', 'member'],
     // Not a route. A write nobody opened stays closed.
     ['POST', '/api/v1/something-new', 'admin'], ['PUT', `${T}/something-new`, 'admin'],
   ];

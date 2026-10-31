@@ -12,6 +12,7 @@ type ButtonSize = 'sm' | 'md';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
+  ref?: React.Ref<HTMLButtonElement>;
   /**
    * 'md' (default) = px-4 py-2 text-sm — unchanged from before.
    * 'sm' = compact h-8 px-2.5 text-xs for dense/contextual actions (panel

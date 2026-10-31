@@ -132,6 +132,31 @@ describe('loading', () => {
   });
 });
 
+describe('a new query that fails', () => {
+  it('does not pass off the old rows as its own', async () => {
+    vi.mocked(api.getIssues).mockResolvedValue(page(0, 3, 3));
+    store().restart();
+    await flush();
+    useAppStore.setState({ filters: { q: 'x' } });
+    vi.mocked(api.getIssues).mockRejectedValue(new Error('down'));
+    store().restart();
+    await flush();
+    expect(store().failed).toBe(true);
+    expect(store().rows).toEqual({});
+  });
+
+  it('another space drops the rows at once, before any answer', async () => {
+    vi.mocked(api.getIssues).mockResolvedValue(page(0, 3, 3));
+    store().restart();
+    await flush();
+    useAppStore.setState({ activeSpaceId: 'other' });
+    vi.mocked(api.getIssues).mockReturnValue(new Promise(() => {}));
+    store().restart();
+    expect(store().rows).toEqual({});
+    expect(store().total).toBeNull();
+  });
+});
+
 describe('selecting', () => {
   it('a new query clears it', async () => {
     vi.mocked(api.getIssues).mockResolvedValue(page(0, 1, 1));
@@ -157,6 +182,42 @@ describe('selecting', () => {
 });
 
 describe('changing', () => {
+  it('reads again rather than trust a poll from before the write', async () => {
+    vi.mocked(api.getIssues).mockResolvedValue(page(0, 1, 1));
+    store().restart();
+    await flush();
+    let oldPoll: (value: ReturnType<typeof page>) => void = () => {};
+    vi.mocked(api.getIssues).mockReturnValueOnce(new Promise((resolve) => { oldPoll = resolve; }));
+    void store().refresh();
+    vi.mocked(api.updateIssues).mockResolvedValue({ updated: 1 });
+    vi.mocked(api.getIssues).mockResolvedValue({ data: { tasks: [{ ...task(0), priority: 'low' }], total: 1 }, etag: 'after' });
+    useListStore.setState({ selected: new Set(['t0']) });
+    await store().changeSelected({ priority: 'low' });
+    oldPoll(page(0, 1, 1, 'before'));
+    await flush();
+    expect(store().rows[0].priority).toBe('low');
+  });
+
+  it('what was ticked during the change stays ticked', async () => {
+    let done: (value: { updated: number }) => void = () => {};
+    vi.mocked(api.updateIssues).mockReturnValue(new Promise((resolve) => { done = resolve; }));
+    vi.mocked(api.getIssues).mockResolvedValue(page(0, 1, 1));
+    useListStore.setState({ selected: new Set(['a']) });
+    const change = store().changeSelected({ priority: 'low' });
+    store().toggleSelected('b');
+    done({ updated: 1 });
+    await change;
+    expect([...store().selected]).toEqual(['b']);
+  });
+
+  it('what someone deleted leaves the selection, so the next try can work', async () => {
+    vi.mocked(api.updateIssues).mockRejectedValue(new api.ApiError('not found', 404, 'TASK_NOT_FOUND', { missing: ['gone'] }));
+    useListStore.setState({ selected: new Set(['a', 'gone']) });
+    expect(await store().changeSelected({ priority: 'low' })).toBe(false);
+    expect([...store().selected]).toEqual(['a']);
+    expect(useAppStore.getState().toast?.message).toMatch(/1 of the selected issue no longer exists/);
+  });
+
   it('sends the selection, clears it and reads again', async () => {
     vi.mocked(api.updateIssues).mockResolvedValue({ updated: 2 });
     vi.mocked(api.getIssues).mockResolvedValue(page(0, 1, 1));

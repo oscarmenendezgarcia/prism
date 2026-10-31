@@ -128,6 +128,8 @@ describe('the list of issues', () => {
       assert.deepEqual(await titles('?q=_'), ['Login_fails']);
       assert.deepEqual(await titles(`?q=${parent.key}`), ['Pay with card']);
       assert.deepEqual(await titles(`?q=${parent.number}`), ['Pay with card']);
+      assert.deepEqual(await titles(`?q=${parent.key.toLowerCase()}`), ['Pay with card']);
+      assert.deepEqual(await titles(`?q=OTHER-${parent.number}`), [], 'a key of another space');
     });
 
     test('every order works, and what has no value goes last both ways', async () => {
@@ -152,7 +154,7 @@ describe('the list of issues', () => {
     });
 
     test('says what is wrong with a query', async () => {
-      for (const query of ['?sort=rowid', '?dir=up', '?offset=-1', '?limit=0', '?limit=201', '?limit=a', '?priority=huge', '?type=x', '?due=soon', '?today=tomorrow', `?q=${'x'.repeat(201)}`]) {
+      for (const query of ['?sort=rowid', '?dir=up', '?offset=-1', '?limit=0', '?limit=201', '?limit=a', '?offset=1e30', '?offset=1e20', '?priority=huge', '?type=x', '?due=soon', '?today=tomorrow', `?q=${'x'.repeat(201)}`]) {
         assert.equal((await list(query)).status, 400, query);
       }
     });
@@ -237,6 +239,7 @@ describe('the list of issues', () => {
       const res = await bulk({ ids: [a.id, 'nope'], changes: { priority: 'urgent' } });
       assert.equal(res.status, 404);
       assert.match(res.json.error.message, /nope/);
+      assert.deepEqual(res.json.error.missing, ['nope']);
       assert.equal((await get(a.id)).priority, 'low');
     });
 
@@ -262,7 +265,7 @@ describe('the list of issues', () => {
         { ids: [a.id] }, { ids: [a.id], changes: {} }, { ids: [a.id], changes: [] },
         { ids: [a.id], changes: { title: 'x' } }, { ids: [a.id], changes: { priority: 'huge' } },
         { ids: [a.id], changes: { statusId: 'nope' } }, { ids: [a.id], changes: { statusId: 'constructor' } },
-        { ids: [a.id], changes: { assigned: 1 } }, { ids: [a.id], changes: { addLabels: 'x' } },
+        { ids: [a.id], changes: { assigned: 1 } }, { ids: [a.id], changes: { assigned: 'x'.repeat(51) } }, { ids: [a.id], changes: { addLabels: 'x' } },
         { ids: [a.id], changes: { addLabels: ['a,b'] } },
         { ids: Array.from({ length: 501 }, (_, i) => `i${i}`), changes: { priority: 'low' } },
       ];

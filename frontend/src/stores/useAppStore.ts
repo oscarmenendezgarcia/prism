@@ -342,13 +342,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setActiveSpace: (id: string) => {
     safeStorage.setItem(ACTIVE_SPACE_KEY, id);
+    // Opening an issue of this same space must not lose what the user was looking at.
+    if (id === get().activeSpaceId) return;
     // An epic of the old space would hide every card in the new one.
     boardEtag = null;
     set({
       activeSpaceId: id, filters: {}, columnLimits: {}, includedIds: [],
-      ...(id !== get().activeSpaceId && {
-        tasks: emptyBoard(), columnTotals: {}, columnBounds: {}, epics: [], boardScope: `${id}|`, boardVersion: null,
-      }),
+      tasks: emptyBoard(), columnTotals: {}, columnBounds: {}, epics: [], boardScope: `${id}|`, boardVersion: null,
     });
   },
 

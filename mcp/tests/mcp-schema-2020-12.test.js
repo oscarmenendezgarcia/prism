@@ -146,6 +146,16 @@ after(() => {
 // TC-001..004: Schema structure — $ref reuse
 // ---------------------------------------------------------------------------
 
+describe('kanban_find_issues', () => {
+  it('takes the filters of a list, and requires none', async () => {
+    const tool = findTool(await getTools(), 'kanban_find_issues');
+    for (const field of ['status', 'assignee', 'type', 'priority', 'epic', 'label', 'due', 'q', 'sort', 'dir', 'offset', 'limit', 'spaceId']) {
+      assert.ok(tool.inputSchema.properties[field], field);
+    }
+    assert.ok(!tool.inputSchema.required?.length);
+  });
+});
+
 describe('TC-001: kanban_list_tasks — spaceId uses $ref reuse', () => {
   it('spaceId field is a $ref pointing to definitions.SpaceId', async () => {
     const tools = await getTools();

@@ -312,8 +312,7 @@ describe('Board — epic filter', () => {
     expect(screen.getAllByRole('tabpanel').length).toBeGreaterThan(0);
   });
 
-  // Fails today: nothing clears epicFilter when its epic goes, and the bar hides its filter
-  // with no epics left. The board stays empty until switching space.
+  // Nothing else clears a filter by an epic that is gone, and the board would stay empty.
   it('deleting the last epic while filtered to it leaves a way back to the issues', async () => {
     const after = { todo: [issue('c', 'Loose issue')], 'in-progress': [], done: [] };
     vi.mocked(api.deleteTask).mockResolvedValue({ deleted: true, id: 'e1' });

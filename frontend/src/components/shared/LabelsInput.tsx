@@ -14,9 +14,11 @@ interface LabelsInputProps {
   inputClassName?: string;
   chipsClassName?: string;
   id?: string;
+  /** What the field is called, where it is not for adding. */
+  label?: string;
 }
 
-export function LabelsInput({ labels, onChange, disabled, inputClassName = '', chipsClassName = '', id }: LabelsInputProps) {
+export function LabelsInput({ labels, onChange, disabled, inputClassName = '', chipsClassName = '', id, label = 'Add a label' }: LabelsInputProps) {
   const [draft, setDraft] = useState('');
 
   const commit = () => {
@@ -52,8 +54,8 @@ export function LabelsInput({ labels, onChange, disabled, inputClassName = '', c
         value={draft}
         disabled={disabled}
         maxLength={LABEL_MAX}
-        placeholder="Add a label…"
-        aria-label="Add a label"
+        placeholder={`${label}…`}
+        aria-label={label}
         className={inputClassName}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}

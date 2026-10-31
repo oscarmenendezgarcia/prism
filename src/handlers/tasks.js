@@ -493,8 +493,8 @@ function createApp(spaceId, store) {
       }
       const offset = qs.has('offset') ? Number(qs.get('offset')) : 0;
       const limit = qs.has('limit') ? Number(qs.get('limit')) : LIST_DEFAULT_LIMIT;
-      if (!Number.isInteger(offset) || offset < 0) return sendError(res, 400, 'VALIDATION_ERROR', 'offset must be a whole number from 0');
-      if (!Number.isInteger(limit) || limit < 1 || limit > LIST_MAX_LIMIT) {
+      if (!Number.isSafeInteger(offset) || offset < 0) return sendError(res, 400, 'VALIDATION_ERROR', 'offset must be a whole number from 0');
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > LIST_MAX_LIMIT) {
         return sendError(res, 400, 'VALIDATION_ERROR', `limit must be a whole number from 1 to ${LIST_MAX_LIMIT}`);
       }
       const { tasks, total } = store.listIssues(spaceId, { filters: parsed.filters, sort, descending, offset, limit });
@@ -553,7 +553,10 @@ function createApp(spaceId, store) {
     for (const field of ['addLabels', 'removeLabels']) {
       if (field in changes) errors.push(...validateIssueFields({ labels: changes[field] }).map((e) => e.replace(/^(each )?labels?/, field)));
     }
-    if ('assigned' in changes && typeof changes.assigned !== 'string') errors.push('assigned must be a string');
+    if ('assigned' in changes) {
+      const err = validateOptionalStringField('assigned', changes.assigned, ASSIGNED_MAX_LEN);
+      if (err) errors.push(err);
+    }
     const statuses = store.getStatuses(spaceId);
     const target = 'statusId' in changes ? statuses.find((s) => s.id === changes.statusId) : null;
     if ('statusId' in changes && !target) errors.push(`statusId must be one of: ${statuses.map((s) => s.id).join(', ')}`);
@@ -573,7 +576,8 @@ function createApp(spaceId, store) {
       const issues = store.getTasksByIds(spaceId, unique);
       if (issues.length !== unique.length) {
         const found = new Set(issues.map((issue) => issue.id));
-        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${unique.find((id) => !found.has(id))}' not found`);
+        const missing = unique.filter((id) => !found.has(id));
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${missing[0]}' not found`, { missing });
       }
       const finishStatusId = store.getSpace(spaceId).finishStatusId;
       const guarded = target && (target.category !== 'in-progress' || target.id === finishStatusId);
