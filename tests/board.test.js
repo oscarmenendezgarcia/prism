@@ -479,6 +479,15 @@ describe('GET /spaces/:id/board', () => {
       assert.equal(body.total, 2);
     });
 
+    test('?parent= says nothing about the issues of another space', async () => {
+      const elsewhere = await newSpace('Other parent');
+      const add = async (fields) => (await json(port, 'POST', `/api/v1/spaces/${elsewhere}/tasks`, { type: 'chore', ...fields })).json;
+      const theirs = await add({ title: 'Theirs' });
+      await add({ title: 'Child', parentId: theirs.id });
+      const body = (await json(port, 'GET', tasksUrl(`?parent=${theirs.id}`))).json;
+      assert.deepEqual(body, { tasks: [], done: 0, total: 0 });
+    });
+
     test('?ids= finds issues in any column, and not those of another space', async () => {
       const mine = await create({ title: 'Mine' });
       const otherSpace = await newSpace('Elsewhere');
@@ -582,7 +591,7 @@ describe('the store does not read the whole space to draw a board', () => {
     const db = new Database(path.join(dataDir, 'prism.db'), { readonly: true });
     try {
       const indexes = db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all().map((r) => r.name);
-      for (const name of ['idx_tasks_board', 'idx_tasks_parent_column', 'idx_tasks_epics']) assert.ok(indexes.includes(name), name);
+      for (const name of ['idx_tasks_board', 'idx_tasks_parent_progress', 'idx_tasks_epics']) assert.ok(indexes.includes(name), name);
       const plan = db.prepare(`EXPLAIN QUERY PLAN SELECT * FROM tasks t WHERE t.space_id = 'a' AND t.status_id = 'b'
         ORDER BY t.rank DESC, t.created_at DESC, t.rowid DESC LIMIT 50`).all().map((r) => r.detail).join(' ');
       assert.match(plan, /idx_tasks_board/);

@@ -169,7 +169,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_parent  ON tasks(parent_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_number ON tasks(space_id, number);
 -- The board reads each column from either end, and counts what hangs from each card.
 CREATE INDEX IF NOT EXISTS idx_tasks_board         ON tasks(space_id, status_id, rank, created_at);
-CREATE INDEX IF NOT EXISTS idx_tasks_parent_column ON tasks(parent_id, column);
+CREATE INDEX IF NOT EXISTS idx_tasks_parent_progress ON tasks(parent_id, space_id, column);
 CREATE INDEX IF NOT EXISTS idx_tasks_epics         ON tasks(space_id) WHERE type = 'epic';
 `;
 
@@ -773,11 +773,11 @@ function createStore(dataDir) {
       `${TASK_SELECT} WHERE t.space_id = ? AND t.type = 'epic' ORDER BY t.number ASC, t.rowid ASC`
     ),
     parentsOf: db.prepare(
-      'SELECT id, type, title, number, parent_id FROM tasks WHERE id IN (SELECT value FROM json_each(?))'
+      'SELECT id, type, title, number, parent_id FROM tasks WHERE space_id = ? AND id IN (SELECT value FROM json_each(?))'
     ),
     progressOf: db.prepare(`
       SELECT parent_id, COUNT(*) AS total, SUM(column = 'done') AS done
-        FROM tasks WHERE parent_id IN (SELECT value FROM json_each(?)) GROUP BY parent_id
+        FROM tasks WHERE space_id = ? AND parent_id IN (SELECT value FROM json_each(?)) GROUP BY parent_id
     `),
     doneAmong: db.prepare(
       "SELECT id FROM tasks WHERE space_id = ? AND column = 'done' AND id IN (SELECT value FROM json_each(?))"
@@ -1543,15 +1543,15 @@ function createStore(dataDir) {
     return { isBlocked: blockedByCount > 0, blockedByCount };
   }
 
-  function rowsById(ids) {
+  function rowsById(spaceId, ids) {
     const unique = [...new Set(ids)];
     if (unique.length === 0) return new Map();
-    return new Map(stmts.parentsOf.all(JSON.stringify(unique)).map((row) => [row.id, row]));
+    return new Map(stmts.parentsOf.all(spaceId, JSON.stringify(unique)).map((row) => [row.id, row]));
   }
 
-  function progressById(ids) {
+  function progressById(spaceId, ids) {
     if (ids.length === 0) return new Map();
-    return new Map(stmts.progressOf.all(JSON.stringify(ids)).map((row) => [row.parent_id, { done: row.done, total: row.total }]));
+    return new Map(stmts.progressOf.all(spaceId, JSON.stringify(ids)).map((row) => [row.parent_id, { done: row.done, total: row.total }]));
   }
 
   /**
@@ -1561,11 +1561,12 @@ function createStore(dataDir) {
    */
   function withCardFields(spaceId, spaceKey, tasks) {
     const ids = tasks.map((task) => task.id);
-    const parents = rowsById(tasks.map((task) => task.parentId).filter(Boolean));
+    const parents = rowsById(spaceId, tasks.map((task) => task.parentId).filter(Boolean));
     const grandparents = rowsById(
+      spaceId,
       [...parents.values()].filter((row) => row.type !== 'epic' && row.parent_id).map((row) => row.parent_id)
     );
-    const progress = progressById(ids);
+    const progress = progressById(spaceId, ids);
     const doneIds = doneAmong(spaceId, [...new Set(tasks.flatMap((task) => task.dependsOn ?? []))]);
     const questions = new Map();
     if (ids.length > 0) {
@@ -1659,7 +1660,7 @@ function createStore(dataDir) {
     }
 
     const epicRows = stmts.spaceEpics.all(spaceId);
-    const epicProgress = progressById(epicRows.map((row) => row.id));
+    const epicProgress = progressById(spaceId, epicRows.map((row) => row.id));
     const epics = epicRows.map((row) => ({
       id: row.id,
       key: row.number != null && spaceKey ? `${spaceKey}-${row.number}` : null,
@@ -1686,7 +1687,7 @@ function createStore(dataDir) {
 
   /** The issues under this one, in order, and how many there are and are done. */
   function getChildrenPage(spaceId, parentId, limit) {
-    const { done, total } = progressById([parentId]).get(parentId) ?? { done: 0, total: 0 };
+    const { done, total } = progressById(spaceId, [parentId]).get(parentId) ?? { done: 0, total: 0 };
     return { tasks: stmts.childrenPage.all(spaceId, parentId, limit).map(rowToTask), done, total };
   }
 
