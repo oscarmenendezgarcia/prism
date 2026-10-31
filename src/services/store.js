@@ -720,6 +720,10 @@ function createStore(dataDir) {
     reorderTask: db.prepare(
       'UPDATE tasks SET rank = ?, updated_at = ? WHERE space_id = ? AND id = ?'
     ),
+    columnOrder: db.prepare(
+      'SELECT id, rank FROM tasks WHERE space_id = ? AND status_id = ? ORDER BY rank ASC, created_at ASC, rowid ASC'
+    ),
+    setRank: db.prepare('UPDATE tasks SET rank = ? WHERE space_id = ? AND id = ?'),
     maxRankInStatus: db.prepare(
       'SELECT COALESCE(MAX(rank), 0) AS max_rank FROM tasks WHERE space_id = ? AND status_id = ?'
     ),
@@ -1356,6 +1360,35 @@ function createStore(dataDir) {
     return apply(updates);
   }
 
+  /**
+   * Place a card next to another and spread out every card of its column, in one transaction:
+   * what a browser has of the column is not all of it, so it cannot work out these ranks.
+   * Only the card placed counts as changed.
+   *
+   * @param {string} spaceId
+   * @param {string} taskId
+   * @param {string|null} overId - The card to place it next to. Null for the end of the column.
+   * @param {boolean} insertBefore
+   * @returns {{ task: object, count: number } | { code: 'TASK_NOT_FOUND' | 'NOT_IN_COLUMN', id: string }}
+   */
+  function rebalanceColumn(spaceId, taskId, overId, insertBefore) {
+    return db.transaction(() => {
+      const moved = stmts.getTask.get(spaceId, taskId);
+      if (!moved) return { code: 'TASK_NOT_FOUND', id: taskId };
+      const others = stmts.columnOrder.all(spaceId, moved.status_id).filter((row) => row.id !== taskId);
+      const overAt = overId === null ? others.length - 1 : others.findIndex((row) => row.id === overId);
+      if (overAt === -1 && overId !== null) return { code: 'NOT_IN_COLUMN', id: overId };
+      const at = overId === null ? others.length : overAt + (insertBefore ? 0 : 1);
+      others.splice(at, 0, { id: taskId, rank: moved.rank });
+      others.forEach((row, i) => {
+        const rank = (i + 1) * 1000;
+        if (row.rank !== rank) stmts.setRank.run(rank, spaceId, row.id);
+      });
+      stmts.touchTask.run(new Date().toISOString(), spaceId, taskId);
+      return { task: getTask(spaceId, taskId), count: others.length };
+    })();
+  }
+
   function rebuildFts() {
     db.exec("INSERT INTO tasks_fts(tasks_fts) VALUES('rebuild')");
     console.warn('[store] FTS index rebuilt after SQLITE_CORRUPT_VTAB');
@@ -1922,6 +1955,35 @@ function createStore(dataDir) {
    * Useful after bulk inserts (e.g. migration) where individual INSERT OR IGNORE
    * statements may not fire triggers for rows that already existed.
    */
+  /**
+   * Place a card next to another and spread out every card of its column, in one transaction:
+   * what a browser has of the column is not all of it, so it cannot work out these ranks.
+   * Only the card placed counts as changed.
+   *
+   * @param {string} spaceId
+   * @param {string} taskId
+   * @param {string|null} overId - The card to place it next to. Null for the end of the column.
+   * @param {boolean} insertBefore
+   * @returns {{ task: object, count: number } | { code: 'TASK_NOT_FOUND' | 'NOT_IN_COLUMN', id: string }}
+   */
+  function rebalanceColumn(spaceId, taskId, overId, insertBefore) {
+    return db.transaction(() => {
+      const moved = stmts.getTask.get(spaceId, taskId);
+      if (!moved) return { code: 'TASK_NOT_FOUND', id: taskId };
+      const others = stmts.columnOrder.all(spaceId, moved.status_id).filter((row) => row.id !== taskId);
+      const overAt = overId === null ? others.length - 1 : others.findIndex((row) => row.id === overId);
+      if (overAt === -1 && overId !== null) return { code: 'NOT_IN_COLUMN', id: overId };
+      const at = overId === null ? others.length : overAt + (insertBefore ? 0 : 1);
+      others.splice(at, 0, { id: taskId, rank: moved.rank });
+      others.forEach((row, i) => {
+        const rank = (i + 1) * 1000;
+        if (row.rank !== rank) stmts.setRank.run(rank, spaceId, row.id);
+      });
+      stmts.touchTask.run(new Date().toISOString(), spaceId, taskId);
+      return { task: getTask(spaceId, taskId), count: others.length };
+    })();
+  }
+
   function rebuildFts() {
     db.exec("INSERT INTO tasks_fts(tasks_fts) VALUES ('rebuild')");
     console.log('[store] FTS5 index rebuilt');
@@ -1982,6 +2044,7 @@ function createStore(dataDir) {
     moveTask,
     reorderTask,
     reorderTasks,
+    rebalanceColumn,
     deleteTask,
     clearSpace,
     searchTasks,

@@ -732,6 +732,27 @@ function createApp(spaceId, store) {
    * whole batch is rolled back and a 404 is returned.
    */
   const RANK_BATCH_MAX = 500;
+  /** PATCH /tasks/rank { rebalance: { id, overId, insertBefore } }: a card with no room where it goes. */
+  function handleRebalance(res, rebalance) {
+    const { id, overId = null, insertBefore = false } = rebalance ?? {};
+    if (typeof id !== 'string' || !id || (overId !== null && typeof overId !== 'string') || typeof insertBefore !== 'boolean') {
+      return sendError(res, 400, 'VALIDATION_ERROR', 'rebalance must be { id, overId, insertBefore }');
+    }
+    try {
+      const result = store.rebalanceColumn(spaceId, id, overId, insertBefore);
+      if (result.code === 'TASK_NOT_FOUND') {
+        return sendError(res, 404, 'TASK_NOT_FOUND', `Task with id '${id}' not found in space`);
+      }
+      if (result.code === 'NOT_IN_COLUMN') {
+        return sendError(res, 422, 'NOT_IN_COLUMN', `Task '${overId}' is not in the same column`);
+      }
+      sendJSON(res, 200, { task: stripAttachmentContent(result.task), count: result.count });
+    } catch (err) {
+      console.error('PATCH tasks/rank rebalance error:', err);
+      sendError(res, 500, 'INTERNAL_ERROR', 'Failed to rebalance the column');
+    }
+  }
+
   async function handleRankTasksBatch(req, res) {
     let body;
     try {
@@ -741,6 +762,10 @@ function createApp(spaceId, store) {
         return sendError(res, 413, 'PAYLOAD_TOO_LARGE', 'Request body exceeds 512 KB limit');
       }
       return sendError(res, 400, 'INVALID_JSON', 'Request body must be valid JSON');
+    }
+
+    if (body && typeof body === 'object' && body.rebalance !== undefined) {
+      return handleRebalance(res, body.rebalance);
     }
 
     if (!body || typeof body !== 'object' || !Array.isArray(body.updates)) {

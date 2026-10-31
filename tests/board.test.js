@@ -635,6 +635,84 @@ describe('GET /spaces/:id/board', () => {
   });
 });
 
+describe('rebalancing a column, on the server', () => {
+  let server;
+  let port;
+  let id;
+  let todo;
+  const rank = (body) => json(port, 'PATCH', `/api/v1/spaces/${id}/tasks/rank`, body);
+  const order = () => {
+    const rows = server.store.getTasksByStatus(id, todo).map((t) => t.id);
+    return rows;
+  };
+
+  before(async () => {
+    server = await startTestServer();
+    port = server.port;
+    id = (await json(port, 'POST', '/api/v1/spaces', { name: 'Rebalance' })).json.id;
+    todo = (await json(port, 'GET', `/api/v1/spaces/${id}`)).json.statuses.find((s) => s.category === 'todo').id;
+    const at = new Date(0).toISOString();
+    // Ranks packed so tight that nothing fits between them, as after many drops in one place.
+    ['a', 'b', 'c', 'd', 'e'].forEach((name, i) => {
+      server.store.insertTask({ id: name, title: name, type: 'chore', rank: 1000 + i * 0.0001, createdAt: at, updatedAt: at }, id, todo);
+    });
+  });
+  after(() => server.close());
+
+  test('places the card and spreads out every card of the column, loaded or not', async () => {
+    const res = await rank({ rebalance: { id: 'e', overId: 'b', insertBefore: false } });
+    assert.equal(res.status, 200, JSON.stringify(res.json));
+    assert.deepEqual(order(), ['a', 'b', 'e', 'c', 'd']);
+    const ranks = server.store.getTasksByStatus(id, todo).map((t) => t.rank);
+    assert.deepEqual(ranks, [1000, 2000, 3000, 4000, 5000]);
+    assert.equal(res.json.task.id, 'e');
+    assert.equal(res.json.count, 5);
+  });
+
+  test('before a card, and to the end with none', async () => {
+    await rank({ rebalance: { id: 'd', overId: 'a', insertBefore: true } });
+    assert.deepEqual(order(), ['d', 'a', 'b', 'e', 'c']);
+    await rank({ rebalance: { id: 'd', overId: null } });
+    assert.deepEqual(order(), ['a', 'b', 'e', 'c', 'd']);
+  });
+
+  test('marks as changed the card that moved, not the ones only given room', async () => {
+    const before = server.store.getTasksByStatus(id, todo).map((t) => [t.id, t.updatedAt]);
+    await rank({ rebalance: { id: 'a', overId: 'c', insertBefore: true } });
+    const after = new Map(server.store.getTasksByStatus(id, todo).map((t) => [t.id, t.updatedAt]));
+    for (const [taskId, stamp] of before) {
+      if (taskId !== 'a') assert.equal(after.get(taskId), stamp, taskId);
+    }
+    assert.notEqual(after.get('a'), before.find(([taskId]) => taskId === 'a')[1]);
+  });
+
+  test('changes nothing if what it is placed next to is not in the column', async () => {
+    const was = order();
+    const other = await rank({ rebalance: { id: 'a', overId: 'nope' } });
+    assert.equal(other.status, 422);
+    assert.deepEqual(order(), was);
+  });
+
+  test('a card that is not there is a 404, and a malformed request a 400', async () => {
+    assert.equal((await rank({ rebalance: { id: 'nope', overId: null } })).status, 404);
+    assert.equal((await rank({ rebalance: { overId: 'a' } })).status, 400);
+    assert.equal((await rank({ rebalance: { id: 'a', overId: 7 } })).status, 400);
+  });
+
+  test('the batch of ranks goes on working as before', async () => {
+    const res = await rank({ updates: [{ id: 'a', rank: 500 }] });
+    assert.equal(res.status, 200);
+    assert.equal(res.json.tasks[0].rank, 500);
+  });
+
+  test('is for those who may reorder, and not for an agent', () => {
+    const route = `/api/v1/spaces/${id}/tasks/rank`;
+    assert.equal(mayRequest({ role: 'viewer' }, 'PATCH', route), false);
+    assert.equal(mayRequest({ role: 'member' }, 'PATCH', route), true);
+    assert.equal(runMayRequest({ spaceId: id, taskId: 'a', taskKey: null }, 'PATCH', route), false);
+  });
+});
+
 describe('who may read the board', () => {
   const board = '/api/v1/spaces/s1/board';
 

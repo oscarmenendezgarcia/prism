@@ -28,6 +28,7 @@
 | GET | `/issues/:key` | Find an issue by key in any space. Old keys keep working |
 | PUT | `/spaces/:spaceId/statuses` | Replace the statuses `{ statuses: [{ id?, name, category }], moves?: { removedId: targetId } }`. No id means new. 409 `STATUS_IN_USE` if a removed status has issues and no destination |
 | PUT | `/spaces/:spaceId/tasks/:id` | Update fields. `parentId`, `dueDate` and `estimate` take null to clear; `labels` takes [] |
+| PATCH | `/spaces/:spaceId/tasks/rank` | Re-rank at once: `{ updates: [{ id, rank }] }`, or `{ rebalance: { id, overId, insertBefore } }` to place a card next to another and spread out its whole column |
 | PUT | `/spaces/:spaceId/tasks/:id/move` | Move to a status of the space `{ to: "<status id>" }`. Defaults: `todo`, `in-progress`, `in-review`, `done` |
 | DELETE | `/spaces/:spaceId/tasks/:id` | Delete task |
 | PUT | `/spaces/:spaceId/tasks/:id/attachments` | Replace attachments array entirely (empty array clears all) |

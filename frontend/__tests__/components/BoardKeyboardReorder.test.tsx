@@ -255,14 +255,12 @@ describe('Board — keyboard reorder', () => {
     expect(reorderTask).not.toHaveBeenCalled();
   });
 
-  it('BUG-001 regression: a rebalance-triggering move calls the atomic reorderTasks batch, not N reorderTask loop calls', () => {
-    // Ranks packed tight enough (gap < 0.001) that inserting 'a' between
-    // 'b' and 'c' forces computeDropRank's rebalance branch. Before the
-    // fix, handleKeyboardReorder looped reorderTask() once per task here —
-    // reintroducing the partial-rebalance-corruption bug already fixed for
-    // drag-and-drop (see .folio/lessons/partial-rebalance-corruption.md).
+  it('a move with no room for it is left to the server, which sees the whole column, and never writes ranks from the cards loaded', () => {
+    // Ranks packed tight enough (gap < 0.001) that inserting 'a' between 'b' and 'c' has no
+    // room. Rewriting ranks from what is loaded would scramble a column partly loaded or
+    // filtered, among the cards it cannot see.
     const reorderTask = vi.fn();
-    const reorderTasks = vi.fn();
+    const rebalanceColumn = vi.fn();
     setBoard({
       tasks: {
         todo: [
@@ -273,23 +271,15 @@ describe('Board — keyboard reorder', () => {
         'in-progress': [], done: [],
       },
       reorderTask,
-      reorderTasks,
+      rebalanceColumn,
     } as never);
     render(<Board />);
 
     fireEvent.keyDown(findCard('a'), { key: 'ArrowDown', altKey: true });
 
-    // Single atomic batch call — never the per-task loop.
-    expect(reorderTasks).toHaveBeenCalledOnce();
+    expect(rebalanceColumn).toHaveBeenCalledOnce();
+    expect(rebalanceColumn).toHaveBeenCalledWith('todo', 'a', 'b', false);
     expect(reorderTask).not.toHaveBeenCalled();
-
-    const [column, updates] = reorderTasks.mock.calls[0];
-    expect(column).toBe('todo');
-    expect(updates).toEqual([
-      { id: 'b', rank: 1000 },
-      { id: 'a', rank: 2000 },
-      { id: 'c', rank: 3000 },
-    ]);
   });
 
   it('cards are tabIndex=0 (focusable)', () => {

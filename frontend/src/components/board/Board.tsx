@@ -59,7 +59,7 @@ export function computeDropRank(
   overTaskId: string | null,
   insertBefore: boolean,
   bounds: { rankBefore?: number; rankAfter?: number } = {},
-): { newRank: number; needsRebalance: boolean; rebalancedTasks?: Task[] } {
+): { newRank: number; needsRebalance: boolean; overId?: string | null; insertBefore?: boolean } {
   const withoutDragged = tasks.filter((t) => t.id !== draggedId);
   // A card brought by id may lie past those bounds, and then they say nothing about its side.
   const firstRank = withoutDragged[0]?.rank ?? 0;
@@ -96,21 +96,11 @@ export function computeDropRank(
   const gap = nextRank === Infinity ? Infinity : nextRank - prevRank;
 
   if (gap < 0.001 && gap !== Infinity) {
-    const reinserted = [...withoutDragged];
-    let insertAt = overTaskId === null
-      ? reinserted.length
-      : insertBefore
-        ? reinserted.findIndex((t) => t.id === overTaskId)
-        : reinserted.findIndex((t) => t.id === overTaskId) + 1;
-    if (insertAt < 0) insertAt = reinserted.length;
-    const dragged = tasks.find((t) => t.id === draggedId);
-    if (dragged) reinserted.splice(insertAt, 0, dragged);
-    // Between the cards around those loaded, or the rebalance would move them out of what shows.
-    const room = (ceiling - floor) / (reinserted.length + 1);
-    const step = room >= 0.001 && room < 1000.0 ? room : 1000.0;
-    const rebalancedTasks = reinserted.map((t, i) => ({ ...t, rank: floor + (i + 1) * step }));
-    const draggedNewRank = rebalancedTasks.find((t) => t.id === draggedId)?.rank ?? newRank;
-    return { newRank: draggedNewRank, needsRebalance: true, rebalancedTasks };
+    // No room. Only where it goes: the server spreads out the column, which it sees all of.
+    const over = overTaskId !== null && withoutDragged.some((t) => t.id === overTaskId) ? overTaskId : null;
+    return over !== null
+      ? { newRank, needsRebalance: true, overId: over, insertBefore }
+      : { newRank, needsRebalance: true, overId: withoutDragged.at(-1)?.id ?? null, insertBefore: false };
   }
 
   return { newRank, needsRebalance: false };
@@ -123,7 +113,7 @@ export function Board() {
   const tasks = useTasks();
   const moveTask = useAppStore((s) => s.moveTask);
   const reorderTask = useAppStore((s) => s.reorderTask);
-  const reorderTasks = useAppStore((s) => s.reorderTasks);
+  const rebalanceColumn = useAppStore((s) => s.rebalanceColumn);
   const openCreateModal = useAppStore((s) => s.openCreateModal);
   const statuses = useAppStore((s) => s.spaces.find((sp) => sp.id === s.activeSpaceId)?.statuses) ?? NO_STATUSES;
   const columnTotals = useAppStore((s) => s.columnTotals);
@@ -188,28 +178,20 @@ export function Board() {
       // Same column → reorder
       const { tasks: board, columnBounds } = useAppStore.getState();
       const columnTasks = own(board, targetColumn) ?? [];
-      const { newRank, needsRebalance, rebalancedTasks } = computeDropRank(
+      const place = computeDropRank(
         columnTasks, taskId, dragOverTaskId, insertBefore, own(columnBounds, targetColumn),
       );
 
-      if (needsRebalance && rebalancedTasks) {
-        // BUG-fix: batch the rebalance into a single atomic request. Previously
-        // this fired N independent PATCHes; a mid-batch failure (network blip,
-        // server restart) left the column with a mix of old and new ranks that
-        // persisted after reload. `reorderTasks` sends one request wrapped in a
-        // SQLite transaction and rolls back the whole column on failure.
-        reorderTasks(
-          targetColumn,
-          rebalancedTasks.map((t) => ({ id: t.id, rank: t.rank ?? 0 })),
-        );
+      if (place.needsRebalance) {
+        void rebalanceColumn(targetColumn, taskId, place.overId ?? null, place.insertBefore ?? false);
       } else {
-        reorderTask(taskId, targetColumn, newRank);
+        reorderTask(taskId, targetColumn, place.newRank);
       }
       return;
     }
 
     moveTask(taskId, targetColumn);
-  }, [moveTask, reorderTask, reorderTasks]); // stable — Zustand actions never change
+  }, [moveTask, reorderTask, rebalanceColumn]); // stable — Zustand actions never change
 
   // Safety: if the drag is cancelled (dropped outside any valid target), the
   // browser fires dragend on the source element. Reset to avoid a ghost card.
@@ -249,20 +231,14 @@ export function Board() {
       return;
     }
 
-    const { newRank, needsRebalance, rebalancedTasks } = computeDropRank(
+    const place = computeDropRank(
       columnTasks, taskId, resolved.neighborId, /* insertBefore */ direction === 'up', own(state.columnBounds, targetColumn),
     );
 
-    if (needsRebalance && rebalancedTasks) {
-      // BUG-001 fix: mirror handleDrop's atomic batch — N independent
-      // fire-and-forget PATCHes here would reintroduce the partial-rebalance
-      // corruption bug.
-      reorderTasks(
-        targetColumn,
-        rebalancedTasks.map((t) => ({ id: t.id, rank: t.rank ?? 0 })),
-      );
+    if (place.needsRebalance) {
+      void rebalanceColumn(targetColumn, taskId, place.overId ?? null, place.insertBefore ?? false);
     } else {
-      reorderTask(taskId, targetColumn, newRank);
+      reorderTask(taskId, targetColumn, place.newRank);
     }
 
     // New 1-based position in the (unchanged-length) visible list.
@@ -271,7 +247,7 @@ export function Board() {
     announce(
       `Task "${title}" moved to position ${newPosition} of ${resolved.visibleCount} in ${columnLabel}.`
     );
-  }, [reorderTask, reorderTasks]); // stable — Zustand actions never change
+  }, [reorderTask, rebalanceColumn]); // stable — Zustand actions never change
 
   const taskCounts = Object.fromEntries(statuses.map((s) => [s.id, own(columnTotals, s.id) ?? own(tasks, s.id)?.length ?? 0]));
 

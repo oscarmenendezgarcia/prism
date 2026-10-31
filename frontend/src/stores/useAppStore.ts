@@ -56,19 +56,6 @@ function removeMutatingId(prev: Set<string>, id: string): Set<string> {
   next.delete(id);
   return next;
 }
-/** Batch variant of `addMutatingId` for mutations that touch several tasks at once (e.g. rank rebalance). */
-function addMutatingIds(prev: Set<string>, ids: string[]): Set<string> {
-  const next = new Set(prev);
-  for (const id of ids) next.add(id);
-  return next;
-}
-/** Batch variant of `removeMutatingId`; returns `prev` unchanged when nothing applies. */
-function removeMutatingIds(prev: Set<string>, ids: string[]): Set<string> {
-  if (!ids.some((id) => prev.has(id))) return prev;
-  const next = new Set(prev);
-  for (const id of ids) next.delete(id);
-  return next;
-}
 
 // ---------------------------------------------------------------------------
 // Store shape
@@ -136,12 +123,10 @@ interface AppState {
   deleteTask: (taskId: string) => Promise<void>;
   reorderTask: (taskId: string, column: Column, newRank: number) => Promise<void>;
   /**
-   * Atomically re-rank multiple tasks in a single column. All updates are sent
-   * in one server request wrapped in a SQLite transaction: either every rank
-   * lands or none do. On failure the entire column is rolled back to the
-   * pre-batch snapshot — never a mixed old/new state.
+   * Place a card next to another when there is no room left between their ranks. The server
+   * spreads out the column: what is loaded is not all of it, so ranks cannot be worked out here.
    */
-  reorderTasks: (column: Column, updates: Array<{ id: string; rank: number }>) => Promise<void>;
+  rebalanceColumn: (column: Column, taskId: string, overId: string | null, insertBefore: boolean) => Promise<void>;
 
   // Create task modal
   createModalOpen: boolean;
@@ -676,37 +661,35 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
 
-  reorderTasks: async (column: Column, updates: Array<{ id: string; rank: number }>) => {
-    if (updates.length === 0) return;
-    const { activeSpaceId, tasks, showToast } = get();
-    const taskIds = updates.map((u) => u.id);
-    // The ranks of the whole batch, for all-or-nothing rollback.
-    const prevRanks = new Map((own(tasks, column) ?? []).filter((t) => taskIds.includes(t.id)).map((t) => [t.id, t.rank]));
-    const rankById = new Map(updates.map((u) => [u.id, u.rank]));
-    // Optimistic update: apply all new ranks locally in one commit and re-sort.
-    const updated = (own(tasks, column) ?? []).map((t) =>
-      rankById.has(t.id) ? { ...t, rank: rankById.get(t.id)! } : t
-    );
-    updated.sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0) || a.createdAt.localeCompare(b.createdAt));
-    // Mark the whole batch in flight so keyboard/drag guards and polling treat
-    // the reorder like any other mutation (no overlapping writes, no clobbering
-    // of the optimistic state by a poll mid-flight).
+  rebalanceColumn: async (column, taskId, overId, insertBefore) => {
+    const { activeSpaceId, tasks, keepOnBoard, loadBoard, showToast } = get();
+    const others = (own(tasks, column) ?? []).filter((t) => t.id !== taskId);
+    const moved = own(tasks, column)?.find((t) => t.id === taskId);
+    if (moved) {
+      const over = overId === null ? -1 : others.findIndex((t) => t.id === overId);
+      others.splice(over === -1 ? others.length : over + (insertBefore ? 0 : 1), 0, moved);
+    }
+    keepOnBoard(taskId);
+    savesStarted += 1;
     set({
-      tasks: { ...tasks, [column]: updated },
+      ...(moved && { tasks: { ...tasks, [column]: others } }),
       isMutating: true,
-      mutatingTaskIds: addMutatingIds(get().mutatingTaskIds, taskIds),
+      mutatingTaskIds: addMutatingId(get().mutatingTaskIds, taskId),
     });
     try {
-      await api.reorderTasks(activeSpaceId, updates);
+      await api.rebalanceColumn(activeSpaceId, { id: taskId, overId, insertBefore });
+      // Every rank of the column changed, and a poll that left before this has the old ones.
+      savesStarted += 1;
+      await loadBoard();
     } catch (err) {
-      // Full-batch rollback, of this batch, in the space it was made in.
+      // Its ranks never changed here, so their order is where it was.
       boardEtag = null;
       if (get().activeSpaceId === activeSpaceId) {
-        set({ tasks: { ...get().tasks, [column]: withRanks(own(get().tasks, column) ?? [], prevRanks) } });
+        set({ tasks: { ...get().tasks, [column]: withRanks(own(get().tasks, column) ?? [], new Map()) } });
       }
       showToast((err as Error).message, 'error');
     } finally {
-      set({ isMutating: false, mutatingTaskIds: removeMutatingIds(get().mutatingTaskIds, taskIds) });
+      set({ isMutating: false, mutatingTaskIds: removeMutatingId(get().mutatingTaskIds, taskId) });
     }
   },
 

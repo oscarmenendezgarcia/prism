@@ -442,24 +442,17 @@ describe('Board — a space with more cards than are loaded', () => {
 
     const crowded = [card('a', 6000), card('b', 6000.0004), card('c', 6000.0008), card('d', 7000)];
 
-    it('a rebalance stays where the cards are, in a column that shows its tail', () => {
-      const { needsRebalance, rebalancedTasks } = computeDropRank(crowded, 'd', 'b', true, { rankBefore: 5000 });
-      expect(needsRebalance).toBe(true);
-      expect(rebalancedTasks!.map((t) => t.id)).toEqual(['a', 'd', 'b', 'c']);
-      expect(rebalancedTasks!.map((t) => t.rank)).toEqual([6000, 7000, 8000, 9000]);
+    it('with no room, says where to place it, and no ranks: only the server sees the whole column', () => {
+      const place = computeDropRank(crowded, 'd', 'b', true, { rankBefore: 5000 });
+      expect(place.needsRebalance).toBe(true);
+      expect(place).toMatchObject({ overId: 'b', insertBefore: true });
+      expect(place).not.toHaveProperty('rebalancedTasks');
     });
 
-    it('a rebalance stays above the cards below, in a column that shows its head', () => {
-      const { rebalancedTasks } = computeDropRank(crowded, 'd', 'b', true, { rankBefore: 5000, rankAfter: 7400 });
-      const ranks = rebalancedTasks!.map((t) => t.rank as number);
-      expect(ranks[0]).toBeGreaterThan(5000);
-      expect(ranks[3]).toBeLessThan(7400);
-      expect([...ranks].sort((a, b) => a - b)).toEqual(ranks);
-    });
-
-    it('a rebalance with nothing hidden counts in thousands, as ever', () => {
-      const { rebalancedTasks } = computeDropRank(crowded, 'd', 'b', true);
-      expect(rebalancedTasks!.map((t) => t.rank)).toEqual([1000, 2000, 3000, 4000]);
+    it('at the end with no room, next to the last card shown, not after those hidden', () => {
+      const tight = [card('a', 1000), card('b', 2000), card('c', 2000.0002)];
+      const place = computeDropRank(tight, 'a', null, true, { rankAfter: 2000.0004 });
+      expect(place).toMatchObject({ needsRebalance: true, overId: 'c', insertBefore: false });
     });
   });
 });
