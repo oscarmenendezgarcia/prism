@@ -11,6 +11,7 @@ import { assigneeLabel } from '@/utils/agents';
 import { PRIORITIES, TYPES } from '@/utils/issues';
 import { filterCount, hasFilters } from '@/utils/issueFilters';
 import { FilterPanel, DUE_OPTIONS } from './FilterPanel';
+import { SavedFilters } from './SavedFilters';
 
 const VIEWS: { id: ViewName; label: string; icon: string }[] = [
   { id: 'board', label: 'Board', icon: 'view_kanban' },
@@ -99,6 +100,8 @@ export function FilterBar() {
         {open && <FilterPanel onClose={() => setOpen(false)} anchorRef={buttonRef} />}
       </div>
 
+      <SavedFilters />
+
       <div className="hidden sm:flex flex-1 min-w-0 items-center gap-1.5 overflow-x-auto [scrollbar-width:none]">
         {tokens.map(({ field, name, value }) => (
           <span
@@ -133,7 +136,7 @@ export function FilterBar() {
       <span className="sm:hidden flex-1" />
       {total !== null && (
         <span data-testid="filter-total" className="text-xs text-text-secondary whitespace-nowrap flex-shrink-0">
-          {total.toLocaleString('en-US')} {total === 1 ? 'issue' : 'issues'}
+          {total.toLocaleString('en-US')}<span className="hidden min-[400px]:inline"> {total === 1 ? 'issue' : 'issues'}</span>
         </span>
       )}
     </div>

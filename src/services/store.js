@@ -153,6 +153,18 @@ CREATE TABLE IF NOT EXISTS comments (
   updated_at     TEXT
 );
 
+CREATE TABLE IF NOT EXISTS saved_filters (
+  id         TEXT PRIMARY KEY,
+  space_id   TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+  owner_id   TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  shared     INTEGER NOT NULL DEFAULT 0,
+  filters    TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_saved_filters_space ON saved_filters (space_id, owner_id);
+
 CREATE TABLE IF NOT EXISTS task_history (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id    TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -294,6 +306,18 @@ function rowToComment(row) {
     ...(row.change_request === 1 && { changeRequest: true }),
     createdAt: row.created_at,
     ...(row.updated_at != null && { updatedAt: row.updated_at }),
+  };
+}
+
+function rowToSavedFilter(row) {
+  return {
+    id: row.id,
+    ownerId: row.owner_id,
+    name: row.name,
+    shared: row.shared === 1,
+    filters: JSON.parse(row.filters),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -784,6 +808,17 @@ function createStore(dataDir) {
     childrenPage: db.prepare(
       `${TASK_SELECT} WHERE t.space_id = ? AND t.parent_id = ? ORDER BY t.number ASC LIMIT ?`
     ),
+    savedFilters: db.prepare(
+      `SELECT * FROM saved_filters WHERE space_id = ? AND (shared = 1 OR owner_id = ?) ORDER BY name COLLATE NOCASE, id`
+    ),
+    savedFilter: db.prepare('SELECT * FROM saved_filters WHERE space_id = ? AND id = ?'),
+    countOwnSavedFilters: db.prepare('SELECT COUNT(*) AS n FROM saved_filters WHERE space_id = ? AND owner_id = ?'),
+    insertSavedFilter: db.prepare(`
+      INSERT INTO saved_filters (id, space_id, owner_id, name, shared, filters, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `),
+    updateSavedFilter: db.prepare('UPDATE saved_filters SET name = ?, shared = ?, filters = ?, updated_at = ? WHERE space_id = ? AND id = ?'),
+    deleteSavedFilter: db.prepare('DELETE FROM saved_filters WHERE space_id = ? AND id = ?'),
     labelsInUse: db.prepare(
       `SELECT DISTINCT l.value AS value FROM tasks t, json_each(t.labels) l
         WHERE t.space_id = ? AND t.labels IS NOT NULL ORDER BY l.value COLLATE NOCASE`
@@ -1798,6 +1833,41 @@ function createStore(dataDir) {
     })();
   }
 
+  /** What someone can use of the saved filters of a space: their own and the team's. */
+  function listSavedFilters(spaceId, ownerId) {
+    return stmts.savedFilters.all(spaceId, ownerId).map(rowToSavedFilter);
+  }
+
+  function getSavedFilter(spaceId, id) {
+    const row = stmts.savedFilter.get(spaceId, id);
+    return row ? rowToSavedFilter(row) : null;
+  }
+
+  function countOwnSavedFilters(spaceId, ownerId) {
+    return stmts.countOwnSavedFilters.get(spaceId, ownerId).n;
+  }
+
+  /** @returns {object} The saved filter, with its id and dates. */
+  function createSavedFilter(spaceId, { ownerId, name, shared, filters }) {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    stmts.insertSavedFilter.run(id, spaceId, ownerId, name, shared ? 1 : 0, JSON.stringify(filters), now, now);
+    return getSavedFilter(spaceId, id);
+  }
+
+  /** @returns {object|null} The saved filter as it ends up, or null if it is not there. */
+  function updateSavedFilter(spaceId, id, patch) {
+    const existing = getSavedFilter(spaceId, id);
+    if (!existing) return null;
+    const { name, shared, filters } = { ...existing, ...patch };
+    stmts.updateSavedFilter.run(name, shared ? 1 : 0, JSON.stringify(filters), new Date().toISOString(), spaceId, id);
+    return getSavedFilter(spaceId, id);
+  }
+
+  function deleteSavedFilter(spaceId, id) {
+    return stmts.deleteSavedFilter.run(spaceId, id).changes > 0;
+  }
+
   /** How many cards each status of a space has. */
   function getColumnTotals(spaceId) {
     const counts = new Map(stmts.boardCounts.all({ space: spaceId }).map((row) => [row.status_id, row.n]));
@@ -2109,6 +2179,12 @@ function createStore(dataDir) {
     getTaskByKey,
     getChildren,
     getBoard,
+    listSavedFilters,
+    getSavedFilter,
+    countOwnSavedFilters,
+    createSavedFilter,
+    updateSavedFilter,
+    deleteSavedFilter,
     listIssues,
     listIssueIds,
     listLabels,

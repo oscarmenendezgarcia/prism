@@ -3,11 +3,12 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import * as api from '@/api/client';
 import { FilterBar } from '@/components/layout/FilterBar';
 import { IssueList } from '@/components/list/IssueList';
+import { SavedFilters } from '@/components/layout/SavedFilters';
 import { useAppStore } from '@/stores/useAppStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useListStore } from '@/stores/useListStore';
 import { DEFAULT_SORT } from '@/utils/issueFilters';
-import type { Task } from '@/types';
+import type { SavedFilter, Task } from '@/types';
 
 vi.mock('@/api/client', async (original) => ({
   ...(await original<typeof api>()),
@@ -15,6 +16,10 @@ vi.mock('@/api/client', async (original) => ({
   getIssueIds: vi.fn(),
   updateIssues: vi.fn(),
   getLabels: vi.fn(async () => ['web']),
+  getSavedFilters: vi.fn(async () => []),
+  createSavedFilter: vi.fn(),
+  updateSavedFilter: vi.fn(),
+  deleteSavedFilter: vi.fn(),
   getBoard: vi.fn(async () => null),
   getAssignees: vi.fn(async () => []),
 }));
@@ -236,5 +241,123 @@ describe('FilterBar', () => {
     act(() => useAppStore.setState({ view: 'list' }));
     rerender(<FilterBar />);
     expect(screen.getByTestId('filter-total').textContent).toBe('9 issues');
+  });
+});
+
+describe('SavedFilters', () => {
+  const saved = (fields: Partial<SavedFilter>): SavedFilter => ({
+    id: 'f1', name: 'Urgent', shared: false, filters: { priority: ['urgent'] }, mine: true, canChange: true, ...fields,
+  });
+  const openPanel = async () => {
+    fireEvent.click(screen.getByTestId('saved-filters-button'));
+    return screen.findByTestId('saved-filters-panel');
+  };
+
+  beforeEach(() => {
+    useAppStore.setState({ loadBoard: vi.fn(async () => {}) });
+    vi.mocked(api.getSavedFilters).mockResolvedValue([]);
+  });
+
+  it('applies one, and shows when it is what is on', async () => {
+    vi.mocked(api.getSavedFilters).mockResolvedValue([saved({})]);
+    render(<SavedFilters />);
+    await openPanel();
+    fireEvent.click(await screen.findByRole('button', { name: 'Urgent' }));
+    expect(useAppStore.getState().filters).toEqual({ priority: ['urgent'] });
+    await waitFor(() => expect(screen.getByTestId('saved-filters-button').textContent).toContain('Urgent'));
+    expect(screen.queryByTestId('saved-filters-panel')).toBeNull();
+  });
+
+  it('values in another order are the same filter', async () => {
+    useAppStore.setState({ filters: { status: ['b', 'a'] } });
+    vi.mocked(api.getSavedFilters).mockResolvedValue([saved({ name: 'AB', filters: { status: ['a', 'b'] } })]);
+    render(<SavedFilters />);
+    await waitFor(() => expect(screen.getByTestId('saved-filters-button').textContent).toContain('AB'));
+  });
+
+  it('saves what is on, for the team if asked', async () => {
+    useAppStore.setState({ filters: { q: 'pay' } });
+    vi.mocked(api.createSavedFilter).mockResolvedValue(saved({}));
+    render(<SavedFilters />);
+    await openPanel();
+    fireEvent.click(screen.getByTestId('save-filter'));
+    fireEvent.change(await screen.findByTestId('saved-filter-name'), { target: { value: ' Mine ' } });
+    fireEvent.click(screen.getByTestId('saved-filter-team'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.createSavedFilter).toHaveBeenCalledWith('s', { name: 'Mine', shared: true, filters: { q: 'pay' } }));
+    await waitFor(() => expect(screen.queryByTestId('saved-filter-name')).toBeNull());
+  });
+
+  it('with nothing on, there is nothing to save, and it says how', async () => {
+    render(<SavedFilters />);
+    const panel = await openPanel();
+    expect(screen.queryByTestId('save-filter')).toBeNull();
+    expect(panel.textContent).toContain('Choose some filters');
+  });
+
+  it('a refused name stays in the dialog, with the reason', async () => {
+    useAppStore.setState({ filters: { q: 'pay' } });
+    vi.mocked(api.createSavedFilter).mockRejectedValue(new Error('You already have a filter called "Mine"'));
+    render(<SavedFilters />);
+    await openPanel();
+    fireEvent.click(screen.getByTestId('save-filter'));
+    fireEvent.change(await screen.findByTestId('saved-filter-name'), { target: { value: 'Mine' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('already have');
+    expect(screen.getByTestId('saved-filter-name')).toHaveValue('Mine');
+  });
+
+  it('whoever can only read saves only for themselves', async () => {
+    useAuthStore.setState({ status: { user: { role: 'viewer' } } } as never);
+    useAppStore.setState({ filters: { q: 'pay' } });
+    render(<SavedFilters />);
+    await openPanel();
+    fireEvent.click(screen.getByTestId('save-filter'));
+    await screen.findByTestId('saved-filter-name');
+    expect(screen.queryByTestId('saved-filter-team')).toBeNull();
+  });
+
+  it('renames', async () => {
+    vi.mocked(api.getSavedFilters).mockResolvedValue([saved({})]);
+    vi.mocked(api.updateSavedFilter).mockResolvedValue(saved({ name: 'New' }));
+    render(<SavedFilters />);
+    await openPanel();
+    fireEvent.click(await screen.findByLabelText('Rename Urgent'));
+    const input = await screen.findByTestId('saved-filter-name');
+    expect(input).toHaveValue('Urgent');
+    fireEvent.change(input, { target: { value: 'New' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateSavedFilter).toHaveBeenCalledWith('s', 'f1', { name: 'New' }));
+  });
+
+  it('asks before deleting one, and says if it is the team\'s', async () => {
+    vi.mocked(api.getSavedFilters).mockResolvedValue([saved({ shared: true })]);
+    vi.mocked(api.deleteSavedFilter).mockResolvedValue({ deleted: true, id: 'f1' });
+    render(<SavedFilters />);
+    await openPanel();
+    fireEvent.click(await screen.findByLabelText('Delete Urgent'));
+    expect(api.deleteSavedFilter).not.toHaveBeenCalled();
+    expect(screen.getByTestId('saved-filter-confirm').textContent).toContain('for the whole team');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(api.deleteSavedFilter).toHaveBeenCalledWith('s', 'f1'));
+  });
+
+  it('one that cannot be changed offers no way to', async () => {
+    vi.mocked(api.getSavedFilters).mockResolvedValue([saved({ shared: true, mine: false, canChange: false })]);
+    render(<SavedFilters />);
+    await openPanel();
+    await screen.findByRole('button', { name: /Urgent/ });
+    expect(screen.queryByLabelText('Rename Urgent')).toBeNull();
+    expect(screen.queryByLabelText('Delete Urgent')).toBeNull();
+  });
+
+  it('those of another space do not stay when moving to one', async () => {
+    vi.mocked(api.getSavedFilters).mockResolvedValue([saved({})]);
+    render(<SavedFilters />);
+    await openPanel();
+    await screen.findByRole('button', { name: 'Urgent' });
+    vi.mocked(api.getSavedFilters).mockResolvedValue([]);
+    act(() => useAppStore.setState({ activeSpaceId: 'other' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Urgent' })).toBeNull());
   });
 });

@@ -17,7 +17,7 @@ const { sendJSON, sendJSONWithETag, sendError, parseBody, readActor } = require(
 const { agentIsOn, isAgentId } = require('../utils/agents');
 const { isReadableAttachment } = require('../utils/attachments');
 const taskRunner                           = require('../services/taskRunner');
-const { SORTS, nextLabels, parseIssueFilters } = require('../utils/issueFilters');
+const { SORTS, VALID_PRIORITIES, VALID_TYPES, nextLabels, parseIssueFilters } = require('../utils/issueFilters');
 
 // ---------------------------------------------------------------------------
 // Validation constraints
@@ -34,8 +34,6 @@ const ISSUE_ID             = /^[A-Za-z0-9_-]{1,100}$/;
 const DEFAULT_CHILDREN     = 200;
 const MAX_CHILDREN         = 1000;
 const MAX_IDS              = 100;
-const VALID_TYPES          = ['feature', 'bug', 'tech-debt', 'chore', 'epic'];
-const VALID_PRIORITIES     = ['urgent', 'high', 'medium', 'low'];
 const TITLE_MAX_LEN        = 200;
 const DESCRIPTION_MAX_LEN  = 20000;
 const ASSIGNED_MAX_LEN     = 50;

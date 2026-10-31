@@ -260,6 +260,17 @@ export interface IssuesPage {
   total: number;
 }
 
+/** A filter someone kept, for themselves or for the team. */
+export interface SavedFilter {
+  id: string;
+  name: string;
+  shared: boolean;
+  filters: IssueFilters;
+  mine: boolean;
+  /** Whether this person may rename or delete it. */
+  canChange: boolean;
+}
+
 /** Changes to several issues at once. An empty assigned unassigns. */
 export interface BulkChanges {
   statusId?: string;

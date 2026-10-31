@@ -6,7 +6,11 @@
  * epic means having none.
  */
 
+const LIST_FIELDS = ['status', 'assignee', 'type', 'priority', 'epic', 'label'];
+const VALID_TYPES = ['feature', 'bug', 'tech-debt', 'chore', 'epic'];
+const VALID_PRIORITIES = ['urgent', 'high', 'medium', 'low'];
 const VALID_DUE = ['overdue', 'week', 'none'];
+const MAX_VALUE = 200;
 const MAX_VALUES = 200;
 const MAX_TEXT = 200;
 
@@ -23,7 +27,7 @@ function dayOf(date) {
  */
 function parseIssueFilters(qs, { types, priorities }) {
   const filters = {};
-  for (const field of ['status', 'assignee', 'type', 'priority', 'epic', 'label']) {
+  for (const field of LIST_FIELDS) {
     if (!qs.has(field)) continue;
     // Only assignees and epics can be none.
     const values = [...new Set(qs.getAll(field))].filter((v) => v !== '' || field === 'assignee' || field === 'epic');
@@ -52,6 +56,35 @@ function parseIssueFilters(qs, { types, priorities }) {
     filters.q = q;
   }
   return { filters };
+}
+
+/**
+ * Filters to keep, as the frontend holds them: lists, and due and q as values. They go through
+ * the same checks as a query, so that a saved filter never gets a refusal when it is used.
+ *
+ * @param {unknown} value
+ * @returns {{ filters: object } | { error: string }}
+ */
+function validSavedFilters(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { error: 'filters must be an object' };
+  const qs = new URLSearchParams();
+  for (const [field, values] of Object.entries(value)) {
+    if (LIST_FIELDS.includes(field)) {
+      if (!Array.isArray(values) || !values.every((v) => typeof v === 'string' && v.length <= MAX_VALUE)) {
+        return { error: `${field} must be a list of short texts` };
+      }
+      for (const one of values) qs.append(field, one);
+    } else if (field === 'due' || field === 'q') {
+      if (typeof values !== 'string') return { error: `${field} must be a text` };
+      qs.set(field, values);
+    } else {
+      return { error: `Cannot filter by: ${field}` };
+    }
+  }
+  const parsed = parseIssueFilters(qs, { types: VALID_TYPES, priorities: VALID_PRIORITIES });
+  if (parsed.error) return parsed;
+  if (!isFiltering(parsed.filters)) return { error: 'filters must filter by something' };
+  return parsed;
 }
 
 /** Whether these filters leave anything out. */
@@ -148,4 +181,4 @@ function nextLabels(labels = [], { addLabels = [], removeLabels = [] }) {
   return [...new Set([...labels, ...addLabels])].filter((label) => !removeLabels.includes(label));
 }
 
-module.exports = { FILTER_JOINS, SORTS, dayOf, isFiltering, issueConditions, issueOrder, nextLabels, parseIssueFilters };
+module.exports = { FILTER_JOINS, SORTS, VALID_PRIORITIES, VALID_TYPES, dayOf, isFiltering, issueConditions, issueOrder, nextLabels, parseIssueFilters, validSavedFilters };

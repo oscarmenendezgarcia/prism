@@ -14,7 +14,7 @@ const os   = require('os');
 const path = require('path');
 
 const { startServer } = require('../server');
-const { leastRole } = require('../src/utils/permissions');
+const { leastRole, runMayRequest } = require('../src/utils/permissions');
 
 const PASSWORD = 'correct horse battery';
 
@@ -535,5 +535,104 @@ describe('two people editing the same issue', () => {
   test('a strange base is ignored', async () => {
     const { id } = await issue();
     for (const base of ['x', 7, null, []]) assert.equal((await put(id, t.member, { title: `T${base}`, base })).status, 200, String(base));
+  });
+});
+
+describe('saved filters', () => {
+  let t;
+  const FILTERS = { priority: ['urgent'], assignee: [''] };
+  const url = (rest = '') => `/api/v1/spaces/${t.space.id}/filters${rest}`;
+  const save = (who, body) => t.api('POST', url(), { cookie: t[who].cookie, body: { filters: FILTERS, ...body } });
+  const list = async (who) => (await t.api('GET', url(), { cookie: t[who].cookie })).json.filters;
+
+  before(async () => { t = await team(); });
+  after(() => t.close());
+
+  test('your own is only yours, even for an admin', async () => {
+    const { status, json } = await save('member', { name: 'Mine' });
+    assert.equal(status, 201, JSON.stringify(json));
+    assert.deepEqual(json.filters, FILTERS);
+    assert.equal(json.mine, true);
+    assert.equal(json.shared, false);
+    assert.ok(!('ownerId' in json));
+    assert.ok((await list('member')).some((f) => f.name === 'Mine'));
+    assert.ok(!(await list('admin')).some((f) => f.name === 'Mine'));
+    assert.equal((await t.api('DELETE', url(`/${json.id}`), { cookie: t.admin.cookie })).status, 404);
+    assert.equal((await t.api('PUT', url(`/${json.id}`), { cookie: t.admin.cookie, body: { name: 'Taken' } })).status, 404);
+  });
+
+  test('one of the team everyone sees, and only its maker or an admin changes', async () => {
+    const { json: shared } = await save('member', { name: 'Team one', shared: true });
+    const seen = (await list('viewer')).find((f) => f.id === shared.id);
+    assert.equal(seen.canChange, false);
+    assert.equal(seen.mine, false);
+    assert.equal((await list('admin')).find((f) => f.id === shared.id).canChange, true);
+    assert.equal((await t.api('PUT', url(`/${shared.id}`), { cookie: t.viewer.cookie, body: { name: 'No' } })).status, 403);
+    assert.equal((await t.api('DELETE', url(`/${shared.id}`), { cookie: t.viewer.cookie })).status, 403);
+    const renamed = await t.api('PUT', url(`/${shared.id}`), { cookie: t.admin.cookie, body: { name: 'By admin' } });
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.json.name, 'By admin');
+    assert.equal((await t.api('DELETE', url(`/${shared.id}`), { cookie: t.member.cookie })).status, 200);
+    assert.ok(!(await list('viewer')).some((f) => f.id === shared.id));
+  });
+
+  test('whoever can only read keeps their own, not the team\'s', async () => {
+    assert.equal((await save('viewer', { name: 'V', shared: true })).status, 403);
+    const { status, json } = await save('viewer', { name: 'V' });
+    assert.equal(status, 201);
+    assert.equal((await t.api('PUT', url(`/${json.id}`), { cookie: t.viewer.cookie, body: { shared: true } })).status, 403);
+    assert.equal((await t.api('PUT', url(`/${json.id}`), { cookie: t.viewer.cookie, body: { name: 'V2' } })).status, 200);
+  });
+
+  test('two with one name, for one person, no; for two, yes', async () => {
+    assert.equal((await save('member', { name: 'Same' })).status, 201);
+    assert.equal((await save('member', { name: 'same' })).status, 409);
+    assert.equal((await save('admin', { name: 'Same' })).status, 201);
+  });
+
+  test('says what is wrong', async () => {
+    for (const body of [
+      { name: '' }, { name: 'x'.repeat(81) }, { name: 1 },
+      { name: 'a', filters: 'x' }, { name: 'a', filters: [] }, { name: 'a', filters: {} }, { name: 'a', filters: null },
+      { name: 'a', filters: { nope: ['x'] } }, { name: 'a', filters: { status: 'x' } }, { name: 'a', filters: { status: [1] } },
+      { name: 'a', filters: { priority: ['huge'] } }, { name: 'a', filters: { due: 'soon' } }, { name: 'a', filters: { q: 1 } },
+      { name: 'a', shared: 'yes' },
+    ]) {
+      assert.equal((await save('member', body)).status, 400, JSON.stringify(body));
+    }
+    assert.equal((await t.api('PATCH', url(), { cookie: t.admin.cookie, body: {} })).status, 405);
+    assert.equal((await t.api('GET', url('/nope'), { cookie: t.member.cookie })).status, 405);
+    assert.equal((await t.api('DELETE', url('/nope'), { cookie: t.member.cookie })).status, 404);
+    assert.equal((await t.api('GET', '/api/v1/spaces/nope/filters', { cookie: t.member.cookie })).status, 404);
+  });
+
+  test('what is saved works as a query', async () => {
+    const { json } = await save('member', { name: 'Works', filters: { status: ['constructor'], q: 'x', due: 'none' } });
+    const qs = new URLSearchParams();
+    for (const [field, value] of Object.entries(json.filters)) for (const one of [].concat(value)) qs.append(field, one);
+    assert.equal((await t.api('GET', `/api/v1/spaces/${t.space.id}/issues?${qs}`, { cookie: t.member.cookie })).status, 200);
+  });
+
+  test('stops at 100 per person and space', async () => {
+    const first = await Promise.all(Array.from({ length: 99 }, (_, i) => save('admin', { name: `Many ${i}` })));
+    assert.ok(first.every((res) => res.status === 201));
+    assert.equal((await save('admin', { name: 'One more' })).status, 400);
+  });
+
+  test('an agent reads them and changes none', () => {
+    const run = { spaceId: 's', taskId: 't', taskKey: 'K-1' };
+    assert.equal(runMayRequest(run, 'GET', '/api/v1/spaces/s/filters'), true);
+    assert.equal(runMayRequest(run, 'POST', '/api/v1/spaces/s/filters'), false);
+    assert.equal(runMayRequest(run, 'DELETE', '/api/v1/spaces/s/filters/f'), false);
+  });
+
+  test('go away with their space', async () => {
+    const space = (await t.api('POST', '/api/v1/spaces', { cookie: t.admin.cookie, body: { name: 'Gone', key: 'GON' } })).json;
+    const made = await t.api('POST', `/api/v1/spaces/${space.id}/filters`, { cookie: t.admin.cookie, body: { name: 'x', filters: FILTERS } });
+    assert.equal(made.status, 201);
+    assert.equal((await t.api('DELETE', `/api/v1/spaces/${space.id}`, { cookie: t.admin.cookie })).status, 200);
+    const { createStore } = require('../src/services/store');
+    const check = createStore(t.dataDir);
+    assert.deepEqual(check.listSavedFilters(space.id, t.admin.id), []);
   });
 });

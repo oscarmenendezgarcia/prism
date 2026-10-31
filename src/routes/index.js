@@ -13,6 +13,7 @@
 const { sendJSON, sendError, parseBody } = require('../utils/http');
 const { createApp }                      = require('../handlers/tasks');
 const { handleUpdateStatuses }           = require('../handlers/statuses');
+const { handleSavedFilters }             = require('../handlers/savedFilters');
 const taskRunner                         = require('../services/taskRunner');
 const { handleStatic }                   = require('../handlers/static');
 const { handleGetHarnesses }             = require('../handlers/harnesses');
@@ -49,6 +50,7 @@ const FS_VALIDATE_ROUTE     = /^\/api\/v1\/fs\/validate$/;
 const ISSUE_KEY_IN_PATH     = /^\/api\/v1(?:\/spaces\/([^/]+))?\/tasks\/([A-Za-z][A-Za-z0-9]{1,9}-\d+)(?=\/|$)/;
 const ISSUE_ROUTE           = /^\/api\/v1\/issues\/([^/]+)$/;
 const SPACE_STATUSES_ROUTE  = /^\/api\/v1\/spaces\/([^/]+)\/statuses$/;
+const SAVED_FILTERS_ROUTE   = /^\/api\/v1\/spaces\/([^/]+)\/filters(?:\/([^/]+))?$/;
 const SPACE_BOARD_ROUTE     = /^\/api\/v1\/spaces\/([^/]+)\/board$/;
 const SPACE_ISSUES_ROUTE    = /^\/api\/v1\/spaces\/([^/]+)\/issues(\/labels)?$/;
 const SPACES_LIST_ROUTE     = /^\/api\/v1\/spaces$/;
@@ -102,6 +104,13 @@ function createRouter({ dataDir, store, spaceManager, getApp, evictApp }) {
       const found = store.getTaskByKey(issueMatch[1]);
       if (!found) return sendError(res, 404, 'TASK_NOT_FOUND', `Issue '${issueMatch[1]}' not found`);
       return sendJSON(res, 200, { ...found.task, spaceId: found.spaceId });
+    }
+
+    const savedFiltersMatch = SAVED_FILTERS_ROUTE.exec(urlPath);
+    if (savedFiltersMatch) {
+      const spaceResult = spaceManager.getSpace(savedFiltersMatch[1]);
+      if (!spaceResult.ok) return sendError(res, 404, 'SPACE_NOT_FOUND', spaceResult.message);
+      return handleSavedFilters(req, res, store, savedFiltersMatch[1], savedFiltersMatch[2]);
     }
 
     const spaceStatusesMatch = SPACE_STATUSES_ROUTE.exec(urlPath);

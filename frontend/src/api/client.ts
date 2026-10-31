@@ -10,6 +10,7 @@ import type {
   IssueFilters,
   IssuesPage,
   ListSort,
+  SavedFilter,
   Space,
   Task,
   BoardResponse,
@@ -281,6 +282,26 @@ export const getIssueIds = (spaceId: string, { filters = {}, sort }: { filters?:
 /** The labels in use in a space. */
 export const getLabels = async (spaceId: string): Promise<string[]> =>
   (await apiFetch<{ labels: string[] }>(`/spaces/${spaceId}/issues/labels`)).labels;
+
+export const getSavedFilters = async (spaceId: string): Promise<SavedFilter[]> =>
+  (await apiFetch<{ filters: SavedFilter[] }>(`/spaces/${spaceId}/filters`)).filters;
+
+export const createSavedFilter = (spaceId: string, fields: { name: string; shared: boolean; filters: IssueFilters }): Promise<SavedFilter> =>
+  apiFetch(`/spaces/${spaceId}/filters`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+
+export const updateSavedFilter = (spaceId: string, id: string, fields: { name?: string; shared?: boolean }): Promise<SavedFilter> =>
+  apiFetch(`/spaces/${spaceId}/filters/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  });
+
+export const deleteSavedFilter = (spaceId: string, id: string): Promise<{ deleted: true; id: string }> =>
+  apiFetch(`/spaces/${spaceId}/filters/${id}`, { method: 'DELETE' });
 
 /** Change several issues: all of them or none. */
 export const updateIssues = (spaceId: string, ids: string[], changes: BulkChanges): Promise<{ updated: number }> =>
