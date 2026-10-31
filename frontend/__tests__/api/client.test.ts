@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { apiFetch, getSpaces, createSpace, getTasks, createTask, moveTask, deleteTask, getAttachmentContent, createComment, updateComment, answerQuestion } from '../../src/api/client';
+import { getBoard, getChildren, getTaskForPanel, getTasksByIds, apiFetch, getSpaces, createSpace, getTasks, createTask, moveTask, deleteTask, getAttachmentContent, createComment, updateComment, answerQuestion } from '../../src/api/client';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -85,6 +85,60 @@ describe('createSpace', () => {
         body: JSON.stringify({ name: 'My Space' }),
       })
     );
+  });
+});
+
+describe('getBoard', () => {
+  it('asks for the board of the space, and brings its version', async () => {
+    const data = { columns: { todo: { tasks: [], total: 0 } }, epics: [] };
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers({ ETag: '"one"' }), json: async () => data });
+    await expect(getBoard('space-1')).resolves.toEqual({ data, etag: '"one"' });
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/v1/spaces/space-1/board');
+  });
+
+  it('asks for the limits and the epic given', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => ({ columns: {}, epics: [] }) });
+    await getBoard('space-1', { limits: { todo: 200, done: 150 }, epic: 'e1' });
+    const url = new URL(mockFetch.mock.calls[0][0], 'http://x');
+    expect(url.searchParams.get('limits')).toBe('todo:200,done:150');
+    expect(url.searchParams.get('epic')).toBe('e1');
+  });
+
+  it('sends the version it has, and a 304 is null, without reading a body', async () => {
+    const json = vi.fn();
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 304, headers: new Headers({ ETag: '"one"' }), json });
+    await expect(getBoard('space-1', { etag: '"one"' })).resolves.toBeNull();
+    expect(mockFetch.mock.calls[0][1].headers['If-None-Match']).toBe('"one"');
+    expect(json).not.toHaveBeenCalled();
+  });
+
+  it('sends none when it has none', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), json: async () => ({ columns: {}, epics: [] }) });
+    await getBoard('space-1');
+    expect(mockFetch.mock.calls[0][1].headers['If-None-Match']).toBeUndefined();
+  });
+});
+
+describe('getTaskForPanel', () => {
+  it('asks for the panel view of the issue', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers({ ETag: '"v"' }), json: async () => ({ id: 't1' }) });
+    await expect(getTaskForPanel('s', 't1')).resolves.toEqual({ data: { id: 't1' }, etag: '"v"' });
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/v1/spaces/s/tasks/t1?view=panel');
+  });
+
+  it('keeps the code of a 404, which is how a deleted issue is told from a failure', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404, headers: new Headers(), json: async () => ({ error: { code: 'TASK_NOT_FOUND', message: 'Gone' } }) });
+    await expect(getTaskForPanel('s', 't1')).rejects.toMatchObject({ status: 404, code: 'TASK_NOT_FOUND' });
+  });
+});
+
+describe('getChildren and getTasksByIds', () => {
+  it('ask the tasks route, without touching what it answers otherwise', async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 200, headers: new Headers(), json: async () => ({ tasks: [], total: 0 }) });
+    await getChildren('s', 'p1', 200);
+    expect(mockFetch.mock.calls[0][0]).toBe('/api/v1/spaces/s/tasks?parent=p1&limit=200');
+    await getTasksByIds('s', ['a', 'b']);
+    expect(mockFetch.mock.calls[1][0]).toBe('/api/v1/spaces/s/tasks?ids=a,b');
   });
 });
 

@@ -7,6 +7,7 @@
 import type {
   Space,
   Task,
+  BoardResponse,
   BoardTasks,
   CreateTaskPayload,
   UpdateTaskPayload,
@@ -61,11 +62,14 @@ export function setForbiddenHandler(handler: () => void): void {
 /**
  * Generic fetch wrapper with typed response and error handling.
  * Throws an ApiError with status + code from the response body on HTTP errors.
- * Returns null for 204 No Content responses.
+ * Returns null for 204 No Content and 304 Not Modified responses.
+ *
+ * @param onResponse - To read what is in the headers, such as an ETag.
  */
 export async function apiFetch<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  onResponse?: (res: Response) => void,
 ): Promise<T> {
   const defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -76,7 +80,9 @@ export async function apiFetch<T>(
     headers: { ...defaultHeaders, ...(options.headers as Record<string, string> || {}) },
   });
 
-  if (res.status === 204) return null as unknown as T;
+  onResponse?.(res);
+
+  if (res.status === 204 || res.status === 304) return null as unknown as T;
 
   const data = await res.json();
 
@@ -207,6 +213,50 @@ export const getTasks = async (spaceId: string): Promise<BoardTasks> => {
   // The response also has total and nextCursor, next to the statuses.
   return Object.fromEntries(Object.entries(data).filter(([, value]) => Array.isArray(value))) as BoardTasks;
 };
+
+/** What came back from a route that answers 304, or null if it was what the caller already had. */
+export type Fresh<T> = { data: T; etag: string | null } | null;
+
+async function getIfChanged<T>(path: string, etag: string | null | undefined): Promise<Fresh<T>> {
+  let received: string | null = null;
+  const data = await apiFetch<T | null>(
+    path,
+    etag ? { headers: { 'If-None-Match': etag } } : {},
+    (res) => { received = res.headers?.get('ETag') ?? null; },
+  );
+  return data === null ? null : { data, etag: received };
+}
+
+/**
+ * What the board shows of a space: the first cards of each column, or the last of a done one.
+ *
+ * @param query.limits How many cards of a status, where it is not the default.
+ * @param query.epic   Only what is in this epic.
+ * @param query.etag   The version the caller has: if it is still current, the answer is null.
+ */
+export const getBoard = (
+  spaceId: string,
+  { limits = {}, epic = null, etag }: { limits?: Record<string, number>; epic?: string | null; etag?: string | null } = {},
+): Promise<Fresh<BoardResponse>> => {
+  const params = new URLSearchParams();
+  const overrides = Object.entries(limits).map(([statusId, n]) => `${statusId}:${n}`).join(',');
+  if (overrides) params.set('limits', overrides);
+  if (epic) params.set('epic', epic);
+  const query = params.size > 0 ? `?${params}` : '';
+  return getIfChanged<BoardResponse>(`/spaces/${spaceId}/board${query}`, etag);
+};
+
+/** An issue in full, for the detail panel: cards only have the beginning of a description. */
+export const getTaskForPanel = (spaceId: string, taskId: string, etag?: string | null): Promise<Fresh<Task>> =>
+  getIfChanged<Task>(`/spaces/${spaceId}/tasks/${taskId}?view=panel`, etag);
+
+/** The issues under one, without their descriptions, and how many there are and are done. */
+export const getChildren = (spaceId: string, parentId: string, limit: number): Promise<{ tasks: Task[]; done: number; total: number }> =>
+  apiFetch(`/spaces/${spaceId}/tasks?parent=${encodeURIComponent(parentId)}&limit=${limit}`);
+
+/** Issues by id, wherever they are. Those that do not exist are left out. */
+export const getTasksByIds = (spaceId: string, ids: string[]): Promise<{ tasks: Task[]; total: number }> =>
+  apiFetch(`/spaces/${spaceId}/tasks?ids=${ids.map(encodeURIComponent).join(',')}`);
 
 /** Find an issue by its key, in any space. */
 export const getIssue = (key: string): Promise<Task & { spaceId: string }> =>

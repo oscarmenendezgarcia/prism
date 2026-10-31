@@ -183,12 +183,53 @@ export interface Task {
   isBlocked?: boolean;
   /** Derived: count of non-done deps. Only present when dependsOn is non-empty. */
   blockedByCount?: number;
+  // ── What the board's cards carry, since the rest of the space is not in the browser. ──
+  /** Its epic, directly or through its parent. */
+  epic?: { id: string; title: string } | null;
+  /** The key of the issue it is a sub-task of. */
+  parentKey?: string | null;
+  /** How many issues directly under it are done. */
+  progress?: { done: number; total: number };
+  /** How many of its questions are open. Cards have this instead of comments. */
+  pendingQuestions?: number;
+  /** The text of the first of them. */
+  pendingQuestionText?: string;
+  /** The description is only its beginning. Never to be saved back: see openDetailPanel. */
+  descriptionTruncated?: boolean;
+  /** In the detail panel: the issue it hangs from. */
+  parent?: { id: string; key?: string; title: string; type: TaskType };
   createdAt: string;
   updatedAt: string;
 }
 
 /** Board response — tasks grouped by status. */
 export type BoardTasks = Record<Column, Task[]>;
+
+/** An epic of the space, whether or not its card is loaded. */
+export interface BoardEpic {
+  id: string;
+  key: string | null;
+  title: string;
+  statusId: string;
+  category: StatusCategory;
+  done: number;
+  total: number;
+}
+
+/** A column of GET /spaces/:id/board: the cards loaded, and how many there really are. */
+export interface BoardColumn {
+  tasks: Task[];
+  total: number;
+  /** The rank of the card just before the first loaded, if there is one. */
+  rankBefore?: number;
+  /** The rank of the card just after the last loaded, if there is one. */
+  rankAfter?: number;
+}
+
+export interface BoardResponse {
+  columns: Record<Column, BoardColumn>;
+  epics: BoardEpic[];
+}
 
 /** One change in an issue's history. */
 export interface HistoryEntry {
